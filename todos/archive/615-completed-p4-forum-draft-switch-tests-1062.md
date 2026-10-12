@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "615"
 tags: [web, forum, testing, follow-ups]
@@ -27,7 +27,7 @@ PR #1062 (todo sweep run 2026-10-11-2219, group g14, todos 597); follow-ups: ver
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -35,3 +35,26 @@ PR #1062 (todo sweep run 2026-10-11-2219, group g14, todos 597); follow-ups: ver
 ### 2026-10-11 - Filed from the PR #1062 review (todo sweep run 2026-10-11-2219)
 
 Filed by the closing step of the run from `state.py followups-md g14`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-0349)
+
+- Findings 1 and 4 (fixed, test): a new test in `web/src/pages/forum/NewThreadPage.test.tsx` sets choices per voter to 2 and a close time before a switch to a board with a stored draft, then re-enables the poll, fills two options and posts. It asserts the close-time field is blank, choices per voter is 1, and the posted poll is exactly `{question, options}`. Deleting `setPollClosesAt('')` or `setPollMaxChoices(1)` each turns it red (checked by mutation).
+- Findings 2 and 6 (declined as a behaviour change, documented): a switch to a board with no stored draft keeps the text by the 2026-10-11 owner decision (todo 575), and the poll and the identification attachment go with that text. The owner decision in todo 597 covers only a switch that loads a draft. A comment next to the `stored === null` branch in `web/src/pages/forum/NewThreadPage.tsx` now says so.
+- Findings 2 and 5 (fixed, test): two new tests pin the no-draft branch. The poll (question, options, choices per voter) and the attachment survive the switch and are posted. Moving the reset above the `stored === null` early return turns both red (checked by mutation).
+- Finding 3 (fixed, test): the `it.each` rows now carry the expected body, and the non-string title/tags row asserts `<p>kept</p>` is kept. Dropping the body when the title is not a string turns it red (checked by mutation).
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-0349)
+
+- AC 1: `sh -c "cd web && npx vitest run src/pages/forum/NewThreadPage.test.tsx 2>&1; grep -n -A6 'Implemented by the todo sweep' todos/archive/615-completed-p4-forum-draft-switch-tests-1062.md"` — evidence `.sweep-evidence/g13/615-ac0.txt` (not committed), last lines:
+
+  ```text
+  40-
+  41-- Findings 1 and 4 (fixed, test): a new test in `web/src/pages/forum/NewThreadPage.test.tsx` sets choices per voter to 2 and a close time before a switch to a board with a stored draft, then re-enables the poll, fills two options and posts. It asserts the close-time field is blank, choices per voter is 1, and the posted poll is exactly `{question, options}`. Deleting `setPollClosesAt('')` or `setPollMaxChoices(1)` each turns it red (checked by mutation).
+  42-- Findings 2 and 6 (declined as a behaviour change, documented): a switch to a board with no stored draft keeps the text by the 2026-10-11 owner decision (todo 575), and the poll and the identification attachment go with that text. The owner decision in todo 597 covers only a switch that loads a draft. A comment next to the `stored === null` branch in `web/src/pages/forum/NewThreadPage.tsx` now says so.
+  43-- Findings 2 and 5 (fixed, test): two new tests pin the no-draft branch. The poll (question, options, choices per voter) and the attachment survive the switch and are posted. Moving the reset above the `stored === null` early return turns both red (checked by mutation).
+  44-- Finding 3 (fixed, test): the `it.each` rows now carry the expected body, and the non-string title/tags row asserts `<p>kept</p>` is kept. Dropping the body when the title is not a string turns it red (checked by mutation).
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-0349)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
