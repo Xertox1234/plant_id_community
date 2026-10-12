@@ -56,7 +56,9 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
      flipped is not "already checked". When it checks out: `verified: true`, note `already checked`. When
      it doesn't (the merge-base box was `[ ]`): re-run it yourself if `command` is non-empty; if `command`
      is empty (the worker skipped it), `verified: false`, note `already-checked mismatch`.
-   - A re-pointed criterion (`→ todo NNN`, `-> todo NNN`, or "re-pointed … todo NNN") has no command:
+   - A re-pointed criterion (`→ todo NNN`, `-> todo NNN`, "re-pointed … todo NNN" within one short
+     clause, or "re-pointed DATE; … todo NNN": the forms `REPOINT_RE` in
+     `scripts/check_archived_todo_status.py` accepts; "todo NNN … re-pointed" is not one) has no command:
      confirm its `text` matches the criterion and `pass` is false, then `verified: true`, note `re-pointed` —
      land never checks it.
    - A criterion the owner confirmed (todo 492): the prompt may carry a `CONFIRMED:` line, entries

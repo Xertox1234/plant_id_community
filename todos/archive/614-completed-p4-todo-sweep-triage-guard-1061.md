@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "614"
 tags: [todo-sweep, harness, follow-ups]
@@ -37,7 +37,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -45,3 +45,26 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-11 - Filed from the PR #1061 review (todo sweep run 2026-10-11-2219)
 
 Filed by the closing step of the run from `state.py followups-md g13`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-0349)
+
+- #1, #5 fixed: `_triage_fields` in `scripts/todos/state.py` now unblocks on the triager's class (`needs-design` or `blocked-*`) once the todo has left triage (stage not in `NOT_PLANNED`), not on stage `ready` plus any `owner_decision`. So the `next` Land path (stage `verified`) writes `triage: ready`, and the words `confirm` appends no longer turn a needs-research or already-done todo into `ready`. Three new checks in `scripts/todos/test_state.py` cover a `blocked-*` class, the verified-stage path and a confirmed needs-research todo.
+- #2 fixed: in `.claude/workflows/todo-followups.js` the "fixed on main ... the refuter agreed" drop now needs the refuter to have refuted the summary itself; a summary gone only through a refuted identical `also` copy reads `refuted:`. The conflict still drops, as the PR #1061 hand repair decided (a refuted text is refuted everywhere). New check in `scripts/todos/test_workflows.js`.
+- #4 fixed per the owner decision: `REPOINT_RE` in `scripts/check_archived_todo_status.py` accepts `re-pointed DATE; ... todo N` again (dated clause, one `;`, 40 chars), while an undated `;` clause and the `todo N ... re-pointed` order stay bare (new check in `scripts/test_check_archived_todo_status.py`). `.claude/agents/todo-worker.md` and `.claude/agents/todo-verifier.md` now name the exact accepted forms.
+- #3 already fixed on main: `recorded_worktrees` in `scripts/todos/worker_edit_guard.py` reads only each entry's `worktree` (docstring: "Never a `stray_worktree`, top-level or in `previous`"), and `.claude/hooks/test-guard-todo-worker-edit.sh` lines 141-147 `assert_deny` both the `previous[].stray_worktree` and the top-level case.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-12-0349)
+
+- AC 1: `bash -c 'cd . && python3 scripts/todos/test_state.py && python3 scripts/todos/test_state_flow.py && node scripts/todos/test_workflows.js && python3 scripts/test_check_archived_todo_status.py && python3 scripts/check_archived_todo_status.py && bash .claude/hooks/test-guard-todo-worker-edit.sh; echo exit=$?; echo "--- 614 checks:"; python3 scripts/todos/test_state.py | grep -E "614|600"; node scripts/todos/test_workflows.js | grep -E "614|1061"; python3 scripts/test_check_archived_todo_status.py | grep 614; echo "--- #3 on main: stray_worktree in worker_edit_guard.py:"; grep -n "stray_worktree" scripts/todos/worker_edit_guard.py; echo "--- Work Log entry (fixed / already fixed on main):"; sed -n "/Implemented by the todo sweep (run 2026-10-12-0349)/,\$p" todos/archive/614-completed-p4-todo-sweep-triage-guard-1061.md'` — evidence `.sweep-evidence/g12/614-ac0.txt` (not committed), last lines:
+
+  ```text
+  - #2 fixed: in `.claude/workflows/todo-followups.js` the "fixed on main ... the refuter agreed" drop now needs the refuter to have refuted the summary itself; a summary gone only through a refuted identical `also` copy reads `refuted:`. The conflict still drops, as the PR #1061 hand repair decided (a refuted text is refuted everywhere). New check in `scripts/todos/test_workflows.js`.
+  - #4 fixed per the owner decision: `REPOINT_RE` in `scripts/check_archived_todo_status.py` accepts `re-pointed DATE; ... todo N` again (dated clause, one `;`, 40 chars), while an undated `;` clause and the `todo N ... re-pointed` order stay bare (new check in `scripts/test_check_archived_todo_status.py`). `.claude/agents/todo-worker.md` and `.claude/agents/todo-verifier.md` now name the exact accepted forms.
+  - #3 already fixed on main: `recorded_worktrees` in `scripts/todos/worker_edit_guard.py` reads only each entry's `worktree` (docstring: "Never a `stray_worktree`, top-level or in `previous`"), and `.claude/hooks/test-guard-todo-worker-edit.sh` lines 141-147 `assert_deny` both the `previous[].stray_worktree` and the top-level case.
+  state: --reverify takes stage ready and exactly one --field reason=...
+  state: 7: --date must be a YYYY-MM-DD date, not 'tomorrow'
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

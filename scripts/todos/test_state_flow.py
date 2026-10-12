@@ -1468,6 +1468,17 @@ def runbook_tests():
           "gh pr merge <n> --repo $GH_REPO --disable-auto" in dirty and "auto-merge disarmed" in dirty, dirty)
     check("601: ... stopping even a clean merge before it commits",
           "merge --no-commit --no-ff origin/main" in dirty and "stops even a clean merge" in dirty, dirty)
+    flat = " ".join(dirty.split())
+    check("616 #1/#5: the DIRTY merge commit skips kimi and records `kimi: skipped` (owner decision 2026-10-11)",
+          "SKIP_KIMI_REVIEW=1 /usr/bin/git -C $WT commit --no-edit" in dirty and "`kimi: skipped`" in dirty
+          and "fixer rewrote files" in flat and "A hook failure no fixer resolves stops the group" in flat, dirty)
+    check("616 #2: step 4 runs every criterion's command and stops the group, never pushing, when a gate fails",
+          "whose files the merge touched" not in flat and "so run them all" in flat
+          and "If any gate fails" in flat and "never commit or push it" in flat, dirty)
+    check("616 #4: a conflicted todo keeps the branch's side and reads origin/main at its pre-archive path, "
+          "into a scratch file first",
+          "show :2:<path> > $TMPDIR/<name>.branch" in dirty and "show origin/main:<path> > $TMPDIR/<name>.main" in dirty
+          and "pre-archive `pending` path" in flat and "show origin/main:<path> > $WT/<path>" not in dirty, dirty)
     sandbox_off = skill.split("**Sandbox-off steps**", 1)[1].split("\n## ", 1)[0]
     check("601: the DIRTY recovery merge is listed among the sandbox-off steps", "`DIRTY`" in sandbox_off,
           sandbox_off)
