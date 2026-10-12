@@ -153,6 +153,10 @@ PURGE_CHUNK_SIZE = 500
 def _delete_in_chunks(queryset):
     """Delete ``queryset``'s LogEntry rows, ``PURGE_CHUNK_SIZE`` at a time."""
     model = get_logentry_model()
+    # Unordered (todo 643 #4): LogEntry's default ``-timestamp`` ordering
+    # would re-sort every remaining matching row for each chunk. Any chunk
+    # will do, since every row of the queryset goes.
+    queryset = queryset.order_by()
     while True:
         pks = list(queryset.values_list("pk", flat=True)[:PURGE_CHUNK_SIZE])
         if not pks:

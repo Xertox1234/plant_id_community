@@ -1287,6 +1287,57 @@ def test_a_re_enqueue_the_broker_refuses_still_logs_the_credentials_error(caplog
     errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
     assert len(errors) == 1, errors
     assert "2 recipient(s) not tried" in errors[0]
-    assert "re-enqueue failed (OperationalError: broker down)" in errors[0]
+    assert "re-enqueue failed (OperationalError)" in errors[0]
+    # Todo 643 #2: the type only, never the broker's message, which can carry
+    # its host or URL into the logs and Sentry.
+    assert "broker down" not in errors[0]
     assert "2 recipient(s) dropped" in errors[0]
     assert "re-enqueued once" not in errors[0]
+
+
+@pytest.mark.django_db
+def test_a_single_hand_off_the_broker_refuses_does_not_abort_the_batch(caplog):
+    """Todo 643 #1: the transient path's ``send_forum_push.delay`` ran
+    unguarded, so a broker outage raised kombu's OperationalError mid-batch:
+    the rest of the batch was never tried and the credentials ERROR never
+    logged. Now the failed hand-off is logged (its type only, #2) and the
+    batch goes on. Recipient 0 fails transiently, 1-3 on credentials."""
+    import logging
+
+    from firebase_admin import exceptions as fb_exceptions
+    from firebase_admin import messaging
+    from kombu.exceptions import OperationalError as BrokerError
+
+    users = _batch_recipients("handoff-down", 5)
+    mock_fcm = MagicMock()
+    mock_fcm.send.side_effect = [
+        fb_exceptions.UnavailableError("FCM backend down"),
+        messaging.ThirdPartyAuthError("apns auth"),
+        messaging.ThirdPartyAuthError("apns auth"),
+        messaging.ThirdPartyAuthError("apns auth"),
+    ]
+
+    with caplog.at_level(logging.ERROR, logger="forum_host.tasks"), patch(
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm), patch(
+        "apps.forum_host.tasks.send_forum_push.delay",
+        side_effect=BrokerError("redis://secret-host:6379 refused"),
+    ) as single, patch(
+        "apps.forum_host.tasks.send_forum_push_batch.apply_async"
+    ) as requeue:
+        from apps.forum_host.tasks import send_forum_push_batch
+
+        send_forum_push_batch("reply_added", [u.pk for u in users], {"topic_id": "1"})
+
+    single.assert_called_once_with("reply_added", users[0].pk, {"topic_id": "1"})
+    assert mock_fcm.send.call_count == 4
+    requeue.assert_called_once()
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 2, errors
+    assert f"re-enqueue single failed (user={users[0].pk}): OperationalError" in (
+        errors[0]
+    )
+    assert "1 device(s) dropped" in errors[0]
+    assert "credentials error for 3 recipient(s)" in errors[1]
+    assert "1 recipient(s) not tried" in errors[1]
+    assert all("secret-host" not in e for e in errors), errors

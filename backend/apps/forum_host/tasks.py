@@ -406,11 +406,26 @@ def send_forum_push_batch(
             # the account failed transiently it re-sends to all of them;
             # otherwise each failed device retries alone, so a device that
             # has the push never gets it twice (todo 621).
-            if len(transient) == len(devices):
-                send_forum_push.delay(event, user.pk, data)
-            else:
-                for device_token in transient:
-                    send_forum_push.delay(event, user.pk, data, token=device_token)
+            # Guarded (todo 643 #1), as the credentials re-enqueue is: a
+            # broker that refuses the hand-off (kombu's OperationalError) must
+            # not abort the batch before the rest of it is tried and the
+            # credentials ERROR below is logged. Only the exception's type is
+            # logged: a broker message can carry its host or URL (#2).
+            try:
+                if len(transient) == len(devices):
+                    send_forum_push.delay(event, user.pk, data)
+                else:
+                    for device_token in transient:
+                        send_forum_push.delay(event, user.pk, data, token=device_token)
+            except Exception as exc:
+                logger.error(
+                    "[FCM] forum.%s re-enqueue single failed (user=%s): %s — "
+                    "%s device(s) dropped",
+                    event,
+                    user.pk,
+                    type(exc).__name__,
+                    len(transient),
+                )
         if user_credentials_failed and not user_sent:
             # Counted per recipient, at the recipient boundary: stop only
             # when this many have failed and no send has worked yet, which is
@@ -445,8 +460,10 @@ def send_forum_push_batch(
                     countdown=constants.FORUM_PUSH_REQUEUE_DELAY,
                 )
             except Exception as exc:
+                # The type only (todo 643 #2): a broker error's message can
+                # carry its host or URL, which would reach the logs and Sentry.
                 stop_note += (
-                    f", re-enqueue failed ({type(exc).__name__}: {exc}), "
+                    f", re-enqueue failed ({type(exc).__name__}), "
                     f"{len(untried)} recipient(s) dropped"
                 )
             else:
