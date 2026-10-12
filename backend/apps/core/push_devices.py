@@ -59,17 +59,21 @@ def register_device(
                 PushDevice.objects.filter(clash).exclude(
                     user=user, token=token
                 ).delete()
-                # The legacy column of any OTHER account that held it.
-                ForumProfile.objects.filter(fcm_token=token).exclude(user=user).update(
-                    fcm_token=""
-                )
+                # The legacy column of any OTHER account that held it. A
+                # registration with an installation id is an upgraded install:
+                # its own account's column lets go of the token too, so an old
+                # build's profile write cannot later release this device.
+                held = ForumProfile.objects.filter(fcm_token=token)
+                if not installation_id:
+                    held = held.exclude(user=user)
+                held.update(fcm_token="")
+                defaults = {"user": user, "platform": platform[:16]}
+                if installation_id:
+                    # A legacy write (no id) never erases the id an upgraded
+                    # install recorded, which token rotation relies on.
+                    defaults["installation_id"] = installation_id
                 device, _created = PushDevice.objects.update_or_create(
-                    token=token,
-                    defaults={
-                        "user": user,
-                        "installation_id": installation_id,
-                        "platform": platform[:16],
-                    },
+                    token=token, defaults=defaults
                 )
             return device
         except IntegrityError:

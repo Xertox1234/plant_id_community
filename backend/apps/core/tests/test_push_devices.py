@@ -343,16 +343,18 @@ class PushDeviceApiTest(TestCase):
         response = self.client.patch(ME_PROFILE, {"fcm_token": ""}, format="json")
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(_tokens(self.alice), ["fake-token-new-build"])
+        self.assertEqual(_legacy(self.alice), "")
 
     def test_an_old_build_never_removes_a_phone_that_upgraded(self):
-        """The column can still hold the token of a phone that has upgraded.
+        """Phone B wrote the column as a pre-621 build, then upgraded.
 
-        Phone B wrote the column as a pre-621 build, then upgraded and
-        re-registered the same token with an installation id. An old build
-        on phone A replacing or clearing the column must leave B's row.
+        Its registration with an installation id takes the token out of the
+        column, so old-build phone A replacing or clearing the column leaves
+        B's row alone.
         """
         _set_legacy(self.alice, "fake-token-phone-b")
         register_device(self.alice, "fake-token-phone-b", "install-b")
+        self.assertEqual(_legacy(self.alice), "")
         self.client.force_authenticate(self.alice)
 
         response = self.client.patch(
@@ -369,12 +371,29 @@ class PushDeviceApiTest(TestCase):
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(_tokens(self.alice), ["fake-token-phone-b"])
 
-        # A clear while the column names the upgraded phone leaves it too.
-        _set_legacy(self.alice, "fake-token-phone-b")
+    def test_an_upgraded_phone_signing_out_through_the_legacy_path_is_removed(
+        self,
+    ):
+        """An upgraded build falls back to the profile PATCH on a 404 (skew).
+
+        Its later legacy sign-out must remove its row, and the legacy write
+        must not erase the installation id it registered with.
+        """
+        register_device(self.alice, "fake-token-phone-b", "install-b")
+        self.client.force_authenticate(self.alice)
+
+        response = self.client.patch(
+            ME_PROFILE, {"fcm_token": "fake-token-phone-b"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(
+            PushDevice.objects.get(token="fake-token-phone-b").installation_id,
+            "install-b",
+        )
+
         response = self.client.patch(ME_PROFILE, {"fcm_token": ""}, format="json")
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(_tokens(self.alice), ["fake-token-phone-b"])
-        self.assertEqual(_legacy(self.alice), "")
+        self.assertEqual(_tokens(self.alice), [])
 
     def test_a_profile_patch_without_a_token_leaves_devices_alone(self):
         register_device(self.alice, "fake-token-1", "install-1")
