@@ -703,6 +703,10 @@ if [ -n "$R" ] && git init -q "$R/main" && git -C "$R/main" -c user.email=t@t -c
   assert_deny_msg "640 repair: echo foo=(e:...) after a command word" $W "echo foo=(e:'git push':)" 'could not be parsed'
   assert_deny "640 repair: export x=(...) is not assignment position" $W "export x=(e:'git push':)"
   assert_allow "640 repair: NAME=( after assignments and NAME+=( still split" $W "a=1 arr=(a b); arr+=(c); ( b=(e) ); git -C $T add -A"
+  # Round 2: a reserved word or a declaration builtin also leaves assignment position; a ) does not.
+  assert_allow "640 round 2: arrays after do/then/{ and in local/declare -a" $W "for f in a b; do files+=(x); done; if true; then arr=(a b); fi; { c=(d); }; f() { local l=(a); declare -a d=(b); }; git -C $T add -A"
+  assert_deny_msg "640 round 2: echo -n x=(...) is still argument position" $W "echo -n x=(e:'git push':)" 'could not be parsed'
+  assert_deny_msg "640 round 2: a ) closing a zsh glob group is not a separator" $W "ls (x) b=(e:'git push':)" 'could not be parsed'
   # #4: an option word built at runtime could be -f.
   RT_MSG='built at runtime and could be -f'
   assert_deny_msg "640.4: git -C WT add \$(printf -- -f) backend/.env" $W "git -C $T add \$(printf -- -f) backend/.env" "$RT_MSG"

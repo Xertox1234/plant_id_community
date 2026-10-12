@@ -124,3 +124,26 @@ fixed in the round-1 repair above. These are declined:
   (#1111) before this lands, so no run applies triage across the change.
 - `repo_main_root` spawns a PATH-resolved `git` with no timeout (low). `kimi_skipped_groups` sorts `g10`
   before `g2` (low, cosmetic). Declined: neither changes a decision.
+
+### 2026-10-12 - Review round 2: regression fixed by hand, other findings declined (owner decision)
+
+- **Fixed (a regression from the round-1 repair).** `array_assignment` accepted `NAME=(` only after an operator or
+  other assignments. So literal arrays after a reserved word or a declaration builtin got "could not be parsed"
+  for every guarded agent: `do files+=(x)`, `then arr=(a b)`, `{ c=(d); }`, `local l=(a)`, `declare -a d=(b)`.
+  A reserved word that starts a command (`do`, `then`, `else`, `{`, ...) and `declare`/`local`/`typeset`/`readonly`
+  with their options now leave assignment position. A `)` no longer counts as a separator, because it can close a
+  zsh glob group: `ls (x) b=(e:'git push':)` is denied (a round-2 low). `export x=(...)` and `echo -n x=(...)`
+  stay denied. `files+=("$f")` is still denied ("program name must be literal"), as it was on main before this
+  todo, so this is not a regression.
+- Tests: 3 new cases in `.claude/hooks/test-guard-todo-worker-git.sh`. The full run is 589 passed, 0 failed. Against
+  the round-1 guard, 2 fail (mutation check).
+- Declined, for the same reasons as round 1:
+  - xargs words reach git subcommands other than add/mv/rm: `echo --upload-pack=CMD | xargs git -C WT fetch`.
+    This is pre-existing. The worker already has a shell, and the guard protects index and branch state, not
+    command execution.
+  - The `.git` glob/find removers, the `check_worktree_root` ancestor anchoring (plus abspath versus realpath),
+    `triage_answer` for legacy run files, and a bare-PATH `git` in `repo_main_root`, as above.
+  - The `[[ x =~ ^v([0-9]+)$ ]]` regex group still fails closed. Quote the regex.
+  - `force_reason` denies a runtime path before `--` for rm/mv. The deny message says why, and `todo-worker.md`
+    can show `--` later. A `kimi_recovery` typo through `state.py set` is not validated. Neither changes what
+    lands.

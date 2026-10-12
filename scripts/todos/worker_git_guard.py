@@ -150,6 +150,10 @@ STDIN_REASON = "run git directly, not through a shell reading stdin"
 # ${(P)name::=x} assigns to the variable `name` holds. Arithmetic assigns too: $((GIT_X=1)), let, (( )).
 PARAM_ASSIGN = re.compile(r"\$\{GIT_\w*:{0,2}=|\$\{\([^)]*P[^)]*\)[^}]*=")
 ARRAY_ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=\Z")
+# Words after which a command starts, so NAME=( there is an assignment (`do files+=(x)`, `{ arr=(a); }`), and
+# the declaration builtins whose operands bash and zsh both parse as assignments (`local arr=(a b)`).
+COMMAND_STARTERS = frozenset(("do", "then", "else", "elif", "if", "while", "until", "{", "!", "time"))
+ARRAY_DECLARERS = frozenset(("declare", "local", "typeset", "readonly"))
 ARITH_ASSIGN = re.compile(r"\bGIT_\w*\s*(?:\*\*|<<|>>|[-+*/%&|^])?=(?!=)")
 PARAM_REASON = "assigning a GIT_* variable inside an expansion is not allowed for this agent"
 NAME_START = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -257,15 +261,26 @@ class Lexer:
     def array_assignment(self, text):
         """True when a ( after `text` opens an array assignment: text is NAME= (NAME[i]=, NAME+=) and stands in
         assignment position, first in its command or after other assignments only. In argument position zsh
-        reads x=(e:'git push':) as a glob qualifier that runs a command (todo 640 repair)."""
+        reads x=(e:'git push':) as a glob qualifier that runs a command (todo 640 repair). A reserved word that
+        starts a command, or a declaration builtin and its options, also leaves assignment position. A `)` does
+        not: it may close a zsh glob group (`ls (x) b=(e:...)`), so only a separator or an opening ( counts."""
         if not ARRAY_ASSIGN.match(text):
             return False
+        options = False
         for kind, token in reversed(self.tokens):
             if kind == "op":
-                return True
-            if kind != "word" or not is_assignment(token):
+                return token != ")" and not options
+            if kind != "word":
                 return False
-        return True
+            if token.raw in ARRAY_DECLARERS:
+                return True
+            if token.raw in COMMAND_STARTERS:
+                return not options
+            if token.raw.startswith("-"):
+                options = True
+            elif options or not is_assignment(token):
+                return False
+        return not options
 
     def read_double(self, value):
         s = self.s
