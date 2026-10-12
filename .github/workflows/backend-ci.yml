@@ -99,6 +99,12 @@ jobs:
         # another app.
         run: python -m mypy apps/users
 
+      - name: mypy gate self-test (a planted error in apps/users must fail it)
+        # follow_imports=silent hides errors in imported-only modules; this
+        # proves the named app still reports, so config drift cannot turn the
+        # gate above green by emptiness (todo 599 item 4).
+        run: bash bin/test-mypy-gate.sh
+
   backend-tests:
     name: Run backend test suite (pytest, postgres + redis)
     runs-on: ubuntu-latest

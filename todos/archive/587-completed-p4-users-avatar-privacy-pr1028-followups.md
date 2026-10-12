@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "587"
 tags: [todos, follow-ups]
@@ -41,7 +41,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
@@ -49,3 +49,27 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-11 - Filed from todo-sweep run 2026-10-11-1448
 
 Follow-ups for PR #1028 (todos 553, 558, 562, 565, 567).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-2219)
+
+- Item 1: `backend/apps/users/avatars.py` now resets imagekit's cached state for each deleted thumbnail (`_forget_thumbnail_state`), so an avatar stored later under the freed name gets a new thumbnail. Tests in `backend/apps/users/tests/test_avatar_privacy.py`.
+- Item 2: `_surfaceAccountConflict` in `plant_community_mobile/lib/services/auth_service.dart` re-checks `_isCurrentExchange` before each token delete, so an overtaken refresh no longer deletes a newer exchange's tokens. Test: "todo 587" group in `test/services/auth_service_test.dart`.
+- Items 3 and 5: already fixed on main by PR #1040 (`UPDATE_PROFILE_SCHEMA`, `DELETE_AVATAR_SCHEMA` in `backend/apps/users/view_schemas.py`); this run added their 401 and 429 (shared with todo 599). Items 4 and 8: closed on sight, as the todo says (`_REENCODE` maps MPO to JPEG and the re-encode is size-checked).
+- Item 6: the account_lockout alert in `backend/apps/core/security.py` sends `log_safe_ip` pseudonyms, not raw IPs. The lockout email still lists the real addresses. Test in `backend/apps/users/tests/test_account_lockout.py`.
+- Item 7 (owner decision): `strip_image_metadata` converts an ICC-tagged image to sRGB with `ImageCms` before it strips the metadata. If a profile cannot be applied, the image is stored untagged, as before. Tested with a Display P3 JPEG and a Display P3 PNG with alpha.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-2219)
+
+- AC 1: `bash -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 5 -- backend/venv/bin/python -m pytest apps/users/tests/test_avatar_privacy.py apps/users/tests/test_account_lockout.py apps/users/tests/test_profile_update.py --create-db -q -p no:cacheprovider && cd plant_community_mobile && flutter test test/services/auth_service_test.dart; echo EXIT=$?'` — evidence `.sweep-evidence/g5/587-ac0.txt` (not committed), last lines:
+
+  ```text
+  00:00 +57: todo 587 item 2: a refresh 409 overtaken mid-clear keeps the newer tokens
+  00:00 +58: session-expiry exemption signOut's FCM-clear PATCH carries skipSessionExpiryKey
+  00:00 +59: session-expiry exemption a real 401 on an exempt request does not trigger the session-expired handler, while an unexempt one does
+  00:00 +60: All tests passed!
+  EXIT=0
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

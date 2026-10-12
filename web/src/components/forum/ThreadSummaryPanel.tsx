@@ -218,8 +218,13 @@ export default function ThreadSummaryPanel({ topicId, postCount }: ThreadSummary
 
       {/* Below MIN_POSTS the line stands in for the button (PR #816 review).
           Not beside a summary already shown: a post deleted after it was
-          written must not put "too short" next to it (todo 554). */}
-      {tooShort && !outcome && <p className="mt-3 text-body-sm text-ink-2">{TOO_SHORT}</p>}
+          written must not put "too short" next to it (todo 554). After a
+          server too_short it still shows: the inner line below hides once the
+          count drops below MIN_POSTS, so this one must explain the missing
+          button (todo 588). */}
+      {tooShort && outcome?.status !== 'ready' && (
+        <p className="mt-3 text-body-sm text-ink-2">{TOO_SHORT}</p>
+      )}
 
       {/* Persistent live region — mounted for the panel's whole life. */}
       <p

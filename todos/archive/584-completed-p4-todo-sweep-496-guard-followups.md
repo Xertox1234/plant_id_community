@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "584"
 tags: [harness, todo-sweep, security, follow-ups]
@@ -32,7 +32,7 @@ PR #1023 (todo sweep run 2026-10-11-1434, group g2, todos 496); hand round 3 (ow
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
@@ -40,3 +40,52 @@ PR #1023 (todo sweep run 2026-10-11-1434, group g2, todos 496); hand round 3 (ow
 ### 2026-10-11 - Filed from todo-sweep run 2026-10-11-1434
 
 Follow-ups for PR #1023 (todo 496).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-2219)
+
+- Fixed with tests in `scripts/todos/worker_git_guard.py` and `.claude/hooks/test-guard-todo-worker-git.sh`
+  (52 new `584.*` cases, additions only; 433 to 485 passing). Findings 1 and 5: a trap action, a
+  `mapfile -C` callback and a function body (`NAME()`, `function NAME`, up to its matching closer) are judged
+  as deferred code: any `cd`/`pushd`/`popd` in them is refused, a staging git must carry an absolute `-C`,
+  and a DEBUG/ERR/ZERR/RETURN trap is refused outright. That also closes `f(){ git add -A; }; cd MAIN; f`.
+- Finding 2: `shopt -u lastpipe` and `bash +O lastpipe` clear lastpipe; a runtime `shopt -s/-u` operand
+  and `set ±o lastpipe` (not a bash option: bash 5.3 prints "invalid option name" and changes nothing) leave
+  it unknown, and an unknown last stage resolves through `either_main`. Finding 3: keyword (`set -k`,
+  `set -o keyword`, `setopt keyword`, `bash -k`, `bash -o keyword`, `zsh --keyword`) is refused like allexport.
+- Finding 4 (owner decision: track the cwd): a compound command (`{ }`, if, while, until, for, case, select)
+  that is a pipeline stage keeps its cd for the rest of the stage, and the stage rule (restore, keep for a zsh
+  or lastpipe last stage, `either_main` when unknown) applies once where it ends. A piped `( )` no longer
+  restores per segment. This also covers a first-stage `{ cd WT; } | cat; git add -A` from MAIN.
+- Finding 6: `SHELL=/bin/bash` variants of the 496.2 and brace-group cases. Finding 7: a note at
+  `denied_option`. Finding 8 declined: the `.sweep-evidence` files and the mutation script it cites went with
+  the 496 worktree, so their output cannot be quoted without inventing it; the counts stay as the 496 workers
+  reported them. Reverting each fix here in a temporary copy fails its own cases: 1: 8, 2: 5, 3: 9, 4: 4, 5: 2.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-2219)
+
+- AC 1: `bash .claude/hooks/test-guard-todo-worker-git.sh && python3 .sweep-evidence/g2/mutate584.py .` — evidence `.sweep-evidence/g2/584-ac0.txt` (not committed), last lines:
+
+  ```text
+      FAIL: 584.4: SHELL=bash: true | { cd MAIN; git add -A; } from WT (expected deny)
+  finding 5 function body reverted: 2 failing, 2 of them 584.5 cases
+      FAIL: 584.5: f() { cd MAIN; }; cd WT; f; git add -A (expected deny)
+      FAIL: 584.5: f(){ git add -A; }; cd MAIN; f (a bare git add in a body) (expected deny)
+  restored: True
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-11 - Repaired by the todo sweep (run 2026-10-11-2219)
+
+- Round-1 review: `shopt -u lastpipe` set lastpipe to False even when it ran conditionally, in a subshell, in a
+  pipeline stage or in an uncalled function body, so `bash -O lastpipe -c 'false && shopt -u lastpipe; true |
+  cd MAIN; git add -A'` from WT was allowed while bash kept lastpipe and staged in MAIN.
+- `shopt_lastpipe` in `scripts/todos/worker_git_guard.py` now fails closed: `-u` never lowers a True or
+  unknown lastpipe to False (it leaves it unknown), and any shopt lastpipe change in deferred code is unknown.
+  `bash +O lastpipe` (a definite invocation flag) still clears it.
+- `.claude/hooks/test-guard-todo-worker-git.sh`: the 584.2 `shopt -s; shopt -u; true | cd MAIN` from-WT case
+  now expects deny (it was the allow case the regression rode on); added deny cases for `&&`, a subshell, a
+  pipeline stage and a function body, and an allow case for `-u` when lastpipe was already off. All five new
+  denies fail against the pre-repair guard; the suite is 490 passing.

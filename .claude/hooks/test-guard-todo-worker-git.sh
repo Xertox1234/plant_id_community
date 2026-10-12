@@ -457,6 +457,119 @@ if [ -n "$R" ] && git init -q "$R/main" && git -C "$R/main" -c user.email=t@t -c
   export HOME="$OLD_HOME"
   assert_raw "496.ordinary: set -euo pipefail, then git -C WT add -A" allow \
     "$(cwd_event $W "$R/wt" "set -euo pipefail; /usr/bin/git -C $R/wt add -A && /usr/bin/git -C $R/wt diff --cached --stat")"
+
+  # Todo 584 — follow-ups from PR #1023 (todo 496).
+  # Finding 1: a trap action (and a mapfile -C callback) runs later, in whatever directory the shell is in then.
+  assert_raw "584.1: trap 'git add -A' EXIT; cd MAIN from WT" deny \
+    "$(cwd_event $W "$R/wt" "trap 'git add -A' EXIT; cd $R/main")"
+  assert_raw "584.1: trap 'cd MAIN' DEBUG; git add -A from WT" deny \
+    "$(cwd_event $W "$R/wt" "trap 'cd $R/main' DEBUG; git add -A")"
+  assert_raw "584.1: trap 'cd MAIN' EXIT (a cd in a trap action)" deny \
+    "$(cwd_event $W "$R/wt" "trap 'cd $R/main' EXIT; git status")"
+  assert_raw "584.1: trap 'git-add -A' EXIT (a git-add binary)" deny \
+    "$(cwd_event $W "$R/wt" "trap 'git-add -A' EXIT")"
+  assert_deny  "584.1: trap 'true' ERR"                    $W "trap 'true' ERR; git status"
+  assert_deny  "584.1: trap 'true' ZERR (zsh)"             $W "trap 'true' ZERR; git status"
+  assert_deny  "584.1: trap 'true' SIGDEBUG"               $W "trap 'true' SIGDEBUG; git status"
+  assert_raw "584.1: mapfile -C 'cd MAIN' callback, then git add -A from WT" deny \
+    "$(cwd_event $W "$R/wt" "mapfile -C 'cd $R/main' -c 1 arr < f; git add -A")"
+  assert_raw "584.1: trap 'git -C WT add -A' EXIT names the worktree" allow \
+    "$(cwd_event $W "$R/main" "trap '/usr/bin/git -C $R/wt add -A' EXIT")"
+  assert_raw "584.1: trap - DEBUG (a reset) and trap '' ERR (ignore)" allow \
+    "$(cwd_event $W "$R/wt" "trap - DEBUG; trap '' ERR; git add -A")"
+  # Finding 2: shopt -u lastpipe clears it; set -o lastpipe is not a bash option (it changes nothing), so unknown.
+  assert_raw "584.2: bash -c 'shopt -s lastpipe; shopt -u lastpipe; true | cd WT; git add' from MAIN" deny \
+    "$(cwd_event $W "$R/main" "bash -c 'shopt -s lastpipe; shopt -u lastpipe; true | cd $R/wt; git add -A'")"
+  # Repair (round 1): -u never lowers a True or unknown lastpipe to False -- the walker cannot tell whether the
+  # shopt ran (conditional, subshell, pipeline stage, uncalled function body) -- so it leaves it unknown.
+  assert_raw "584.2: bash -c 'shopt -s lastpipe; shopt -u lastpipe; true | cd MAIN; git add' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -c 'shopt -s lastpipe; shopt -u lastpipe; true | cd $R/main; git add -A'")"
+  assert_raw "584.2: bash -O lastpipe -c 'false && shopt -u lastpipe; true | cd MAIN; git add' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -O lastpipe -c 'false && shopt -u lastpipe; true | cd $R/main; git add -A'")"
+  assert_raw "584.2: bash -O lastpipe -c '(shopt -u lastpipe); true | cd MAIN; git add' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -O lastpipe -c '(shopt -u lastpipe); true | cd $R/main; git add -A'")"
+  assert_raw "584.2: bash -O lastpipe -c 'shopt -u lastpipe | cat; true | cd MAIN; git add' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -O lastpipe -c 'shopt -u lastpipe | cat; true | cd $R/main; git add -A'")"
+  assert_raw "584.2: bash -O lastpipe -c 'f() { shopt -u lastpipe; }; true | cd MAIN; git add' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -O lastpipe -c 'f() { shopt -u lastpipe; }; true | cd $R/main; git add -A'")"
+  assert_raw "584.2: bash -c 'shopt -u lastpipe; true | cd MAIN; git add' from WT (already off)" allow \
+    "$(cwd_event $W "$R/wt" "bash -c 'shopt -u lastpipe; true | cd $R/main; git add -A'")"
+  assert_raw "584.2: bash -c 'set -o lastpipe; true | cd WT; git add' from MAIN" deny \
+    "$(cwd_event $W "$R/main" "bash -c 'set -o lastpipe; true | cd $R/wt; git add -A'")"
+  assert_raw "584.2: a runtime shopt -u operand after lastpipe, from MAIN" deny \
+    "$(cwd_event $W "$R/main" "bash -c 'shopt -s lastpipe; shopt -u \$o; true | cd $R/wt; git add -A'")"
+  assert_raw "584.2: bash -O lastpipe +O lastpipe -c ... from WT" allow \
+    "$(cwd_event $W "$R/wt" "bash -O lastpipe +O lastpipe -c 'true | cd $R/main; git add -A'")"
+  # Finding 3: bash's keyword option exports every NAME=value argument, so it is refused like allexport.
+  assert_deny  "584.3: set -k"                             $W 'set -k; git log GIT_PAGER=/tmp/x'
+  assert_deny  "584.3: set -ek (bundled)"                  $W 'set -ek; git status'
+  assert_deny  "584.3: set -o keyword"                     $W 'set -o keyword; git status'
+  assert_deny  "584.3: shopt -so keyword"                  $W 'shopt -so keyword'
+  assert_deny  "584.3: setopt keyword"                     $W 'setopt keyword'
+  assert_deny  "584.3: bash -k -c"                         $W "bash -k -c 'git log GIT_PAGER=/tmp/x'"
+  assert_deny  "584.3: bash -o keyword -c"                 $W "bash -o keyword -c 'git status'"
+  assert_deny  "584.3: zsh --keyword -c"                   $W "zsh --keyword -c 'git status'"
+  assert_deny  "584.3: emulate -o keyword sh"              $W 'emulate -o keyword sh'
+  # Finding 4 (owner decision: track the cwd through the piped stage): bash runs a piped { }/if/while/( ) as
+  # one subshell, so a cd inside it holds for the rest of that stage and is undone at the stage's end.
+  assert_raw "584.4: bash -c 'true | { cd MAIN; git add -A; }' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -c 'true | { cd $R/main; git add -A; }'")"
+  assert_raw "584.4: bash -c 'true | if true; then cd MAIN; git add -A; fi' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -c 'true | if true; then cd $R/main; git add -A; fi'")"
+  assert_raw "584.4: bash -c 'true | while true; do cd MAIN; git add -A; break; done' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -c 'true | while true; do cd $R/main; git add -A; break; done'")"
+  assert_raw "584.4: bash -c 'true | ( cd MAIN; git add -A )' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -c 'true | ( cd $R/main; git add -A )'")"
+  assert_raw "584.4: bash -c 'true | case x in *) cd MAIN; git add -A;; esac' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -c 'true | case x in *) cd $R/main; git add -A;; esac'")"
+  assert_raw "584.4: bash -c 'true | { cd MAIN; }; git add -A' from WT (undone at the stage end)" allow \
+    "$(cwd_event $W "$R/wt" "bash -c 'true | { cd $R/main; }; git add -A'")"
+  assert_raw "584.4: bash -c 'true | { cd WT; }; git add -A' from MAIN" deny \
+    "$(cwd_event $W "$R/main" "bash -c 'true | { cd $R/wt; }; git add -A'")"
+  assert_raw "584.4: a first-stage { cd WT; } | cat, then git add -A from MAIN" deny \
+    "$(cwd_event $W "$R/main" "{ cd $R/wt; } | cat; git add -A")"
+  assert_raw "584.4: bash -c 'shopt -s lastpipe; true | { cd MAIN; }; git add -A' from WT" deny \
+    "$(cwd_event $W "$R/wt" "bash -c 'shopt -s lastpipe; true | { cd $R/main; }; git add -A'")"
+  assert_raw "584.4: zsh: a last-stage { cd MAIN; } sticks" deny \
+    "$(cwd_event $W "$R/wt" "true | { cd $R/main; }; git add -A")"
+  assert_raw "584.4: zsh: a middle-stage { cd MAIN; } does not" allow \
+    "$(cwd_event $W "$R/wt" "true | { cd $R/main; } | cat; git add -A")"
+  assert_raw "584.4: a nested pipeline inside a piped group still restores its own stage" allow \
+    "$(cwd_event $W "$R/wt" "bash -c 'true | { cd $R/main | cat; git add -A; }'")"
+  shell_raw "584.4: SHELL=bash: true | { cd MAIN; git add -A; } from WT" /bin/bash deny \
+    "$(cwd_event $W "$R/wt" "true | { cd $R/main; git add -A; }")"
+  shell_raw "584.4: SHELL=bash: true | { cd WT; }; git add -A from MAIN" /bin/bash deny \
+    "$(cwd_event $W "$R/main" "true | { cd $R/wt; }; git add -A")"
+  shell_raw "584.4: SHELL=bash: true | { cd MAIN; }; git add -A from WT" /bin/bash allow \
+    "$(cwd_event $W "$R/wt" "true | { cd $R/main; }; git add -A")"
+  # Finding 5: a function body runs when the function is called, not where it is defined.
+  assert_raw "584.5: f() { cd MAIN; }; cd WT; f; git add -A" deny \
+    "$(cwd_event $W "$R/wt" "f() { cd $R/main; }; cd $R/wt; f; git add -A")"
+  assert_raw "584.5: function f { cd MAIN; }" deny \
+    "$(cwd_event $W "$R/wt" "function f { cd $R/main; }; f; git add -A")"
+  assert_raw "584.5: f() ( cd MAIN; git add -A )" deny \
+    "$(cwd_event $W "$R/wt" "f() ( cd $R/main; git add -A ); f")"
+  assert_raw "584.5: f(){ git add -A; }; cd MAIN; f (a bare git add in a body)" deny \
+    "$(cwd_event $W "$R/wt" "f(){ git add -A; }; cd $R/main; f")"
+  assert_raw "584.5: a body that names the worktree is fine" allow \
+    "$(cwd_event $W "$R/main" "f() { /usr/bin/git -C $R/wt add -A; }; f")"
+  assert_raw "584.5: a body without cd or staging, then git add -A" allow \
+    "$(cwd_event $W "$R/wt" "f() { echo hi; git status; }; f; git add -A")"
+  assert_raw "584.5: a cd after the body is followed as usual" deny \
+    "$(cwd_event $W "$R/wt" "f() { echo hi; }; cd $R/main; git add -A")"
+  # Finding 6: the bash top-level model (SHELL=/bin/bash, the CI default) for the 496.2 and brace-group cases.
+  shell_raw "584.6: SHELL=bash: a backgrounded last stage" /bin/bash allow \
+    "$(cwd_event $W "$R/wt" "true | cd $R/main & git add -A")"
+  shell_raw "584.6: SHELL=bash: a cd in a first stage does not move the next command" /bin/bash allow \
+    "$(cwd_event $W "$R/wt" "cd $R/main | cat; git add -A")"
+  shell_raw "584.6: SHELL=bash: bash -c 'true | cd WT; git add' from MAIN" /bin/bash deny \
+    "$(cwd_event $W "$R/main" "bash -c 'true | cd $R/wt; git add -A'")"
+  shell_raw "584.6: SHELL=bash: a brace group { git push; }" /bin/bash deny \
+    "$(cwd_event $W "$R/wt" "{ git push; }")"
+  shell_raw "584.6: SHELL=bash: { cd MAIN; git add -A; } from WT" /bin/bash deny \
+    "$(cwd_event $W "$R/wt" "{ cd $R/main; git add -A; }")"
+  shell_raw "584.6: SHELL=bash: { cd MAIN; }; git add -A from WT (a group is not a subshell)" /bin/bash deny \
+    "$(cwd_event $W "$R/wt" "{ cd $R/main; }; git add -A")"
 else
   echo "FAIL: m7 setup (could not build a main checkout and a worktree)"; FAIL=$((FAIL+1))
 fi

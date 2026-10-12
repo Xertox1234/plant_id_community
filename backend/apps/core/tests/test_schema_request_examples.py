@@ -6,6 +6,8 @@ request example in the generated schema, and the example values are obviously
 fake. Paths are post-trim (SCHEMA_PATH_PREFIX_TRIM strips /api/v1).
 """
 
+import re
+
 import pytest
 from drf_spectacular.generators import SchemaGenerator
 
@@ -92,12 +94,64 @@ def test_each_app_has_request_examples(schema):
     assert all(counts.values()), counts
 
 
+# A secret-like value is an allowlisted shape, not "contains example": short
+# lowercase words after "example-", so "example-<a real token>" fails (todo 599
+# item 3).
+FAKE_SECRET = re.compile(r"example(-[a-z0-9]{1,12})+")
+# Under ANY key, a long unbroken run of token characters looks like a real
+# credential (a JWT segment, an API key) and is refused. Not "/" or "-":
+# URL paths and hyphenated placeholders are made of short words.
+TOKEN_RUN = re.compile(r"[A-Za-z0-9_+=]{20,}")
+
+
+def _fake_problem(key, text):
+    """Why ``text`` under ``key`` might be real, or None when obviously fake."""
+    if "@" in text and not text.endswith("@example.com"):
+        return "an address outside example.com"
+    if TOKEN_RUN.search(text):
+        return "a token-like run of 20+ characters"
+    if any(word in key.lower() for word in SECRET_KEYS):
+        if not FAKE_SECRET.fullmatch(text):
+            return "a secret-like value not shaped example-<short-words>"
+    return None
+
+
 def test_request_example_values_are_obviously_fake(schema):
+    problems = []
     for _app, method, path, operation in _write_operations(schema):
         for example in _request_examples(operation):
             for key, text in _strings(example.get("value")):
-                where = f"{method.upper()} {path} {key}={text!r}"
-                if "@" in text:
-                    assert text.endswith("@example.com"), where
-                if any(word in key.lower() for word in SECRET_KEYS):
-                    assert "example" in text, where
+                problem = _fake_problem(key, text)
+                if problem:
+                    problems.append(
+                        f"{method.upper()} {path} {key}={text!r}: {problem}"
+                    )
+    assert not problems, "\n".join(problems)
+
+
+@pytest.mark.parametrize(
+    "key,text",
+    [
+        ("password", "example-" + "Zq8" * 8),  # the old check passed this
+        ("refresh", "example-eyJhbGciOiJIUzI1NiJ9"),
+        ("token", "not-an-example"),
+        ("api_key", "example_Live_Key"),
+        ("description", "sk" + "_live_" + "a1B2c3D4e5F6g7H8i9J0"),
+        ("email", "someone@gmail.com"),
+    ],
+)
+def test_the_fake_check_refuses_real_looking_values(key, text):
+    assert _fake_problem(key, text) is not None
+
+
+@pytest.mark.parametrize(
+    "key,text",
+    [
+        ("password", "example-password-not-real"),
+        ("auth", "example-auth-secret"),
+        ("email", "gardener@example.com"),
+        ("bio", "Grows tomatoes on a balcony."),
+    ],
+)
+def test_the_fake_check_accepts_obvious_placeholders(key, text):
+    assert _fake_problem(key, text) is None

@@ -1003,6 +1003,42 @@ def test_576_item2_a_client_that_closes_before_sending_gets_nothing():
     assert not server.hung_up
 
 
+def test_598_a_client_that_resets_before_sending_is_not_a_hang_up():
+    """A client that resets (RST) before sending any request is the client
+    leaving, like the clean EOF above, not a mid-drip hang-up (todo 598):
+    the drip ends without sending the prefix and ``hung_up`` stays False.
+    Before, the first ``recv()``'s ConnectionResetError reached the drip's
+    ``except OSError`` and set ``hung_up``."""
+    import socket as socket_module
+    import struct
+    import threading
+
+    from apps.forum_host.tests.conftest import DripServer
+
+    raised = []
+    server = DripServer(b"prefix")
+    try:
+        with patch.object(threading, "excepthook", side_effect=raised.append):
+            client = socket_module.create_connection(
+                ("127.0.0.1", server.port), timeout=2
+            )
+            time.sleep(0.2)  # several accept polls: the server is in recv()
+            # SO_LINGER 0: close() sends a RST, not a FIN.
+            client.setsockopt(
+                socket_module.SOL_SOCKET,
+                socket_module.SO_LINGER,
+                struct.pack("ii", 1, 0),
+            )
+            client.close()
+            server.thread.join(2)
+    finally:
+        server.stop(timeout=2)
+
+    assert not server.thread.is_alive()
+    assert not server.hung_up
+    assert raised == []
+
+
 def test_550_item6_a_transient_accept_error_does_not_end_the_server():
     """``accept()`` failing for one client (ECONNABORTED) is not the
     listener closing: the server keeps listening and drips to the next

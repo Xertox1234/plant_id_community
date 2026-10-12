@@ -116,16 +116,34 @@ class EveryRoutedDomainContributesTests(unittest.TestCase):
     def test_tail_only_empty_edge_is_exactly_the_marker_cost(self):
         # Todo 555 (finding 8): the loose bracket above (1/40/120 vs 200) let a
         # 50 B over-reservation for the marker pass -- empty up to share 189.
-        # Pin the literal edges for this file: 139 B cannot carry the marker,
-        # 140 B carries the marker and nothing else, 141 B is the first share
-        # with content. Re-measure these when the tail marker's text changes.
+        # Todo 589 (finding 7): the edges are DERIVED from the marker, not
+        # pinned as literals, so a wording change moves them with it. The
+        # marker is reserved at the whole file's size, so its cost is the
+        # marker read off a real excerpt with the skipped count replaced by
+        # the file's byte count. Not found by scanning shares for the first
+        # non-empty output: an over-reservation would just move that edge.
         text = long_final_line_file()
-        self.assertEqual(br.excerpt(text, 139, "docs/rules/x.md"), "")
-        at_edge = br.excerpt(text, 140, "docs/rules/x.md")
-        self.assertNotEqual(at_edge, "")
+        path = "docs/rules/x.md"
+        total = len(text.encode("utf-8"))
+
+        def marker(share):
+            out = br.excerpt(text, share, path)
+            head = out[: out.index("...]\n\n") + len("...]\n\n")]
+            skipped = head.split("the first ", 1)[1].split(" ", 1)[0]
+            return head.replace(f"the first {skipped} ", f"the first {total} ", 1)
+
+        # The share is printed in the marker, so measure at a share with the
+        # same digit count as the edge; check that it is.
+        tail_cost = len(marker(200).encode("utf-8"))
+        self.assertEqual(len(str(tail_cost)), len("200"), tail_cost)
+        self.assertEqual(br.excerpt(text, tail_cost, path), "")
+        at_edge = br.excerpt(text, tail_cost + 1, path)
         self.assertTrue(at_edge.startswith("\n[... the first "), at_edge)
         self.assertIn("were not injected", at_edge)
-        self.assertTrue(br.excerpt(text, 141, "docs/rules/x.md").endswith("x\n"))
+        self.assertEqual(len(at_edge.encode("utf-8")), tail_cost + 1, at_edge)
+        self.assertTrue(at_edge.endswith("...]\n\n" + text[-1:]), at_edge)
+        after = br.excerpt(text, tail_cost + 2, path)
+        self.assertTrue(after.endswith("...]\n\n" + text[-2:]), after)
 
 
 if __name__ == "__main__":

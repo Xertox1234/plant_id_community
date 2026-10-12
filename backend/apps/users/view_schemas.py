@@ -6,8 +6,10 @@ drf-spectacular cannot guess what they take or return. CI runs
 shapes here. Request examples (todo 582) use obviously fake values only.
 
 Apply a schema ABOVE ``@api_view``: it decorates the generated view class.
+Every ``@ratelimit(block=True)`` view lists ``429: RATE_LIMITED`` (todo 599).
 """
 
+from apps.core.openapi import RATE_LIMITED
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -85,6 +87,7 @@ REGISTER_SCHEMA = extend_schema(
         400: OpenApiResponse(
             OpenApiTypes.OBJECT, description="Field errors, keyed by field name."
         ),
+        429: RATE_LIMITED,
         500: ERROR_ENVELOPE,
     },
     examples=[
@@ -110,6 +113,8 @@ VERIFY_EMAIL_SCHEMA = extend_schema(
             "VerifyEmailResponse", {"verified": serializers.BooleanField()}
         ),
         400: ERROR_ENVELOPE,
+        401: ERROR_ENVELOPE,
+        429: RATE_LIMITED,
     },
     examples=[_example("Verify email", {"key": "example-verification-key"})],
 )
@@ -124,7 +129,9 @@ RESEND_VERIFICATION_SCHEMA = extend_schema(
                 "sent": serializers.BooleanField(),
                 "limit_reached": serializers.BooleanField(required=False),
             },
-        )
+        ),
+        401: ERROR_ENVELOPE,
+        429: RATE_LIMITED,
     },
 )
 
@@ -144,7 +151,7 @@ LOGIN_SCHEMA = extend_schema(
         400: ERROR_ENVELOPE,
         401: ERROR_ENVELOPE,
         403: ERROR_ENVELOPE,
-        429: ERROR_ENVELOPE,
+        429: RATE_LIMITED,
     },
     examples=[
         _example(
@@ -158,7 +165,12 @@ CURRENT_USER_SCHEMA = extend_schema(responses={200: UserProfileSerializer})
 
 UPDATE_PROFILE_SCHEMA = extend_schema(
     request=UserProfileSerializer,
-    responses={200: _MESSAGE_AND_PROFILE, 400: ERROR_ENVELOPE},
+    responses={
+        200: _MESSAGE_AND_PROFILE,
+        400: ERROR_ENVELOPE,
+        401: ERROR_ENVELOPE,
+        429: RATE_LIMITED,
+    },
     examples=[
         _example(
             "Update profile",
@@ -172,7 +184,9 @@ UPDATE_PROFILE_SCHEMA = extend_schema(
     ],
 )
 
-DELETE_AVATAR_SCHEMA = extend_schema(responses={200: _MESSAGE_AND_PROFILE})
+DELETE_AVATAR_SCHEMA = extend_schema(
+    responses={200: _MESSAGE_AND_PROFILE, 401: ERROR_ENVELOPE, 429: RATE_LIMITED}
+)
 
 LOGOUT_SCHEMA = extend_schema(
     request=_REFRESH_BODY,
@@ -186,6 +200,7 @@ TOKEN_REFRESH_SCHEMA = extend_schema(
         200: _MESSAGE,
         400: ERROR_ENVELOPE,
         401: ERROR_ENVELOPE,
+        429: RATE_LIMITED,
         503: ERROR_ENVELOPE,
     },
     examples=[_REFRESH_EXAMPLE],
@@ -225,6 +240,7 @@ COLLECTION_UPDATE_SCHEMA = extend_schema(
 )
 COLLECTION_DELETE_SCHEMA = extend_schema(
     methods=["DELETE"],
+    # 204 carries no body (RFC 9110 §15.3.5), and the view sends none (todo 599).
     responses={204: None, 404: _SIMPLE_ERROR},
 )
 
@@ -306,6 +322,7 @@ SUBSCRIBE_PUSH_SCHEMA = extend_schema(
             },
         ),
         400: _SIMPLE_ERROR,
+        429: RATE_LIMITED,
         500: _SIMPLE_ERROR,
     },
     examples=[
@@ -492,7 +509,12 @@ TRACK_ONBOARDING_EVENT_SCHEMA = extend_schema(
             "page_url": serializers.CharField(required=False),
         },
     ),
-    responses={200: _MESSAGE, 400: _SIMPLE_ERROR, 500: _SIMPLE_ERROR},
+    responses={
+        200: _MESSAGE,
+        400: _SIMPLE_ERROR,
+        429: RATE_LIMITED,
+        500: _SIMPLE_ERROR,
+    },
     examples=[
         _example(
             "Step completed",
@@ -512,6 +534,7 @@ OAUTH_LOGIN_SCHEMA = extend_schema(
             {"oauth_url": serializers.URLField(), "provider": serializers.CharField()},
         ),
         400: _SIMPLE_ERROR,
+        429: RATE_LIMITED,
         500: _SIMPLE_ERROR,
     },
     description="The provider's consent-page URL for the client to open.",
@@ -524,5 +547,6 @@ OAUTH_CALLBACK_SCHEMA = extend_schema(
             "JWT cookies, on failure an `error` query parameter."
         ),
         400: _SIMPLE_ERROR,
+        429: RATE_LIMITED,
     },
 )

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "599"
 tags: [backend, api-docs, ci, follow-ups]
@@ -36,7 +36,31 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-2219)
+
+- Items 1 and 2: new `RATE_LIMITED` response in `backend/apps/core/openapi.py`. Every `@ratelimit(block=True)` function view now lists it as its 429: the users auth views, identify_plant, oauth, email unsubscribe and blog newsletter.
+- `backend/apps/core/tests/test_openapi_rate_limit_429.py` finds blocking ratelimit wrappers on each schema operation and fails when one has no 429. A canary checks that it still detects them.
+- Item 3: in `test_schema_request_examples.py`, a secret-like value must now fully match `example-<short-lowercase-words>`, and a run of 20+ token characters fails under any key. Canary tests reject real-looking values.
+- Item 4: `backend/bin/test-mypy-gate.sh` plants a type error in `apps/users`, runs the CI gate command, and requires that the gate fails on that file. backend-ci runs it after the gate.
+- Item 5: fixed on the wire. The collection DELETE now returns a 204 with no body, which matches the schema. A grep of `web/src` and `plant_community_mobile/lib` found no client that reads that body. Test: `backend/apps/users/tests/test_collections.py`.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-2219)
+
+- AC 1: `bash -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 5 -- backend/venv/bin/python -m pytest apps/core/tests/test_openapi_rate_limit_429.py apps/core/tests/test_schema_request_examples.py apps/core/tests/test_openapi_schema_warnings.py apps/users/tests/test_collections.py --create-db -q -p no:cacheprovider && python3 scripts/todos/slot_env.py --main-root . 5 -- env PATH=backend/venv/bin:/usr/bin:/bin bash bin/test-mypy-gate.sh && python3 scripts/todos/slot_env.py --main-root . 5 -- backend/venv/bin/python manage.py spectacular --file /dev/null --validate --fail-on-warn; echo EXIT=$?'` — evidence `.sweep-evidence/g5/599-ac0.txt` (not committed), last lines:
+
+  ```text
+  backend/packages/wagtail_forum/wagtail_forum/api/image_management.py:32: RemovedInWagtail90Warning: wagtail.images.permissions.permission_policy is deprecated. Use wagtail.permissions.policy_registry.get_by_type(get_image_model()) instead.
+    from wagtail.images import permissions as image_permissions
+  [settings] ENABLE_FILE_LOGGING=True (argv=['manage.py', 'spectacular', '--file', '/dev/null', '--validate', '--fail-on-warn'])
+  ✅ Environment configuration validated successfully
+  EXIT=0
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

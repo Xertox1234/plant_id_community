@@ -14,6 +14,7 @@ Rate Limiting:
 import logging
 
 from apps.core.exceptions import readable_message
+from apps.core.openapi import RATE_LIMITED
 from django.conf import settings
 from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import OpenApiExample, extend_schema, inline_serializer
@@ -109,6 +110,7 @@ _IDENTIFY_FAILURE = inline_serializer(
             },
         ),
         400: _IDENTIFY_FAILURE,
+        429: RATE_LIMITED,
         500: _IDENTIFY_FAILURE,
     },
     examples=[

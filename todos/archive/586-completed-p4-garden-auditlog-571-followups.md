@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "586"
 tags: [backend, garden-calendar, auditlog, privacy, follow-ups]
@@ -39,7 +39,7 @@ PR #1025 (todo sweep run 2026-10-11-1434, group g4, todos 571); follow-ups: veri
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
@@ -47,3 +47,27 @@ PR #1025 (todo sweep run 2026-10-11-1434, group g4, todos 571); follow-ups: veri
 ### 2026-10-11 - Filed from todo-sweep run 2026-10-11-1434
 
 Follow-ups for PR #1025 (todo 571).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-2219)
+
+- #1, #7, #9 fixed (owner decision: purge): `backend/apps/garden_calendar/auditlog.py` collects a user's garden object pks on the user's `pre_delete` and, on `post_delete` (after the cascade has written its DELETE rows, inside the same transaction), deletes every LogEntry of those objects. Instance and queryset deletes are both covered; a plain plant delete keeps its trail. Scope is the five garden models; the users app's own `User` LogEntry rows are outside this todo. Tests in `test_auditlog_registration.py`.
+- #2, #10 fixed in the docs: the module docstring no longer claims only `include_fields` reach a LogEntry. It names `object_repr` (username, plant and bed names) and says the purge bounds it to the account's lifetime. `__str__` is unchanged: these are labels, not prose.
+- #5, #8 fixed: `test_no_free_text_field_is_audited` now also rejects any `TextField` or `JSONField` in `include_fields`, whatever its name. #6 fixed: `reschedule_overdue_tasks` saves each task (`update_fields`) in one transaction instead of `QuerySet.update()`, so the reschedule writes UPDATE LogEntry rows (new test).
+- #3 declined: losing fast-delete is the cost of auditing deletes on the five models the owner chose (todo 571); account and plant deletes are rare. The trade-off is now in the module docstring.
+- #4 declined: `AuditlogMiddleware` reads `request.user` before DRF authenticates the JWT, so `actor` would stay NULL for the API, and it would add the client IP to every LogEntry. The docstring and the GardenBed comment now say the trail records what changed and when, not who.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-2219)
+
+- AC 1: `bash -c 'set -eo pipefail; cd backend && python3 scripts/todos/slot_env.py --main-root . 4 -- backend/venv/bin/python -m pytest apps/garden_calendar/tests/test_auditlog_registration.py apps/garden_calendar/tests/test_services.py --create-db -q -p no:cacheprovider 2>&1 | tail -n 8; sed -n "/^## Work Log/,/^## Notes/p" todos/archive/586-completed-p4-garden-auditlog-571-followups.md'` — evidence `.sweep-evidence/g4/586-ac0.txt` (not committed), last lines:
+
+  ```text
+  - #1, #7, #9 fixed (owner decision: purge): `backend/apps/garden_calendar/auditlog.py` collects a user's garden object pks on the user's `pre_delete` and, on `post_delete` (after the cascade has written its DELETE rows, inside the same transaction), deletes every LogEntry of those objects. Instance and queryset deletes are both covered; a plain plant delete keeps its trail. Scope is the five garden models; the users app's own `User` LogEntry rows are outside this todo. Tests in `test_auditlog_registration.py`.
+  - #2, #10 fixed in the docs: the module docstring no longer claims only `include_fields` reach a LogEntry. It names `object_repr` (username, plant and bed names) and says the purge bounds it to the account's lifetime. `__str__` is unchanged: these are labels, not prose.
+  - #5, #8 fixed: `test_no_free_text_field_is_audited` now also rejects any `TextField` or `JSONField` in `include_fields`, whatever its name. #6 fixed: `reschedule_overdue_tasks` saves each task (`update_fields`) in one transaction instead of `QuerySet.update()`, so the reschedule writes UPDATE LogEntry rows (new test).
+  - #3 declined: losing fast-delete is the cost of auditing deletes on the five models the owner chose (todo 571); account and plant deletes are rare. The trade-off is now in the module docstring.
+  - #4 declined: `AuditlogMiddleware` reads `request.user` before DRF authenticates the JWT, so `actor` would stay NULL for the API, and it would add the client IP to every LogEntry. The docstring and the GardenBed comment now say the trail records what changed and when, not who.
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

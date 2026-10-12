@@ -18,6 +18,7 @@ mirroring send_blog_newsletter after todo 534).
 
 import logging
 
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -67,6 +68,7 @@ class Command(BaseCommand):
         # margin, so a hard-killed holder blocks the next run for minutes,
         # not hours (todo 548).
         lock_key = f"wagtail_forum:digest-run:{frequency}"
+        holds_lock = False
         if not dry_run:
             locked = cache.add(
                 lock_key, now.isoformat(), get_setting("DIGEST_RUN_LOCK_SECONDS")
@@ -76,6 +78,7 @@ class Command(BaseCommand):
                     f"[EMAIL] digest frequency={frequency}: another run holds the lock — exiting"
                 )
                 return
+            holds_lock = locked is True
             if locked is None:
                 # A cache with IGNORE_EXCEPTIONS (django-redis) swallows an
                 # outage and answers None, where a held lock answers False.
@@ -91,7 +94,11 @@ class Command(BaseCommand):
         try:
             totals = self._run(frequency, dry_run, window_days, now)
         finally:
-            if not dry_run:
+            # Release only a lock this run took. After an outage (add
+            # answered None) the cache may recover mid-run and another fire
+            # may take the lock; deleting it here would let a third fire
+            # start (todo 585).
+            if holds_lock:
                 cache.delete(lock_key)
 
         label = "would send" if dry_run else "sent"
@@ -133,14 +140,16 @@ class Command(BaseCommand):
                 )
                 totals["sent"] += 1
                 continue
-            sent = self._send_one(profile, digest, now)
+            sent = self._send_one(profile, digest, now, frequency)
+            if sent is None:
+                continue  # another run claimed them, or they opted out
             if sent:
                 totals["sent"] += 1
-            elif sent is False:
+            else:
                 totals["failed"] += 1
         return totals
 
-    def _send_one(self, profile, digest, now) -> bool | None:
+    def _send_one(self, profile, digest, now, frequency) -> bool | None:
         """True sent, False failed, None not ours to send any more."""
         # Claim the member before sending, on the marker we read: belt to the
         # run lock's braces. A second run racing on the row cannot also
@@ -161,14 +170,41 @@ class Command(BaseCommand):
         # the member gets that digest again on the next run. That window is
         # milliseconds against an SMTP round-trip; skipping a member whose
         # digest never went out is worse than a rare repeat.
+        #
+        # The other cost, accepted as in send_blog_newsletter (todo 569): the
+        # claim's row lock, its open transaction and a database connection
+        # are held for the whole SMTP round-trip, up to EMAIL_TIMEOUT per
+        # connect or operation. For that long, anything else that locks this
+        # one ForumProfile row waits on it (a presence `last_seen` write, a
+        # profile PATCH, a trust update). Other rows are not blocked, and the
+        # wait ends when the send returns (todo 585).
+        #
+        # The claim rechecks the opt-in and the account (todo 585): the
+        # recipient query was read up to a 200-row chunk ago, and a member
+        # who has since opted out or been deactivated must not be mailed.
+        #
+        # The UPDATE must stay on one table. A join (`user__is_active`) makes
+        # Django rewrite it as `id IN (SELECT ... JOIN user ...)`, and then
+        # PostgreSQL's recheck after waiting on a racing claim tests only that
+        # stale subquery, not the marker: both runs claim and the member gets
+        # two emails. `user_id__in` is a join-free subquery, so the marker
+        # stays in the outer WHERE on the locked row.
         previous = profile.last_digest_sent_at
+        active_account = get_user_model().objects.filter(
+            pk=profile.user_id, is_active=True
+        )
         with transaction.atomic():
             claimed = ForumProfile.objects.filter(
-                pk=profile.pk, last_digest_sent_at=previous
+                pk=profile.pk,
+                last_digest_sent_at=previous,
+                digest_frequency=frequency,
+                user_id__in=active_account.values("pk"),
             ).update(last_digest_sent_at=now)
             if not claimed:
                 return None
-            sent = send_digest(digest)
+            # A strict bool (todo 585): a falsy non-bool from a send is a
+            # failure, never a silent "neither sent nor failed".
+            sent = bool(send_digest(digest))
             if not sent:
                 # Nothing went out: undo the claim so the member stays due.
                 transaction.set_rollback(True)

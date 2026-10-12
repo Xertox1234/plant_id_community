@@ -31,27 +31,30 @@ type InlineChoices = { error: string } | { choices: [string, string][]; residue:
 // a lazy match blamed the NEXT field's choices once this one moved to a
 // constant or TextChoices (todo 515).
 //
-// `#` comment lines are dropped first. Every `("key", "label")` tuple is
+// `#` comments are dropped first, whole-line and trailing alike (todo 590): a
+// `#` inside a quoted string is kept. Every `("key", "label")` tuple is
 // parsed, a trailing comma inside it (Black's magic one) allowed, and whatever
 // the parse did not consume is returned as the residue: anything there but
 // whitespace and commas is a choice this parser cannot read -- a list-form
 // `["dormant", "Dormant"]`, a `*EXTRA` spread, a gettext `_("...")` label,
-// single quotes -- which a line count missed (todo 556). Known limit: a `]`
-// inside a label ends the list early.
+// single quotes -- which a line count missed (todo 556). What follows the
+// closing `]` up to the next `,` or `)` -- `choices=[...] + EXTRA` -- is
+// residue too (todo 590). Known limit: a `]` inside a label ends the list
+// early.
 function readInlineChoices(source: string, field: string): InlineChoices {
   const decl = source.match(
     new RegExp(`^ {4}${field} = models\\.CharField\\(((?:(?!\\n {4}\\S)[\\s\\S])*)`, 'm')
   );
   if (!decl) return { error: `${field} declaration not found in models.py` };
-  const body = decl[1].replace(/^\s*#.*$/gm, '');
-  const list = body.match(/choices=\[([\s\S]*?)\]/);
+  // Strings are matched first so a `#` inside one is not taken for a comment.
+  const body = decl[1].replace(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|#[^\n]*/g, (m) =>
+    m.startsWith('#') ? '' : m
+  );
+  const list = body.match(/choices=\[([\s\S]*?)\]([^,)]*)/);
   if (!list) return { error: `${field} has no inline choices=[...] list` };
   const tuple = /\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,?\s*\)/g;
   const choices = [...list[1].matchAll(tuple)].map((m) => [m[1], m[2]] as [string, string]);
-  const residue = list[1]
-    .replace(tuple, '')
-    .replace(/[\s,]+/g, ' ')
-    .trim();
+  const residue = (list[1].replace(tuple, '') + ' ' + list[2]).replace(/[\s,]+/g, ' ').trim();
   return { choices, residue };
 }
 
@@ -278,24 +281,46 @@ describe('DiseaseDiagnosePage', () => {
   });
 });
 
-// The reader's own cases (todo 556), each a probe from PR #946's review: run
-// against the real plant_condition declaration with one edit applied.
+// The reader's own cases (todo 556), each a probe from PR #946's review. They
+// run against a fixed fixture, not models.py, so adding, removing or
+// reordering a real plant_condition choice fails only the drift guard above,
+// with its own message, and never these parser tests (todo 590).
 describe('readInlineChoices', () => {
-  const models = readFileSync(MODELS_PY, 'utf8');
-  const LAST = '            ("critical", "Critical - plant may die"),\n';
-  const withLast = (replacement: string) => {
-    expect(models, 'fixture anchor moved; update LAST').toContain(LAST);
-    return models.replace(LAST, replacement);
-  };
+  const LAST = '            ("b", "Bee - two"),\n';
+  const FIXTURE =
+    '    plant_condition = models.CharField(\n' +
+    '        max_length=20,\n' +
+    '        choices=[\n' +
+    '            ("a", "Ay - one"),\n' +
+    LAST +
+    '        ],\n' +
+    '        blank=True,\n' +
+    '    )\n' +
+    '    location = models.CharField(\n' +
+    '        choices=[("in", "Indoors")],\n' +
+    '    )\n';
+  const FIXTURE_CHOICES = [
+    ['a', 'Ay - one'],
+    ['b', 'Bee - two'],
+  ];
+  const withLast = (replacement: string) => FIXTURE.replace(LAST, replacement);
   const ok = (source: string) => {
     const read = readInlineChoices(source, 'plant_condition');
     if ('error' in read) expect.fail(read.error);
     return read;
   };
 
-  it('parses the real declaration with nothing left over', () => {
-    const read = ok(models);
-    expect(read.choices).toHaveLength(5);
+  it('parses the fixture with nothing left over', () => {
+    const read = ok(FIXTURE);
+    expect(read.choices).toEqual(FIXTURE_CHOICES);
+    expect(read.residue).toBe('');
+  });
+
+  // The real declaration, with no count or line pinned: what it holds is the
+  // drift guard's business, this only says the parser reads it whole.
+  it('reads the real models.py declaration with nothing left over', () => {
+    const read = ok(readFileSync(MODELS_PY, 'utf8'));
+    expect(read.choices.length).toBeGreaterThan(0);
     expect(read.residue).toBe('');
   });
 
@@ -312,24 +337,52 @@ describe('readInlineChoices', () => {
     ['single quotes', LAST + "            ('dormant', 'Dormant'),\n", "('dormant' 'Dormant')"],
   ])('reports %s as residue instead of passing', (_name, replacement, residue) => {
     const read = ok(withLast(replacement));
-    expect(read.choices).toHaveLength(5);
+    expect(read.choices).toEqual(FIXTURE_CHOICES);
+    expect(read.residue).toBe(residue);
+  });
+
+  // Todo 590: the residue covered only the text inside `[...]`, so a choice
+  // concatenated on after it passed with nothing left over.
+  it.each([
+    ['a concatenated constant', ' + EXTRA_CONDITIONS', '+ EXTRA_CONDITIONS'],
+    ['a concatenated call', ' + list(EXTRA)', '+ list(EXTRA'],
+    ['a concatenation on the next line', '\n        + EXTRA_CONDITIONS', '+ EXTRA_CONDITIONS'],
+  ])('reports %s after the list as residue', (_name, tail, residue) => {
+    const read = ok(FIXTURE.replace('        ],\n', `        ]${tail},\n`));
+    expect(read.choices).toEqual(FIXTURE_CHOICES);
     expect(read.residue).toBe(residue);
   });
 
   it('ignores a commented-out tuple', () => {
     const read = ok(withLast(LAST + '            # ("dormant", "Dormant"),\n'));
-    expect(read.choices).toHaveLength(5);
+    expect(read.choices).toEqual(FIXTURE_CHOICES);
+    expect(read.residue).toBe('');
+  });
+
+  // Todo 590: only whole-line comments were dropped, so a valid list with a
+  // trailing note failed the guard.
+  it('ignores a trailing comment on a tuple line', () => {
+    const read = ok(withLast('            ("b", "Bee - two"),  # note, with ("x", "X")\n'));
+    expect(read.choices).toEqual(FIXTURE_CHOICES);
+    expect(read.residue).toBe('');
+  });
+
+  it('keeps a # inside a label', () => {
+    const read = ok(withLast('            ("b", "Bee #2"),  # note\n'));
+    expect(read.choices).toEqual([
+      ['a', 'Ay - one'],
+      ['b', 'Bee #2'],
+    ]);
     expect(read.residue).toBe('');
   });
 
   it('parses a Black-exploded tuple with its magic trailing comma', () => {
     const read = ok(
       withLast(
-        '            (\n                "critical",\n                "Critical - plant may die",\n            ),\n'
+        '            (\n                "b",\n                "Bee - two",\n            ),\n'
       )
     );
-    expect(read.choices).toHaveLength(5);
-    expect(read.choices[4]).toEqual(['critical', 'Critical - plant may die']);
+    expect(read.choices).toEqual(FIXTURE_CHOICES);
     expect(read.residue).toBe('');
   });
 

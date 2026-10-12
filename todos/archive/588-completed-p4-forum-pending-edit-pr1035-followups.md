@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "588"
 tags: [todos, follow-ups]
@@ -40,7 +40,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
@@ -48,3 +48,27 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-11 - Filed from todo-sweep run 2026-10-11-1448
 
 Follow-ups for PR #1035 (todos 554, 557, 561, 574, 579).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-2219)
+
+- Items 2 and 7 (one bug), fixed: `SpamCheckTask.start` in `backend/packages/wagtail_forum/wagtail_forum/models/moderation.py` now runs the spam backend inside a `transaction.atomic()` savepoint. A DB error from the backend rolls back to the savepoint, so the fail-closed `reject()` still writes its record, and the comment names the backend's own error. Test: `test_spam_backend_db_error_still_fails_closed_with_a_record` in `tests/test_workflow_routing.py` (it fails without the savepoint, with `InternalError: current transaction is aborted`).
+- Item 4, fixed: the outer too-short line in `web/src/components/forum/ThreadSummaryPanel.tsx` now hides only beside a `ready` summary, so after a server `too_short` the panel still explains the missing button when the count drops below 3. Test in `ThreadSummaryPanel.test.tsx`; it fails with the old `!outcome` guard.
+- Item 3, test added: `ThreadDetailPage.test.tsx` now covers the `+ newReplyCount` term (the poll sees an unloaded reply, and the Summarize button appears before the pill is clicked); reverting it to `totalPosts + 1` fails the test. The estimate part is declined: a reply deleted after the poll can only offer a click the server answers with `too_short`, which the panel handles.
+- Item 1 declined, per the owner decision (2026-10-11): "decline as the intended todo 432 behaviour; a clean unheld edit publishes".
+- Items 5 and 6 were already fixed before PR #1035 merged: `signals.py` publishes the row, not the held edit, when the opening post is in NEEDS_CHANGES (`_held_for_changes`), and `wagtail_hooks.py:288` returns early on JSON autosaves (`request.accepts("text/html")`).
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-2219)
+
+- AC 1: `{ cd backend && python3 scripts/todos/slot_env.py --main-root . 6 -- backend/venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/test_workflow_routing.py -q --create-db -p no:cacheprovider && cd web && npx vitest run src/components/forum/ThreadSummaryPanel.test.tsx src/pages/forum/ThreadDetailPage.test.tsx && grep -n -A8 'Implemented by the todo sweep (run 2026-10-11-2219)' todos/archive/588-completed-p4-forum-pending-edit-pr1035-followups.md; }` — evidence `.sweep-evidence/g6/588-ac0.txt` (not committed), last lines:
+
+  ```text
+  54-- Items 2 and 7 (one bug), fixed: `SpamCheckTask.start` in `backend/packages/wagtail_forum/wagtail_forum/models/moderation.py` now runs the spam backend inside a `transaction.atomic()` savepoint. A DB error from the backend rolls back to the savepoint, so the fail-closed `reject()` still writes its record, and the comment names the backend's own error. Test: `test_spam_backend_db_error_still_fails_closed_with_a_record` in `tests/test_workflow_routing.py` (it fails without the savepoint, with `InternalError: current transaction is aborted`).
+  55-- Item 4, fixed: the outer too-short line in `web/src/components/forum/ThreadSummaryPanel.tsx` now hides only beside a `ready` summary, so after a server `too_short` the panel still explains the missing button when the count drops below 3. Test in `ThreadSummaryPanel.test.tsx`; it fails with the old `!outcome` guard.
+  56-- Item 3, test added: `ThreadDetailPage.test.tsx` now covers the `+ newReplyCount` term (the poll sees an unloaded reply, and the Summarize button appears before the pill is clicked); reverting it to `totalPosts + 1` fails the test. The estimate part is declined: a reply deleted after the poll can only offer a click the server answers with `too_short`, which the panel handles.
+  57-- Item 1 declined, per the owner decision (2026-10-11): "decline as the intended todo 432 behaviour; a clean unheld edit publishes".
+  58-- Items 5 and 6 were already fixed before PR #1035 merged: `signals.py` publishes the row, not the held edit, when the opening post is in NEEDS_CHANGES (`_held_for_changes`), and `wagtail_hooks.py:288` returns early on JSON autosaves (`request.accepts("text/html")`).
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

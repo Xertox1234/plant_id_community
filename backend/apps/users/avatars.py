@@ -6,6 +6,9 @@
 * An uploaded avatar is re-encoded from its pixels, which drops EXIF (GPS
   included), XMP and every other metadata chunk before it is stored. A phone
   photo's location would otherwise be served to anyone who sees the avatar.
+  The pixels are converted to sRGB first, so a wide-gamut photo (an iPhone's
+  Display P3) still looks right once its ICC profile is gone (todo 587 item 7,
+  owner decision 2026-10-11).
 """
 
 from __future__ import annotations
@@ -13,12 +16,14 @@ from __future__ import annotations
 import io
 import logging
 import os
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, List
 
 from apps.core.validators import MAX_AVATAR_SIZE
 from django.core.files.base import ContentFile
 from django.db import transaction
-from PIL import Image, ImageOps
+from imagekit.cachefiles.backends import CacheFileState, get_default_cachefile_backend
+from PIL import Image, ImageCms, ImageOps
 
 if TYPE_CHECKING:
     from django.core.files.uploadedfile import UploadedFile
@@ -51,6 +56,9 @@ class AvatarTooLargeError(AvatarReencodeError):
 
 _SAVE_OPTIONS = {"JPEG": {"quality": 90}, "WEBP": {"quality": 90}, "PNG": {}}
 
+# What an untagged image is taken to be by every browser and by Flutter.
+_SRGB = ImageCms.createProfile("sRGB")
+
 
 def avatar_file_names(user: "User") -> List[str]:
     """The stored names of ``user``'s avatar and its thumbnail, if any.
@@ -80,8 +88,45 @@ def delete_avatar_files_on_commit(user: "User", names: List[str]) -> None:
                 storage.delete(name)
             except Exception:
                 logger.exception("[PROFILE] Could not delete a replaced avatar file")
+        _forget_thumbnail_state(names[1:])
 
     transaction.on_commit(delete)
+
+
+def _forget_thumbnail_state(names: List[str]) -> None:
+    """Drop imagekit's cached "this thumbnail exists" for ``names``.
+
+    imagekit caches that state per file name, and with no timeout in
+    production. A thumbnail's name comes from its source's name, so a later
+    avatar stored under the freed name would be served the deleted
+    thumbnail's URL, never generated, and 404 (todo 587 item 1). The state
+    backend reads only ``.name``.
+    """
+    backend = get_default_cachefile_backend()
+    for name in names:
+        try:
+            backend.set_state(SimpleNamespace(name=name), CacheFileState.DOES_NOT_EXIST)
+        except Exception:
+            logger.exception("[PROFILE] Could not reset a deleted thumbnail's state")
+
+
+def _to_srgb(image: Image.Image, mode: str) -> Image.Image:
+    """``image`` converted from its embedded ICC profile to sRGB, in ``mode``.
+
+    Without a profile, or with one Pillow cannot apply (a palette image, a
+    malformed profile), the pixels are returned unchanged: stored untagged,
+    as before this conversion existed.
+    """
+    icc = image.info.get("icc_profile")
+    if not icc:
+        return image
+    try:
+        source = ImageCms.ImageCmsProfile(io.BytesIO(icc))
+        converted = ImageCms.profileToProfile(image, source, _SRGB, outputMode=mode)
+    except (ImageCms.PyCMSError, OSError, ValueError, TypeError):
+        logger.info("[PROFILE] Avatar ICC profile not applied; stored as is")
+        return image
+    return converted if converted is not None else image
 
 
 def strip_image_metadata(upload: "UploadedFile") -> ContentFile:
@@ -108,7 +153,7 @@ def strip_image_metadata(upload: "UploadedFile") -> ContentFile:
         target = _REENCODE[source_format or ""]
         has_alpha = image.mode in {"RGBA", "LA", "PA"} or "transparency" in image.info
         mode = "RGBA" if has_alpha and target != "JPEG" else "RGB"
-        image = image.convert(mode)
+        image = _to_srgb(image, mode).convert(mode)
         # Rebuilt from pixels alone, so nothing still in ``image.info`` (EXIF,
         # XMP, ICC, comments) can reach the encoder.
         clean = Image.frombytes(mode, image.size, image.tobytes())

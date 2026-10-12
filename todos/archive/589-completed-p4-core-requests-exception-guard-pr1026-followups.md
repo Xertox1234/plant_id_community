@@ -1,0 +1,81 @@
+---
+status: completed
+priority: p4
+issue_id: "589"
+tags: [todos, follow-ups]
+dependencies: []
+triage: ready
+triaged: 2026-10-11
+---
+
+# Follow-ups from PR #1026 (todo 555)
+
+## Problem
+
+Todo-sweep run 2026-10-11-1448 merged PR #1026 (the requests-exception leak guard). Its review rounds reported the non-blocking
+findings below. The curator merged duplicates and checked each item against main; the refuter dismissed
+what is listed as dropped. Line numbers are as of the PR head, so re-check each against main before acting on it.
+
+## Findings
+
+PR #1026 (todo sweep run 2026-10-11-1448, group g3, todos 555); follow-ups: verified; 3 item(s) the curator did not return were kept as stored.
+
+1. **medium** `backend/apps/core/tests/test_requests_exception_drift.py:1034` Parameter-default capture is followed only for a def whose lines fall inside the handler, a direct own-node of the handler's scope, seeded only with handler names. Missed: `def render(m=msg)` after a fall-through handler, a def nested in `outer`, and every default in the body guard (`def g(b=response.text)`). | also: `_params_defaulting_to` runs only for direct children of the scope that holds the handler. A def nested one level deeper, as in `except E as e: def outer(): def render(c=e): return {"error": c}`, evaluates its default in `outer`, which has no handlers, so `c` is never seeded and the leak is missed. | (line 1035) The finding-6 default fix only seeds defs that are direct own-nodes of the scope holding the handler. Probed in memory: `except E as e: def outer(): def render(c=e): return {'error': f'{c}'}` gives [], and `body = response.text; def g(b=body): return {'error': b}` gives [] from both guards. | (line 1037, low) Default capture is followed only for a def inside the handler and only for the handler's names. A default naming a derived name after the handler (`def f(m=msg)`) is missed. So is any default in the body guard (`def f(b=response.text)`, line 1101), since `b` is a param and the dict value has no `.text`.
+2. **medium** `backend/apps/core/tests/test_requests_exception_drift.py:971` Comprehension shadowing applies only at the dict-value check (`_mentions`). `_tainted_names` still taints through shadowed reads, so a one-hop local is a false positive: `out = ", ".join(line for line in items); return {"error": out}` or `out = [msg for msg in items]` in a child is flagged. | also: (line 972, low) The comprehension shadow only masks reads directly inside a response dict. `_tainted_names` still taints `x = [line for line in items]` from the parent's tainted `line`, so `{"error": x}` in a child stays a false positive one hop away, which is the refactor the guard expects.
+3. **medium** `backend/apps/core/tests/test_requests_exception_drift.py:1017` A handler-tainted `global` reaches only the declaring function and its closures. `_scopes` hoists nonlocal names but never globals, so a sibling `def status(): return {"error": LAST_ERROR}` reading the module cache is missed; the test comment ('the next call returns it') overstates coverage. | also: A global that outlives a raising handler is tracked only in the same function and its closures. A sibling function `def b(): return {'error': CACHE}` that reads the cached global is not flagged, and the docstring/test comment ('the next call returns it') overstate the coverage. | The guard catches a handler-tainted `global` only when the same function or its closures read it. `_scopes` hoists `nonlocal` names but not `global` ones, so `except E as e: LAST = str(e); raise` in one function and `return {"error": LAST}` in a sibling function goes unflagged. This gap existed before the change and is only partly closed.
+4. **medium** `backend/apps/core/tests/test_requests_exception_drift.py:1035` The finding-6 default fix only seeds defs that are direct own-nodes of the scope holding the handler. Probed in memory: `except E as e: def outer(): def render(c=e): return {'error': f'{c}'}` gives [], and `body = response.text; def g(b=body): return {'error': b}` gives [] from both guards.
+5. **low** `backend/apps/core/tests/test_requests_exception_drift.py:846` `_comprehension_shadowed` returns at `_SCOPES`, so a lambda inside a comprehension that reads the comprehension's own clean variable is not shadowed: `[(lambda: {"error": line})() for line in items]` in a child is flagged as leaking the parent's tainted `line`.
+6. **low** `backend/apps/core/tests/test_requests_exception_drift.py:836` `_comprehension_shadowed` judges an iterable clean via `_carried`, which drops non-value-preserving call args, so `[{"error": msg} for msg in wrap(msg)]` with msg tainted is masked, while the same flow as `msg = wrap(msg)` stays flagged.
+7. **low** `scripts/inject/test_budget_rules.py:116` test_tail_only_empty_edge_is_exactly_the_marker_cost pins literal shares 139/140/141 that depend on the tail marker's text and the specimen; any marker wording change turns it red, and nothing derives the edge from the marker length. | also: New test pins literal byte shares 139/140/141 tied to the tail-marker text; it is additive and justified (it tightens a loose bracket), but will fail on any wording change to the marker, not on a real regression.
+8. **low** `backend/apps/core/tests/test_requests_exception_drift.py:1037` Default capture is followed only for a def inside the handler and only for the handler's names. A default naming a derived name after the handler (`def f(m=msg)`) is missed. So is any default in the body guard (`def f(b=response.text)`, line 1101), since `b` is a param and the dict value has no `.text`.
+9. **low** `backend/apps/core/tests/test_requests_exception_drift.py:972` The comprehension shadow only masks reads directly inside a response dict. `_tainted_names` still taints `x = [line for line in items]` from the parent's tainted `line`, so `{"error": x}` in a child stays a false positive one hop away, which is the refactor the guard expects.
+
+4 more location(s) were dropped by the cap of 10 (the most severe are kept).
+
+Dropped by curation (fixed on main, refuted, or not a reported location):
+
+- low: backend/apps/core/tests/test_requests_exception_drift.py:1900 The new `approved_*` specimens (import shadow, comprehension shadow, walrus) are asserted only by absence from the exact result sets, so only the paired positive cases show the guard actually ran over them. (refuted: Exact set equality is a per-specimen assertion: each approved specimen uses a unique name (own_line, own_msg, comp_walrus, json.dumps({})), so a false positive adds a new string and fails the assert. Positives in the same planted file prove the guard ran over it.)
+
+## Acceptance Criteria
+
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+      declined with a reason.
+
+## Work Log
+
+### 2026-10-11 - Filed from todo-sweep run 2026-10-11-1448
+
+Follow-ups for PR #1026 (todo 555).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-2219)
+
+- Findings 1, 4, 8 (parameter defaults) fixed in `backend/apps/core/tests/test_requests_exception_drift.py`: `_scopes` now taints any child parameter whose default carries a tainted name or a source, in every scope and in both guards (`_params_defaulting_to` walks `_carried`). Specimens: `a_later_default_reads_a_fallthrough_local`, `a_default_two_defs_deep_captures_the_exception`, `a_default_carries_the_body`, `a_default_carries_a_body_local`; controls `approved_default_after_a_raising_handler`, `approved_default_through_an_opaque_call`.
+- Findings 2, 9 (one-hop comprehension shadow) fixed: `_tainted_names` skips reads that `_comprehension_shadowed` resolves to a comprehension's own clean variable, recomputed each round. Controls `approved_child_joins_its_own_comprehension`, `approved_child_joins_a_comprehension_over_a_derived_name` (both were false positives on main); positive `a_child_join_over_the_body_still_carries_it`.
+- Finding 3 (global siblings) fixed: `_scopes` hoists a tainted `global` to the module, so a sibling function inherits it, in both guards. Specimens `a_sibling_reads_the_global`, `a_sibling_reads_the_body_global`; control `approved_a_local_shadows_a_tainted_global`. Finding 5 (lambda in a comprehension) fixed: `_comprehension_shadowed` records a nested def's clean comprehension names and `_scopes` withholds them; control `approved_lambda_reads_its_comprehensions_clean_variable` (a false positive on main).
+- Finding 6 declined: a comprehension iterable is judged with `_carried` like every other binding, so `for msg in wrap(msg)` is clean for the same measured reason `x = wrap(msg)` is (opaque call arguments, todo 391); `msg = wrap(msg)` staying flagged is the flow-insensitive pass, not call-following. Recorded in the `_comprehension_shadowed` docstring.
+- Finding 7 fixed in `scripts/inject/test_budget_rules.py`: the 139/140/141 literals are replaced by edges derived from the tail marker read off a real excerpt and re-sized at the whole file's byte count. Mutation-checked: a 50 B over-reservation in `budget_rules.py` fails it, a marker wording change does not.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-2219)
+
+- AC 1: `zsh -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest backend/apps/core/tests/test_requests_exception_drift.py --create-db -q -p no:cacheprovider && python3 scripts/inject/test_budget_rules.py -v && sed -n "/^## Work Log/,\$p" todos/archive/589-completed-p4-core-requests-exception-guard-pr1026-followups.md'` — evidence `.sweep-evidence/g7/589-ac0.txt` (not committed), last lines:
+
+  ```text
+  - Findings 1, 4, 8 (parameter defaults) fixed in `backend/apps/core/tests/test_requests_exception_drift.py`: `_scopes` now taints any child parameter whose default carries a tainted name or a source, in every scope and in both guards (`_params_defaulting_to` walks `_carried`). Specimens: `a_later_default_reads_a_fallthrough_local`, `a_default_two_defs_deep_captures_the_exception`, `a_default_carries_the_body`, `a_default_carries_a_body_local`; controls `approved_default_after_a_raising_handler`, `approved_default_through_an_opaque_call`.
+  - Findings 2, 9 (one-hop comprehension shadow) fixed: `_tainted_names` skips reads that `_comprehension_shadowed` resolves to a comprehension's own clean variable, recomputed each round. Controls `approved_child_joins_its_own_comprehension`, `approved_child_joins_a_comprehension_over_a_derived_name` (both were false positives on main); positive `a_child_join_over_the_body_still_carries_it`.
+  - Finding 3 (global siblings) fixed: `_scopes` hoists a tainted `global` to the module, so a sibling function inherits it, in both guards. Specimens `a_sibling_reads_the_global`, `a_sibling_reads_the_body_global`; control `approved_a_local_shadows_a_tainted_global`. Finding 5 (lambda in a comprehension) fixed: `_comprehension_shadowed` records a nested def's clean comprehension names and `_scopes` withholds them; control `approved_lambda_reads_its_comprehensions_clean_variable` (a false positive on main).
+  - Finding 6 declined: a comprehension iterable is judged with `_carried` like every other binding, so `for msg in wrap(msg)` is clean for the same measured reason `x = wrap(msg)` is (opaque call arguments, todo 391); `msg = wrap(msg)` staying flagged is the flow-insensitive pass, not call-following. Recorded in the `_comprehension_shadowed` docstring.
+  - Finding 7 fixed in `scripts/inject/test_budget_rules.py`: the 139/140/141 literals are replaced by edges derived from the tail marker read off a real excerpt and re-sized at the whole file's byte count. Mutation-checked: a 50 B over-reservation in `budget_rules.py` fails it, a marker wording change does not.
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-11 - Hand repair before round 2 (owner-approved)
+
+Round-1 review probed three regressions: shapes `origin/main` flags that the PR's first cut no longer did. Each is fixed in `backend/apps/core/tests/test_requests_exception_drift.py` and planted in `PLANTED_SCOPE` as an exact-set positive; `main`'s guard flags all three specimens, and so does HEAD now.
+
+- Regression 1: the comprehension mask was subtracted from a child's seeds and captured parameters too, so `[(lambda line=f"{e}": {"error": line})() for line in items]` lost the default's taint. Fix: `_scopes` drops the child's own locals from `masked` (a parameter is not a free read). Specimen `a_lambda_param_spells_a_clean_comprehension_variable`.
+- Regression 2: masks were computed from the scope's `tainted`, which never holds a handler's exception, so `[(lambda: {"error": a})() for a in e.args]` read `a` as clean. Fix: `_scopes` judges comprehension iterables against `tainted` plus every child's seeds. Specimen `a_lambda_reads_a_comprehension_over_the_exception`.
+- Regression 3: the handler-site default check moved from `_mentions` to `_carried`, so `def render(m=type(e).__name__)` inside a handler went quiet. Fix: `_params_defaulting_to` takes `walk=`, and the handler site passes `ast.walk` (strict); the `_scopes` body path keeps `_carried`. Specimen `a_default_names_the_exception_type`.
+- Tests: `apps/core/tests/test_requests_exception_drift.py` 1323 passed before and after (the specimens join an existing exact-set test). Mutation-checked: reverting each fix alone fails `test_the_guards_resolve_scopes_the_way_python_does` on exactly its own specimen; restored, all pass. The PR's controls (findings 2, 5, 9) stay quiet.

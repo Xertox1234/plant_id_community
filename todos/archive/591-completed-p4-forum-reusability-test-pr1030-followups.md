@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "591"
 tags: [todos, follow-ups]
@@ -25,7 +25,7 @@ PR #1030 (todo sweep run 2026-10-11-1448, group g6, todos 560); follow-ups: veri
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
@@ -33,3 +33,29 @@ PR #1030 (todo sweep run 2026-10-11-1448, group g6, todos 560); follow-ups: veri
 ### 2026-10-11 - Filed from todo-sweep run 2026-10-11-1448
 
 Follow-ups for PR #1030 (todo 560).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-2219)
+
+- Finding 1 fixed: `host_import_lines` in `backend/packages/wagtail_forum/wagtail_forum/tests/test_reusability.py`
+  now names each offending line once, however many regex hits it has. New test
+  `test_host_import_lines_names_a_line_with_two_hits_once` pins `from apps.x import y  # 'apps.z'` to `[2]`
+  (it was `[2, 2]`); only the failure message changes, pass/fail never did.
+- Finding 2 fixed: the HOST_IMPORT comment now says what pre-commit actually does, checked by running the
+  tools: Black splits `import os; import apps.x` and `if X: from apps.y import z`, isort (`--profile black`)
+  splits `import x, apps.y`, and flake8 rewrites nothing (it only reports E701/E702).
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-2219)
+
+- AC 1: `python3 scripts/todos/slot_env.py --main-root . 3 -- backend/venv/bin/python -m pytest backend/packages/wagtail_forum/wagtail_forum/tests/test_reusability.py -v --create-db -p no:cacheprovider` — evidence `.sweep-evidence/g9/591-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================== 21 passed, 2 warnings in 0.28s ========================
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
