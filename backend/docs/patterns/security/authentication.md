@@ -843,8 +843,9 @@ keeping the account.
    (per-row checks), and each test asserts the whole line, so every guard
    fails its own test under mutation.
 
-`--dry-run` reports without deleting. The first scheduled run in production is
-a dry run.
+`--dry-run` reports without deleting. Production ran it as a dry run until the
+counts had been read (0 candidates every night, 2026-10-01 to 2026-10-11); the
+nightly `forum-prune-cron` now deletes (todo 485).
 
 ---
 

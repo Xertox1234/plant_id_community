@@ -7,7 +7,7 @@ dependencies: []
 source_review: "todos/archive/446-completed-p2-registration-email-pre-hijack.md"
 triage: already-done
 triaged: 2026-09-28
-blocked_on: "The owner reads a prod night's \"[PRUNE] unverified accounts\" counts and then opens a PR that drops --dry-run in .railway/railway.ts."
+follow_up: "Not blocking: dropping --dry-run from the expiry cron moved to todo 485."
 ---
 
 # Email verification follow-ups (non-blocking findings from todo 446's review)
@@ -463,7 +463,7 @@ anyway. The 409 code is reachable only past the view's `email_verified`
 - Re-ran on origin/main 332c8793: 150 backend tests, 6 web (`LoginPage.test.tsx`)
   and 6 mobile (`password_reset_link_test`, `account_conflict_snackbar_test`),
   all passing. `AllauthEmailManagementTest` drives `/accounts/email/` over HTTP.
-- Still with the owner (frontmatter `blocked_on`): the nightly
+- Still with the owner (moved to todo 485): the nightly
   `expire_unverified_accounts` in `.railway/railway.ts` runs with `--dry-run`.
   Dropping the flag waits until the owner has read a prod night's
   `[PRUNE] unverified accounts` counts. Neither criterion depends on it.
