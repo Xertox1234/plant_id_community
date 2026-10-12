@@ -30,6 +30,37 @@ from wagtail_forum.models import (
 User = get_user_model()
 
 
+@pytest.fixture(autouse=True)
+def _private_cache():
+    """Every test here gets its own empty cache (todo 630). The default cache
+    is the shared Redis in dev and sweep runs: a test that adds, reads or
+    deletes the real run-lock key there could collide with a parallel slot
+    (exiting on 'holds the lock') or free a live worker's digest run, which
+    is why test_tasks.py moved off it too (todo 593 #9)."""
+    from uuid import uuid4
+
+    with override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": f"wagtail-forum-digest-tests-{uuid4().hex}",
+            }
+        }
+    ):
+        yield
+
+
+def test_the_run_lock_tests_never_touch_the_shared_cache():
+    """Todo 630: the autouse fixture above swaps the default cache for a
+    private, empty one, so the real run-lock key is never on the shared
+    Redis while these tests run."""
+    from django.core.cache import cache, caches
+    from django.core.cache.backends.locmem import LocMemCache
+
+    assert isinstance(caches["default"], LocMemCache)
+    assert cache.get("wagtail_forum:digest-run:weekly") is None
+
+
 def _index():
     root = Page.objects.get(id=1)
     return root.add_child(instance=ForumIndex(title="Forum", slug="forum-digest"))
@@ -974,21 +1005,25 @@ def test_the_claim_update_stays_on_one_table_with_the_marker_outside(monkeypatch
     with CaptureQueriesContext(connection) as ctx:
         call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
 
+    # Compare on the shape, not Django's exact rendering (todo 605): drop
+    # identifier quotes, fold case and collapse whitespace first. The claim
+    # is picked from the normalised SQL too, so a change in quoting or case
+    # cannot make it match nothing (todo 630).
+    def normalise(raw):
+        return re.sub(r"\s+", " ", raw.replace('"', "")).strip().lower()
+
+    table = re.escape(table.lower())
     claims = [
-        q["sql"]
-        for q in ctx.captured_queries
-        if q["sql"].startswith(f'UPDATE "{table}"')
-        and "last_digest_sent_at" in q["sql"]
+        sql
+        for sql in (normalise(q["sql"]) for q in ctx.captured_queries)
+        if re.match(rf"update {table}\b", sql) and "last_digest_sent_at" in sql
     ]
     assert len(claims) == 1, claims
-    # Compare on the shape, not Django's exact rendering (todo 605): drop
-    # identifier quotes, fold case and collapse whitespace first.
-    sql = re.sub(r"\s+", " ", claims[0].replace('"', "")).lower()
+    sql = claims[0]
     assert " join " not in sql
     where = sql.split(" where ", 1)[1]
     # The outer WHERE (before any subquery) carries the pk and the marker.
     outer = where.split("(select", 1)[0]
-    table = table.lower()
     assert re.search(rf"\b{table}\.id = ", outer), outer
     assert re.search(rf"\b{table}\.last_digest_sent_at is null", outer), outer
     assert re.search(rf"\b{table}\.digest_frequency = ", outer), outer
@@ -1097,18 +1132,110 @@ def test_a_run_that_outlives_its_lock_leaves_a_later_fires_lock_alone(monkeypatc
     SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
 )
 def test_a_run_releases_its_own_lock_by_token(monkeypatch):
-    """Todo 605: the token check still releases the lock this run holds."""
+    """Todo 605: the token check still releases the lock this run holds.
+    Todo 630: it pins the comparison too. The release reads the key and
+    finds the very token this run stored, each run stores a token of its
+    own (so a later fire's lock never matches), and only then deletes."""
+    from unittest.mock import MagicMock
+
     from django.core.cache import cache
+    from wagtail_forum.management.commands import send_forum_digest
 
     key = "wagtail_forum:digest-run:weekly"
     member = User.objects.create_user(username="dg-own-lock", email="l@example.com")
-    _opt_in(member)
-    seen = []
+    profile = _opt_in(member)
+    held = []
     _patches_with_a_mid_run_change(
-        monkeypatch, lambda user: seen.append(cache.get(key))
+        monkeypatch, lambda user: held.append(cache.get(key))
     )
+    spy = MagicMock(wraps=cache)
+    monkeypatch.setattr(send_forum_digest, "cache", spy)
+
+    tokens = []
+    for _ in range(2):
+        ForumProfile.objects.filter(pk=profile.pk).update(last_digest_sent_at=None)
+        spy.reset_mock()
+        call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
+        token = spy.add.call_args.args[1]
+        tokens.append(token)
+        assert held[-1] == token  # the key held this run's token
+        spy.get.assert_called_once_with(key)  # the release compared it
+        spy.delete.assert_called_once_with(key)
+        assert cache.get(key) is None  # released after
+
+    assert len(held) == 2 and tokens[0] != tokens[1]
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_a_lock_read_that_answers_none_still_releases_the_lock(monkeypatch):
+    """Todo 630 (owner decision 2026-10-12): under IGNORE_EXCEPTIONS a Redis
+    blip makes the release's get answer None. Keeping the lock would block
+    the soft-time-limit continuation for the full TTL, so a None read falls
+    back to a plain delete."""
+    from unittest.mock import MagicMock
+
+    from wagtail_forum.management.commands import send_forum_digest
+
+    _member_with_a_reply("dg-blip-release")
+    blip = MagicMock()
+    blip.add.return_value = True
+    blip.get.return_value = None
+    monkeypatch.setattr(send_forum_digest, "cache", blip)
 
     call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
 
-    assert len(seen) == 1 and seen[0]  # held during the run
-    assert cache.get(key) is None  # released after
+    assert len(mail.outbox) == 1
+    blip.delete.assert_called_once_with("wagtail_forum:digest-run:weekly")
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+@pytest.mark.parametrize("change", ["cleared_email", "deactivated"])
+def test_an_account_change_between_the_claim_and_the_read_gives_the_claim_back(
+    monkeypatch, change
+):
+    """Todo 630: the claim succeeded, then the email was cleared or the
+    account deactivated before the address was re-read. The command rolls
+    the claim back and mails no one. The change lands right after the claim
+    UPDATE runs, inside the command's transaction, so the claim's own
+    filters cannot stop it first."""
+    from django.db import connection
+
+    member = User.objects.create_user(
+        username=f"dg-after-claim-{change}", email=f"after-{change}@example.com"
+    )
+    profile = _opt_in(member)
+    sent = []
+
+    def send(digest):
+        sent.append(digest.user.email)
+        return True
+
+    _one_topic_digest_patches(monkeypatch, send)
+    table = ForumProfile._meta.db_table
+    claims = []
+
+    def change_after_the_claim(execute, sql, params, many, context):
+        result = execute(sql, params, many, context)
+        if sql.startswith(f'UPDATE "{table}"') and "last_digest_sent_at" in sql:
+            claims.append(sql)
+            if change == "cleared_email":
+                User.objects.filter(pk=member.pk).update(email="")
+            else:
+                User.objects.filter(pk=member.pk).update(is_active=False)
+        return result
+
+    out = StringIO()
+    with connection.execute_wrapper(change_after_the_claim):
+        call_command("send_forum_digest", frequency="weekly", stdout=out)
+
+    assert len(claims) == 1  # the claim ran, so this is the post-claim branch
+    assert sent == []
+    assert "sent=0 failed=0" in out.getvalue()
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is None  # the claim was given back
