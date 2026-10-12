@@ -268,9 +268,13 @@ def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
         # and Warning subclasses Exception: never log it as a failed send
         # (todo 454).
         raise
-    except Exception:
-        logger.exception(
-            "[EMAIL] newsletter confirmation failed for subscriber=%s", subscriber.pk
+    except Exception as e:
+        # The type only: a template error can quote the signed confirm link
+        # (todo 649 finding 1).
+        logger.error(
+            "[EMAIL] newsletter confirmation failed for subscriber=%s: %s",
+            subscriber.pk,
+            type(e).__name__,
         )
         return False
     logger.info("[EMAIL] newsletter confirmation sent to subscriber=%s", subscriber.pk)

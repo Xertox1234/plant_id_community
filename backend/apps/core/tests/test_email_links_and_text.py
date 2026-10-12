@@ -6,7 +6,9 @@ template with no .txt was sent with ``strip_tags(html)`` as its text part,
 which kept the whole stylesheet and dropped every button URL.
 """
 
+import os
 import re
+from pathlib import Path
 
 from apps.core.services.email_service import EmailService, EmailType, html_to_text
 from django.conf import settings
@@ -171,22 +173,82 @@ class HtmlToTextPreheaderAndDataHrefTests(SimpleTestCase):
         )
         self.assertEqual(html_to_text(html), "Body\n")
 
+    def test_an_unclosed_hidden_div_keeps_the_body(self):
+        """Todo 649 review: an unclosed hidden div drops only its opening
+        tag; it never swallows the rest of the message."""
+        html = '<div style="display:none">Pre <p>Body</p><a href="https://y.example">Go</a>'
+        text = html_to_text(html)
+        self.assertIn("Body", text)
+        self.assertIn("Go (https://y.example)", text)
+
+
+@override_settings(SITE_URL="https://web.example/")
+class RenderFailureLogTests(TestCase):
+    """Todo 649 review: send_email logs a render error's type, never its
+    text, which can quote a context value such as the signed unsubscribe link."""
+
+    def test_html_and_txt_render_errors_log_the_type_only(self):
+        from unittest import mock
+
+        from django.template.loader import render_to_string as real_render
+
+        echoed = "unsubscribe?token=FAKE-SIGNED-TOKEN"
+
+        def broken(name, *args, **kwargs):
+            if name.endswith(self.broken_suffix):
+                raise ValueError(echoed)
+            return real_render(name, *args, **kwargs)
+
+        for suffix, level in ((".html", "error"), (".txt", "warning")):
+            with self.subTest(suffix=suffix):
+                self.broken_suffix = suffix
+                with (
+                    mock.patch(
+                        "apps.core.services.email_service.render_to_string",
+                        side_effect=broken,
+                    ),
+                    mock.patch("apps.core.services.email_service.logger") as logger,
+                ):
+                    EmailService().send_email(
+                        email_type=EmailType.COMMUNITY_UPDATE,
+                        recipient="broken@example.com",
+                        subject="Broken",
+                        template_name="generic_notification",
+                        context={"action_url": "https://web.example/forum"},
+                        respect_preferences=False,
+                    )
+                messages = [c.args[0] for c in getattr(logger, level).call_args_list]
+                self.assertTrue(any("ValueError" in m for m in messages), messages)
+                self.assertFalse(any("FAKE-SIGNED-TOKEN" in m for m in messages))
+
 
 class OldBrandSpellingTests(SimpleTestCase):
     """Todo 649 finding 4 (owner decision 2026-10-12): the product is
     "Houseplant MD". The hyphenated spelling is gone from backend code and
     templates, so no default, template or feed can mail or serve it again."""
 
-    SKIP_DIRS = {"venv", ".venv", "node_modules", "staticfiles", "__pycache__", "media"}
+    SKIP_DIRS = {
+        "venv",
+        ".venv",
+        "node_modules",
+        "staticfiles",
+        "__pycache__",
+        "media",
+        "htmlcov",
+        "logs",
+        ".pytest_cache",
+    }
 
     def test_the_old_spelling_is_gone_from_backend_code_and_templates(self):
-        files = [
-            path
-            for path in BACKEND.rglob("*")
-            if path.suffix in {".py", ".html", ".txt"}
-            and path.is_file()
-            and not self.SKIP_DIRS.intersection(path.relative_to(BACKEND).parts)
-        ]
+        files = []
+        # Prune while walking: an rglob would read all of venv first.
+        for root, dirs, names in os.walk(BACKEND):
+            dirs[:] = [d for d in dirs if d not in self.SKIP_DIRS]
+            files += [
+                Path(root) / name
+                for name in names
+                if Path(name).suffix in {".py", ".html", ".txt"}
+            ]
         self.assertGreater(len(files), 100, "is the path right?")
         offenders = [
             str(path.relative_to(BACKEND))

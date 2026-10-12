@@ -53,9 +53,10 @@ _BLANK_LINES = re.compile(r"\n{3,}")
 def _strip_hidden_divs(text: str) -> str:
     """Remove each display:none div with everything in it, up to its own
     closing tag: nested divs are counted, so a hidden div that holds one
-    never leaks its remainder (todo 649). An unclosed one runs to the end."""
+    never leaks its remainder (todo 649). An unclosed one loses only its
+    opening tag, so a template slip never empties the text part."""
     while match := _HIDDEN_DIV_OPEN.search(text):
-        depth, end = 1, len(text)
+        depth, end = 1, match.end()
         for tag in _DIV_TAG.finditer(text, match.end()):
             depth += -1 if tag.group(1) else 1
             if depth == 0:
@@ -209,8 +210,11 @@ class EmailService:
             )
             return False
         except Exception as e:
+            # The type only: a template error can quote a context value, such
+            # as the signed unsubscribe link (todo 649 finding 1).
             logger.error(
-                f"[EMAIL] Failed to render email template {template_name}.html: {e}"
+                f"[EMAIL] Failed to render email template {template_name}.html: "
+                f"{type(e).__name__}"
             )
             return False
 
@@ -225,7 +229,7 @@ class EmailService:
             # fine; fall back to the stripped HTML but surface the bug in logs.
             logger.warning(
                 f"[EMAIL] Failed to render email template {template_name}.txt "
-                f"(falling back to stripped HTML): {e}"
+                f"(falling back to stripped HTML): {type(e).__name__}"
             )
             text_content = html_to_text(html_content)
 

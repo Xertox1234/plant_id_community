@@ -70,3 +70,23 @@ Filed by the closing step of the run from `state.py followups-md g2`.
 ### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-2056)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Review round 1: findings fixed by hand, the rest declined (owner decision)
+
+Round 1 found nothing blocking. These lows were cheap and in scope, so they were fixed before round 2:
+
+- **An unclosed hidden div emptied the text part** (a regression from finding 3). `_strip_hidden_divs` cut to
+  the end of the document when the closing tag was missing, where the old regex removed nothing. An unclosed
+  hidden div now loses only its opening tag. New test `test_an_unclosed_hidden_div_keeps_the_body`. With the
+  old cut-to-end restored, it fails (mutation check).
+- **Finding 1 covered only the two account mails.** `send_email` still logged a render exception's text for
+  the `.html` and `.txt` templates, and the newsletter confirmation used `logger.exception`. Those contexts hold
+  signed unsubscribe and confirm links. All three now log the exception type only. New test
+  `RenderFailureLogTests`. It fails when the `.txt` warning goes back to logging the exception (mutation check).
+- **The brand guard walked all of `backend/venv`** and read stale reports (`htmlcov`, `logs`). It now prunes
+  skip directories during an `os.walk`, and the skip set adds `htmlcov`, `logs` and `.pytest_cache`.
+- Declined: extending the brand guard to `web/src` and the mobile app. The owner decision scoped it to backend
+  code and templates, and neither has the old spelling (grep: 0 hits).
+
+Tests: `test_email_links_and_text.py`, `test_email_presentation.py` and `apps/blog/tests` pass: 513 passed,
+7 skipped.
