@@ -10,6 +10,7 @@ individually testable although the extra-data backstop overlaps several.
 import importlib
 import io
 import logging
+import uuid
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -34,6 +35,9 @@ from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import DatabaseError
+from django.db.models import QuerySet
+from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
@@ -333,6 +337,72 @@ def test_a_failed_refresh_does_not_stamp():
 
     user.refresh_from_db()
     assert user.last_token_refresh is None
+
+
+@pytest.fixture
+def own_cache():
+    """The refresh endpoint is rate limited per IP: give the test an empty
+    in-memory cache. Never cache.clear(), which flushes dev Redis."""
+    locmem = {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": f"expiry-refresh-test-{uuid.uuid4()}",
+    }
+    with override_settings(CACHES={"default": locmem, "renditions": locmem}):
+        yield
+
+
+@pytest.mark.django_db
+def test_a_refresh_moves_an_older_stamp_forward(own_cache):
+    user = stale_account()
+    older = timezone.now() - timedelta(days=3)
+    User.objects.filter(pk=user.pk).update(last_token_refresh=older)
+
+    assert _refresh(user).status_code == 200
+
+    user.refresh_from_db()
+    assert user.last_token_refresh > older, "todo 627 item 4: a 200 must restamp"
+
+
+@pytest.mark.django_db
+def test_a_replayed_refresh_token_does_not_restamp(own_cache):
+    user = stale_account()
+    token = str(RefreshToken.for_user(user))
+    assert _refresh(user, token=token).status_code == 200
+    user.refresh_from_db()
+    first = user.last_token_refresh
+
+    assert _refresh(user, token=token).status_code == 401
+
+    user.refresh_from_db()
+    assert (
+        user.last_token_refresh == first
+    ), "todo 627 item 4: a blacklisted token must not move the stamp"
+
+
+@pytest.mark.django_db
+def test_a_failed_stamp_fails_the_refresh_without_burning_the_token(own_cache):
+    """Todo 627 item 3: the stamp runs before the blacklist, so when it fails
+    the old token is still valid and the client can simply retry."""
+    user = stale_account()
+    token = str(RefreshToken.for_user(user))
+    real_update = QuerySet.update
+
+    def failing_stamp(self, **kwargs):
+        if "last_token_refresh" in kwargs:
+            raise DatabaseError("stamp down")
+        return real_update(self, **kwargs)
+
+    with patch.object(QuerySet, "update", autospec=True, side_effect=failing_stamp):
+        response = _refresh(user, token=token)
+
+    assert response.status_code == 503, response.content
+    user.refresh_from_db()
+    assert user.last_token_refresh is None, "todo 627 item 3: nothing stamped"
+    assert (
+        _refresh(user, token=token).status_code == 200
+    ), "todo 627 item 3: a failed stamp must not have burned the token"
+    user.refresh_from_db()
+    assert user.last_token_refresh is not None
 
 
 @pytest.mark.django_db

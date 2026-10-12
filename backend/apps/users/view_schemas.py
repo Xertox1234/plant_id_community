@@ -322,6 +322,7 @@ SUBSCRIBE_PUSH_SCHEMA = extend_schema(
             },
         ),
         400: _SIMPLE_ERROR,
+        409: _SIMPLE_ERROR,
         429: RATE_LIMITED,
         500: _SIMPLE_ERROR,
     },
@@ -376,11 +377,14 @@ RESUBSCRIBE_PUSH_SCHEMA = extend_schema(
         200: _MESSAGE,
         400: _SIMPLE_ERROR,
         404: _SIMPLE_ERROR,
+        409: _SIMPLE_ERROR,
         429: ERROR_ENVELOPE,
     },
     description="Called by the service worker when the browser replaces a push "
     "subscription (todo 456). No session: the old subscription's endpoint and "
-    "auth secret prove the caller holds it. CSRF-exempt, rate-limited per IP.",
+    "auth secret prove the caller holds it. CSRF-exempt, rate-limited per IP. "
+    "409 when other accounts took the new endpoint concurrently twice running: "
+    "nothing changed, so the caller may retry (todo 628).",
     examples=[
         _example(
             "Browser replaced its subscription",
