@@ -4,6 +4,9 @@ priority: p4
 issue_id: "603"
 tags: [docs, todos, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Add a dated correction entry to archived 583's Work Log quoting the current grep output; leave the old quote (2026-10-11)"
 ---
 
 # Follow-ups from PR #1048 (todo 583, the todo-466 AC 4 evidence correction)

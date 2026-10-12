@@ -4,6 +4,9 @@ priority: p4
 issue_id: "612"
 tags: [web, forum, a11y, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Finding 1 declined per todo 592's http(s)-only parity decision; fix only the stale docblock (2026-10-11)"
 ---
 
 # Follow-ups from PR #1058 (todo 592, forum embed fallback affordance)

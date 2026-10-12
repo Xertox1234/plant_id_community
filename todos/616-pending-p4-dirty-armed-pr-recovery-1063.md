@@ -4,6 +4,9 @@ priority: p4
 issue_id: "616"
 tags: [todo-sweep, docs, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "DIRTY-recovery merge commit skips kimi (SKIP_KIMI_REVIEW=1) and records 'kimi: skipped'; origin/main's code was already reviewed (2026-10-11)"
 ---
 
 # Follow-ups from PR #1063 (todo 601, DIRTY armed-PR recovery runbook)

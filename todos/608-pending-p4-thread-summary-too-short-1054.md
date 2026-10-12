@@ -5,6 +5,8 @@ issue_id: "608"
 tags: [web, forum, follow-ups]
 dependencies: []
 owner_decision: "Agree with the refuter: record the finding as declined (Outcome is only ready|too_short, types/forum.ts:441-444) and archive; verify-only, no code (2026-10-11)"
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #1054 (todo 588, thread summary too-short line)

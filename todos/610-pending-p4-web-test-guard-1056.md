@@ -4,6 +4,8 @@ priority: p4
 issue_id: "610"
 tags: [web, testing, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #1056 (todo 590, web test guard follow-ups)

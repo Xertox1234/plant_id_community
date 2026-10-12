@@ -4,6 +4,9 @@ priority: p4
 issue_id: "607"
 tags: [backend, mobile, avatars, auth, openapi, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "Item 4 declined: keep the raw IP in the brute_force_login/suspicious_login_frequency alerts (deliberate, security.py:427), record the reason; fix the other items (2026-10-11)"
 ---
 
 # Follow-ups from PR #1053 (todos 587 and 599, avatar sRGB conversion, auth exchange and OpenAPI 429 gate)
