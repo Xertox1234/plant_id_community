@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "611"
 tags: [backend, forum, testing, follow-ups]
@@ -23,7 +23,7 @@ PR #1057 (todo sweep run 2026-10-11-2219, group g9, todos 591, 598); follow-ups:
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -31,3 +31,31 @@ PR #1057 (todo sweep run 2026-10-11-2219, group g9, todos 591, 598); follow-ups:
 ### 2026-10-11 - Filed from the PR #1057 review (todo sweep run 2026-10-11-2219)
 
 Filed by the closing step of the run from `state.py followups-md g9`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-0349)
+
+- Findings 1 and 2 (the same race): `DripServer` in `backend/apps/forum_host/tests/conftest.py` now sets an
+  `accepted` event once a client is accepted, and records how a client that sent nothing left
+  (`left_before_request`: `"eof"` or `"reset"`).
+- `test_598_a_client_that_resets_before_sending_is_not_a_hang_up` waits on `accepted` instead of a 0.2 s
+  sleep, checks the thread ended before `stop()` (a RST that beat `accept()` left it polling until `stop()`),
+  and asserts `left_before_request == "reset"`, so it can no longer pass without reaching the pre-request
+  `except OSError`. `test_576_item2_…` asserts `"eof"` the same way.
+- Mutation check: deleting the pre-request `except OSError` branch makes test 598 fail
+  (`assert None == 'reset'`); restored.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-12-0349)
+
+- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 4 -- venv/bin/python -m pytest apps/forum_host/tests/test_link_preview.py -p no:cacheprovider --create-db -q` — evidence `.sweep-evidence/g10/611-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================= 58 passed, 3 warnings in 23.30s ========================
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

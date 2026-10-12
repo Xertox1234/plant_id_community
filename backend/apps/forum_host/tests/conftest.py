@@ -28,11 +28,18 @@ class DripServer:
     anything, or resets before sending anything, gets nothing and leaves
     ``hung_up`` False (todo 598). A client that hangs up or resets mid-drip
     ends the thread quietly rather than raising in it; ``hung_up`` records
-    that it did."""
+    that it did.
+
+    ``accepted`` is set once a client is accepted, so a test can act on the
+    connection knowing the server is past ``accept()`` (todo 611), and
+    ``left_before_request`` records how a client that sent nothing left:
+    ``"eof"`` or ``"reset"``."""
 
     def __init__(self, prefix):
         self.prefix = prefix
         self.hung_up = False
+        self.accepted = threading.Event()
+        self.left_before_request = None
         self._stop = threading.Event()
         self._server = socket.create_server(("127.0.0.1", 0))
         self._server.settimeout(_ACCEPT_POLL_SECONDS)
@@ -53,6 +60,7 @@ class DripServer:
             # CPython gives an accepted socket the default timeout (None,
             # blocking), not the listener's: poll the first recv instead.
             connection.settimeout(_ACCEPT_POLL_SECONDS)
+            self.accepted.set()
             return connection
         return None
 
@@ -63,11 +71,16 @@ class DripServer:
         leaving, not a request to answer, and not a mid-drip hang-up."""
         while not self._stop.is_set():
             try:
-                return connection.recv(4096) or None
+                request = connection.recv(4096)
             except TimeoutError:
                 continue
             except OSError:  # reset before sending: not ``hung_up``
+                self.left_before_request = "reset"
                 return None
+            if not request:
+                self.left_before_request = "eof"
+                return None
+            return request
         return None
 
     def _drip(self):
