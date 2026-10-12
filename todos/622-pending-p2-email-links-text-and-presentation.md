@@ -6,7 +6,7 @@ tags: [backend, web, email, templates, accessibility, testing]
 dependencies: []
 triage: ready
 triaged: 2026-10-12
-owner_decision: "Owner: keep all scope in 622; standardize every live email family on templates/emails/base.html (mail-safe, inlined). AC6 inbox checks remain owner-only (2026-10-12)"
+owner_decision: "Owner: keep all scope in 622; standardize every live email family on templates/emails/base.html (mail-safe, inlined) (2026-10-12). Owner: fix blog_post.html's #!/ links too, even though no caller renders it (2026-10-12). Owner: AC6 inbox checks re-pointed to todo 626 (2026-10-12)"
 ---
 
 # Repair email navigation and standardize readable message presentation
@@ -46,7 +46,7 @@ Audit baseline: five targeted web test files passed (100 tests), but did not exe
 - [ ] Every live message family has a meaningful text alternative with action URLs and no CSS/script source; tests assert content and destinations, not only nonempty bodies or send counts.
 - [ ] Representative HTML follows a consistent brand/layout, valid preheader placement and accessible essential inline styling; verification, reset and security notices retain their meaning and escape user content.
 - [ ] Unsubscribe/preferences links and headers remain correct for optional mail; required security mail is not disabled by optional-mail preferences. Relevant template, account, newsletter and forum tests pass.
-- [ ] Approved Gmail, Apple Mail and Outlook checks record date, client/version, light/dark/narrow-screen observations and any accepted limitation. If unavailable, keep this criterion open or explicitly re-point it to a dedicated verification todo; do not claim inbox compatibility from a browser-only render.
+- [ ] Approved Gmail, Apple Mail and Outlook checks record date, client/version, light/dark/narrow-screen observations and any accepted limitation. If unavailable, keep this criterion open or explicitly re-point it to a dedicated verification todo; do not claim inbox compatibility from a browser-only render. → todo 626 (re-pointed 2026-10-12)
 
 ## Work Log
 
@@ -54,6 +54,10 @@ Audit baseline: five targeted web test files passed (100 tests), but did not exe
 
 - Grouped broken welcome navigation, text alternatives, exact-reply links and email visual consistency. Existing 267/408 work was checked and does not cover the remaining issues.
 - Recorded the in-memory render/router evidence; no mail was sent and no permanent application changes were made during the audit.
+
+### 2026-10-12 - Triage (run 2026-10-12-1637)
+
+- Owner: AC6 inbox checks re-pointed to [todo 626](626-pending-p2-email-inbox-rendering-verification.md); blog_post.html links fixed too despite no caller.
 
 ## Notes
 
