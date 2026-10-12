@@ -50,8 +50,9 @@ needs the sandbox off. A worker that blocks on "no database" means a socket is m
 there. Run these steps with the sandbox off, and no others:
 
 - Stage B step 1, `execute-args` (it runs `git worktree add` and copies the `.worktreeinclude` files).
-- Stage D steps 1–8, a Stage C repair commit, and the empty commit that restarts a wedged CI run (Merge
-  confirmation): `ensure-worktree`, `land.py`, `git add`, `git branch -m`, `git commit` and a rebase in `$WT`.
+- Stage D steps 1–8, a Stage C repair commit, and the empty commit that restarts a wedged CI run and the
+  `DIRTY` recovery merge (Merge confirmation): `ensure-worktree`, `land.py`, `git add`, `git branch -m`,
+  `git commit`, a rebase and a merge of origin/main in `$WT`.
 - Cleanup: `git worktree remove $WT`, then `git worktree prune`.
 
 A step that fails for any other reason is not a sandbox problem; stop and report it.
@@ -354,6 +355,47 @@ fixer-only edit through, and the commit would push it unreviewed; if it fails, s
 tree → `ensure-worktree` again → `/usr/bin/git -C $WT push origin <branch>`. The tree is unchanged, so
 `ensure-worktree` accepts it exactly as before and the reviews still hold; both kimi gates skip an empty diff. Then check that auto-merge
 is still armed (`gh pr view <n> --repo $GH_REPO --json autoMergeRequest`) and arm it again if not.
+
+**Waiting on an armed PR** (todo 601). A merge conflict is not a check: when a peer PR merges first and
+leaves a conflict, GitHub reports it only as `mergeStateStatus: DIRTY` / `mergeable: CONFLICTING`, and every
+check can stay green while auto-merge never fires (PRs #1035 and #1040, `docs/LEARNINGS.md` 2026-10-11 "An
+armed PR stalled on a conflict no check reported"). So a poll or loop that waits on an armed PR reads
+`gh pr view <n> --repo $GH_REPO --json state,mergeStateStatus,mergeable,statusCheckRollup`, not the checks
+alone, and stops on any of: `MERGED`, `CLOSED`, a failed required check, or `mergeStateStatus` `DIRTY`.
+Treat `DIRTY` as a stop, never as "still waiting", and recover it as below.
+
+**An armed PR that goes `DIRTY`** (todo 601). Recover it with the sandbox off, in this order:
+
+1. `ensure-worktree` (Stage D step 1), then `/usr/bin/git -C $WT fetch origin main`.
+2. `/usr/bin/git -C $WT merge --no-commit --no-ff origin/main` — a merge commit,
+   never a rebase plus force-push: the branch is already pushed and reviewed, and a force-push rewrites what
+   the reviewers read. `--no-commit` stops even a clean merge here, so steps 4–6 run before the commit
+   exists.
+3. Resolve the conflicts. Only these are mechanical:
+   - `todos/` files — rebuild from origin/main, never concatenate both sides (that leaves duplicate `status:`
+     keys and doubled criteria and Work Log lines). In this merge "ours" is the branch and "theirs" is
+     origin/main: write origin/main's version (`/usr/bin/git -C $WT show origin/main:<path> > $WT/<path>`),
+     then re-apply this branch's own changes to it by hand — its criteria ticks, its Work Log entries, its
+     archive move;
+   - append-only docs (`docs/LEARNINGS.md`, `docs/rules/*.md`) — keep both entries, origin/main's first;
+   - `.secrets.baseline` — only its `generated_at` and the `line_number` values: take origin/main's
+     `generated_at`, and fix each line number against the merged file. The baseline is hand-maintained;
+     never regenerate it with a scan.
+
+   Any other conflict stops the group for the owner. Disarm first, so nothing merges it before the owner
+   resolves it: `gh pr merge <n> --repo $GH_REPO --disable-auto` (from REPO). Then
+   `/usr/bin/git -C $WT merge --abort`, then
+   `state.py set-group $RUN G blocked --field reason="merge conflict with origin/main: <paths>"`, and report
+   the PR in the wrap-up as blocked with auto-merge disarmed. Never resolve a source conflict by hand.
+4. Re-run the group's gates on the merged tree: the `command` of every criterion in its `ac.json` whose
+   files the merge touched, and `pre-commit run --files <resolved paths>` (`SKIP=kimi-review`; the commit runs
+   the kimi gate).
+5. `/usr/bin/git -C $WT add -- <resolved paths>`, then record the merged tree before anything checks it:
+   `state.py annotate $RUN G --field tree_id=$(/usr/bin/git -C $WT write-tree)`.
+6. Commit the merge: `/usr/bin/git -C $WT commit --no-edit` (`timeout: 600000`, as in Stage D step 6).
+7. `ensure-worktree` again, then `/usr/bin/git -C $WT push origin <branch>` (no `-u`, no `--force`).
+8. Confirm auto-merge is still armed (`gh pr view <n> --repo $GH_REPO --json autoMergeRequest,mergeStateStatus`)
+   and arm it again if not (see **Arming auto-merge**). Then go back to waiting.
 
 ## Wrap-up
 
