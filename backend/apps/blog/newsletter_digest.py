@@ -123,7 +123,7 @@ def render(
     subscriber: BlogNewsletter, posts: list[DigestPost], unsubscribe_url: str
 ) -> tuple[str, str, str]:
     """(subject, text body, html body)."""
-    site_name = getattr(settings, "SITE_NAME", "Houseplant-MD")
+    site_name = getattr(settings, "SITE_NAME", "Houseplant MD")
     context = {
         "site_name": site_name,
         "posts": posts,

@@ -28,14 +28,15 @@ _NON_CONTENT = re.compile(
     r"<(head|style|script|title)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL
 )
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
-# A div hidden with an inline display:none: base.html's preheader, the inbox
-# preview line, which is not body text (todo 639). Non-greedy to the first
-# </div>, so it is only right for a hidden div holding no nested div, which
-# is all the preheader ever holds.
-_HIDDEN_DIV = re.compile(
-    r"""<div\b[^>]*\bstyle\s*=\s*(["'])[^"']*?display\s*:\s*none[^"']*\1[^>]*>.*?</div\s*>""",
-    re.IGNORECASE | re.DOTALL,
+# The opening tag of a div hidden with an inline display:none: base.html's
+# preheader, the inbox preview line, which is not body text (todo 639). Each
+# quote style is its own branch, so a style value holding the other quote
+# (font-family:'x'; display:none) still matches (todo 649).
+_HIDDEN_DIV_OPEN = re.compile(
+    r"""<div\b[^>]*\bstyle\s*=\s*(?:"[^"]*?display\s*:\s*none[^"]*"|'[^']*?display\s*:\s*none[^']*')[^>]*>""",
+    re.IGNORECASE,
 )
+_DIV_TAG = re.compile(r"<(/?)div\b[^>]*>", re.IGNORECASE)
 # \s before href: an attribute always follows whitespace, so data-href= (where
 # "-" makes a word boundary) is never read as the link (todo 639).
 _LINK = re.compile(
@@ -49,6 +50,21 @@ _SPACES = re.compile(r"[ \t\r\f\v]+")
 _BLANK_LINES = re.compile(r"\n{3,}")
 
 
+def _strip_hidden_divs(text: str) -> str:
+    """Remove each display:none div with everything in it, up to its own
+    closing tag: nested divs are counted, so a hidden div that holds one
+    never leaks its remainder (todo 649). An unclosed one runs to the end."""
+    while match := _HIDDEN_DIV_OPEN.search(text):
+        depth, end = 1, len(text)
+        for tag in _DIV_TAG.finditer(text, match.end()):
+            depth += -1 if tag.group(1) else 1
+            if depth == 0:
+                end = tag.end()
+                break
+        text = text[: match.start()] + text[end:]
+    return text
+
+
 def html_to_text(html_content: str) -> str:
     """A readable plain-text alternative for an HTML email that has no .txt.
 
@@ -59,7 +75,7 @@ def html_to_text(html_content: str) -> str:
     (todo 622).
     """
     text = _COMMENT.sub("", _NON_CONTENT.sub("", html_content))
-    text = _HIDDEN_DIV.sub("", text)
+    text = _strip_hidden_divs(text)
 
     def _link(match: "re.Match[str]") -> str:
         url = match.group("url").strip()

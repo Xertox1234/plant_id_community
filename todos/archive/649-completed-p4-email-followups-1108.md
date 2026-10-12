@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "649"
 tags: [email, templates, follow-ups]
@@ -38,7 +38,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -46,3 +46,27 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-12 - Filed from the PR #1108 review (todo sweep run 2026-10-12-1938)
 
 Filed by the closing step of the run from `state.py followups-md g2`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-2056)
+
+- Finding 1: `backend/apps/users/email_verification.py` and `backend/apps/users/account_links.py` now log only the exception's type on a render failure, never its text; `test_a_template_error_is_a_failed_send_not_a_raise` was changed to feed a fake signed-link string and assert it is absent from the log.
+- Finding 2: `test_security_notices_keep_their_meaning` and `BlogPostLayoutTests` pin `SITE_NAME="Houseplant MD"`, so a dev `.env` SITE_NAME can no longer flip them.
+- Finding 3: `html_to_text` (`backend/apps/core/services/email_service.py`) matches each quote style separately and strips a hidden div up to its own balanced `</div>`, so a style holding the other quote or a nested div no longer leaks preheader text; two tests cover both.
+- Finding 4 (owner decision): every `Houseplant-MD` in backend code and templates (template_service defaults, security alert text, newsletter defaults, forum feed, `WAGTAIL_SITE_NAME`, the `test_email` command, five email templates) is now `Houseplant MD`; `OldBrandSpellingTests` fails if the old spelling returns under `backend/`.
+- Finding 5: `test_a_template_error_makes_the_task_retry` runs the verification and sign-in-link Celery tasks with a failing render and asserts `retry` is called.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-2056)
+
+- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 2 -- venv/bin/python -m pytest apps/core/tests/test_email_links_and_text.py apps/users/tests/test_email_presentation.py apps/users/tests/test_email_verification_hardening.py apps/blog/tests/test_newsletter.py apps/blog/tests/test_newsletter_digest.py --create-db -p no:cacheprovider -v` — evidence `.sweep-evidence/g8/649-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ============= 172 passed, 3 warnings, 18 subtests passed in 25.59s =============
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-2056)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

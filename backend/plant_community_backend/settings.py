@@ -578,7 +578,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SITE_ID = 1
 
 # Wagtail settings
-WAGTAIL_SITE_NAME = "Houseplant-MD"
+WAGTAIL_SITE_NAME = "Houseplant MD"
 WAGTAIL_FRONTEND_LOGIN_URL = "/accounts/login/"
 # WAGTAILIMAGES_IMAGE_MODEL = 'core.CustomImage'  # Uncomment after creating core app
 

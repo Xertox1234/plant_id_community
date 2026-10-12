@@ -228,7 +228,9 @@ def test_security_mail_has_no_optional_mail_footer(sent):
 
 
 @pytest.mark.django_db
-@override_settings(SITE_URL=SITE, API_PUBLIC_URL=API)
+# SITE_NAME pinned (todo 649 finding 2): the exact subject must not depend on
+# a SITE_NAME a dev .env may set.
+@override_settings(SITE_URL=SITE, API_PUBLIC_URL=API, SITE_NAME="Houseplant MD")
 def test_security_notices_keep_their_meaning():
     verify = verification()
     linked = provider_linked()
@@ -373,19 +375,59 @@ def test_required_mail_passes_preferences_through_send_email():
     ],
 )
 def test_a_template_error_is_a_failed_send_not_a_raise(module, deliver):
-    """Finding 2: False lets the Celery task retry and log its give-up."""
+    """Finding 2: False lets the Celery task retry and log its give-up.
+
+    Todo 649 finding 1: the log names the exception's type, never its text,
+    which a template error can fill with a context value such as the signed
+    link."""
     from unittest import mock
 
     user = _user(f"broken-{module.rsplit('.', 1)[1]}")
     mail.outbox.clear()
+    echoed = "verify-email?key=FAKE-SIGNED-TOKEN"
     with (
-        mock.patch(f"{module}.render_to_string", side_effect=ValueError("boom")),
+        mock.patch(f"{module}.render_to_string", side_effect=ValueError(echoed)),
         mock.patch(f"{module}.logger") as logger,
     ):
         assert deliver(user) is False
     assert mail.outbox == []
     [call] = logger.error.call_args_list
-    assert call.args[0].startswith("[EMAIL]") and "boom" in call.args[0]
+    assert call.args[0].startswith("[EMAIL]") and "ValueError" in call.args[0]
+    assert "FAKE-SIGNED-TOKEN" not in call.args[0]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "task_name, module, args",
+    [
+        ("send_verification_email_task", "apps.users.email_verification", ()),
+        ("send_provider_linked_notice_task", "apps.users.account_links", ("google",)),
+    ],
+)
+def test_a_template_error_makes_the_task_retry(task_name, module, args):
+    """Todo 649 finding 5: the reason a render failure returns False is that
+    the Celery task then retries. ``push_request`` + a mocked ``retry``
+    (docs/rules/celery.md), since ``.apply()`` ignores the countdown."""
+    from unittest import mock
+
+    from apps.users import tasks
+    from celery.exceptions import Retry
+
+    task = getattr(tasks, task_name)
+    user = _user(f"retry-{task_name[5:13]}")
+    mail.outbox.clear()
+    task.push_request(retries=0)
+    try:
+        with (
+            mock.patch(f"{module}.render_to_string", side_effect=ValueError("x")),
+            mock.patch.object(task, "retry", side_effect=Retry()) as retry,
+            pytest.raises(Retry),
+        ):
+            task.run(user.pk, *args)
+    finally:
+        task.pop_request()
+    retry.assert_called_once()
+    assert mail.outbox == []
 
 
 @pytest.mark.django_db

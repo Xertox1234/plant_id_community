@@ -17,6 +17,8 @@ from django.test import SimpleTestCase, TestCase, override_settings
 BACKEND = settings.BASE_DIR
 WEB_SRC = BACKEND.parent / "web" / "src"
 HREF = re.compile(r'href="([^"]*)"')
+# The old brand spelling (todo 649), built so this file never matches its own guard.
+OLD_BRAND = "Houseplant" + "-MD"
 EMAIL_TEMPLATE_DIRS = [
     BACKEND / "templates" / "emails",
     BACKEND / "templates" / "account" / "email",
@@ -93,7 +95,7 @@ class HtmlToTextTests(SimpleTestCase):
         html = render_to_string(
             "emails/generic_notification.html",
             {
-                "site_name": "Houseplant-MD",
+                "site_name": "Houseplant MD",
                 "notification_title": "Ready",
                 "notification_message": "Your result & care notes are ready.",
                 "action_url": "https://web.example/identify?a=1&b=2",
@@ -151,8 +153,51 @@ class HtmlToTextPreheaderAndDataHrefTests(SimpleTestCase):
         text = html_to_text('<p><a data-href="x" href="https://y.example">L</a></p>')
         self.assertEqual(text, "L (https://y.example)\n")
 
+    def test_a_hidden_style_holding_the_other_quote_is_still_hidden(self):
+        """Todo 649 finding 3: the style value may contain the other quote."""
+        for html in (
+            "<div style=\"font-family:'x'; display:none\">Preview</div><p>Body</p>",
+            "<div style='font-family:\"x\"; display:none'>Preview</div><p>Body</p>",
+        ):
+            with self.subTest(html=html):
+                self.assertEqual(html_to_text(html), "Body\n")
 
-@override_settings(SITE_URL="https://web.example/")
+    def test_a_hidden_div_holding_a_nested_div_is_hidden_whole(self):
+        """Todo 649 finding 3: nested divs are counted, not cut at the first
+        closing tag."""
+        html = (
+            '<div style="display: none">Pre <div>inner</div> tail</div>'
+            "<div>Body</div>"
+        )
+        self.assertEqual(html_to_text(html), "Body\n")
+
+
+class OldBrandSpellingTests(SimpleTestCase):
+    """Todo 649 finding 4 (owner decision 2026-10-12): the product is
+    "Houseplant MD". The hyphenated spelling is gone from backend code and
+    templates, so no default, template or feed can mail or serve it again."""
+
+    SKIP_DIRS = {"venv", ".venv", "node_modules", "staticfiles", "__pycache__", "media"}
+
+    def test_the_old_spelling_is_gone_from_backend_code_and_templates(self):
+        files = [
+            path
+            for path in BACKEND.rglob("*")
+            if path.suffix in {".py", ".html", ".txt"}
+            and path.is_file()
+            and not self.SKIP_DIRS.intersection(path.relative_to(BACKEND).parts)
+        ]
+        self.assertGreater(len(files), 100, "is the path right?")
+        offenders = [
+            str(path.relative_to(BACKEND))
+            for path in files
+            if OLD_BRAND in path.read_text(errors="ignore")
+        ]
+        self.assertEqual(offenders, [])
+
+
+# SITE_NAME pinned (todo 649 finding 2): a dev .env may still set the old name.
+@override_settings(SITE_URL="https://web.example/", SITE_NAME="Houseplant MD")
 class BlogPostLayoutTests(TestCase):
     """Todo 639 finding 6: blog_post.html has no live caller, so the
     per-family tests in apps/users/tests/test_email_presentation.py cannot
@@ -212,6 +257,6 @@ class BlogPostLayoutTests(TestCase):
             self.assertIn(url, message.body)
         for tag in re.findall(r"<a\b[^>]*>", html):
             self.assertRegex(tag, r'style="[^"]*(?<![-\w])color:')
-        self.assertNotIn("Houseplant-MD", html)
+        self.assertNotIn(OLD_BRAND, html)
         # The preheader (the excerpt) is not where the text part opens.
         self.assertFalse(message.body.startswith("Roots first."))
