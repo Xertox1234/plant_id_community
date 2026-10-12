@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "610"
 tags: [web, testing, follow-ups]
@@ -27,7 +27,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -35,3 +35,29 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-11 - Filed from the PR #1056 review (todo sweep run 2026-10-11-2219)
 
 Filed by the closing step of the run from `state.py followups-md g8`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-0349)
+
+- Findings 1 and 2 (one defect, reported twice): fixed. The post-list tail capture in
+  `readInlineChoices` (`web/src/pages/diagnosis/DiseaseDiagnosePage.test.tsx`) now allows balanced
+  parentheses two levels deep, so `] + list(EXTRA)` is reported whole as `+ list(EXTRA)` instead of
+  the truncated `+ list(EXTRA`. It still stops at the declaration's top-level `,` or closing `)`.
+- The test that pinned the truncated string now pins the full one, and a nested-call case
+  (`+ list(chain(A, B))`) was added. The guard fails closed either way; this only fixes the message.
+- Evidence: `npx vitest run src/pages/diagnosis/DiseaseDiagnosePage.test.tsx` from `web/`, 24 passed.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-12-0349)
+
+- AC 1: `cd web && npx vitest run src/pages/diagnosis/DiseaseDiagnosePage.test.tsx --reporter=verbose` — evidence `.sweep-evidence/g9/610-ac0.txt` (not committed), last lines:
+
+  ```text
+
+   Test Files  1 passed (1)
+        Tests  24 passed (24)
+     Start at  09:49:02
+     Duration  1.22s (transform 65ms, setup 107ms, import 236ms, tests 316ms, environment 492ms)
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

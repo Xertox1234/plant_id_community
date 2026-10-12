@@ -39,8 +39,9 @@ type InlineChoices = { error: string } | { choices: [string, string][]; residue:
 // `["dormant", "Dormant"]`, a `*EXTRA` spread, a gettext `_("...")` label,
 // single quotes -- which a line count missed (todo 556). What follows the
 // closing `]` up to the next `,` or `)` -- `choices=[...] + EXTRA` -- is
-// residue too (todo 590). Known limit: a `]` inside a label ends the list
-// early.
+// residue too (todo 590), its parentheses balanced two levels deep so a call
+// such as `+ list(EXTRA)` is reported whole, not cut at its own `)` (todo 610).
+// Known limit: a `]` inside a label ends the list early.
 function readInlineChoices(source: string, field: string): InlineChoices {
   const decl = source.match(
     new RegExp(`^ {4}${field} = models\\.CharField\\(((?:(?!\\n {4}\\S)[\\s\\S])*)`, 'm')
@@ -50,7 +51,7 @@ function readInlineChoices(source: string, field: string): InlineChoices {
   const body = decl[1].replace(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|#[^\n]*/g, (m) =>
     m.startsWith('#') ? '' : m
   );
-  const list = body.match(/choices=\[([\s\S]*?)\]([^,)]*)/);
+  const list = body.match(/choices=\[([\s\S]*?)\]((?:[^,()]|\((?:[^()]|\([^()]*\))*\))*)/);
   if (!list) return { error: `${field} has no inline choices=[...] list` };
   const tuple = /\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,?\s*\)/g;
   const choices = [...list[1].matchAll(tuple)].map((m) => [m[1], m[2]] as [string, string]);
@@ -345,7 +346,9 @@ describe('readInlineChoices', () => {
   // concatenated on after it passed with nothing left over.
   it.each([
     ['a concatenated constant', ' + EXTRA_CONDITIONS', '+ EXTRA_CONDITIONS'],
-    ['a concatenated call', ' + list(EXTRA)', '+ list(EXTRA'],
+    // Todo 610: the tail stopped at the call's own `)`, reporting `+ list(EXTRA`.
+    ['a concatenated call', ' + list(EXTRA)', '+ list(EXTRA)'],
+    ['a nested call', ' + list(chain(A, B))', '+ list(chain(A B))'],
     ['a concatenation on the next line', '\n        + EXTRA_CONDITIONS', '+ EXTRA_CONDITIONS'],
   ])('reports %s after the list as residue', (_name, tail, residue) => {
     const read = ok(FIXTURE.replace('        ],\n', `        ]${tail},\n`));
