@@ -701,3 +701,10 @@ Compact checklist auto-injected before edits.
   skips any path outside `SCHEMA_PATH_PREFIX` (`/api/v[0-9]`) without a word,
   so the canary view must sit under `api/v1/` (PR #1040,
   `apps/core/tests/test_openapi_schema_warnings.py`).
+- **Never pin rendered text a library or another file formats for you.** Exact
+  Django SQL (`"table"."col" IS NULL`, `(SELECT` splits), an injected marker's
+  prose, or a runbook sentence turn red on an upgrade or a rewording with no
+  regression, and a parse of that text fails with `IndexError` instead of an
+  assertion. Assert the behaviour instead: the query count, `"FOR UPDATE" in sql`,
+  the columns in `connection.queries`, the rows written, the step order. Five PRs
+  in run 2026-10-11-2219 drew this finding (#1050, #1055, #1056, #1059, #1063).

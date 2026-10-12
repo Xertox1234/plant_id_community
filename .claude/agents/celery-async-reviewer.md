@@ -58,6 +58,7 @@ Review only the files passed to you. Do not read the full repo.
 
 - [ ] A tray-visible `Notification(...)` block in a multi-event task WHITELISTS events (content helper returns `None` for the rest) — moderation/publish signals fire on every routine autopublish, so an unscoped block self-notifies users for their own posts (todo 253 slice 6)
 - [ ] Collapse keys are per-EVENT-TYPE, never per-object — FCM retains max 4 distinct collapse keys per offline device; unique per-post keys silently drop the rest of an offline backlog
+- [ ] A batch that stops on `SenderIdMismatchError`/`ThirdPartyAuthError` waits for `FCM_CREDENTIALS_STOP_FAILURES` distinct recipients with nothing sent, and hands every untried recipient back (claim released or re-enqueued) — one stale token or an APNs-only fault must not drop the whole batch (PR #1052)
 
 ## Output Format (Review Mode)
 
