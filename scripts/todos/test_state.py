@@ -267,6 +267,27 @@ def main():
               "blocked_on", fm15["triage"] == "needs-design" and fm15["blocked_on"] == "needs the layout call", fm15)
         check("637 #4: a blocked-* todo moved to ready by a bare `set` keeps its class and blocked_on",
               fm16["triage"] == "blocked-external" and fm16["blocked_on"] == "waits on the vendor", fm16)
+        # Todo 647 #1: confirm (and clear-hold, release-incomplete, hand-round) append to owner_decision, and none
+        # of them answers the triage question, so a todo moved by a bare `set` and then confirmed keeps its class.
+        (repo / "todos/17-pending-p3-x.md").write_text(head.format(s="pending", i="17"))
+        (repo / "todos/18-pending-p3-x.md").write_text(head.format(s="pending", i="18"))
+        appended = state.new_run("r4i", "sweep", 3, [todo("17"), todo("18")], ["17", "18"])
+        state.record_triage(appended, [rec("17", "needs-design", "Which layout?", "needs the layout call"),
+                                       rec("18", "blocked-external", "Vendor ready?", "waits on the vendor")])
+        state.transition(appended, "17", "ready")
+        state.confirm(appended, "17", 0, "I saw it in prod", "2026-10-12")
+        state.decide(appended, "18", "ready", reset_stranded=True)
+        appended["todos"]["18"]["owner_decision"] = "hold cleared: ship it"  # what clear_hold appends
+        state.apply_triage(appended, repo, "2026-10-12")
+        fm17, fm18 = (todofile.read_frontmatter(repo / f"todos/{i}-pending-p3-x.md") for i in ("17", "18"))
+        check("647 #1: a needs-design todo moved by a bare `set ready`, then confirmed, keeps its class and blocked_on",
+              fm17["triage"] == "needs-design" and fm17["blocked_on"] == "needs the layout call"
+              and "confirmed by the owner" in fm17["owner_decision"], fm17)
+        check("647 #1: a blocked-* todo with only a clear-hold decision keeps its class and blocked_on",
+              fm18["triage"] == "blocked-external" and fm18["blocked_on"] == "waits on the vendor", fm18)
+        check("647 #1: decide with a decision records it as the triage answer",
+              unblocked["todos"]["11"].get("triage_answer") == "Use the two-column layout (2026-10-11)"
+              and "triage_answer" not in appended["todos"]["17"], unblocked["todos"]["11"])
 
         import scan  # noqa: E402 -- scan imports state, so only here
         picked, _ = scan.select(scan.load_todos(repo / "todos"), selector="sweep", inflight=set(),

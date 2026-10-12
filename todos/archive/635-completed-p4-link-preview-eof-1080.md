@@ -68,3 +68,9 @@ The edit above moved 611's Implemented heading to 2026-10-11. Review round 2 sho
 was opened at 2026-10-12 10:19 MDT, so the 2026-10-12 heading was right. The stale dates are Land's Verified
 and Completed entries (2026-10-11), because `--date` was fixed at the run's start (21:49 MDT on 2026-10-11).
 The heading is restored, and 611's correction entry now says this. Archived Work Log headings are not rewritten.
+
+### 2026-10-12 - Correction by the todo sweep (run 2026-10-12-2056, todo 647)
+
+The Implemented entry above also says 611's 2026-10-12 heading was a UTC date. That premise is false too: run
+ids are UTC, but the worker wrote its heading with the local date, and 2026-10-12 was already the local date
+(after midnight MDT) when it did. The entry is kept as written; this one corrects it.

@@ -79,6 +79,7 @@ each rooted path reads relative to <sub> and a chained cd resolves against the
 previous one, while a path the command wrote relative is left alone.
 """
 
+import datetime
 import json
 import os
 import re
@@ -1851,11 +1852,47 @@ def main():
               land._log_date(repo / rel, "2026-10-11") == "2026-10-12")
         check("637 #7: ... a later --date is kept, and a heading outside the Work Log is not read",
               land._log_date(repo / rel, "2026-10-13") == "2026-10-13")
+        # Todo 647 #4: a mistyped heading (not a calendar date, or far in the future) is not copied into Land's entries.
+        for bad in ("2026-13-40", "2062-10-12", "9999-99-99"):
+            typo = repo / f"todos/typo-{bad}.md"
+            typo.write_text((repo / rel).read_text().replace("## Notes", f"### {bad} - Implemented by hand\n\n## Notes"))
+            check(f"647 #4: a mistyped Work Log heading {bad} is ignored",
+                  land._log_date(typo, "2026-10-11", today=datetime.date(2026, 10, 12)) == "2026-10-12",
+                  land._log_date(typo, "2026-10-11", today=datetime.date(2026, 10, 12)))
+            typo.unlink()
+        check("647 #4: a heading a day after today still counts (the UTC/local skew)",
+              land._log_date(repo / rel, "2026-10-10", today=datetime.date(2026, 10, 11)) == "2026-10-12")
+        check("647 #4: ... and a heading a week after the run's --date counts when today is later (a run open for days)",
+              land._log_date(repo / rel, "2026-10-05", today=datetime.date(2026, 10, 12)) == "2026-10-12")
+        check("647 #4: an impossible --date is returned as given, not raised on",
+              land._log_date(repo / rel, "2026-13-40") == "2026-13-40")
         result = land.archive(repo, rel, "r", "2026-10-11")
         text = (repo / result["archived"]).read_text()
         check("637 #7: archive dates its Completed entry no earlier than the Implemented entry",
               "### 2026-10-12 - Completed by the todo sweep (run r)" in text
               and "### 2026-10-11 -" not in text, text)
+
+    # Todo 647 #4: the review-doc check-off uses the same date as the Completed entry, not the raw --date.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp)
+        git = lambda *a: subprocess.run(["git", "-C", tmp, *a], check=True, capture_output=True)  # noqa: E731
+        git("init", "-q")
+        (repo / "todos" / "archive").mkdir(parents=True)
+        (repo / "docs" / "reviews").mkdir(parents=True)
+        (repo / "docs" / "reviews" / "r.md").write_text("# R\n\n## Finding Status\n\n- [ ] #1 x → todo 647\n"
+                                                        "- [ ] #2 y → todo 648\n")
+        rel = "todos/647-pending-p4-x.md"
+        (repo / rel).write_text("---\nstatus: pending\npriority: p4\nissue_id: \"647\"\n"
+                                "source_review: \"docs/reviews/r.md\"\nsource_finding: \"1\"\n---\n\n# X\n\n"
+                                "## Acceptance Criteria\n\n- [x] done\n\n## Work Log\n\n"
+                                "### 2026-10-12 - Implemented by the todo sweep (run r)\n\n- did it\n")
+        git("add", "-A")
+        git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "x")
+        result = land.archive(repo, rel, "r", "2026-10-11")
+        text, review = (repo / result["archived"]).read_text(), (repo / "docs/reviews/r.md").read_text()
+        check("647 #4: archive's review-doc check-off and Completed entry carry one date",
+              "### 2026-10-12 - Completed by the todo sweep (run r)" in text
+              and "- [x] #1 x → todo 647 (completed 2026-10-12)" in review, (text, review))
 
     print()
     if FAILURES:

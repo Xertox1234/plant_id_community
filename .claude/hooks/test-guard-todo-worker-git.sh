@@ -281,7 +281,9 @@ if [ -n "$R" ] && git init -q "$R/main" && git -C "$R/main" -c user.email=t@t -c
   assert_raw "m7: a bare git add with cwd MAIN" deny "$(cwd_event $W "$R/main" 'git add -A')"
   assert_raw "m7: a relative -C resolving to MAIN" deny "$(cwd_event $W "$R" 'git -C main add -A')"
   assert_raw "618 (was m7: a bare git add with cwd WT, allowed): a staging git without a literal absolute -C" deny "$(cwd_event $W "$R/main/.claude/worktrees/wt" 'git add -A')"
-  assert_raw "m7: a relative -C into WT from MAIN's cwd" allow "$(cwd_event $W "$R/main" "git -C $R/main/.claude/worktrees/wt add -A")"
+  # Todo 640 #6: this case passes an absolute -C (the label said relative); the relative one is denied (todo 618).
+  assert_raw "m7: an absolute -C into WT from MAIN's cwd" allow "$(cwd_event $W "$R/main" "git -C $R/main/.claude/worktrees/wt add -A")"
+  assert_raw "640.6: a relative -C into WT from MAIN's cwd" deny "$(cwd_event $W "$R/main" "git -C .claude/worktrees/wt add -A")"
   # PR #872 round 1: retry and repair workers run from the main session's cwd (often MAIN) and may cd
   # into WT or name it through a variable; the guard cannot tell the directory, so it must not deny.
   assert_raw "618 (was PR #872: cd WT && git add -A from MAIN's cwd, allowed): a staging git without a literal absolute -C" deny "$(cwd_event $W "$R/main" "cd '$R/main/.claude/worktrees/wt' && git add -A")"
@@ -663,6 +665,82 @@ if [ -n "$R" ] && git init -q "$R/main" && git -C "$R/main" -c user.email=t@t -c
   assert_raw "618 real, now denied: cd WT && git add -A" deny "$(cwd_event $W "$M" "cd $T && /usr/bin/git add -A")"
   assert_raw "618 real, now denied: cd WT/web && ... && git -C .. add -A" deny \
     "$(cwd_event $W "$M" "cd $T/web && npx prettier --write src/x.ts && /usr/bin/git -C .. add -A")"
+
+  # Todo 640 — follow-ups from PR #1095 (todo 618).
+  XARGS_MSG='through xargs'
+  # #1: xargs -I / -J put their input into a word, so the -C is built at runtime; plain xargs appends it (a -f too).
+  assert_deny_msg "640.1: echo ../../.. | xargs -I % git -C WT/% add -A" $W "echo ../../.. | xargs -I % git -C $T/% add -A" "$XARGS_MSG"
+  assert_deny_msg "640.1: xargs -I% (glued) git -C WT/% add -A" $W "echo .. | xargs -I% git -C $T/% add -A" "$XARGS_MSG"
+  assert_deny_msg "640.1: xargs -i git -C WT/{} add (GNU, default {})" $W "echo .. | xargs -i git -C $T/{} add -A" "$XARGS_MSG"
+  assert_deny_msg "640.1: xargs -J % git -C WT add %" $W "echo x | xargs -J % git -C $T add %" "$XARGS_MSG"
+  assert_deny_msg "640.4: echo -f | xargs git -C WT add backend/.env" $W "echo -f | xargs /usr/bin/git -C $T add backend/.env" "$XARGS_MSG"
+  assert_deny_msg "640.1: xargs -0 git -C WT rm --cached" $W "printf 'a\0' | xargs -0 git -C $T rm --cached" "$XARGS_MSG"
+  assert_raw "640.1: xargs running a read is still fine" allow "$(cwd_event $W "$M" "printf 'a.py\n' | xargs git -C $T diff --stat --")"
+  # #2: BSD/macOS xargs -J, -R and -S take a value, so the program word after it is git.
+  assert_deny_msg "640.2: xargs -J % git push" $W 'echo x | xargs -J % git push %' 'git push is reserved'
+  assert_deny_msg "640.2: xargs -R 2 -I % git push" $W 'echo x | xargs -R 2 -I % git push %' 'git push is reserved'
+  assert_deny_msg "640.2: xargs -S 255 -I % git commit" $W 'echo x | xargs -S 255 -I % git commit -m %' 'git commit is reserved'
+  assert_deny_msg "640.2: xargs -J% (glued) git push" $W 'echo x | xargs -J% git push %' 'git push is reserved'
+  # Repair (round 1): the xargs state is sticky -- a wrapper or a shell between xargs and git does not drop it.
+  assert_deny_msg "640 repair: xargs -I % env git -C WT/% add -A" $W "echo ../../.. | xargs -I % env git -C $T/% add -A" "$XARGS_MSG"
+  assert_deny_msg "640 repair: xargs -I % nice git -C WT/% add -A" $W "echo .. | xargs -I % nice git -C $T/% add -A" "$XARGS_MSG"
+  assert_deny_msg "640 repair: xargs timeout 5 git -C WT add" $W "echo -f | xargs timeout 5 git -C $T add backend/.env" "$XARGS_MSG"
+  assert_deny_msg "640 repair: echo -f | xargs env git -C WT add backend/.env" $W "echo -f | xargs env git -C $T add backend/.env" "$XARGS_MSG"
+  assert_deny_msg "640 repair: xargs env nice command git -C WT rm" $W "echo -f | xargs env nice command git -C $T rm x" "$XARGS_MSG"
+  assert_deny_msg "640 repair: xargs -I % sh -c 'git -C WT/% add -A'" $W "echo .. | xargs -I % sh -c 'git -C $T/% add -A'" 'through xargs runs a script'
+  assert_deny_msg "640 repair: xargs -I % sh -c '%'" $W "echo 'git push' | xargs -I % sh -c '%'" 'through xargs runs a script'
+  assert_deny_msg "640 repair: xargs env bash -c" $W "echo x | xargs env bash -c 'echo \$1' _" 'through xargs runs a script'
+  assert_raw "640 repair: xargs env running a read is still fine" allow "$(cwd_event $W "$M" "printf 'a.py\n' | xargs env git -C $T diff --stat --")"
+  assert_allow "640 repair: a staging git after the xargs segment is judged on its own" $W "echo a | xargs echo; git -C $T add -A"
+  # #3: zsh reads a ( glued inside a word as a glob qualifier: MAIN(/) is MAIN.
+  assert_deny "640.3: git -C MAIN(/) add -A" $W "git -C $M(/) add -A"
+  assert_deny "640.3: git -C /usr(/) push" $W 'git -C /usr(/) push'
+  assert_deny "640.3: git -C WT(/) add -A (a qualifier is never a literal path)" $W "git -C $T(/) add -A"
+  assert_deny_msg "640.3: an extglob word" $W 'ls @(a|b)' 'could not be parsed'
+  assert_allow "640.3: f() and NAME=( ) still split" $W "f() { git status; }; f; arr=(a b); git -C $T add -A"
+  # Repair (round 1): zsh reads word=( in argument position as a glob qualifier too; e:'...' runs a command.
+  assert_deny_msg "640 repair: ls WT/x=(e:'git push':)" $W "mkdir -p $T/x= && ls $T/x=(e:'git push':)" 'could not be parsed'
+  assert_deny_msg "640 repair: echo foo=(e:...) after a command word" $W "echo foo=(e:'git push':)" 'could not be parsed'
+  assert_deny "640 repair: export x=(...) is not assignment position" $W "export x=(e:'git push':)"
+  assert_allow "640 repair: NAME=( after assignments and NAME+=( still split" $W "a=1 arr=(a b); arr+=(c); ( b=(e) ); git -C $T add -A"
+  # Round 2: a reserved word or a declaration builtin also leaves assignment position; a ) does not.
+  assert_allow "640 round 2: arrays after do/then/{ and in local/declare -a" $W "for f in a b; do files+=(x); done; if true; then arr=(a b); fi; { c=(d); }; f() { local l=(a); declare -a d=(b); }; git -C $T add -A"
+  assert_deny_msg "640 round 2: echo -n x=(...) is still argument position" $W "echo -n x=(e:'git push':)" 'could not be parsed'
+  assert_deny_msg "640 round 2: a ) closing a zsh glob group is not a separator" $W "ls (x) b=(e:'git push':)" 'could not be parsed'
+  # #4: an option word built at runtime could be -f.
+  RT_MSG='built at runtime and could be -f'
+  assert_deny_msg "640.4: git -C WT add \$(printf -- -f) backend/.env" $W "git -C $T add \$(printf -- -f) backend/.env" "$RT_MSG"
+  assert_deny_msg "640.4: F=-f; git -C WT add \"\$F\" backend/.env" $W "F=-f; git -C $T add \"\$F\" backend/.env" "$RT_MSG"
+  assert_deny_msg "640.4: git -C WT rm \`echo -f\` x" $W "git -C $T rm \`echo -f\` x" "$RT_MSG"
+  assert_allow "640.4: a runtime path after -- is a path" $W "git -C $T add -- \"\$F\" \$(cat list.txt)"
+  # #5's control: the staging git those GIT_* cases end in is allowed on its own.
+  assert_allow "640.5: git -C /wt/.claude/worktrees/g1 add x alone" $W 'git -C /wt/.claude/worktrees/g1 add x'
+  # #7: with the agent's cwd in the event, the worktree must be one of that repository's.
+  O="$R/other"
+  if git init -q "$O" && git -C "$O" -c user.email=t@t -c user.name=t commit -q --allow-empty -m i \
+     && mkdir -p "$O/.claude/worktrees" && git -C "$O" worktree add -q -b wt-other "$O/.claude/worktrees/x" 2>/dev/null; then
+    assert_raw "640.7: another project's worktree from MAIN's cwd" deny "$(cwd_event $W "$M" "git -C $O/.claude/worktrees/x add -A")"
+    if cwd_event $W "$M" "git -C $O/.claude/worktrees/x add -A" | bash "$HOOK" 2>/dev/null | grep -qF "worktree of this repository"; then
+      echo "PASS: 640.7: the reason names this repository"; PASS=$((PASS+1))
+    else
+      echo "FAIL: 640.7: the reason names this repository"; FAIL=$((FAIL+1))
+    fi
+    assert_raw "640.7: another project's worktree from a worktree's cwd" deny "$(cwd_event $W "$T" "git -C $O/.claude/worktrees/x add -A")"
+    assert_raw "640.7: this repository's worktree from MAIN's cwd" allow "$(cwd_event $W "$M" "git -C $T add -A")"
+    assert_raw "640.7: this repository's worktree from a worktree's cwd (one common .git)" allow \
+      "$(cwd_event $W "$T" "git -C $T add -A")"
+    assert_raw "640.7: the other project's worktree from its own cwd" allow "$(cwd_event $W "$O" "git -C $O/.claude/worktrees/x add -A")"
+    assert_raw "640.7: a cwd outside any repository anchors nothing (as before)" allow \
+      "$(cwd_event $W "$R" "git -C $O/.claude/worktrees/x add -A")"
+  else
+    echo "FAIL: 640.7 setup"; FAIL=$((FAIL+1))
+  fi
+  # #8: with WT/.git gone, git -C WT finds MAIN's repository.
+  assert_deny_msg "640.8: rm WT/.git && git -C WT add -A" $W "rm $T/.git && git -C $T add -A" "on a .git"
+  assert_deny_msg "640.8: rm -rf WT/.git/" $W "rm -rf $T/.git/" "on a .git"
+  assert_deny_msg "640.8: mv WT/.git elsewhere" $W "mv $T/.git $R/x" "on a .git"
+  assert_deny_msg "640.8: unlink WT/.git" $W "unlink $T/.git" "on a .git"
+  assert_allow "640.8: rm of a .gitignore or a .github file is fine" $W "rm $T/.gitignore $T/.github/x.yml"
 else
   echo "FAIL: m7 setup (could not build a main checkout and a worktree)"; FAIL=$((FAIL+1))
 fi
@@ -781,13 +859,15 @@ assert_allow "496.F: setopt extended_glob"               $W 'setopt extended_glo
 assert_allow "496.F: set -- a b"                         $W 'set -- a b; git status'
 assert_allow "496.F: bash -euo pipefail -c"              $W "bash -euo pipefail -c 'git status'"
 # G: a GIT_* variable assigned inside an expansion or arithmetic.
-assert_deny  "496.G: : \${GIT_DIR:=/x/.git}"             $W ': ${GIT_DIR:=/x/.git}; git add x'
-assert_deny  "496.G: : \${GIT_DIR=/x/.git}"              $W ': ${GIT_DIR=/x/.git}; git add x'
-assert_deny  "496.G: : \${GIT_DIR::=/x/.git} (zsh)"      $W ': ${GIT_DIR::=/x/.git}; git add x'
+# Todo 640 #5: these end in a staging git that names the worktree (a bare `git add` is denied for its missing
+# -C since todo 618), and each checks its own reason, so each fails if the detection it covers is removed.
+assert_deny_msg "496.G: : \${GIT_DIR:=/x/.git}"             $W ': ${GIT_DIR:=/x/.git}; git -C /wt/.claude/worktrees/g1 add x' 'inside an expansion'
+assert_deny_msg "496.G: : \${GIT_DIR=/x/.git}"              $W ': ${GIT_DIR=/x/.git}; git -C /wt/.claude/worktrees/g1 add x' 'inside an expansion'
+assert_deny_msg "496.G: : \${GIT_DIR::=/x/.git} (zsh)"      $W ': ${GIT_DIR::=/x/.git}; git -C /wt/.claude/worktrees/g1 add x' 'inside an expansion'
 assert_deny  "496.G: echo \"\${GIT_PAGER:=cat}\""        $V 'echo "${GIT_PAGER:=/tmp/x}"; git log'
-assert_deny  "496.G: case \${GIT_DIR:=x} in"             $W 'case ${GIT_DIR:=/x} in *) ;; esac; git add x'
-assert_deny  "496.G: an unquoted heredoc body"           $W $'cat <<EOF\n${GIT_DIR:=/x/.git}\nEOF\ngit add x'
-assert_deny  "496.G: zsh \${(P)n::=x}"                   $W 'n=GIT_DIR; : ${(P)n::=/x/.git}; git add x'
+assert_deny_msg "496.G: case \${GIT_DIR:=x} in"             $W 'case ${GIT_DIR:=/x} in *) ;; esac; git -C /wt/.claude/worktrees/g1 add x' 'inside an expansion'
+assert_deny_msg "496.G: an unquoted heredoc body"           $W $'cat <<EOF\n${GIT_DIR:=/x/.git}\nEOF\ngit -C /wt/.claude/worktrees/g1 add x' 'inside an expansion'
+assert_deny_msg "496.G: zsh \${(P)n::=x}"                   $W 'n=GIT_DIR; : ${(P)n::=/x/.git}; git -C /wt/.claude/worktrees/g1 add x' 'inside an expansion'
 assert_deny  "496.G: \$((GIT_X=1))"                      $W ': $((GIT_X=1)); git status'
 assert_deny  "496.G: (( GIT_X = 1 ))"                    $W '(( GIT_X = 1 )); git status'
 assert_deny  "496.G: let GIT_X=1"                        $W 'let GIT_X=1; git status'
@@ -795,17 +875,17 @@ assert_allow "496.G: \${GIT_DIR:-default} only reads"    $W 'echo "${GIT_DIR:-un
 assert_allow "496.G: other arithmetic"                   $W 'x=$((1 + 2)); (( i = 1 )); echo $(( x == 3 )); git status'
 assert_allow "496.G: grep for the text GIT_DIR="         $V "grep -n 'GIT_DIR=' scripts/todos/worker_git_guard.py"
 # H: a variable name built at runtime, and namerefs to GIT_* names.
-assert_deny  "496.H: p=GIT_; export \${p}DIR=x"          $W 'p=GIT_; export ${p}DIR=/x/.git; git add x'
-assert_deny  "496.H: declare \"\${p}DIR=x\""             $W 'declare "${p}DIR=/x/.git"; git add x'
-assert_deny  "496.H: export \"\$n\"=x"                   $W 'export "$n"=/x/.git; git add x'
-assert_deny  "496.H: read -r \"\$n\""                    $W 'read -r "$n" <<< /x/.git; git add x'
-assert_deny  "496.H: printf -v \"\$n\""                  $W 'printf -v "$n" %s /x/.git; git add x'
-assert_deny  "496.H: getopts ab \"\$n\""                 $W 'getopts ab "$n"; git add x'
-assert_deny  "496.H: declare -n r=GIT_DIR; export r=x"   $W 'declare -n r=GIT_DIR; export r=/x/.git; git add x'
-assert_deny  "496.H: typeset -n r=GIT_DIR"               $W 'typeset -n r=GIT_DIR; r=/x/.git; git add x'
+assert_deny_msg "496.H: p=GIT_; export \${p}DIR=x"          $W 'p=GIT_; export ${p}DIR=/x/.git; git -C /wt/.claude/worktrees/g1 add x' 'built at runtime'
+assert_deny_msg "496.H: declare \"\${p}DIR=x\""             $W 'declare "${p}DIR=/x/.git"; git -C /wt/.claude/worktrees/g1 add x' 'built at runtime'
+assert_deny_msg "496.H: export \"\$n\"=x"                   $W 'export "$n"=/x/.git; git -C /wt/.claude/worktrees/g1 add x' 'built at runtime'
+assert_deny_msg "496.H: read -r \"\$n\""                    $W 'read -r "$n" <<< /x/.git; git -C /wt/.claude/worktrees/g1 add x' 'built at runtime'
+assert_deny_msg "496.H: printf -v \"\$n\""                  $W 'printf -v "$n" %s /x/.git; git -C /wt/.claude/worktrees/g1 add x' 'built at runtime'
+assert_deny_msg "496.H: getopts ab \"\$n\""                 $W 'getopts ab "$n"; git -C /wt/.claude/worktrees/g1 add x' 'built at runtime'
+assert_deny_msg "496.H: declare -n r=GIT_DIR; export r=x"   $W 'declare -n r=GIT_DIR; export r=/x/.git; git -C /wt/.claude/worktrees/g1 add x' 'environment variables ('
+assert_deny_msg "496.H: typeset -n r=GIT_DIR"               $W 'typeset -n r=GIT_DIR; r=/x/.git; git -C /wt/.claude/worktrees/g1 add x' 'environment variables ('
 assert_deny  "496.H: local -n r=GIT_PAGER"               $V 'f(){ local -n r=GIT_PAGER; r=/tmp/x; git log; }; f'
-assert_deny  "496.H: declare -n r; r=GIT_DIR (unset nameref)" $W 'declare -n r; r=GIT_DIR; r=/x/.git; git add x'
-assert_deny  "496.H: ksh nameref r=GIT_DIR"              $W 'nameref r=GIT_DIR; r=/x/.git; git add x'
+assert_deny_msg "496.H: declare -n r; r=GIT_DIR (unset nameref)" $W 'declare -n r; r=GIT_DIR; r=/x/.git; git -C /wt/.claude/worktrees/g1 add x' 'environment variables ('
+assert_deny_msg "496.H: ksh nameref r=GIT_DIR"              $W 'nameref r=GIT_DIR; r=/x/.git; git -C /wt/.claude/worktrees/g1 add x' 'environment variables ('
 assert_deny  "496.H: integer GIT_X=1 (zsh)"              $W 'integer GIT_X=1'
 assert_deny  "496.H: typeset GIT_DIR[1]=x (a subscript)" $W 'typeset GIT_DIR[1]=/x/.git'
 assert_allow "496.H: export PATH=\"\$HOME/bin:\$PATH\"" $W 'export PATH="$HOME/bin:$PATH"; git status'
@@ -814,11 +894,11 @@ assert_allow "496.H: declare -n r=OTHER"                 $W 'declare -n r=OTHER;
 assert_allow "496.H: read -r line / read -p \"\$P\" x"   $W 'read -r line <<< x; read -p "$P" x <<< y; git status'
 assert_allow "496.H: getopts ab opt \"\$@\""             $W 'getopts ab opt "$@"; git status'
 # I: every zsh loop variable, and read's NAME?prompt.
-assert_deny  "496.I: for a GIT_DIR in x y"               $W 'for a GIT_DIR in x y; do git add x; done'
-assert_deny  "496.I: for a GIT_DIR (x y) (zsh)"          $W 'for a GIT_DIR (x y) { git add x }'
-assert_deny  "496.I: select a GIT_DIR in x"              $W 'select a GIT_DIR in x; do git add x; done'
-assert_deny  "496.I: foreach GIT_DIR (x) (zsh)"          $W $'foreach GIT_DIR (/x/.git)\ngit add x\nend'
-assert_deny  "496.I: read 'GIT_DIR?prompt' (zsh)"        $W "read 'GIT_DIR?Dir: ' <<< /x/.git; git add x"
+assert_deny_msg "496.I: for a GIT_DIR in x y"               $W 'for a GIT_DIR in x y; do git -C /wt/.claude/worktrees/g1 add x; done' 'environment variables ('
+assert_deny_msg "496.I: for a GIT_DIR (x y) (zsh)"          $W 'for a GIT_DIR (x y) { git -C /wt/.claude/worktrees/g1 add x }' 'environment variables ('
+assert_deny_msg "496.I: select a GIT_DIR in x"              $W 'select a GIT_DIR in x; do git -C /wt/.claude/worktrees/g1 add x; done' 'environment variables ('
+assert_deny_msg "496.I: foreach GIT_DIR (x) (zsh)"          $W $'foreach GIT_DIR (/x/.git)\ngit -C /wt/.claude/worktrees/g1 add x\nend' 'environment variables ('
+assert_deny_msg "496.I: read 'GIT_DIR?prompt' (zsh)"        $W "read 'GIT_DIR?Dir: ' <<< /x/.git; git -C /wt/.claude/worktrees/g1 add x" 'environment variables ('
 assert_allow "496.I: for a b in x y"                     $W 'for a b in x y; do echo $a; done; git status'
 assert_allow "496.I: read 'ans?Continue? '"              $W "read 'ans?Continue? ' <<< y; git status"
 # J: an abbreviated sudo value option takes its value.
