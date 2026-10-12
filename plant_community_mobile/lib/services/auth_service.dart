@@ -780,9 +780,13 @@ class AuthService extends _$AuthService {
     int generation,
     ApiException e,
   ) async {
-    // The caller checked this generation is current just before; the clear
-    // is the first await.
-    await _clearJWT();
+    // Each delete is issued only while this exchange is still current: once
+    // it is overtaken, a newer exchange may already have stored its own
+    // tokens, and deleting them would sign that user out (todo 587 item 2).
+    for (final key in const [_jwtKey, _refreshTokenKey]) {
+      if (!_isCurrentExchange(user, generation)) return;
+      await _secureStorage.delete(key: key);
+    }
     if (!_isCurrentExchange(user, generation)) return;
     final unverified = e.code == 'unverified_account';
     state = AuthState(

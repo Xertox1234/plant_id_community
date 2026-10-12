@@ -10,6 +10,7 @@ had no client and were removed (todo 415).
 import logging
 from urllib.parse import urlencode
 
+from apps.core.openapi import RATE_LIMITED
 from apps.core.ratelimit import client_ip_key
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django_ratelimit.decorators import ratelimit
@@ -79,6 +80,7 @@ _UNSUBSCRIBE_SCHEMA_RESPONSES = {
             "message": serializers.CharField(),
         },
     ),
+    429: RATE_LIMITED,
 }
 _UNSUBSCRIBE_SCHEMA = extend_schema(
     request=inline_serializer(

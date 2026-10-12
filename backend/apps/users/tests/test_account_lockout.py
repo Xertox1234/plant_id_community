@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from apps.core.constants import ACCOUNT_LOCKOUT_DURATION, ACCOUNT_LOCKOUT_THRESHOLD
 from apps.core.security import SecurityMonitor
-from apps.core.utils.pii_safe_logging import log_safe_username
+from apps.core.utils.pii_safe_logging import log_safe_ip, log_safe_username
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.cache import cache
@@ -296,6 +296,22 @@ class AccountLockoutTestCase(TestCase):
             # carries the pseudonym, not the identifier (todo 553 finding 1).
             self.assertEqual(alert_details["username"], log_safe_username("testuser"))
             self.assertEqual(alert_details["attempts"], ACCOUNT_LOCKOUT_THRESHOLD)
+
+    def test_lockout_security_alert_carries_no_raw_client_ip(self):
+        """Todo 587 item 6: the alert reaches Sentry, so the account owner's
+        IPs go out pseudonymized, as every other security log line has them."""
+        with patch.object(SecurityMonitor, "_trigger_security_alert") as mock_alert:
+            for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
+                SecurityMonitor.track_failed_login_attempt(
+                    username="testuser", ip_address=f"203.0.113.{i % 2 + 10}"
+                )
+
+        alert_details = mock_alert.call_args[0][1]
+        self.assertEqual(
+            alert_details["ip_addresses"],
+            sorted([log_safe_ip("203.0.113.10"), log_safe_ip("203.0.113.11")]),
+        )
+        self.assertNotIn("203.0.113.1", repr(alert_details))
 
     def test_lockout_with_nonexistent_user(self):
         """Test lockout tracking for non-existent username."""

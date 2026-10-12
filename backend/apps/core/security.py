@@ -241,11 +241,14 @@ class SecurityMonitor:
             "account_lockout",
             {
                 # The alert is an ERROR log line, which Sentry also receives:
-                # only the pseudonym leaves (todo 553 finding 1). The lockout
-                # email above still needs the real account.
+                # only pseudonyms leave, for the account (todo 553 finding 1)
+                # and for its client IPs (todo 587 item 6). The lockout email
+                # above still needs the real account and addresses.
                 "username": log_safe_username(username),
                 "attempts": len(attempts),
-                "ip_addresses": lockout_data["ip_addresses"],
+                "ip_addresses": sorted(
+                    log_safe_ip(ip) for ip in lockout_data["ip_addresses"]
+                ),
                 "lockout_duration": ACCOUNT_LOCKOUT_DURATION,
             },
         )
