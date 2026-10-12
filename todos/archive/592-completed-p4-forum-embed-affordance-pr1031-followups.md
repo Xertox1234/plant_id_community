@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "592"
 tags: [todos, follow-ups]
@@ -39,7 +39,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
@@ -47,3 +47,35 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-11 - Filed from todo-sweep run 2026-10-11-1448
 
 Follow-ups for PR #1031 (todos 563, 564).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-2219)
+
+- Finding 5 fixed (owner decision 2026-10-11): `EmbedFallbackCard` in `web/src/components/StreamFieldRenderer.tsx`
+  now gates the untitled full-address affordance on `shortLinkAddress(href) !== null`, the twin of mobile's
+  `linkPreviewShortAddress(url) != null`. A mailto: or relative URL still links but gets no hover title and no
+  new-tab description, on either platform. Tested by the two `todo 592` cases in `StreamFieldRenderer.test.tsx`.
+- Declined 1: a compact row is a run summary shared by link cards and videos; giving a video row the long-press
+  sheet is a new affordance, not a fix, and the full card (and the player it opens) carries the address.
+- Declined 2, 3 and 9 (one heuristic): `check-tailwind-classes.mjs` sibling promotion trades a narrow false
+  positive for a narrow false negative by design (todo 564). Main passes `npm run check:classes`, so no real
+  literal hits either edge; a hit fails CI loudly and is fixed at the call site.
+- Declined 4: the hint sits outside the anchor on purpose (the anchor has no `aria-label`, so a hint inside it
+  would join its name); a sr-only "Opens in a new tab" line in browse mode is harmless.
+- Declined 6, 7 and 8: `_copyLink` is one shared function already tapped by the link-card test; the index.css
+  test fails loudly (never falsely passes) if a rule moves; `untitledEmbedOrdinals` is one O(n) pass per body.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-2219)
+
+- AC 1: `bash -c 'cd web && python3 scripts/todos/slot_env.py --main-root . 4 -- npx vitest run src/components/StreamFieldRenderer.test.tsx && python3 scripts/todos/slot_env.py --main-root . 4 -- npx tsc --noEmit -p . && grep -nE "Finding 5 fixed|Declined (1|2, 3 and 9|4|6, 7 and 8)" todos/archive/592-completed-p4-forum-embed-affordance-pr1031-followups.md'` — evidence `.sweep-evidence/g10/592-ac0.txt` (not committed), last lines:
+
+  ```text
+  53:- Finding 5 fixed (owner decision 2026-10-11): `EmbedFallbackCard` in `web/src/components/StreamFieldRenderer.tsx`
+  57:- Declined 1: a compact row is a run summary shared by link cards and videos; giving a video row the long-press
+  59:- Declined 2, 3 and 9 (one heuristic): `check-tailwind-classes.mjs` sibling promotion trades a narrow false
+  62:- Declined 4: the hint sits outside the anchor on purpose (the anchor has no `aria-label`, so a hint inside it
+  64:- Declined 6, 7 and 8: `_copyLink` is one shared function already tapped by the link-card test; the index.css
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
