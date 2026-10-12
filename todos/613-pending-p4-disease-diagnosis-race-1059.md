@@ -5,6 +5,8 @@ issue_id: "613"
 tags: [backend, plant-id, database, follow-ups]
 dependencies: []
 owner_decision: "Items 1-2: data migration merges case-variant disease_name groups into the oldest row (re-point FKs + M2M, sum diagnosis_count, delete extras), then add UniqueConstraint(Lower('disease_name')); no prod count needed. Items 3-5: fix as usual (2026-10-11)"
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #1059 (todo 594, disease diagnosis first-create race)

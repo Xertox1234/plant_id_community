@@ -4,6 +4,8 @@ priority: p4
 issue_id: "611"
 tags: [backend, forum, testing, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #1057 (todos 591 and 598, forum link-preview tests)

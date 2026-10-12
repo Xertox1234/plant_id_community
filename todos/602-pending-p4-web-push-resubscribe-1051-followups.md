@@ -5,6 +5,8 @@ issue_id: "602"
 tags: [backend, web, web-push, security, follow-ups]
 dependencies: []
 owner_decision: "Item 1: keep the endpoint+auth design and harden: pin sw.js API origins (item 10), https-only (item 8), active user (item 7), new endpoint must share the old one's push-service host; residual risk accepted. Item 3: dedupe migration (deactivate all but newest active row per endpoint) + UniqueConstraint(endpoint, condition is_active) + IntegrityError retry. Other items: fix or decline as usual (2026-10-11)"
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #1051 (todo 456, web push resubscribe endpoint and shared send session)

@@ -6,6 +6,8 @@ tags: [backend, auth, ops]
 dependencies: []
 source_review: "PR #877"
 owner_decision: "Unblocked: owner-approved read of forum-prune-cron logs 2026-10-01..2026-10-11 shows 0 candidates every night (2026-10-11); remove --dry-run per AC 2-3 (2026-10-11)"
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Drop `--dry-run` from the unverified-account expiry cron; tidy archived 447

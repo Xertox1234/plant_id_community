@@ -4,7 +4,10 @@ priority: p4
 issue_id: "604"
 tags: [todo-sweep, harness, security, follow-ups]
 dependencies: ["618"]
-owner_decision: "Items 1-8 are retired by todo 618 (require -C, owner 2026-10-11); once 618 lands, verify each probe is denied, fix item 9 if still present, and close (2026-10-11)"
+owner_decision: "Hold until todo 618 lands; owner pulls 618 into a follow-on batch run, then verify probes denied, fix item 9, close (2026-10-11)"
+triage: blocked-owner
+triaged: 2026-10-11
+blocked_on: "Todo 618 (require -C for worker git add/mv/rm) must merge first; then verify probes denied, fix item 9, close."
 ---
 
 # Follow-ups from PR #1049 (todo 584, worker git guard follow-ups)

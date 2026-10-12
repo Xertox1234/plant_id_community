@@ -4,7 +4,9 @@ priority: p4
 issue_id: "606"
 tags: [backend, garden, fcm, privacy, follow-ups]
 dependencies: []
-owner_decision: "Item 1: on a credentials stop, re-enqueue the untried recipients ONCE (countdown, flag prevents a loop), excluding users that failed on credentials. Item 2: purge also deletes every garden-model LogEntry whose actor is the user (covers objects deleted earlier); existing objects still matched by ownership. Other items: fix or decline as usual (2026-10-11)"
+owner_decision: "Item 1 as decided (re-enqueue untried recipients once). Item 2 re-decided: wire auditlog set_actor in the garden views, then purge by actor (covers future rows only). Other items fix or decline as usual (2026-10-11)"
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #1052 (todos 586 and 593, garden audit-log purge and FCM credentials stop)

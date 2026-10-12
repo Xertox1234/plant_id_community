@@ -4,6 +4,8 @@ priority: p4
 issue_id: "605"
 tags: [backend, forum, email, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Follow-ups from PR #1050 (todo 585, forum digest lock follow-ups)

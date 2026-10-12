@@ -4,6 +4,9 @@ priority: p4
 issue_id: "614"
 tags: [todo-sweep, harness, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-11
+owner_decision: "#4: widen REPOINT_RE to accept the CLAUDE.md form 're-pointed DATE; ... todo N' again, keeping the loose forms the tightening meant to exclude out (2026-10-11)"
 ---
 
 # Follow-ups from PR #1061 (todos 596 and 600, apply-triage ready answer and worker edit guard)

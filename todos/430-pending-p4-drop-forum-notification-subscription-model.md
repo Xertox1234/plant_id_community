@@ -7,6 +7,8 @@ dependencies: []
 source_review: "todos/archive/415-completed-p3-remove-dead-django-email-preferences-views.md"
 source_finding: "recommended action 2"
 owner_decision: "Unblocked: prod count is 0 (read-only railway ssh, owner-approved, 2026-10-11); remove the model by migration (2026-10-11)"
+triage: ready
+triaged: 2026-10-11
 ---
 
 # Drop the orphaned `ForumNotificationSubscription` model once production confirms it is empty
