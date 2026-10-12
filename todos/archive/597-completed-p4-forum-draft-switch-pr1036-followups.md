@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "597"
 tags: [todos, follow-ups]
@@ -31,7 +31,7 @@ PR #1036 (todo sweep run 2026-10-11-1448, group g12, todos 575); follow-ups: ver
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
@@ -39,3 +39,27 @@ PR #1036 (todo sweep run 2026-10-11-1448, group g12, todos 575); follow-ups: ver
 ### 2026-10-11 - Filed from todo-sweep run 2026-10-11-1448
 
 Follow-ups for PR #1036 (todo 575).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-2219)
+
+- Findings 1, 5 and 7 (one defect): `parseDraft` in `web/src/pages/forum/NewThreadPage.tsx` now validates rather than casts. JSON that is not a plain object (`null`, `5`, `[]`) reads as no fields, and a non-string `title` or `tags` reads as absent, so `title.trim()` can no longer throw on mount or on a `?category=` switch. Tests cover both paths; the stored value is still left untouched until the user edits.
+- Findings 2 and 6 (one defect, owner decision 2026-10-11): when a `?category=` switch loads board B's stored draft, the poll fields go back to their defaults (off, blank question, two blank options, no close time, single choice) and the identification attachment is dropped. Tests check that the post sends neither `poll` nor `identification`. A switch to a board with no stored draft keeps the form as it is, poll included, as the earlier owner decision on keeping text requires.
+- Finding 3: new test for switching A to B and back to A. It restores A's draft and A's next edit extends A's key, not B's.
+- Finding 4: the unreadable-draft switch test now checks that board A's stored draft is unchanged, and a parametrised mount test covers stored drafts `null`, `5`, `[]` and wrong-typed fields.
+- Against the unfixed component, the four new behaviour tests fail and the coverage-only tests (findings 3 and 4) pass, as expected.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-2219)
+
+- AC 1: `bash -c "cd web && npx vitest run src/pages/forum/NewThreadPage.test.tsx --reporter=verbose && grep -n -A6 'Implemented by the todo sweep (run 2026-10-11-2219)' todos/archive/597-completed-p4-forum-draft-switch-pr1036-followups.md"` — evidence `.sweep-evidence/g14/597-ac0.txt` (not committed), last lines:
+
+  ```text
+  45-- Findings 1, 5 and 7 (one defect): `parseDraft` in `web/src/pages/forum/NewThreadPage.tsx` now validates rather than casts. JSON that is not a plain object (`null`, `5`, `[]`) reads as no fields, and a non-string `title` or `tags` reads as absent, so `title.trim()` can no longer throw on mount or on a `?category=` switch. Tests cover both paths; the stored value is still left untouched until the user edits.
+  46-- Findings 2 and 6 (one defect, owner decision 2026-10-11): when a `?category=` switch loads board B's stored draft, the poll fields go back to their defaults (off, blank question, two blank options, no close time, single choice) and the identification attachment is dropped. Tests check that the post sends neither `poll` nor `identification`. A switch to a board with no stored draft keeps the form as it is, poll included, as the earlier owner decision on keeping text requires.
+  47-- Finding 3: new test for switching A to B and back to A. It restores A's draft and A's next edit extends A's key, not B's.
+  48-- Finding 4: the unreadable-draft switch test now checks that board A's stored draft is unchanged, and a parametrised mount test covers stored drafts `null`, `5`, `[]` and wrong-typed fields.
+  49-- Against the unfixed component, the four new behaviour tests fail and the coverage-only tests (findings 3 and 4) pass, as expected.
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

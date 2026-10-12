@@ -728,15 +728,15 @@ describe('NewThreadPage', () => {
   });
 
   it("keeps a new board's unreadable draft untouched until the user edits, on a ?category= change (todo 575)", async () => {
+    const keyA = draftKey('new-thread', '3-plant-care');
     const keyB = draftKey('new-thread', '5-pests');
     const storedB = '{not json';
     saveDraft(keyB, storedB);
     const view = renderPage();
     await screen.findByText('Plant Care');
     await userEvent.type(screen.getByLabelText(/title/i), 'Board A');
-    await waitFor(() =>
-      expect(loadDraft(draftKey('new-thread', '3-plant-care'))).toContain('Board A')
-    );
+    await waitFor(() => expect(loadDraft(keyA)).toContain('Board A'));
+    const storedA = loadDraft(keyA);
 
     vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
       new URLSearchParams('category=5-pests'),
@@ -753,9 +753,147 @@ describe('NewThreadPage', () => {
     // B has a stored draft, so the form switches to it — empty, as on mount.
     await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue(''));
     expect(loadDraft(keyB)).toBe(storedB);
+    // Board A's draft survives the switch byte-for-byte (todo 597).
+    expect(loadDraft(keyA)).toBe(storedA);
 
     await userEvent.type(screen.getByLabelText(/title/i), 'New');
     await waitFor(() => expect(loadDraft(keyB)).toContain('"title":"New"'));
+    expect(loadDraft(keyA)).toBe(storedA);
+  });
+
+  it("restores board A's draft on a switch back from board B (todo 597)", async () => {
+    const keyA = draftKey('new-thread', '3-plant-care');
+    const keyB = draftKey('new-thread', '5-pests');
+    saveDraft(
+      keyB,
+      JSON.stringify({ title: 'Pest question', body: '<p>aphids</p>', tags: 'bugs' })
+    );
+    const view = renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'Board A');
+    await userEvent.type(screen.getByLabelText(/tags/i), 'soil');
+    await waitFor(() => expect(JSON.parse(loadDraft(keyA) ?? '{}').tags).toBe('soil'));
+    const storedA = loadDraft(keyA);
+
+    const switchTo = (category: string) => {
+      vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+        new URLSearchParams(`category=${category}`),
+        vi.fn(),
+      ]);
+      view.rerender(
+        <MemoryRouter>
+          <AnnouncerProvider>
+            <NewThreadPage />
+          </AnnouncerProvider>
+        </MemoryRouter>
+      );
+    };
+
+    switchTo('5-pests');
+    await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue('Pest question'));
+
+    switchTo('3-plant-care');
+    await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue('Board A'));
+    expect(screen.getByLabelText(/tags/i)).toHaveValue('soil');
+    expect(loadDraft(keyA)).toBe(storedA);
+
+    // Back on A, the next edit extends A's draft, not B's.
+    await userEvent.type(screen.getByLabelText(/title/i), '!');
+    await waitFor(() => expect(loadDraft(keyA)).toContain('"title":"Board A!"'));
+    expect(JSON.parse(loadDraft(keyB) ?? '{}').title).toBe('Pest question');
+  });
+
+  it("resets the poll fields when a ?category= change loads the new board's draft (todo 597)", async () => {
+    vi.spyOn(forumService, 'createThread').mockResolvedValue({
+      id: '12',
+      slug: 'my-topic',
+      status: 'published',
+    });
+    saveDraft(
+      draftKey('new-thread', '5-pests'),
+      JSON.stringify({ title: 'Pest question', body: '<p>aphids</p>', tags: '' })
+    );
+    const view = renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.click(screen.getByRole('checkbox', { name: /add a poll/i }));
+    await userEvent.type(screen.getByLabelText(/poll question/i), 'Best soil?');
+    await userEvent.type(screen.getByLabelText('Poll option 1'), 'Peat');
+    await userEvent.type(screen.getByLabelText('Poll option 2'), 'Coir');
+
+    vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+      new URLSearchParams('category=5-pests'),
+      vi.fn(),
+    ]);
+    view.rerender(
+      <MemoryRouter>
+        <AnnouncerProvider>
+          <NewThreadPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue('Pest question'));
+    expect(screen.getByRole('checkbox', { name: /add a poll/i })).not.toBeChecked();
+    expect(screen.queryByLabelText(/poll question/i)).not.toBeInTheDocument();
+
+    // Re-enabled, the poll starts blank: board A's question and options are gone.
+    await userEvent.click(screen.getByRole('checkbox', { name: /add a poll/i }));
+    expect(screen.getByLabelText(/poll question/i)).toHaveValue('');
+    expect(screen.getByLabelText('Poll option 1')).toHaveValue('');
+    expect(screen.getByLabelText('Poll option 2')).toHaveValue('');
+    await userEvent.click(screen.getByRole('checkbox', { name: /add a poll/i }));
+
+    await userEvent.click(screen.getByRole('button', { name: /post thread/i }));
+    await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
+    expect(forumService.createThread).toHaveBeenCalledWith(
+      expect.not.objectContaining({ poll: expect.anything() })
+    );
+  });
+
+  it.each([
+    ['null', 'null'],
+    ['a number', '5'],
+    ['an array', '[]'],
+    ['a non-string title and tags', '{"title":1,"tags":[],"body":"<p>kept</p>"}'],
+  ])(
+    'reads a stored draft that is %s as blank fields, without crashing (todo 597)',
+    async (_label, raw) => {
+      const key = draftKey('new-thread', '3-plant-care');
+      saveDraft(key, raw);
+      renderPage();
+      await screen.findByText('Plant Care');
+
+      expect(screen.getByLabelText(/title/i)).toHaveValue('');
+      expect(screen.getByLabelText(/tags/i)).toHaveValue('');
+      // Untouched, the stored value stays exactly as it was (todo 538).
+      expect(loadDraft(key)).toBe(raw);
+      await userEvent.type(screen.getByLabelText(/title/i), 'Fixed');
+      await waitFor(() => expect(loadDraft(key)).toContain('"title":"Fixed"'));
+    }
+  );
+
+  it("reads a non-string title or tags in the new board's draft as blank on a ?category= change (todo 597)", async () => {
+    const keyB = draftKey('new-thread', '5-pests');
+    const storedB = '{"title":5,"tags":["x"],"body":"<p>b</p>"}';
+    saveDraft(keyB, storedB);
+    const view = renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'Board A');
+
+    vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+      new URLSearchParams('category=5-pests'),
+      vi.fn(),
+    ]);
+    view.rerender(
+      <MemoryRouter>
+        <AnnouncerProvider>
+          <NewThreadPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByLabelText('body')).toHaveValue('<p>b</p>'));
+    expect(screen.getByLabelText(/title/i)).toHaveValue('');
+    expect(screen.getByLabelText(/tags/i)).toHaveValue('');
+    expect(loadDraft(keyB)).toBe(storedB);
   });
 
   it('does not copy a touched form into the new board key on a ?category= change (todo 549)', async () => {
@@ -907,6 +1045,43 @@ describe('NewThreadPage', () => {
         expect(forumService.createThread).toHaveBeenCalledWith(
           expect.not.objectContaining({ identification: expect.anything() })
         )
+      );
+    });
+
+    it("drops the attachment when a ?category= change loads the new board's draft (todo 597)", async () => {
+      vi.spyOn(forumService, 'createThread').mockResolvedValue({
+        id: '12',
+        slug: 'my-topic',
+        status: 'published',
+      });
+      saveDraft(
+        draftKey('new-thread', '5-pests'),
+        JSON.stringify({ title: 'Pest question', body: '<p>aphids</p>', tags: '' })
+      );
+      const view = renderWithHandoff(HANDOFF);
+      await screen.findByText('Plant Care');
+      expect(screen.getByText(/identification attached/i)).toBeInTheDocument();
+
+      vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+        new URLSearchParams('category=5-pests'),
+        vi.fn(),
+      ]);
+      // Same router state: MemoryRouter reads initialEntries at mount only.
+      view.rerender(
+        <MemoryRouter initialEntries={[{ pathname: '/forum/new-thread', state: HANDOFF }]}>
+          <AnnouncerProvider>
+            <NewThreadPage />
+          </AnnouncerProvider>
+        </MemoryRouter>
+      );
+      await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue('Pest question'));
+      expect(screen.queryByText(/identification attached/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('img')).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: /post thread/i }));
+      await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
+      expect(forumService.createThread).toHaveBeenCalledWith(
+        expect.not.objectContaining({ identification: expect.anything() })
       );
     });
 
