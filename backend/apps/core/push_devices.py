@@ -76,6 +76,7 @@ def register_device(
                     PushDevice.objects.select_for_update()
                     .filter(clash)
                     .exclude(user=user, token=token)
+                    .order_by("pk")
                     .values_list("pk", "token")
                 )
                 if replaced:
@@ -89,9 +90,13 @@ def register_device(
                 if old_tokens:
                     column |= Q(fcm_token__in=old_tokens)
                 ForumProfile.objects.filter(column).update(fcm_token="")
-                defaults = {}
+                # ``user`` always: when a concurrent registration of this
+                # token wins the insert, update_or_create re-reads that row
+                # and must still move it to this account.
+                defaults = {"user": user}
                 if not legacy:
-                    defaults["platform"] = platform[:16]
+                    if platform:
+                        defaults["platform"] = platform[:16]
                     if installation_id:
                         defaults["installation_id"] = installation_id
                 device, _created = PushDevice.objects.update_or_create(
