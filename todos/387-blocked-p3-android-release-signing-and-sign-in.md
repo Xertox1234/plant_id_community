@@ -268,6 +268,11 @@ repeated with the app backgrounded to get a notification record as evidence.
   no default channel (`com.google.firebase.messaging.default_notification_channel_id`),
   so Android users cannot manage forum notifications as a named category.
 
+The multi-device token limitation, foreground presentation and named-channel follow-ups
+are re-pointed to [todo 621](621-pending-p2-mobile-push-devices-and-experience.md)
+(2026-10-12). They are not fixed by this move; this todo's remaining Android signing
+and physical-device sign-in criteria stay unchanged.
+
 ## Notes
 
 Re-pointed from todo 383 on 2026-09-13 when that todo was archived. Todo 383's
