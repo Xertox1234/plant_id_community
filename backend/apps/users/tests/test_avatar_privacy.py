@@ -222,9 +222,12 @@ class WideGamutTests(_AvatarTestCase):
         with default_storage.open(name, "rb") as stored:
             with Image.open(io.BytesIO(stored.read())) as out:
                 rgba = out.convert("RGBA")
-                self.assertEqual(rgba.getpixel((10, 10))[3], 0)
-                self.assertEqual(rgba.getpixel((0, 0))[3], 255)
-                self.assert_converted_to_srgb(rgba.getpixel((0, 0)))
+                keyed = rgba.getpixel((10, 10))
+                opaque = rgba.getpixel((0, 0))
+        assert isinstance(keyed, tuple) and isinstance(opaque, tuple)
+        self.assertEqual(keyed[3], 0)
+        self.assertEqual(opaque[3], 255)
+        self.assert_converted_to_srgb(opaque)
 
     def test_an_untagged_photo_keeps_its_pixels(self) -> None:
         buf = io.BytesIO()
