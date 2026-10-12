@@ -830,6 +830,9 @@ async function main() {
   check('529 item 3: the curator gets the follow-ups as JSON data and reads only origin/main through git',
     r.calls[0].prompt.includes(JSON.stringify(fg().followups)) && r.calls[0].prompt.includes("/usr/bin/git -C '/main' show origin/main:")
     && r.calls[0].prompt.includes('Never read files from disk'), r.calls[0].prompt)
+  check('596 #2: the curator lists an identical merged phrasing in `also` once per merged item',
+    r.calls[0].prompt.includes('once per merged item, even when it reads the same as the summary')
+    && r.calls[0].prompt.includes('accounts for exactly one item of the list above'), r.calls[0].prompt)
   check('541 #982-3: an item the curator calls fixed reaches the refuter with that claim, and drops only on its word',
     fr.kept.length === 1 && fr.kept[0].file === 'a.py' && fr.refuter_ok
     && fr.dropped.map(d => d.why.split(':')[0]).join() === 'fixed on main,refuted'

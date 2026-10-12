@@ -88,6 +88,22 @@ def main():
         except ValueError:
             raised = True
         check("refuses a multi-line value and leaves the file alone", raised and multi.read_text() == before)
+        try:
+            tf.set_fields(multi, {"blocked_on": None})
+            raised = False
+        except ValueError:
+            raised = True
+        check("600: refuses to remove a multi-line value too, and leaves the file alone",
+              raised and multi.read_text() == before)
+
+        # Todo 600: None removes a key's line, and is a no-op for a missing key.
+        tf.set_fields(p, {"blocked_on": "the old question"})
+        tf.set_fields(p, {"blocked_on": None, "triage": "ready"})
+        text = p.read_text()
+        check("600: a None value removes the key's line and keeps the rest",
+              "blocked_on" not in text and tf.read_frontmatter(p)["triage"] == "ready" and text.endswith(BODY), text)
+        tf.set_fields(p, {"blocked_on": None})
+        check("600: removing a missing key changes nothing", p.read_text() == text)
 
         # Todo 475: YAML allows blanks before the colon. `key : value` is that key, so it is
         # rewritten in place -- a plain `key:` prefix match appended a duplicate line instead.

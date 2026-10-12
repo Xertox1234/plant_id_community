@@ -98,7 +98,12 @@ function curatePrompt(g) {
     `0. Run ${prOnMain(g)}. Set pr_on_main to true only if it prints a commit; if it prints nothing, set it to ` +
       'false, return the items as given with on_main `unclear`, and stop there.',
     '1. Merge duplicates: items that report the same problem (in other words, or on nearby lines) become one item ' +
-      'at one of their own file:line locations, with the most severe of their severities and the other phrasings in `also`.',
+      'at one of their own file:line locations, with the most severe of their severities and the other phrasings in `also`. ' +
+      // Todo 596 #2: ingest-followups counts phrasings, one stored item each, so two identical items merged and
+      // listed once would leave the second uncovered, and it would be filed again as a duplicate.
+      'Put every merged item\'s phrasing in `also` once per merged item, even when it reads the same as the summary, ' +
+      'as another `also` entry, or as one already in the kept item\'s own ` | also: ` list: each listed phrasing ' +
+      'accounts for exactly one item of the list above.',
     `2. Check each item against origin/main, which has the PR merged. ${mainReads(g)} ` +
       'Set on_main to `present` when the problem is still there, `fixed` when the code no longer has it, ' +
       '`unclear` when you cannot tell. Put what you saw in `note`, under 300 characters.',

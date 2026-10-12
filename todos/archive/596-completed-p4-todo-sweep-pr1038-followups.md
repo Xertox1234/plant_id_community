@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "596"
 tags: [todos, follow-ups]
@@ -44,7 +44,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
 
 ## Work Log
@@ -52,3 +52,26 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-11 - Filed from todo-sweep run 2026-10-11-1448
 
 Follow-ups for PR #1038 (todos 572, 577, 578).
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-11-2219)
+
+- #1 fixed in part: `scripts/todos/worker_edit_guard.py` `recorded_worktrees` now reads each entry's `previous` attempts (their `worktree` and `stray_worktree`), as `state.recorded_worktrees` does; tests in `.claude/hooks/test-guard-todo-worker-edit.sh`. Declined: failing open on an unreadable or "elsewhere" run file. `state.save` writes a `.tmp` and `os.replace`s it, so a half-written file is never read; the guard already reads both places run files live (main checkout, cwd's checkout); and failing open on a corrupt file would re-admit every stray `wf_*`/`agent-*` worktree, the hole todo 577 #5 closed.
+- #2 fixed at the curator: `.claude/workflows/todo-followups.js` now tells the curator to list an identical merged phrasing in `also` once per merged item, which the counted pool in `ingest_followups` already covers one-for-one; `_refuted_line` writes a repeated phrasing once. An identical phrasing listed once stays indistinguishable from "nobody merged it" (todo 577 #2, kept). Tests in `scripts/todos/test_state_flow.py` and `scripts/todos/test_workflows.js`.
+- #5 fixed: `REPOINT_RE` (`scripts/check_archived_todo_status.py`) drops the "todo N … re-pointed" alternative and bounds "re-pointed … todo N" to one short clause. Old and new agree on all 361 unchecked criteria under `todos/`; test in `scripts/test_check_archived_todo_status.py`.
+- #3, #4, #6, #7 were already fixed on main (see the dropped list): `_GIT_C_RE` no longer exists in `scripts/todos/land.py`, and the guard's `awaiting_a_worktree` case is tested. Nothing changed for them.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-11-2219)
+
+- AC 1: `bash -c 'cd . && python3 scripts/todos/test_state.py && python3 scripts/todos/test_state_flow.py && python3 scripts/todos/test_todofile.py && node scripts/todos/test_workflows.js && bash .claude/hooks/test-guard-todo-worker-edit.sh && python3 scripts/test_check_archived_todo_status.py && python3 scripts/check_archived_todo_status.py; echo exit=$?; echo "_GIT_C_RE occurrences in scripts/todos/land.py: $(grep -c _GIT_C_RE scripts/todos/land.py)"; echo "--- Work Log entry (fixed / declined with a reason):"; sed -n "/Implemented by the todo sweep (run 2026-10-11-2219)/,\$p" todos/archive/596-completed-p4-todo-sweep-pr1038-followups.md'` — evidence `.sweep-evidence/g13/596-ac0.txt` (not committed), last lines:
+
+  ```text
+  - #2 fixed at the curator: `.claude/workflows/todo-followups.js` now tells the curator to list an identical merged phrasing in `also` once per merged item, which the counted pool in `ingest_followups` already covers one-for-one; `_refuted_line` writes a repeated phrasing once. An identical phrasing listed once stays indistinguishable from "nobody merged it" (todo 577 #2, kept). Tests in `scripts/todos/test_state_flow.py` and `scripts/todos/test_workflows.js`.
+  - #5 fixed: `REPOINT_RE` (`scripts/check_archived_todo_status.py`) drops the "todo N … re-pointed" alternative and bounds "re-pointed … todo N" to one short clause. Old and new agree on all 361 unchecked criteria under `todos/`; test in `scripts/test_check_archived_todo_status.py`.
+  - #3, #4, #6, #7 were already fixed on main (see the dropped list): `_GIT_C_RE` no longer exists in `scripts/todos/land.py`, and the guard's `awaiting_a_worktree` case is tested. Nothing changed for them.
+  state: --reverify takes stage ready and exactly one --field reason=...
+  state: 7: --date must be a YYYY-MM-DD date, not 'tomorrow'
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

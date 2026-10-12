@@ -205,8 +205,11 @@ def fenced_lines(lines):
 # whole value of this exemption is that it is HARD to satisfy. Measured against
 # the repo: zero of the 63 files with unchecked ACs clear this bar, so the
 # exemption starts unused -- which is the honest starting point, not a failure.
+# Todo 596 #5: the words form is "re-pointed", then the target within a short clause ("re-pointed 2026-07-26 to
+# todo 283"). An unbounded `.*`, or a todo number BEFORE "re-pointed", matched any criterion that merely
+# mentions both -- and a wrapped criterion is matched as one joined string, so they could be lines apart.
 REPOINT_RE = re.compile(
-    r"(?:\u2192|->)\s*todo\s*\d+|re-?pointed\b.*\btodo\s*\d+|\btodo\s*\d+\b.*re-?pointed",
+    r"(?:\u2192|->)\s*todo\s*\d+|re-?pointed\b[^.;!?|/]{0,30}?\btodo\s*\d+",
     re.I,
 )
 STATUS_RE = re.compile(r"^status:\s*(.+?)\s*$", re.M)

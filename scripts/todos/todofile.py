@@ -111,7 +111,8 @@ def field_problem(text, key):
 
 
 def set_fields(path, fields):
-    """Set top-level scalar keys in place, appending any that are missing. Refuses,
+    """Set top-level scalar keys in place, appending any that are missing. A value of None
+    removes the key's line instead, and is a no-op for a missing key (todo 600). Refuses,
     writing nothing, when any key has a field_problem."""
     path = Path(path)
     text = path.read_text()
@@ -124,8 +125,12 @@ def set_fields(path, fields):
         raise ValueError(f"{path}: no frontmatter block")
     lines = match.group(1).splitlines(keepends=True)
     for key, value in fields.items():
-        new_line = f"{key}: {render(value)}\n"
         i = key_line(lines, key)
+        if value is None:
+            if i is not None:
+                del lines[i]
+            continue
+        new_line = f"{key}: {render(value)}\n"
         if i is None:
             lines.append(new_line)
         else:

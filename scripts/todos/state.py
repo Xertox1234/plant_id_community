@@ -494,6 +494,12 @@ def _triage_fields(entry, record, today):
             and entry.get("reason") == entry["owner_decision"] and not record["class"].startswith("blocked-")):
         fields["triage"] = "blocked-owner"
         fields.setdefault("blocked_on", entry["owner_decision"])
+    # Todo 600: an owner who answered a needs-design or blocked-* todo "ready" has unblocked it. Writing the
+    # triager's class and blocked_on would make it read as still blocked on the question just answered, so it is
+    # `ready`, and a blocked_on from this or an earlier triage is removed (None tells set_fields to drop the line).
+    if entry["stage"] == "ready" and entry.get("owner_decision"):
+        fields["triage"] = "ready"
+        fields["blocked_on"] = None
     if entry.get("owner_decision"):
         fields["owner_decision"] = entry["owner_decision"]
     return fields
@@ -1634,7 +1640,10 @@ def _hold(run, gid, entries, criticals, round_no, note=""):
 
 def _refuted_line(f):
     line = f"{f['severity']}: {f['file']}:{f['line']} {f['summary']}"
-    return line + (f" | also: {' | '.join(f['also'])}" if f.get("also") else "")
+    # Todo 596 #2: the curator lists an identical merged phrasing once per merged item, so ingest-followups can
+    # count it; the stored line says it once.
+    also = [p for p in dict.fromkeys(f.get("also") or []) if p != f["summary"]]
+    return line + (f" | also: {' | '.join(also)}" if also else "")
 
 
 def _merged_phrasings(body, f):

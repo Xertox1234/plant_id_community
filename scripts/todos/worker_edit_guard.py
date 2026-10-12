@@ -91,9 +91,14 @@ def _run_entries(*roots):
 
 
 def recorded_worktrees(*roots):
-    """Every todo `worktree` the sweep run files under each root's `todos/` record, realpath'd (todo 577 #5)."""
-    return {os.path.realpath(e["worktree"]) for e in _run_entries(*roots)
-            if isinstance(e.get("worktree"), str) and e["worktree"]}
+    """Every todo `worktree` the sweep run files under each root's `todos/` record, realpath'd (todo 577 #5),
+    including each entry's earlier attempts in `previous` and their `stray_worktree`, as state.recorded_worktrees
+    lists them (todo 596 #1): a reopened todo's earlier worktree is still a group's, not a stranger's."""
+    attempts = [a for e in _run_entries(*roots)
+                for a in [e, *(e.get("previous") if isinstance(e.get("previous"), list) else [])]
+                if isinstance(a, dict)]
+    return {os.path.realpath(w) for a in attempts for w in (a.get("worktree"), a.get("stray_worktree"))
+            if isinstance(w, str) and w}
 
 
 def awaiting_a_worktree(*roots):

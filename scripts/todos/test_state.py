@@ -207,6 +207,27 @@ def main():
         state.apply_triage(worked, repo, "2026-09-28")
         check("PR #869: a worker block after an owner's ready answer keeps the triage class",
               todofile.read_frontmatter(repo / "todos/10-pending-p3-x.md")["triage"] == "needs-design")
+        # Todo 600: an owner's "ready" answer to a needs-design todo unblocks it. Before, apply-triage wrote the
+        # triager's class and blocked_on, so the todo read as still blocked on the question just answered. A
+        # blocked_on left in the file by an earlier run's triage is removed too.
+        (repo / "todos/11-pending-p3-x.md").write_text(
+            head.format(s="pending", i="11").replace("dependencies: []\n",
+                                                     "dependencies: []\nblocked_on: an earlier run's question\n"))
+        unblocked = state.new_run("r4e", "sweep", 3, [todo("11")], ["11"])
+        state.record_triage(unblocked, [rec("11", "needs-design", "Which layout?", "needs the layout call")])
+        state.decide(unblocked, "11", "ready", decision="Use the two-column layout (2026-10-11)")
+        state.apply_triage(unblocked, repo, "2026-10-11")
+        fm11 = todofile.read_frontmatter(repo / "todos/11-pending-p3-x.md")
+        check("600: a needs-design todo the owner answered ready is written triage: ready with no blocked_on",
+              fm11["triage"] == "ready" and "blocked_on" not in fm11
+              and fm11["owner_decision"] == "Use the two-column layout (2026-10-11)", fm11)
+        unanswered = state.new_run("r4f", "sweep", 3, [todo("11")], ["11"])
+        state.record_triage(unanswered, [rec("11", "needs-design", "Which layout?", "needs the layout call")])
+        state.decide(unanswered, "11", "skipped")
+        state.apply_triage(unanswered, repo, "2026-10-11")
+        fm11 = todofile.read_frontmatter(repo / "todos/11-pending-p3-x.md")
+        check("600: ... while one skipped without an answer keeps the triager's class and blocked_on",
+              fm11["triage"] == "needs-design" and fm11["blocked_on"] == "needs the layout call", fm11)
 
         import scan  # noqa: E402 -- scan imports state, so only here
         picked, _ = scan.select(scan.load_todos(repo / "todos"), selector="sweep", inflight=set(),
