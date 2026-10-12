@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "629"
 tags: [todo-sweep, docs, follow-ups]
@@ -30,7 +30,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -38,3 +38,31 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-12 - Filed from the PR #1073 review (todo sweep run 2026-10-12-0349)
 
 Filed by the closing step of the run from `state.py followups-md g4`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-1724)
+
+- Findings 1 and 2 (603's and 608's AC 1 quotes print the pre-archive `todos/60N-pending-...md` path): fixed
+  as doc corrections, no behaviour change, so no test. Same remedy todo 603 used for 583.
+- Appended a dated "AC 1 evidence corrected" entry to `todos/archive/603-completed-p4-todo-466-evidence-quote-1048.md`
+  and `todos/archive/608-completed-p4-thread-summary-too-short-1054.md`, each quoting the full output of the
+  same AC 1 command re-run on origin/main `7559dc57`, where every line prints the archived path.
+- Land's quoted blocks are left untouched; the new entries supersede them.
+- Root cause, not changed here: `scripts/todos/land.py` rewrites the todo's own path to its archived path in
+  the quoted command but not in the quoted tail lines, so a grep of the todo's own file still quotes the
+  pending path.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-1724)
+
+- AC 1: `/usr/bin/grep -n -E 'AC 1 evidence corrected by the todo sweep \(run 2026-10-12-1724, todo 629\)|^  todos/archive/60[38]-completed-[a-z0-9-]+\.md:(35|37|45|47|49):' todos/archive/603-completed-p4-todo-466-evidence-quote-1048.md todos/archive/608-completed-p4-thread-summary-too-short-1054.md` — evidence `.sweep-evidence/g3/629-ac0.txt` (not committed), last lines:
+
+  ```text
+  todos/archive/603-completed-p4-todo-466-evidence-quote-1048.md:73:  todos/archive/603-completed-p4-todo-466-evidence-quote-1048.md:47:- AC 1: `grep -n -E 'AC 1 evidence corrected|^  todos/archive/583-completed-p4-chore-466-evidence-followups.md:38:|Implemented by the todo sweep \(run 2026-10-12-0349\)|Finding 1 \(AC 1' todos/archive/583-completed-p4-chore-466-evidence-followups.md todos/archive/603-completed-p4-todo-466-evidence-quote-1048.md` — evidence `.sweep-evidence/g4/603-ac0.txt` (not committed), last lines:
+  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:72:### 2026-10-12 - AC 1 evidence corrected by the todo sweep (run 2026-10-12-1724, todo 629)
+  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:87:  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:45:### 2026-10-11 - Implemented by the todo sweep (run 2026-10-12-0349)
+  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:88:  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:47:- Finding (`ThreadSummaryPanel.tsx`, `outcome?.status !== 'ready'` "broader than the comment"): declined, per
+  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:89:  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:49:- Reason: `type Outcome = Exclude<TopicSummary, { status: 'pending' }>`
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-1724)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

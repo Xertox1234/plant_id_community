@@ -59,3 +59,16 @@ Filed by the closing step of the run from `state.py followups-md g9`.
 ### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Work Log date and eof mutation evidence corrected by the todo sweep (run 2026-10-12-1724, todo 635)
+
+- The Implemented heading (2026-10-12) is correct: PR #1080 was opened at 2026-10-12 10:19 MDT. The
+  Verified and Completed entries say 2026-10-11 because Land's `--date` was fixed when the run started
+  (21:49 MDT on 2026-10-11) and went stale after midnight. Those two dates are wrong, not the heading.
+  (Review round 2 of PR #1097 caught an earlier edit that had moved the heading to 2026-10-11.)
+- The ENVIRONMENT DRIFT in the Verified quote (pyjwt, urllib3) is the local venv lagging
+  `backend/requirements.txt` (todo 378), not this test; CI installs the pins. It still prints on a re-run.
+- Mutation check for the `"eof"` assertion in `test_576_item2_...`: deleting only
+  `self.left_before_request = "eof"` in `DripServer._receive_request` (keeping its `return None`) makes the
+  test fail at `assert server.left_before_request == "eof"` (`AssertionError: assert None == 'eof'`), after
+  its `received == b""` and thread-ended asserts passed; restored, and the file passes again.
