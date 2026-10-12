@@ -14,10 +14,9 @@ class TopicSubscription(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        # NOT "forum_subscriptions" (the legacy apps.core model already
-        # claims it) and NOT "forum_notifications"/"received_forum_notifications"
-        # (User.forum_notifications pref / Notification.recipient) — any of
-        # those trips Django's reverse-accessor clash check at import time.
+        # NOT "forum_notifications"/"received_forum_notifications"
+        # (User.forum_notifications pref / Notification.recipient) — either
+        # trips Django's reverse-accessor clash check at import time.
         related_name="forum_topic_subscriptions",
     )
     topic = models.ForeignKey(
