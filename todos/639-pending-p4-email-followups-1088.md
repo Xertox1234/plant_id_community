@@ -4,6 +4,9 @@ priority: p4
 issue_id: "639"
 tags: [email, templates, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Finding 8: use SITE_NAME in both subject and body (fix the SITE_NAME default to 'Houseplant MD'). Finding 6: fix blog_post.html links and convert its layout to the table layout the no-flex tests cover. Fix the other findings (2026-10-12)"
 ---
 
 # Follow-ups from PR #1088 (todo 622, email links, text parts and layout)
