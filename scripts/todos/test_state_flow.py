@@ -1758,6 +1758,34 @@ def bookkeeping_tests():
         check("482: finish still removes the run file when every todo is terminal and none is held",
               out.returncode == 0 and not runfile.exists(), (out.returncode, out.stdout, out.stderr))
 
+    # Todo 647 #2/#3 (owner decision 2026-10-12): state.py, not the model reading the run file, reports the groups a
+    # DIRTY recovery annotated kimi_recovery=skipped -- once per group -- and finish prints them before it deletes it.
+    with tempfile.TemporaryDirectory() as tmp:
+        run = {"run_id": "r", "groups": {"g1": {"ids": ["1", "2"]}, "g2": {"ids": ["3"]}, "g3": {"ids": ["4"]}},
+               "todos": {"1": {"stage": "archived", "group": "g1"}, "2": {"stage": "archived", "group": "g1"},
+                         "3": {"stage": "archived", "group": "g2"}, "4": {"stage": "blocked", "group": "g3"}}}
+        state.annotate(run, "g1", kimi_recovery="skipped")
+        state.annotate(run, "g3", kimi_recovery="skipped")
+        _, err = expect(lambda: state.annotate(run, "g2", kimi_recovery="skiped"))
+        check("647 #2: annotate refuses a kimi_recovery value other than `skipped` (a typo would under-report)",
+              "kimi_recovery takes only `skipped`" in str(err) and "kimi_recovery" not in run["todos"]["3"], err)
+        check("647 #2/#3: kimi_skipped_groups lists each annotated group once, however many todos it holds",
+              state.kimi_skipped_groups(run) == ["g1", "g3"], state.kimi_skipped_groups(run))
+        runfile = Path(tmp) / "run.json"
+        state.save(run, runfile)
+        out = subprocess.run([sys.executable, state.STATE_PY, "kimi-skipped", str(runfile)], capture_output=True,
+                             text=True)
+        check("647 #2/#3: `state.py kimi-skipped` prints the groups as JSON",
+              out.returncode == 0 and json.loads(out.stdout) == ["g1", "g3"], (out.returncode, out.stdout, out.stderr))
+        out = subprocess.run([sys.executable, state.STATE_PY, "finish", str(runfile)], capture_output=True, text=True)
+        check("647 #2/#3: finish prints the kimi_recovery=skipped groups, then removes the run file",
+              out.returncode == 0 and out.stdout.splitlines()[0] == "kimi_recovery=skipped: 2 group(s): g1, g3"
+              and "run file removed" in out.stdout and not runfile.exists(), (out.returncode, out.stdout, out.stderr))
+        state.save({"run_id": "r", "groups": {}, "todos": {"1": {"stage": "archived", "group": "g1"}}}, runfile)
+        out = subprocess.run([sys.executable, state.STATE_PY, "finish", str(runfile)], capture_output=True, text=True)
+        check("647 #2/#3: ... and says 0 when no group was annotated",
+              out.returncode == 0 and out.stdout.splitlines()[0] == "kimi_recovery=skipped: 0 group(s)", out.stdout)
+
     # Todo 473: a todo that landed after a blocked attempt still lists that attempt's worktree.
     run = {"todos": {"1": {"stage": "archived", "worktree": "/wt/landed", "previous": [{"worktree": "/wt/blocked"}]},
                      "2": {"stage": "archived", "worktree": "/wt/only"},
@@ -3249,6 +3277,43 @@ def todo_541_tests():
             os.chdir(cwd)
         check("541 #982-7: a relative --main-root and --worktree-root record absolute paths",
               os.path.isabs(rel[0]["worktree"]) and os.path.isabs(rel[0]["main_root"]), rel)
+
+    # Todo 640 #9: a --worktree-root outside .claude/worktrees/ makes worktrees where the git guard never lets a
+    # worker stage, so execute-args refuses it before anything runs.
+    with tempfile.TemporaryDirectory() as tmp:
+        main = Path(tmp) / "repo"
+        ok = [main / ".claude" / "worktrees", main / ".claude" / "worktrees" / "sub", Path(tmp) / ".claude" / "worktrees"]
+        bad = [Path(tmp) / "wts", Path(tmp) / "other" / ".claude" / "worktrees", main / "worktrees"]
+        refused = []
+        for root in ok + bad:
+            try:
+                state.check_worktree_root(root, main)
+            except state.TransitionError:
+                refused.append(root)
+        check("640 #9: a root at or under a .claude/worktrees at or above the main root is accepted, others refused",
+              refused == bad, refused)
+        pilot = main / ".claude" / "worktrees" / "pilot"
+        try:
+            state.check_worktree_root(main / ".claude" / "worktrees", pilot)
+            pilot_ok = True
+        except state.TransitionError:
+            pilot_ok = False
+        check("640 #9: the pilot layout (main root under REPO/.claude/worktrees) may use REPO's worktrees dir", pilot_ok)
+        runfile = Path(tmp) / "run.json"
+        state.save({"run_id": "r", "groups": {}, "todos": {}, "waves": []}, runfile)
+        before = runfile.read_text()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = state.main(["execute-args", str(runfile), "--wave", "0", "--main-root", str(main),
+                             "--worktree-root", str(Path(tmp) / "wts")])
+        check("640 #9: execute-args refuses such a --worktree-root (exit 2, naming the guard) and saves nothing",
+              rc == 2 and "worktree of this repository" in err.getvalue() and runfile.read_text() == before,
+              (rc, err.getvalue()))
+        help_text = io.StringIO()
+        with contextlib.redirect_stdout(help_text), contextlib.suppress(SystemExit):
+            state.main(["execute-args", "--help"])
+        check("640 #9: execute-args --help says where the worktree root must be",
+              "guard lets a worker stage only there" in " ".join(help_text.getvalue().split()), help_text.getvalue())
 
     # #982-10: anchored, negated, `..` and symlinked .worktreeinclude entries never raise, and never copy a link.
     with tempfile.TemporaryDirectory() as tmp:

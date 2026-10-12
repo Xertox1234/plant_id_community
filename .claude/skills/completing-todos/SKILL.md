@@ -411,7 +411,8 @@ Treat `DIRTY` as a stop, never as "still waiting", and recover it as below.
 5. `/usr/bin/git -C $WT add -- <resolved paths>`, then record the merged tree before anything checks it:
    `state.py annotate $RUN G --field tree_id=$(/usr/bin/git -C $WT write-tree)`.
 6. Commit the merge with the kimi gate skipped, and record it: `state.py annotate $RUN G --field
-   kimi_recovery=skipped`, which the wrap-up counts in its `kimi: skipped` total, since the PR body is already
+   kimi_recovery=skipped` (no other value is accepted), which `finish` reports once per group for the wrap-up's
+   `kimi: skipped` total (todo 647), since the PR body is already
    written (owner decision 2026-10-11, todo 616): mid-merge the staged diff is everything origin/main brought
    in, already reviewed in its own PRs, so a CRITICAL or a timeout there would block the recovery on code this
    PR never wrote. The skip also covers the hunks resolved by hand in step 3 (the `todos/` rebuilds, the
@@ -431,13 +432,15 @@ Treat `DIRTY` as a stop, never as "still waiting", and recover it as below.
    earlier blocked attempts included, and a landed todo's earlier blocked attempts too (todo 473: cleanup
    removes only the worktree that landed; the others are left for the owner). Put each in the summary.
    `finish` deletes RUN, and with it the only record of where that staged work is.
-2. `python3 scripts/todos/state.py finish $RUN` removes the run file only when every todo is terminal, and
+2. `python3 scripts/todos/state.py finish $RUN` first prints `kimi_recovery=skipped: N group(s): …`, each group
+   annotated `kimi_recovery=skipped` once (todo 647; `state.py kimi-skipped $RUN` prints the same list as JSON
+   without finishing). It then removes the run file only when every todo is terminal, and
    refuses (exit 1, naming them) while any group is held for the owner (todo 482): `clear-hold` needs the run
    file. Leave it in place and report the held PRs.
 
 The summary lists: merged PRs, blocked todos with reasons, skipped todos, the worktrees from step 1,
 owner hand-offs (prod, device and vendor steps are never attempted), the `kimi: skipped` count (Stage D
-step 6 timeouts plus every group annotated `kimi_recovery=skipped` by a DIRTY recovery),
+step 6 timeouts plus the N groups annotated `kimi_recovery=skipped` by a DIRTY recovery, as `finish` printed them),
 findings the refuters dismissed (per PR), deferred groups (`--limit`), and the follow-ups PR.
 
 ## Safety rails

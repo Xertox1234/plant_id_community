@@ -223,6 +223,15 @@ def recorded_worktrees(run):
     return out
 
 
+def kimi_skipped_groups(run):
+    """The groups a DIRTY recovery committed with the kimi gate skipped (`annotate … --field
+    kimi_recovery=skipped`, SKILL.md DIRTY recovery step 6), each once however many todos it holds. Todo 647
+    #2/#3 (owner decision 2026-10-12): `finish` prints them before it deletes the run file, the only record of
+    them, so the wrap-up's `kimi: skipped` count reads them from state.py, not from the run file by hand."""
+    return sorted({entry.get("group") or todo_id for todo_id, entry in run["todos"].items()
+                   if entry.get("kimi_recovery") == "skipped"})
+
+
 def is_complete(run):
     return all(entry["stage"] in TERMINAL for entry in run["todos"].values())
 
@@ -308,6 +317,9 @@ def decide(run, todo_id, outcome, decision="", verify_only=False, reset_stranded
     entry = run["todos"][todo_id]
     if decision:
         entry["owner_decision"] = decision
+        # Todo 647 #1: the answer to the triage question, kept apart from owner_decision, which confirm,
+        # clear_hold, release_incomplete and hand_round append to later.
+        entry["triage_answer"] = decision
     entry["verify_only"] = bool(verify_only)
     entry["reset_stranded"] = bool(reset_stranded)
     if outcome == "blocked":
@@ -505,8 +517,11 @@ def _triage_fields(entry, record, today):
     # --reset-stranded` with no --decision answers only the stranded question, and `state.py set <id> ready`
     # moves the todo with no decision at all, so the unblock also needs an owner_decision. Without one the
     # triager's class and blocked_on are kept. A blocked or skipped todo keeps the rules above.
+    # Todo 647 #1: the answer is the decision `decide` recorded (triage_answer), not any owner_decision: confirm,
+    # clear-hold, release-incomplete and hand-round append theirs to owner_decision, and none of them answers the
+    # triage question, so a todo moved by a bare `set … ready` and then confirmed still keeps its class.
     if (record["class"] == "needs-design" or record["class"].startswith("blocked-")) \
-            and entry["stage"] not in NOT_PLANNED and entry.get("owner_decision"):
+            and entry["stage"] not in NOT_PLANNED and entry.get("triage_answer"):
         fields["triage"] = "ready"
         fields["blocked_on"] = None
     if entry.get("owner_decision"):
@@ -867,6 +882,21 @@ def _free_aside(root, name, main_root, git):
     return f"{stem}-{datetime.datetime.now().strftime('%H%M%S')}"
 
 
+def check_worktree_root(root, main_root):
+    """Refuse an execute-args --worktree-root the worker git guard would never let a worker stage in (todo 640 #9):
+    staging is allowed only inside a `.claude/worktrees/<name>/` directory of the main root's repository (todo 618,
+    todo 640 #7), so the root must be a `.claude/worktrees` directory, or inside one, of the main root or of a
+    directory above it (the pilot layout's main root is itself under REPO/.claude/worktrees)."""
+    parts = Path(os.path.abspath(root)).parts
+    at = next((i for i in range(len(parts) - 1) if parts[i:i + 2] == (".claude", "worktrees")), None)
+    main = Path(os.path.abspath(main_root))
+    if at is None or not (main == Path(*parts[:at]) or Path(*parts[:at]) in main.parents):
+        raise TransitionError(f"--worktree-root {root}: a worker can stage only inside a .claude/worktrees/<name>/ "
+                              f"worktree of this repository (the git guard, todo 618), so the root must be "
+                              f"{main / '.claude' / 'worktrees'} or another .claude/worktrees directory at or above "
+                              "the main root")
+
+
 def add_worktrees(run, briefs, root, git=run_git):
     """Create each worker brief's worktree before the workflow runs, and put its path and branch on the
     brief and on every todo of the group (todo 528, owner decision 2026-10-10). The workflow used to let
@@ -1120,6 +1150,9 @@ def annotate(run, gid, **fields):
     for name in ("stage", "attempts", "group"):
         if name in fields:
             raise TransitionError(f"{gid}: {name} cannot be set via annotate")
+    # Todo 647 #2/#3: kimi_skipped_groups counts only `skipped`, so a mistyped value would under-report silently.
+    if "kimi_recovery" in fields and fields["kimi_recovery"] != "skipped":
+        raise TransitionError(f"{gid}: kimi_recovery takes only `skipped`, not {fields['kimi_recovery']!r}")
     for _, entry in _group_entries(run, gid):
         entry.update(fields)
 
@@ -2182,7 +2215,7 @@ def _parse_fields(pairs):
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("show", "accept-ready", "questions", "finish", "worktrees"):
+    for name in ("show", "accept-ready", "questions", "finish", "worktrees", "kimi-skipped"):
         sub.add_parser(name).add_argument("runfile")
     p = sub.add_parser("triage-args")
     p.add_argument("runfile")
@@ -2218,7 +2251,9 @@ def build_parser():
     p.add_argument("runfile"), p.add_argument("--wave", type=int, required=True)
     p.add_argument("--main-root", required=True)
     p.add_argument("--worktree-root", help="where each worker's worktree is created (todo 528); default "
-                                           "<main-root>/.claude/worktrees")
+                                           "<main-root>/.claude/worktrees. It must be a .claude/worktrees "
+                                           "directory (or inside one) at or above the main root: the worker git "
+                                           "guard lets a worker stage only there (todos 618, 640)")
     p = sub.add_parser("followups-args")
     p.add_argument("runfile"), p.add_argument("--main-root", required=True)
     p = sub.add_parser("ingest-followups")
@@ -2285,7 +2320,13 @@ def main(argv=None):
         if args.cmd == "worktrees":
             print(json.dumps(recorded_worktrees(run), indent=1))
             return 0
+        if args.cmd == "kimi-skipped":
+            print(json.dumps(kimi_skipped_groups(run)))
+            return 0
         if args.cmd == "finish":
+            skipped = kimi_skipped_groups(run)
+            # Todo 647 #2/#3: printed first, so it is out before the run file (its only record) is removed.
+            print(f"kimi_recovery=skipped: {len(skipped)} group(s){': ' + ', '.join(skipped) if skipped else ''}")
             held = held_groups(run)
             if held:
                 # Todo 482: clear-hold needs the run file, and the owner must not have to merge by hand.
@@ -2323,6 +2364,8 @@ def main(argv=None):
             result = apply_grouping(run)
             print(json.dumps({"waves": result["waves"], "unschedulable": result["unschedulable"]}, indent=1))
         elif args.cmd == "execute-args":
+            if args.worktree_root:
+                check_worktree_root(args.worktree_root, args.main_root)
             briefs = execute_args(run, args.wave, args.main_root)
             add_worktrees(run, briefs, args.worktree_root or Path(args.main_root, ".claude", "worktrees"))
             print(json.dumps({"run_id": run["run_id"], "briefs": briefs}))

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "640"
 tags: [todo-sweep, harness, security, follow-ups]
@@ -39,7 +39,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -47,3 +47,39 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-12 - Filed from the PR #1095 review (todo sweep run 2026-10-12-1724)
 
 Filed by the closing step of the run from `state.py followups-md g1`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-2056)
+
+- #1, #2, #4 fixed in `scripts/todos/worker_git_guard.py`: a staging git (add/mv/rm) run by xargs is denied,
+  since xargs builds its words at runtime (an `-I`/`-J` replstr inside `-C`, or an appended `-f`); xargs's
+  BSD/macOS `-J`, `-R` and `-S` take a value; a staging option word built at runtime (`$(printf -- -f)`,
+  `"$F"`, a backtick) is denied unless it follows `--`.
+- #3 fixed: a `(` glued inside a word (a zsh glob qualifier such as `MAIN(/)`, or an extglob) is a parse
+  failure, so it is denied; `f()` and `NAME=( )` still split as before.
+- #7 fixed where the hook event names the agent's cwd (the harness always sends it): the worktree must sit
+  under `.claude/worktrees/` of the cwd repository's main root (its common `.git`'s parent, so a linked-worktree
+  cwd anchors to the same root). With no cwd, or one outside any repository, nothing is anchored, as before.
+  #8 fixed narrowly: `rm`/`mv`/`unlink`/`rmdir` of a `.git` is denied. The guard still reads the disk when the
+  hook runs; other ways to delete a `.git` stay out of scope for a mistake guard (module docstring).
+- #5 and #6 fixed in `.claude/hooks/test-guard-todo-worker-git.sh`: the 21 GIT_* deny cases end in
+  `git -C /wt/.claude/worktrees/g1 add x` and check their own reason, with a control case that the same git
+  alone is allowed; the mislabelled case is now "an absolute -C", plus a real relative-`-C` case.
+- #9 fixed in `scripts/todos/state.py`: `execute-args` refuses a `--worktree-root` that is not a
+  `.claude/worktrees` directory at or above the main root, and its help text says why. Tests: 34 new guard
+  cases (23 fail on the old guard) and `test_state_flow.py` 640 #9.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-2056)
+
+- AC 1: `bash .claude/hooks/test-guard-todo-worker-git.sh && python3 scripts/todos/test_state_flow.py && grep -n -E '^- #(1|5|7|9)' todos/archive/640-completed-p4-worker-git-guard-gaps-1095.md` — evidence `.sweep-evidence/g1/640-ac0.txt` (not committed), last lines:
+
+  ```text
+  All checks passed.
+  53:- #1, #2, #4 fixed in `scripts/todos/worker_git_guard.py`: a staging git (add/mv/rm) run by xargs is denied,
+  59:- #7 fixed where the hook event names the agent's cwd (the harness always sends it): the worktree must sit
+  64:- #5 and #6 fixed in `.claude/hooks/test-guard-todo-worker-git.sh`: the 21 GIT_* deny cases end in
+  67:- #9 fixed in `scripts/todos/state.py`: `execute-args` refuses a `--worktree-root` that is not a
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-2056)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

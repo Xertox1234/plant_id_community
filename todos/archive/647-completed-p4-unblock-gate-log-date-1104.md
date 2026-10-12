@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "647"
 tags: [todo-sweep, docs, follow-ups]
@@ -41,7 +41,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -49,3 +49,37 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-12 - Filed from the PRs #1104 and #1097 review (todo sweep run 2026-10-12-1724)
 
 Filed by the closing step of the run from `state.py followups-md g10 / g3`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-2056)
+
+- #1 fixed in `scripts/todos/state.py`: `decide` records its decision as `triage_answer`, and the unblock gate
+  reads that, not `owner_decision`, which confirm, clear-hold, release-incomplete and hand-round append to.
+  Test: `test_state.py` 647 #1 (a bare `set ready` then `confirm`, and a clear-hold decision, keep the class).
+- #2/#3 fixed per the owner decision: `state.py finish` prints `kimi_recovery=skipped: N group(s): …` (each
+  group once) before it removes the run file, `state.py kimi-skipped` prints the list as JSON, and `annotate`
+  refuses any `kimi_recovery` value but `skipped`. SKILL.md's DIRTY step 6 and wrap-up say so. Test:
+  `test_state_flow.py` 647 #2/#3 (a two-todo group is listed once).
+- #4 fixed in `scripts/todos/land.py`: `_log_date` counts only real calendar dates no later than a day after
+  today (or `--date`), and `archive` uses that one date for the Completed entry and the review-doc check-off.
+  Tests: `test_land.py` 647 #4.
+- #5 declined: the 637 runbook checks pin SKILL.md prose that the main session follows, and the recovery steps
+  need a live PR, gh and a merge conflict, which these unit tests cannot drive. The code half (the kimi count)
+  now has the behavioural test above.
+- PR #1097 #1 fixed: archived 635 gets a correction entry saying the 2026-10-12 heading was the local date, not
+  UTC; the earlier entry is kept as written, as archived Work Logs are.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-2056)
+
+- AC 1: `python3 scripts/todos/test_state.py && python3 scripts/todos/test_state_flow.py && python3 scripts/todos/test_land.py && grep -n 'Correction by the todo sweep (run 2026-10-12-2056, todo 647)' todos/archive/635-completed-p4-link-preview-eof-1080.md && grep -n -E '^- (#1 fixed|#2/#3 fixed|#4 fixed|#5 declined|PR #1097 #1 fixed)' todos/archive/647-completed-p4-unblock-gate-log-date-1104.md` — evidence `.sweep-evidence/g1/647-ac0.txt` (not committed), last lines:
+
+  ```text
+  55:- #1 fixed in `scripts/todos/state.py`: `decide` records its decision as `triage_answer`, and the unblock gate
+  58:- #2/#3 fixed per the owner decision: `state.py finish` prints `kimi_recovery=skipped: N group(s): …` (each
+  62:- #4 fixed in `scripts/todos/land.py`: `_log_date` counts only real calendar dates no later than a day after
+  65:- #5 declined: the 637 runbook checks pin SKILL.md prose that the main session follows, and the recovery steps
+  68:- PR #1097 #1 fixed: archived 635 gets a correction entry saying the 2026-10-12 heading was the local date, not
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-2056)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

@@ -20,7 +20,10 @@ resolves inside a `.claude/worktrees/<name>/` worktree and is not a main checkou
 the same test. A relative or runtime-built -C or --work-tree, a missing -C, and
 a `git-add` binary are denied. The guard never tracks the working directory: a
 `cd`, a pipeline stage or a function body cannot move where a staging git runs,
-because the shell's directory is never consulted.
+because the shell's directory is never consulted. Todo 640: when the hook event
+names the agent's cwd, the worktree must be one of that repository's; a staging
+git run by xargs, a staging option word built at runtime, a ( glued inside a word
+(a zsh glob qualifier) and an rm/mv of a .git are denied too.
 
 It tokenizes the command the way a shell does -- quotes, escapes, `$(...)`,
 backticks, `<(...)`, redirections, heredocs and reserved words -- and finds the
@@ -74,10 +77,10 @@ NO_C_REASON = ("git {sub} must name its worktree: git -C <absolute path inside .
                "(a cd, a relative path or a bare git {sub} is not followed)")
 NOT_ABSOLUTE_REASON = ("git {sub}: {raw} is not a literal absolute path; name the worktree literally: "
                        "git -C <absolute path inside .claude/worktrees/> {sub} ...")
-OUTSIDE_REASON = ("git {sub} would stage in {path}, which is not inside a .claude/worktrees/<name>/ worktree; "
-                  "name your worktree: git -C <absolute WT> {sub} ...")
+OUTSIDE_REASON = ("git {sub} would stage in {path}, which is not inside a .claude/worktrees/<name>/ worktree of "
+                  "this repository; name your worktree: git -C <absolute WT> {sub} ...")
 # The calling agent's allowed set, set by decide() for one hook call.
-CONTEXT = {"allowed": GIT_ALLOWED}
+CONTEXT = {"allowed": GIT_ALLOWED, "cwd": None}
 GIT_GLOBAL_WITH_VALUE = {"-C", "--git-dir", "--work-tree"}
 GIT_GLOBAL_FLAGS = {"--no-pager", "-P", "--no-optional-locks"}
 # Long options that make an allowed subcommand run a program, write a file or
@@ -92,6 +95,17 @@ GIT_DENIED_OPTIONS = {"fetch": ("upload-pack", "stdin"), "diff": OUTPUT_OPTIONS,
 GIT_EXACT_OPTIONS = {"text"}  # a real option, so not a prefix of --textconv
 FORCE_SUBCOMMANDS = {"add", "mv", "rm"}
 FORCE_REASON = "force-staging ignored files is not allowed (git add/mv/rm -f / --force)"
+# Todo 640 #4: an option word built at runtime could be -f; after `--` every word is a path.
+RUNTIME_FORCE_REASON = ("git {sub}: {raw} is built at runtime and could be -f / --force; put paths after --: "
+                        "git -C <absolute WT> {sub} -- <paths>")
+# Todo 640 #1/#4: xargs builds the words it adds (or puts in place of -I/-J's replstr) at runtime, so the -C or a -f
+# could come from its input.
+XARGS_REASON = ("git {sub} through xargs builds its arguments at runtime (a -C or a -f could come from the input); "
+                "run git -C <absolute WT> {sub} -- <paths> directly")
+# Todo 640 #8: with WT/.git gone, git -C WT finds the repository above it -- the main checkout.
+REMOVERS = {"rm", "unlink", "rmdir", "mv"}
+DOT_GIT_REASON = ("{program} on a .git is not allowed for this agent: git -C <WT> would then find the main "
+                  "checkout's repository")
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "fish"}
 SOURCES = {"source", "."}  # run a script in the current shell: same stdin risk as a shell
 # Unquoted reserved words (and zsh precommand modifiers) that only prefix the
@@ -117,7 +131,8 @@ WRAPPERS = {
     "stdbuf": (("-i", "-o", "-e", "--input", "--output", "--error"), 0),
     "ionice": (("-c", "-n", "-p", "--class", "--classdata"), 0),
     "chrt": ((), 1), "taskset": ((), 1),
-    "xargs": (("-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file", "--delimiter",
+    # -J replstr, -R replacements and -S replsize are BSD/macOS xargs's (todo 640 #2).
+    "xargs": (("-a", "-d", "-E", "-I", "-J", "-L", "-n", "-P", "-R", "-S", "-s", "--arg-file", "--delimiter",
                "--max-args", "--max-lines", "--max-procs", "--max-chars", "--process-slot-var"), 0),
 }
 NOT_LITERAL = set("$`*?[{<>")
@@ -207,6 +222,10 @@ class Lexer:
             c = s[self.i]
             if c in "<>" and s.startswith("(", self.i + 1):
                 self.read_subst(value)
+            elif c == "(" and self.i > start and not s.startswith("()", self.i) and s[self.i - 1] != "=":
+                # Todo 640 #3: zsh reads a ( glued inside a word as a glob qualifier (MAIN(/) is MAIN) and bash's
+                # extglob as a pattern, so the word is not where the ( splits it. f() and NAME=( ) still split.
+                raise ValueError("a ( inside a word (a zsh glob qualifier or an extended glob)")
             elif c in " \t\n;&|()<>":
                 break
             elif c == "\\":
@@ -704,6 +723,8 @@ def check_words(words, piped, stdin, depth, wrapped=False):
         return decide_command(" ".join(w.value for w in rest), depth + 1)
     if program == "find":
         return check_find(rest, depth)
+    if program in REMOVERS and any(os.path.basename(w.value.rstrip("/")) == ".git" for w in rest):
+        return DOT_GIT_REASON.format(program=program)
     if program == "git":
         return check_git(rest, wrapped)
     if program.startswith("git-"):
@@ -782,7 +803,7 @@ def check_wrapper(name, args, piped, stdin, depth):
                 return PARSE_REASON
             return check_wrapper("env", parts + after, piped, stdin, depth)
         j += option_span(name, args, j)
-    return check_words(args[j + operands:], piped, stdin, depth, wrapped=True)
+    return check_words(args[j + operands:], piped, stdin, depth, wrapped=name)
 
 
 def check_shell(program, args, piped, stdin, depth):
@@ -857,6 +878,7 @@ def check_find(args, depth):
 
 
 def check_git(args, wrapped):
+    """`wrapped` is the wrapper that runs this git (its name, True for find -exec), or False."""
     # Todo 477: -C moves where git finds the repository (and so the index it stages into); --work-tree only
     # names the tree. Both are checked: `git -C MAIN --work-tree=S add` still stages into MAIN's index.
     # Todo 618: each must be a literal absolute path; anything else is collected in `bad` (fail closed).
@@ -888,7 +910,12 @@ def check_git(args, wrapped):
     if j >= len(args):
         return "bare git after a wrapper or xargs; run git <subcommand> directly" if wrapped else None
     sub = args[j].value
-    return check_git_subcommand(sub, args[j + 1:]) or check_staging(sub, where, tree, git_dir, bad)
+    reason = check_git_subcommand(sub, args[j + 1:])
+    if reason:
+        return reason
+    if wrapped == "xargs" and sub in FORCE_SUBCOMMANDS and sub in CONTEXT["allowed"]:
+        return XARGS_REASON.format(sub=sub)
+    return check_staging(sub, where, tree, git_dir, bad)
 
 
 def check_staging(sub, where, tree, git_dir, bad):
@@ -934,9 +961,31 @@ def _absolute(word, bad):
 
 def in_worktrees(path):
     """True when `path`, with symlinks and `..` resolved, is a `.claude/worktrees/<name>` directory or inside
-    one (the same layout worker_edit_guard.worktree_of accepts)."""
-    parts = os.path.realpath(path).split(os.sep)
-    return any(parts[i:i + 2] == [".claude", "worktrees"] and parts[i + 2] for i in range(len(parts) - 2))
+    one (the same layout worker_edit_guard.worktree_of accepts). Todo 640 #7: when the hook event names the
+    agent's cwd, the directory must be under THIS repository's `.claude/worktrees/` (the main root of the
+    cwd's repository), not another project's."""
+    real = os.path.realpath(path)
+    parts = real.split(os.sep)
+    if not any(parts[i:i + 2] == [".claude", "worktrees"] and parts[i + 2] for i in range(len(parts) - 2)):
+        return False
+    root = repo_main_root(CONTEXT.get("cwd"))
+    if root is None:
+        return True
+    rel = os.path.relpath(real, os.path.join(root, ".claude", "worktrees"))
+    return rel != "." and not rel.startswith("..")
+
+
+def repo_main_root(cwd):
+    """The main root of the repository holding `cwd` (the parent of its common .git directory, so a linked
+    worktree's cwd -- the pilot main root, a harness-isolated worker -- anchors to the same root), or None when
+    there is no cwd or it is not in a repository (todo 640 #7: then nothing is anchored, as before)."""
+    if not isinstance(cwd, str) or not cwd or not os.path.isdir(cwd):
+        return None
+    proc = subprocess.run(["git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                          capture_output=True, text=True)
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    return os.path.dirname(os.path.realpath(proc.stdout.strip()))
 
 
 def unignored_includes(path):
@@ -995,22 +1044,26 @@ def denied_option(arg, names):
                for n in names)
 
 
-def forces(args):
-    """True when add/mv/rm options include -f / --force (PR #861 B-3): `.worktreeinclude`
+def force_reason(sub, args):
+    """The reason to deny add/mv/rm whose options include -f / --force (PR #861 B-3): `.worktreeinclude`
     copies backend/.env and web/.env into every worktree, and `add -f` would stage one for
     Land to commit into a public repo. Any long option that is a prefix of --force counts (git
     takes unambiguous prefixes), and so does any short-option bundle holding an f (-fA, -nf).
+    A word built at runtime ($(printf -- -f), "$F") could be either, so it is denied too (todo 640 #4).
     Operands after `--` are paths, so a file named -f is fine."""
-    for arg in (w.value for w in args):
+    for word in args:
+        arg = word.value
         if arg == "--":
-            return False
+            return None
+        if runtime(word.raw):
+            return RUNTIME_FORCE_REASON.format(sub=sub, raw=word.raw)
         if arg.startswith("--"):
             name = arg[2:].partition("=")[0]
             if name and "force".startswith(name):
-                return True
+                return FORCE_REASON
         elif arg.startswith("-") and len(arg) > 1 and "f" in arg[1:]:
-            return True
-    return False
+            return FORCE_REASON
+    return None
 
 
 def check_git_subcommand(sub, args):
@@ -1018,8 +1071,10 @@ def check_git_subcommand(sub, args):
     if sub not in allowed:
         return (f"git {sub} is reserved for the main session "
                 f"(allowed for this agent: {', '.join(sorted(allowed))})")
-    if sub in FORCE_SUBCOMMANDS and forces(args):
-        return FORCE_REASON
+    if sub in FORCE_SUBCOMMANDS:
+        reason = force_reason(sub, args)
+        if reason:
+            return reason
     values = [w.value for w in args]
     # Todo 477: reviewers may list branches and worktrees, never create, move or delete one.
     if sub == "branch" and any(v not in BRANCH_LIST_FLAGS for v in values):
@@ -1088,7 +1143,7 @@ def decide(event):
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
     if not isinstance(command, str):
         return "unexpected hook input; tool_input.command is not a string"
-    CONTEXT.update(allowed=ALLOWED_BY_AGENT[agent])
+    CONTEXT.update(allowed=ALLOWED_BY_AGENT[agent], cwd=event.get("cwd"))
     try:
         return decide_command(command)
     except Exception:  # a guard bug must not wave a guarded agent through
