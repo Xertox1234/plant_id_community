@@ -8,6 +8,8 @@ importing the module. They also pin the owner's scope decision (2026-10-11):
 free-text fields such as ``notes`` never land in a LogEntry.
 """
 
+import re
+
 from auditlog.models import LogEntry
 from auditlog.registry import auditlog
 from django.contrib.auth import get_user_model
@@ -472,25 +474,42 @@ class GardenAuditActorContextTest(TestCase):
         )
 
     def test_overlapping_requests_in_one_clock_tick_keep_their_actors(self):
+        """Driven through ``AuditActorMixin`` (todo 643 #5), so the test fails
+        if the mixin goes back to auditlog's ``set_actor``: with the clock
+        frozen, Bob's request shares Alice's receiver uid, and his finishing
+        first disconnects it before Alice writes."""
         import contextvars
-        from contextlib import ExitStack
         from unittest.mock import patch
 
-        from ..api.audit_actor import garden_audit_actor
+        from rest_framework.permissions import IsAuthenticated
+        from rest_framework.test import APIRequestFactory, force_authenticate
 
-        alice_ctx, bob_ctx = contextvars.copy_context(), contextvars.copy_context()
-        alice_stack, bob_stack = ExitStack(), ExitStack()
+        def request_as(user):
+            request = APIRequestFactory().post("/x/")
+            force_authenticate(request, user=user)
+            return request
+
+        bob_ctx = contextvars.copy_context()
+        entries = {}
+
+        def bob_body():
+            entries["bob"] = self._bed(self.bob, "Bob bed")
+
+        bob_view = self._view(bob_body, IsAuthenticated)
+
+        def alice_body():
+            # Bob's request starts and finishes inside Alice's.
+            bob_ctx.run(bob_view, request_as(self.bob))
+            entries["alice"] = self._bed(self.alice, "Alice bed")
+
+        alice_view = self._view(alice_body, IsAuthenticated)
         # Every call sees the same instant, as two requests in one tick do.
         with patch("time.time", return_value=1_700_000_000.0):
-            alice_ctx.run(alice_stack.enter_context, garden_audit_actor(self.alice))
-            bob_ctx.run(bob_stack.enter_context, garden_audit_actor(self.bob))
-            bob_ctx.run(bob_stack.close)  # Bob's request finishes first
+            contextvars.copy_context().run(alice_view, request_as(self.alice))
 
-            entry = alice_ctx.run(self._bed, self.alice, "Alice bed")
-            alice_ctx.run(alice_stack.close)
-
-        self.assertEqual(entry.actor, self.alice)
-        self.assertEqual(entry.actor_email, "a@t.com")
+        self.assertEqual(entries["bob"].actor, self.bob)
+        self.assertEqual(entries["alice"].actor, self.alice)
+        self.assertEqual(entries["alice"].actor_email, "a@t.com")
 
     def _view(self, body, permission):
         from rest_framework.response import Response
@@ -598,7 +617,30 @@ class GardenAuditPurgeChunkingTest(TestCase):
             if q["sql"].startswith(f"DELETE FROM {table}")
         ]
         # 9 actor rows (every CREATE, and the 3 earlier DELETEs) in chunks of
-        # 2, then the cascade's 3 DELETE rows, which have no actor.
-        self.assertGreaterEqual(len(deletes), 6, deletes)
+        # 2, then the cascade's 3 DELETE rows, which have no actor, in chunks
+        # of 2: 5 + 2.
+        self.assertEqual(len(deletes), 7, deletes)
         for sql in deletes:
             self.assertLessEqual(sql.count(","), 1, sql)
+
+        # Todo 643 #6: the pk SELECTs too. Every object_pk IN list names at
+        # most PURGE_CHUNK_SIZE objects, so dropping the per-slice split in
+        # purge_garden_audit_entries fails here: its 3 cascade rows would be
+        # one IN of 3 kept-bed pks.
+        selects = [
+            q["sql"]
+            for q in ctx.captured_queries
+            if q["sql"].startswith("SELECT") and f"FROM {table}" in q["sql"]
+        ]
+        object_pk_lists = [
+            in_list
+            for sql in selects
+            for in_list in re.findall(r'"object_pk" IN \(([^)]*)\)', sql)
+        ]
+        # 2 slices, 2 SELECTs each (the second finds nothing left).
+        self.assertEqual(len(object_pk_lists), 4, selects)
+        for in_list in object_pk_lists:
+            self.assertLessEqual(in_list.count(","), 1, in_list)
+        # Todo 643 #4: unordered, so no chunk re-sorts the remaining rows.
+        for sql in selects:
+            self.assertNotIn("ORDER BY", sql, sql)
