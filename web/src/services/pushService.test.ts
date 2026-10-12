@@ -133,6 +133,47 @@ describe('pushService', () => {
     expect(subscription.unsubscribe).toHaveBeenCalled();
   });
 
+  function subscribeStatuses(statuses: number[]) {
+    const subscribes: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.endsWith('/public-key/'))
+          return new Response(JSON.stringify({ enabled: true, public_key: KEY }), { status: 200 });
+        if (!url.endsWith('/subscribe/')) return new Response('{}', { status: 200 });
+        subscribes.push(url);
+        return new Response('{}', { status: statuses.shift() ?? 201 });
+      })
+    );
+    return subscribes;
+  }
+
+  it('a 409 from subscribe is retried once and then succeeds (todo 641)', async () => {
+    const { subscription } = fakeBrowser();
+    const subscribes = subscribeStatuses([409, 201]);
+
+    expect(await enableBrowserPush()).toBe('on');
+    expect(subscribes).toHaveLength(2);
+    expect(subscription.unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it('a second 409 gives up and removes the browser subscription (todo 641)', async () => {
+    const { subscription } = fakeBrowser();
+    const subscribes = subscribeStatuses([409, 409, 201]);
+
+    await expect(enableBrowserPush()).rejects.toThrow('Subscribe failed (409)');
+    expect(subscribes).toHaveLength(2);
+    expect(subscription.unsubscribe).toHaveBeenCalled();
+  });
+
+  it('a refusal other than 409 is not retried (todo 641)', async () => {
+    fakeBrowser();
+    const subscribes = subscribeStatuses([500, 201]);
+
+    await expect(enableBrowserPush()).rejects.toThrow('Subscribe failed (500)');
+    expect(subscribes).toHaveLength(1);
+  });
+
   it('turning off unsubscribes and tells the server which endpoint', async () => {
     const existing = {
       endpoint: 'https://fcm.googleapis.com/fcm/send/old',

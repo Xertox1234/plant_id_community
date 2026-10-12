@@ -412,6 +412,28 @@ def test_a_failed_stamp_is_logged_and_does_not_fail_the_refresh(own_cache):
 
 
 @pytest.mark.django_db
+def test_a_failed_blacklist_rolls_the_stamp_back(own_cache):
+    """Todo 641 item 1: the stamp runs before the blacklist, so a blacklist
+    failure (503, no tokens issued) must not leave the account stamped as
+    active. Stamp and blacklist share one transaction."""
+    user = stale_account()
+    older = timezone.now() - timedelta(days=3)
+    User.objects.filter(pk=user.pk).update(last_token_refresh=older)
+
+    with patch(
+        "rest_framework_simplejwt.tokens.RefreshToken.blacklist",
+        side_effect=DatabaseError("blacklist down"),
+    ):
+        response = _refresh(user)
+
+    assert response.status_code == 503, response.content
+    user.refresh_from_db()
+    assert (
+        user.last_token_refresh == older
+    ), "todo 641 item 1: a 503 refresh must not move the stamp"
+
+
+@pytest.mark.django_db
 def test_a_token_refresh_stamp_after_the_margin_is_not_a_candidate():
     user = stale_account()
     User.objects.filter(pk=user.pk).update(

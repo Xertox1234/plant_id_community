@@ -525,16 +525,25 @@ def token_refresh(request: Request) -> Response:
         # which a cron re-check could read as "never came back". A failed
         # stamp is logged and the refresh goes on: the web client logs out on
         # any non-2xx refresh, and the next successful refresh restamps.
-        try:
-            User.objects.filter(pk=user.pk).update(last_token_refresh=timezone.now())
-        except Exception as e:
-            logger.error(f"[AUTH] last_token_refresh stamp failed: {str(e)}")
-
+        #
+        # Stamp and blacklist share one transaction (todo 641 item 1): when
+        # the blacklist fails and no tokens are issued, the stamp rolls back
+        # with it. The stamp's own savepoint keeps a failed stamp from
+        # aborting the transaction the blacklist runs in.
+        #
         # CRITICAL SECURITY: Blacklist MUST succeed before issuing new tokens
         # If blacklisting fails, the old refresh token remains valid
         # This creates a security window where both old and new tokens work
         try:
-            used_refresh.blacklist()
+            with transaction.atomic():
+                try:
+                    with transaction.atomic():
+                        User.objects.filter(pk=user.pk).update(
+                            last_token_refresh=timezone.now()
+                        )
+                except Exception as e:
+                    logger.error(f"[AUTH] last_token_refresh stamp failed: {str(e)}")
+                used_refresh.blacklist()
         except Exception as e:
             # Blacklist failures are CRITICAL security issues
             logger.error(
@@ -867,7 +876,7 @@ def subscribe_push_notifications(request: Request) -> Response:
     """
     Subscribe user to push notifications.
     """
-    from .services import NotificationService
+    from .services import NotificationService, PushEndpointConflict
     from .web_push import clean_subscription
 
     # Validated before storing: sending a push POSTs to the endpoint, so an
@@ -899,12 +908,30 @@ def subscribe_push_notifications(request: Request) -> Response:
             status=status.HTTP_201_CREATED,
         )
 
-    except IntegrityError:
+    except PushEndpointConflict:
         # Lost the endpoint race twice (todo 628 item 3): a conflict the
-        # client can retry, not a server fault.
+        # client can retry, not a server fault. Only that constraint gets
+        # here; any other IntegrityError is a logged 500 below (todo 641).
+        logger.warning(
+            f"[PUSH] Subscribe lost the endpoint race twice for {log_safe_user_context(request.user)}; answered 409"
+        )
         return Response(
             {"error": "Subscription changed concurrently; retry"},
             status=status.HTTP_409_CONFLICT,
+        )
+    except IntegrityError as e:
+        # Not the race: a fault. The constraint name only, since the
+        # message's DETAIL quotes row values and an endpoint is a capability
+        # URL (todo 641 item 2).
+        constraint = getattr(
+            getattr(e.__cause__, "diag", None), "constraint_name", None
+        )
+        logger.error(
+            f"[PUSH] Push subscription failed for {log_safe_user_context(request.user)} on constraint {constraint!r}"
+        )
+        return Response(
+            {"error": "Failed to subscribe to push notifications"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
     except Exception as e:
         logger.error(
@@ -933,7 +960,7 @@ def subscribe_push_notifications(request: Request) -> Response:
 )
 def resubscribe_push_notifications(request: Request) -> Response:
     """Replace a browser's push subscription after the browser changed it."""
-    from .services import NotificationService
+    from .services import NotificationService, PushEndpointConflict
     from .web_push import clean_subscription
 
     # A JSON array or scalar body makes request.data a list or str: treat it
@@ -958,13 +985,27 @@ def resubscribe_push_notifications(request: Request) -> Response:
             subscription_data,
             user_agent=request.META.get("HTTP_USER_AGENT", ""),
         )
-    except IntegrityError:
+    except PushEndpointConflict:
         # The new endpoint was taken by other accounts twice running (todo
         # 628 item 3). Everything rolled back, the old row included, so the
         # worker can retry.
+        logger.warning("[PUSH] Resubscribe lost the endpoint race twice; answered 409")
         return Response(
             {"error": "Subscription changed concurrently; retry"},
             status=status.HTTP_409_CONFLICT,
+        )
+    except IntegrityError as e:
+        # Any other constraint failure is a fault, not a race: log it and
+        # answer 500, never a retryable 409 (todo 641 item 2).
+        # The constraint name only: the message's DETAIL quotes row values,
+        # and an endpoint is a capability URL.
+        constraint = getattr(
+            getattr(e.__cause__, "diag", None), "constraint_name", None
+        )
+        logger.error(f"[PUSH] Resubscribe failed on constraint {constraint!r}")
+        return Response(
+            {"error": "Failed to replace the push subscription"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
     if subscription is None:
         return Response(

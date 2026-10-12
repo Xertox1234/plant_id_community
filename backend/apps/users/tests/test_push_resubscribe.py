@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 from apps.users.models import PushSubscription
-from apps.users.services import NotificationService
+from apps.users.services import NotificationService, PushEndpointConflict
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
@@ -166,6 +166,111 @@ def test_a_second_lost_subscribe_race_is_a_409(own_cache):
 
     assert response.status_code == 409, response.content
     assert not PushSubscription.objects.filter(user=user).exists()
+
+
+def _not_a_race():
+    """An IntegrityError that is not the one-active-endpoint constraint, such
+    as an FK violation when the user row is deleted mid-request."""
+    return IntegrityError("insert or update violates foreign key constraint")
+
+
+@pytest.mark.django_db
+def test_a_non_race_integrity_error_is_not_retried_or_called_a_conflict():
+    """Todo 641 item 2: only the endpoint race is retried and becomes
+    PushEndpointConflict; any other IntegrityError propagates as itself."""
+    user = User.objects.create_user(username="fk641")
+    calls, racing = _rival_lands_after_each_release([])
+
+    with (
+        racing,
+        patch.object(
+            PushSubscription.objects, "update_or_create", side_effect=_not_a_race()
+        ),
+        pytest.raises(IntegrityError) as raised,
+    ):
+        NotificationService.subscribe_to_push(user, SUBSCRIPTION)
+
+    assert not isinstance(raised.value, PushEndpointConflict)
+    assert len(calls) == 1, "todo 641: a non-race fault is not retried"
+
+
+@pytest.mark.django_db
+def test_a_second_lost_race_is_a_push_endpoint_conflict():
+    rivals = [User.objects.create_user(username=f"rival641-{i}") for i in range(2)]
+    user = User.objects.create_user(username="loser641")
+    _, racing = _rival_lands_after_each_release(rivals)
+
+    with racing, pytest.raises(PushEndpointConflict):
+        NotificationService.subscribe_to_push(user, SUBSCRIPTION)
+
+
+@pytest.mark.django_db
+def test_a_non_race_subscribe_integrity_error_is_a_logged_500(own_cache):
+    """Todo 641 item 2: not a retryable 409, and not silent."""
+    user = User.objects.create_user(username="sub641")
+    client = APIClient()
+    client.force_authenticate(user)
+
+    with (
+        patch.object(
+            NotificationService, "subscribe_to_push", side_effect=_not_a_race()
+        ),
+        patch("apps.users.views.logger") as logger,
+    ):
+        response = client.post(
+            SUBSCRIBE_URL, {"subscription": SUBSCRIPTION}, format="json"
+        )
+
+    assert response.status_code == 500, response.content
+    assert logger.error.called, "todo 641 item 2: the fault is logged"
+    logged = " ".join(str(c) for c in logger.error.call_args_list)
+    assert ENDPOINT not in logged, "the endpoint is a capability URL"
+
+
+@pytest.mark.django_db
+def test_a_non_race_resubscribe_integrity_error_is_a_logged_500(own_cache):
+    owner = User.objects.create_user(username="owner641")
+    old = _row(owner)
+
+    with (
+        patch.object(
+            NotificationService, "_store_subscription", side_effect=_not_a_race()
+        ),
+        patch("apps.users.views.logger") as logger,
+    ):
+        response = APIClient(enforce_csrf_checks=True).post(
+            RESUBSCRIBE_URL,
+            {
+                "old_subscription": {"endpoint": ENDPOINT, "auth": KEYS["auth"]},
+                "subscription": {"endpoint": NEW_ENDPOINT, "keys": NEW_KEYS},
+            },
+            format="json",
+        )
+
+    assert response.status_code == 500, response.content
+    assert logger.error.called, "todo 641 item 2: the fault is logged"
+    logged = " ".join(str(c) for c in logger.error.call_args_list)
+    assert NEW_ENDPOINT not in logged, "the endpoint is a capability URL"
+    old.refresh_from_db()
+    assert old.is_active is True, "the failed swap rolled back"
+
+
+@pytest.mark.django_db
+def test_a_lost_race_409_is_logged(own_cache):
+    """Todo 641 item 2: the 409 leaves a server-side trace."""
+    user = User.objects.create_user(username="log641")
+    rivals = [User.objects.create_user(username=f"logrival641-{i}") for i in range(2)]
+    _, racing = _rival_lands_after_each_release(rivals)
+    client = APIClient()
+    client.force_authenticate(user)
+
+    with racing, patch("apps.users.views.logger") as logger:
+        response = client.post(
+            SUBSCRIBE_URL, {"subscription": SUBSCRIPTION}, format="json"
+        )
+
+    assert response.status_code == 409, response.content
+    assert logger.warning.called
 
 
 BEFORE = ("users", "0018_delete_demodata")

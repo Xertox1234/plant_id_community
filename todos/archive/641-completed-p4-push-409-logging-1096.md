@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "641"
 tags: [users, web-push, follow-ups]
@@ -36,7 +36,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -44,3 +44,44 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-12 - Filed from the PR #1096 review (todo sweep run 2026-10-12-1724)
 
 Filed by the closing step of the run from `state.py followups-md g2`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-2056)
+
+- Item 1: `token_refresh` (`backend/apps/users/views.py`) now runs the `last_token_refresh` stamp and the blacklist in one transaction, the stamp in its own savepoint, so a blacklist failure (503) rolls the stamp back; a failed stamp is still logged and ignored. Test: `test_a_failed_blacklist_rolls_the_stamp_back`.
+- Item 2: `_store_subscription` (`backend/apps/users/services.py`) retries only the `push_sub_one_active_endpoint` race and raises `PushEndpointConflict` (an IntegrityError subclass) when it loses twice. Both views answer only that with a 409, now logged as a warning; any other IntegrityError is a logged 500 (resubscribe logs the constraint name, not the endpoint). Tests in `backend/apps/users/tests/test_push_resubscribe.py`.
+- Items 3 and 5 (owner decision 2026-10-12): `web/public/sw.js` `resubscribe()` and `enableBrowserPush` in `web/src/services/pushService.ts` retry the request once on 409, then give up as before. Tests in `web/src/serviceWorker.test.ts` and `web/src/services/pushService.test.ts`.
+- Item 4: `SUBSCRIBE_PUSH_SCHEMA` now has a description saying when 409 occurs; `RESUBSCRIBE_PUSH_SCHEMA` documents the one worker retry and its new 500 response.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-2056)
+
+- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 2 -- venv/bin/python -m pytest apps/users/tests/test_push_resubscribe.py apps/users/tests/test_expire_unverified_accounts.py apps/users/tests/test_token_refresh.py --create-db -q -p no:cacheprovider && cd ../web && ./node_modules/.bin/vitest run src/services/pushService.test.ts src/serviceWorker.test.ts` — evidence `.sweep-evidence/g2/641-ac0.txt` (not committed), last lines:
+
+  ```text
+
+   Test Files  2 passed (2)
+        Tests  53 passed (53)
+     Start at  15:41:50
+     Duration  980ms (transform 97ms, setup 294ms, import 80ms, tests 26ms, environment 1.40s)
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-2056)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Review round 1: non-blocking findings declined (owner decision)
+
+The owner decided on 2026-10-12 that this batch's non-blocking review findings are recorded here, not filed as
+new todos. Round 1 found nothing blocking. These are declined:
+
+- `_is_endpoint_race` relies on psycopg's `diag.constraint_name`, and no test drives a real non-race constraint
+  violation (medium). Declined: the race test drives a real violation, so a driver change that blanks `diag`
+  turns races into logged 500s, not silent successes. CI's real-constraint race test would catch that.
+- `PushEndpointConflict(str(exc))` copies the Postgres DETAIL, which quotes the endpoint (low). The
+  "endpoint not logged" assertions in the two new 500 tests use an `IntegrityError` with no endpoint text, so
+  they would pass even if the endpoint were logged (low). Declined: both views catch the exception and don't log
+  its message. That is the property the 409 tests pin.
+- The sw.js 409 retry fires at once with no delay, and it does not retry a network error (low ×2). Declined:
+  the owner decision was to retry once on 409. A 409 means the other request already committed the row, so an
+  immediate retry finds it.
+- The rollback test does not drive the stamp-failure arm of the new nested savepoint (low). Declined: the
+  existing failed-stamp test drives that arm.

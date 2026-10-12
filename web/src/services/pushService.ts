@@ -150,7 +150,12 @@ export async function enableBrowserPush(): Promise<BrowserPushState> {
     userVisibleOnly: true,
     applicationServerKey,
   });
-  const response = await post('subscribe/', { subscription: subscription.toJSON() });
+  const body = { subscription: subscription.toJSON() };
+  let response = await post('subscribe/', body);
+  // 409: other accounts took this endpoint concurrently twice running and
+  // nothing changed, so one retry is safe (todo 641, owner decision
+  // 2026-10-12). After that it is a refusal like any other.
+  if (response.status === 409) response = await post('subscribe/', body);
   if (!response.ok) {
     // The server refused it: do not leave a browser subscription it can't use.
     await subscription.unsubscribe();
