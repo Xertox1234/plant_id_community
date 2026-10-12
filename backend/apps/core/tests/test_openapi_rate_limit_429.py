@@ -16,8 +16,10 @@ wrapper's closure, as a list. Those views get their 429 from the schema hook
 in ``plant_community_backend.api_schema`` (``_throttled_actions`` on a
 ViewSet, ``_forum_throttled_methods`` on a forum view).
 
-A limited operation that cannot be found in the schema fails (item 6), and so
-does a 429 documented on a method the view's limit does not cover (item 8).
+A limited operation that cannot be found in the schema fails (item 6), unless
+the view is excluded from the schema on purpose (todo 632 item 4), and so does
+a 429 documented on a method the view's limit does not cover (item 8) or on an
+operation a schema-hook marker names but no ratelimit covers (todo 632 item 2).
 """
 
 import inspect
@@ -84,6 +86,25 @@ def _view_function(view, method):
     return getattr(handler, "__func__", None)
 
 
+def _marked_throttled(view, method):
+    """True when a marker the schema hook reads names this operation: the
+    forum views' ``_forum_throttled_methods`` or a ViewSet's
+    ``_throttled_actions``. The hook adds a 429 for it whether or not the
+    handler is still rate-limited."""
+    if method.upper() in getattr(view, "_forum_throttled_methods", ()):
+        return True
+    action = getattr(view, "action", None)
+    return bool(action) and action in getattr(view, "_throttled_actions", ())
+
+
+def _excluded(view):
+    """True for a view kept out of the schema (``extend_schema(exclude=True)``).
+    ``_get_paths_and_endpoints`` still yields it; ``parse`` drops it."""
+    schema = getattr(view, "schema", None)
+    is_excluded = getattr(schema, "is_excluded", None)
+    return bool(is_excluded and is_excluded())
+
+
 def _missing_429(patterns=None):
     generator = SchemaGenerator(patterns=patterns)
     schema = generator.get_schema(request=None, public=True)
@@ -101,12 +122,23 @@ def _missing_429(patterns=None):
         op = f"{method} {trimmed}"
         if not ({"*", method.upper()} & methods):
             # Limited, but not on this method: no 429 to document (item 8).
-            if methods and operation and "429" in operation["responses"]:
+            # Not limited at all, but a stale hook marker still documents one
+            # (todo 632 item 2): the action lost its decorator, or a subclass
+            # overrides it undecorated.
+            if (
+                (methods or _marked_throttled(view, method))
+                and operation
+                and "429" in operation["responses"]
+            ):
                 extra.append(op)
             continue
         if operation is None:
-            # The generator yields only public endpoints, so a limited one the
-            # schema lacks means the path trimming drifted (item 6).
+            if _excluded(view):
+                # Hidden from the schema on purpose: nothing to document
+                # (todo 632 item 4).
+                continue
+            # Any other limited operation the schema lacks means the path
+            # trimming drifted (item 6).
             unmatched.append(op)
             continue
         limited.append(op)
@@ -249,3 +281,70 @@ def test_gate_sees_class_based_views():
     ]
     assert sorted(missing) == ["POST /canary/class/", "POST /canary/unmarked/"]
     assert unmatched == extra == []
+
+
+def test_gate_catches_a_stale_marker_and_skips_an_excluded_view():
+    """Canary, todo 632 items 2 and 4: an action named in ``_throttled_actions``
+    that is not rate-limited gets a 429 from the hook, and the gate reports
+    it; a rate-limited view excluded from the schema is not ``unmatched``."""
+    from drf_spectacular.utils import extend_schema
+    from rest_framework import serializers, viewsets
+
+    class StaleMarkerViewSet(viewsets.ViewSet):
+        _throttled_actions = frozenset({"create"})
+
+        @extend_schema(request=None, responses={201: serializers.DictField()})
+        def create(self, request):  # its ratelimit was removed
+            return Response({})
+
+    @extend_schema(exclude=True)
+    @api_view(["POST"])
+    @django_ratelimit.decorators.ratelimit(key="ip", rate="1/m", method="POST")
+    def hidden(request):
+        return Response({})
+
+    limited, missing, unmatched, extra = _missing_429(
+        patterns=[
+            path(
+                "api/v1/canary/stale/", StaleMarkerViewSet.as_view({"post": "create"})
+            ),
+            path("api/v1/canary/hidden/", hidden),
+        ]
+    )
+
+    assert limited == missing == unmatched == []
+    assert extra == ["POST /canary/stale/"]
+
+
+def test_hook_does_not_mix_up_paths_that_differ_only_in_parameter_name():
+    """Todo 632 item 1: ``/x/{id}/`` and ``/x/{slug}/`` share a shape once the
+    parameter names are blanked. The 429 lands on the path recorded, a
+    ``{pk}`` still finds its renamed ``{id}`` when that is the only fit, and
+    an ambiguous ``{pk}`` documents nothing rather than the wrong operation."""
+    from plant_community_backend import api_schema
+
+    def result():
+        return {
+            "paths": {
+                "/x/{id}/": {"post": {"responses": {}}},
+                "/x/{slug}/": {"post": {"responses": {}}},
+                "/y/{id}/": {"post": {"responses": {}}},
+            }
+        }
+
+    def documented(recorded):
+        api_schema._state.throttled_operations = {(p, "post") for p in recorded}
+        try:
+            paths = api_schema.document_throttle_429(result(), None, None, True)
+        finally:
+            api_schema._state.throttled_operations = set()
+        return sorted(
+            p
+            for p, item in paths["paths"].items()
+            if "429" in item["post"]["responses"]
+        )
+
+    assert documented(["/x/{slug}/"]) == ["/x/{slug}/"]
+    assert documented(["/x/{id}/"]) == ["/x/{id}/"]
+    assert documented(["/y/{pk}/"]) == ["/y/{id}/"]
+    assert documented(["/x/{pk}/"]) == []

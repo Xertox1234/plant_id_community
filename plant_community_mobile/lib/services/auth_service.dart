@@ -875,7 +875,6 @@ class AuthService extends _$AuthService {
     ref.invalidate(userProfileServiceProvider, asReload: true);
   }
 
-  /// Clear stored JWT tokens
   /// Delete the stored tokens, each only while this exchange is still
   /// current: once it is overtaken, a newer exchange may already have stored
   /// its own tokens, and deleting them would sign that user out (todos 587
@@ -889,6 +888,7 @@ class AuthService extends _$AuthService {
     return _isCurrentExchange(user, generation);
   }
 
+  /// Clear stored JWT tokens
   Future<void> _clearJWT() async {
     await _secureStorage.delete(key: _jwtKey);
     await _secureStorage.delete(key: _refreshTokenKey);
