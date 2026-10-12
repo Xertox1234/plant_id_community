@@ -67,3 +67,21 @@ Filed by the closing step of the run from `state.py followups-md g2`.
 ### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-2056)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Review round 1: non-blocking findings declined (owner decision)
+
+The owner decided on 2026-10-12 that this batch's non-blocking review findings are recorded here, not filed as
+new todos. Round 1 found nothing blocking. These are declined:
+
+- `_is_endpoint_race` relies on psycopg's `diag.constraint_name`, and no test drives a real non-race constraint
+  violation (medium). Declined: the race test drives a real violation, so a driver change that blanks `diag`
+  turns races into logged 500s, not silent successes. CI's real-constraint race test would catch that.
+- `PushEndpointConflict(str(exc))` copies the Postgres DETAIL, which quotes the endpoint (low). The
+  "endpoint not logged" assertions in the two new 500 tests use an `IntegrityError` with no endpoint text, so
+  they would pass even if the endpoint were logged (low). Declined: both views catch the exception and don't log
+  its message. That is the property the 409 tests pin.
+- The sw.js 409 retry fires at once with no delay, and it does not retry a network error (low ×2). Declined:
+  the owner decision was to retry once on 409. A 409 means the other request already committed the row, so an
+  immediate retry finds it.
+- The rollback test does not drive the stamp-failure arm of the new nested savepoint (low). Declined: the
+  existing failed-stamp test drives that arm.
