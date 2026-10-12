@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "627"
 tags: [users, auth, follow-ups]
@@ -43,7 +43,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -51,3 +51,35 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-12 - Filed from the PR #1071 review (todo sweep run 2026-10-12-0349)
 
 Filed by the closing step of the run from `state.py followups-md g2`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-1724)
+
+- Item 2 fixed: `backend/apps/users/views.py` imports `django.utils.timezone` once at module level; both function-local copies (token_refresh and the dashboard stats view) are gone. This also covers the timezone-import parts of item 1.
+- Item 3 fixed: token_refresh now stamps `last_token_refresh` BEFORE blacklisting the old token (`RefreshToken()` has already refused an invalid or blacklisted one), so there is no window where the old token is burned and no stamp exists. A failed stamp now returns 503 with nothing burned, so the client retries with the same token. Test: `test_a_failed_stamp_fails_the_refresh_without_burning_the_token` (the except branch).
+- Item 4 fixed: refresh-view tests in `backend/apps/users/tests/test_expire_unverified_accounts.py` assert the stamp moves forward on a 200 (`test_a_refresh_moves_an_older_stamp_forward`) and stays put on a replayed, blacklisted token (`test_a_replayed_refresh_token_does_not_restamp`); every new assertion message cites the todo. They isolate the rate limiter with a locmem cache, not `cache.clear()`.
+- Items 1 (pre-deploy refresh-only accounts losing their token rows; the extra non-transactional write) and 5 (0021 backfill sees only unflushed tokens) declined per owner decision 2026-10-12: the cron's dry-run nights 2026-10-01..10-11 all reported 0 candidates, which bounds the residue, and the sweep has no prod access to look further.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-1724)
+
+- AC 1: `sh -c "cd backend && python3 scripts/todos/slot_env.py --main-root . 2 -- backend/venv/bin/python -m pytest backend/apps/users/tests/test_expire_unverified_accounts.py --create-db -p no:cacheprovider -q && grep -n '^- Item' todos/archive/627-completed-p4-expiry-refresh-stamp-1071.md"` — evidence `.sweep-evidence/g2/627-ac0.txt` (not committed), last lines:
+
+  ```text
+  ======================= 38 passed, 3 warnings in 25.55s ========================
+  57:- Item 2 fixed: `backend/apps/users/views.py` imports `django.utils.timezone` once at module level; both function-local copies (token_refresh and the dashboard stats view) are gone. This also covers the timezone-import parts of item 1.
+  58:- Item 3 fixed: token_refresh now stamps `last_token_refresh` BEFORE blacklisting the old token (`RefreshToken()` has already refused an invalid or blacklisted one), so there is no window where the old token is burned and no stamp exists. A failed stamp now returns 503 with nothing burned, so the client retries with the same token. Test: `test_a_failed_stamp_fails_the_refresh_without_burning_the_token` (the except branch).
+  59:- Item 4 fixed: refresh-view tests in `backend/apps/users/tests/test_expire_unverified_accounts.py` assert the stamp moves forward on a 200 (`test_a_refresh_moves_an_older_stamp_forward`) and stays put on a replayed, blacklisted token (`test_a_replayed_refresh_token_does_not_restamp`); every new assertion message cites the todo. They isolate the rate limiter with a locmem cache, not `cache.clear()`.
+  60:- Items 1 (pre-deploy refresh-only accounts losing their token rows; the extra non-transactional write) and 5 (0021 backfill sees only unflushed tokens) declined per owner decision 2026-10-12: the cron's dry-run nights 2026-10-01..10-11 all reported 0 candidates, which bounds the residue, and the sweep has no prod access to look further.
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-1724)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Review round 1 of PR #1096: a failed stamp no longer fails the refresh
+
+The item 3 fix above returned 503 when the stamp failed. Review round 1 found that the web client
+(`AuthContext.tsx` `refreshAccessToken`) logs out on any non-2xx refresh and never retries, so a
+bookkeeping write would become a logout. The stamp still runs before the blacklist; a failure is now
+logged and the refresh goes on, and the next successful refresh restamps. The test is now
+`test_a_failed_stamp_is_logged_and_does_not_fail_the_refresh` (asserts 200, the log line, no stamp,
+and a restamp on the next refresh).

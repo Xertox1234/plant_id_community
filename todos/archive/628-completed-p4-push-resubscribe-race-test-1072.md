@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "628"
 tags: [users, web-push, follow-ups]
@@ -33,7 +33,7 @@ PR #1072 (todo sweep run 2026-10-12-0349, group g3, todos 602); follow-ups: veri
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -41,3 +41,26 @@ PR #1072 (todo sweep run 2026-10-12-0349, group g3, todos 602); follow-ups: veri
 ### 2026-10-12 - Filed from the PR #1072 review (todo sweep run 2026-10-12-0349)
 
 Filed by the closing step of the run from `state.py followups-md g3`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-1724)
+
+- Item 1 fixed: the race tests in `backend/apps/users/tests/test_push_resubscribe.py` now land the rival row after each real `_release_endpoint` call, outside the upsert's savepoint, so it survives the IntegrityError rollback. The test asserts the retry's own release deactivated it; moving the release out of the retry loop now fails both race tests (checked by mutation).
+- Item 3 fixed per owner decision 2026-10-12: a second lost race on `POST push-notifications/resubscribe/` returns 409 Conflict with everything rolled back (the old row stays active, so the worker can retry), and the authenticated subscribe endpoint returns 409 instead of its generic 500. Both schemas in `backend/apps/users/view_schemas.py` list 409; tests `test_a_second_lost_resubscribe_race_is_a_409_and_changes_nothing` and `test_a_second_lost_subscribe_race_is_a_409`.
+- Items 2, 4 and 6 declined per owner decision: migrations 0019 and 0020 have shipped and are applied in prod, so the gap between their transactions and the created_at tie-break can no longer occur or change anything; editing applied migrations would not reach any database.
+- Item 5 declined per owner decision: the `web/public/sw.js` origin pin is deliberate (the worker must only POST to the known API origin), and the page reconciles the subscription on load when the worker cannot.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-1724)
+
+- AC 1: `sh -c "cd backend && python3 scripts/todos/slot_env.py --main-root . 2 -- backend/venv/bin/python -m pytest backend/apps/users/tests/test_push_resubscribe.py backend/apps/forum_host/tests/test_web_push.py --create-db -p no:cacheprovider -q && grep -n '^- Item' todos/archive/628-completed-p4-push-resubscribe-race-test-1072.md"` — evidence `.sweep-evidence/g2/628-ac0.txt` (not committed), last lines:
+
+  ```text
+  ======================= 61 passed, 3 warnings in 19.86s ========================
+  47:- Item 1 fixed: the race tests in `backend/apps/users/tests/test_push_resubscribe.py` now land the rival row after each real `_release_endpoint` call, outside the upsert's savepoint, so it survives the IntegrityError rollback. The test asserts the retry's own release deactivated it; moving the release out of the retry loop now fails both race tests (checked by mutation).
+  48:- Item 3 fixed per owner decision 2026-10-12: a second lost race on `POST push-notifications/resubscribe/` returns 409 Conflict with everything rolled back (the old row stays active, so the worker can retry), and the authenticated subscribe endpoint returns 409 instead of its generic 500. Both schemas in `backend/apps/users/view_schemas.py` list 409; tests `test_a_second_lost_resubscribe_race_is_a_409_and_changes_nothing` and `test_a_second_lost_subscribe_race_is_a_409`.
+  49:- Items 2, 4 and 6 declined per owner decision: migrations 0019 and 0020 have shipped and are applied in prod, so the gap between their transactions and the created_at tie-break can no longer occur or change anything; editing applied migrations would not reach any database.
+  50:- Item 5 declined per owner decision: the `web/public/sw.js` origin pin is deliberate (the worker must only POST to the known API origin), and the page reconciles the subscription on load when the worker cannot.
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-1724)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

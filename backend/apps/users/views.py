@@ -13,7 +13,8 @@ from apps.core.security import SecurityMonitor, log_security_event
 from apps.core.utils.pii_safe_logging import log_safe_user_context, log_safe_username
 from apps.plant_identification.constants import RATE_LIMITS
 from django.contrib.auth import authenticate
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.utils import timezone
 from django.views.decorators.cache import cache_page
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 
@@ -512,6 +513,23 @@ def token_refresh(request: Request) -> Response:
         user_id = used_refresh["user_id"]
         user = User.objects.only("id", "username", "email").get(id=user_id)
 
+        # A refresh is a sign-in for expire_unverified_accounts (todo 485).
+        # The cron runs flushexpiredtokens first, which deletes the rotated
+        # token rows, so this stamp is the activity signal that survives. Not
+        # last_login: Django's password-reset token hashes it.
+        #
+        # Stamp BEFORE blacklisting (todo 627 item 3). RefreshToken() above
+        # already refused an invalid or blacklisted token, so only a live
+        # token gets here. Stamped first, there is no moment where the old
+        # token is burned, the new one not yet written and the stamp missing,
+        # which a cron re-check could read as "never came back". A failed
+        # stamp is logged and the refresh goes on: the web client logs out on
+        # any non-2xx refresh, and the next successful refresh restamps.
+        try:
+            User.objects.filter(pk=user.pk).update(last_token_refresh=timezone.now())
+        except Exception as e:
+            logger.error(f"[AUTH] last_token_refresh stamp failed: {str(e)}")
+
         # CRITICAL SECURITY: Blacklist MUST succeed before issuing new tokens
         # If blacklisting fails, the old refresh token remains valid
         # This creates a security window where both old and new tokens work
@@ -532,18 +550,6 @@ def token_refresh(request: Request) -> Response:
                 "Please try again in a moment or contact support if the issue persists",
                 status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-
-        # A refresh is a sign-in for expire_unverified_accounts (todo 485).
-        # The cron runs flushexpiredtokens first, which deletes the rotated
-        # token rows, so this stamp is the activity signal that survives. Not
-        # last_login: Django's password-reset token hashes it. The old token
-        # is already blacklisted, so a failed stamp must not fail the refresh.
-        from django.utils import timezone
-
-        try:
-            User.objects.filter(pk=user.pk).update(last_token_refresh=timezone.now())
-        except Exception as e:
-            logger.error(f"[AUTH] last_token_refresh stamp failed: {str(e)}")
 
         # Issue a fresh token pair only after successful blacklisting
         response = Response(
@@ -757,7 +763,6 @@ def dashboard_stats(request: Request) -> Response:
     from datetime import timedelta
 
     from django.db.models import Count, Q
-    from django.utils import timezone
     from wagtail_forum.models import ForumBoard, Post, Topic
 
     thirty_days_ago = timezone.now() - timedelta(days=30)
@@ -894,6 +899,13 @@ def subscribe_push_notifications(request: Request) -> Response:
             status=status.HTTP_201_CREATED,
         )
 
+    except IntegrityError:
+        # Lost the endpoint race twice (todo 628 item 3): a conflict the
+        # client can retry, not a server fault.
+        return Response(
+            {"error": "Subscription changed concurrently; retry"},
+            status=status.HTTP_409_CONFLICT,
+        )
     except Exception as e:
         logger.error(
             f"[PUSH] Push subscription failed for {log_safe_user_context(request.user)}: {e}"
@@ -939,12 +951,21 @@ def resubscribe_push_notifications(request: Request) -> Response:
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    subscription = NotificationService.resubscribe_push(
-        old.get("endpoint"),
-        old.get("auth"),
-        subscription_data,
-        user_agent=request.META.get("HTTP_USER_AGENT", ""),
-    )
+    try:
+        subscription = NotificationService.resubscribe_push(
+            old.get("endpoint"),
+            old.get("auth"),
+            subscription_data,
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+        )
+    except IntegrityError:
+        # The new endpoint was taken by other accounts twice running (todo
+        # 628 item 3). Everything rolled back, the old row included, so the
+        # worker can retry.
+        return Response(
+            {"error": "Subscription changed concurrently; retry"},
+            status=status.HTTP_409_CONFLICT,
+        )
     if subscription is None:
         return Response(
             {"error": "Subscription not found"}, status=status.HTTP_404_NOT_FOUND
