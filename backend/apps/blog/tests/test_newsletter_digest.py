@@ -373,6 +373,24 @@ class NewsletterSenderTests(TestCase):
         down.delete.assert_not_called()
         self.assertEqual(cache.get(LOCK_KEY), "this-run")
 
+    def test_a_lock_read_that_answers_none_still_releases_the_lock(self):
+        # Todo 642 (owner decision 2026-10-12): under IGNORE_EXCEPTIONS a
+        # Redis blip makes the release's get answer None. Keeping the lock
+        # would block the soft-time-limit continuation for the full TTL, so a
+        # None read falls back to a plain delete, as the forum digest does.
+        self._post("fresh-post", days_ago=1)
+        self._subscriber()
+
+        with mock.patch.object(command_module, "cache") as blip:
+            blip.add.return_value = True
+            blip.get.return_value = None
+            out = _run()
+
+        self.assertEqual(self._sent_to(), ["reader@example.com"])
+        self.assertIn("sent=1", out)
+        blip.get.assert_called_once_with(LOCK_KEY)
+        blip.delete.assert_called_once_with(LOCK_KEY)
+
     def test_a_run_never_deletes_a_lock_it_no_longer_holds(self):
         # Todo 569: this run's lock expired mid-run and a later run took the
         # key; finishing must leave the later run's lock in place.
