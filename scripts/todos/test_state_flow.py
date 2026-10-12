@@ -1440,7 +1440,28 @@ def runbook_tests():
           "--allow-empty" in merge_section and "ensure-worktree" in merge_section, merge_section)
     check("513: the wedged-CI recovery proves the commit is empty before and after it",
           "diff --cached --quiet HEAD" in merge_section and "HEAD~1^{tree}" in merge_section, merge_section)
-    step6 = skill.split("## Stage D", 1)[1].split("\n6. ", 1)[1].split("\n7. ", 1)[0]
+    waiting = merge_section.split("**Waiting on an armed PR**", 1)[-1].split("\n\n", 1)[0]
+    check("601: waiting on an armed PR reads mergeStateStatus and stops on DIRTY, not only on failed checks",
+          "**Waiting on an armed PR**" in merge_section and "mergeStateStatus" in waiting
+          and "DIRTY" in waiting and "as a stop" in waiting, waiting)
+    dirty = merge_section.split("**An armed PR that goes `DIRTY`**", 1)[-1]
+    order = ["sandbox off", "ensure-worktree", "merge origin/main", "merge --abort", "pre-commit run --files",
+             "add --", "annotate $RUN G --field tree_id=$(/usr/bin/git -C $WT write-tree)", "commit --no-edit",
+             "ensure-worktree` again", "push origin <branch>", "autoMergeRequest"]
+    found = [dirty.find(step) for step in order]
+    check("601: the DIRTY recovery merges origin/main and records, commits, re-checks and pushes in order",
+          "**An armed PR that goes `DIRTY`**" in merge_section and -1 not in found and found == sorted(found),
+          list(zip(order, found)))
+    check("601: ... with a merge commit, never a rebase plus force-push",
+          "never a rebase plus force-push" in dirty and "no `--force`" in dirty, dirty)
+    check("601: ... naming the mechanical conflicts, and stopping the group for the owner on any other",
+          all(p in dirty for p in ("`todos/`", "`docs/LEARNINGS.md`", "`.secrets.baseline`", "`generated_at`",
+                                   "line number", "stops the group for the owner", "set-group $RUN G blocked")),
+          dirty)
+    sandbox_off = skill.split("**Sandbox-off steps**", 1)[1].split("\n## ", 1)[0]
+    check("601: the DIRTY recovery merge is listed among the sandbox-off steps", "`DIRTY`" in sandbox_off,
+          sandbox_off)
+    step6 =skill.split("## Stage D", 1)[1].split("\n6. ", 1)[1].split("\n7. ", 1)[0]
     check("513: Stage D step 6 says what to do when a fixer aborts the Land commit",
           "fixer" in step6 and "diff --name-only" in step6 and "re-run step 1" in step6, step6)
     root = Path(os.path.abspath(__file__)).parents[2]
