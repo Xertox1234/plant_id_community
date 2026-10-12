@@ -497,7 +497,13 @@ def _triage_fields(entry, record, today):
     # Todo 600: an owner who answered a needs-design or blocked-* todo "ready" has unblocked it. Writing the
     # triager's class and blocked_on would make it read as still blocked on the question just answered, so it is
     # `ready`, and a blocked_on from this or an earlier triage is removed (None tells set_fields to drop the line).
-    if entry["stage"] == "ready" and entry.get("owner_decision"):
+    # Todo 614 #1: keyed on the class and on the todo having left triage, not on stage `ready` or on any
+    # owner_decision. Such a class leaves `triaged` only through the owner's `decide … ready`, so a stage past
+    # triage proves the answer at any point in the flow (selector `next` runs apply-triage during Land, when the
+    # todo is `verified`). And the words `confirm` appends never turn a needs-research or already-done todo
+    # (decided plain `ready`) into triage: ready. A blocked or skipped todo keeps the rules above.
+    if (record["class"] == "needs-design" or record["class"].startswith("blocked-")) \
+            and entry["stage"] not in NOT_PLANNED:
         fields["triage"] = "ready"
         fields["blocked_on"] = None
     if entry.get("owner_decision"):

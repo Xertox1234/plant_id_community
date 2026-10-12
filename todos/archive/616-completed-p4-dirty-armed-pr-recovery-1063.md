@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "616"
 tags: [todo-sweep, docs, follow-ups]
@@ -39,7 +39,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -47,3 +47,26 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-11 - Filed from the PR #1063 review (todo sweep run 2026-10-11-2219)
 
 Filed by the closing step of the run from `state.py followups-md g15`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-0349)
+
+- #1, #5 fixed per the owner decision: step 6 of the DIRTY recovery in `.claude/skills/completing-todos/SKILL.md` commits the merge with `SKIP_KIMI_REVIEW=1` and records `kimi: skipped` (origin/main's code was reviewed in its own PRs), and now says what to do when the merge commit fails: a fixer rewrite is re-staged, re-gated and re-annotated; any other hook failure stops the group.
+- #2 fixed: step 4 runs every criterion's non-empty `command` in `ac.json` (criteria do not name files) and, if any gate fails, never commits or pushes: it disarms, aborts the merge and blocks the group with the failing command as the reason.
+- #4 fixed: a conflicted todo first saves the branch's side (`git show :2:<path>`), reads origin/main's version into a scratch file before overwriting anything, and names the pre-archive `pending` path when the branch archived the todo.
+- #3, #6 already fixed on main: on origin/main (048736d5) step 3 already reads "rebuild from origin/main, never concatenate both sides", and `scripts/todos/test_state_flow.py` lines 1474 and 2676 read `step6 = skill.split(...)`. New checks for #1/#2/#4 are in `scripts/todos/test_state_flow.py`.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-12-0349)
+
+- AC 1: `bash -c 'cd . && python3 scripts/todos/test_state_flow.py && python3 scripts/todos/test_state.py && node scripts/todos/test_workflows.js; echo exit=$?; echo "--- 616/601 checks:"; python3 scripts/todos/test_state_flow.py | grep -E "616|601"; echo "--- #6 on main:"; git show origin/main:scripts/todos/test_state_flow.py | grep -n "step6 ="; echo "--- Work Log entry (fixed / already fixed on main):"; sed -n "/Implemented by the todo sweep (run 2026-10-12-0349)/,\$p" todos/archive/616-completed-p4-dirty-armed-pr-recovery-1063.md'` — evidence `.sweep-evidence/g12/616-ac0.txt` (not committed), last lines:
+
+  ```text
+  - #3, #6 already fixed on main: on origin/main (048736d5) step 3 already reads "rebuild from origin/main, never concatenate both sides", and `scripts/todos/test_state_flow.py` lines 1474 and 2676 read `step6 = skill.split(...)`. New checks for #1/#2/#4 are in `scripts/todos/test_state_flow.py`.
+  state: --reverify takes stage ready and exactly one --field reason=...
+  state: 7: --date must be a YYYY-MM-DD date, not 'tomorrow'
+  state: --reverify takes stage ready and exactly one --field reason=...
+  state: 7: --date must be a YYYY-MM-DD date, not 'tomorrow'
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

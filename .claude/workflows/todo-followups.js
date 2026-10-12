@@ -167,6 +167,9 @@ const results = await pipeline(
       const refutedText = new Set([...(j && j.refuted ? [norm(i.summary)] : []), ...[...alsoGone].map(k => norm(also[k]))])
       also.forEach((t, k) => { if (refutedText.has(norm(t))) alsoGone.add(k) })
       const summaryGone = refutedText.has(norm(i.summary))
+      // Todo 614 #2: gone only through a refuted identical `also` copy is not the refuter agreeing with the
+      // curator's "fixed on main": it judged the summary itself not refuted. Such a drop reads `refuted:`.
+      const summaryRefuted = Boolean(j && j.refuted)
       const stay = [...(summaryGone ? [] : [i.summary]), ...also.filter((_, k) => !alsoGone.has(k))]
       if (stay.length) {
         // Todo 577 #4: with its summary refuted, the item is led by a merged phrasing, which goes back to its OWN
@@ -183,7 +186,7 @@ const results = await pipeline(
       const refutedWhy = `refuted: ${j.reason}`
       // Todo 577 #7: "fixed on main" is the curator's claim about the item's summary. It names only the summary's
       // own drop; a merged phrasing refuted alongside it, or alone, was judged separately and reads `refuted:`.
-      if (summaryGone && i.on_main === 'fixed') {
+      if (summaryRefuted && i.on_main === 'fixed') {
         dropped.push({ line: `${at} ${i.summary}`, why: `fixed on main: ${i.note}; the refuter agreed: ${j.reason}` })
         if (refutedAlso.length) {
           const more = refutedAlso.length > 1 ? ` | also: ${refutedAlso.slice(1).join(' | ')}` : ''

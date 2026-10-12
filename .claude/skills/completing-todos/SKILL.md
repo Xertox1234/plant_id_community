@@ -374,9 +374,14 @@ Treat `DIRTY` as a stop, never as "still waiting", and recover it as below.
 3. Resolve the conflicts. Only these are mechanical:
    - `todos/` files — rebuild from origin/main, never concatenate both sides (that leaves duplicate `status:`
      keys and doubled criteria and Work Log lines). In this merge "ours" is the branch and "theirs" is
-     origin/main: write origin/main's version (`/usr/bin/git -C $WT show origin/main:<path> > $WT/<path>`),
-     then re-apply this branch's own changes to it by hand — its criteria ticks, its Work Log entries, its
-     archive move;
+     origin/main. First save the branch's side, so a tick or Work Log entry missed below is never lost:
+     `/usr/bin/git -C $WT show :2:<path> > $TMPDIR/<name>.branch`. Then write origin/main's version to a
+     scratch file, and only once that `show` succeeded copy it over the conflicted file:
+     `/usr/bin/git -C $WT show origin/main:<path> > $TMPDIR/<name>.main`, where `<path>` is the todo's path
+     on origin/main: when this branch archived the todo, the conflict is at the `completed` name, which
+     origin/main does not have, so `<path>` is its pre-archive `pending` path. Then
+     re-apply this branch's own changes from the saved copy by hand — its criteria ticks, its Work Log
+     entries, its archive move;
    - append-only docs (`docs/LEARNINGS.md`, `docs/rules/*.md`) — keep both entries, origin/main's first;
    - `.secrets.baseline` — only its `generated_at` and the `line_number` values: take origin/main's
      `generated_at`, and fix each line number against the merged file. The baseline is hand-maintained;
@@ -387,12 +392,20 @@ Treat `DIRTY` as a stop, never as "still waiting", and recover it as below.
    `/usr/bin/git -C $WT merge --abort`, then
    `state.py set-group $RUN G blocked --field reason="merge conflict with origin/main: <paths>"`, and report
    the PR in the wrap-up as blocked with auto-merge disarmed. Never resolve a source conflict by hand.
-4. Re-run the group's gates on the merged tree: the `command` of every criterion in its `ac.json` whose
-   files the merge touched, and `pre-commit run --files <resolved paths>` (`SKIP=kimi-review`; the commit runs
-   the kimi gate).
+4. Re-run the group's gates on the merged tree: the non-empty `command` of every criterion in its `ac.json`
+   (a criterion does not name the files it covers, so run them all), and `pre-commit run --files <resolved
+   paths>` (`SKIP=kimi-review`). If any gate fails, the merge broke the group: never commit or push it, since
+   auto-merge is still armed and would merge it with no one looking. Stop the group as for a non-mechanical
+   conflict above (disarm, `merge --abort`, `set-group $RUN G blocked`), with the failing command in `reason`.
 5. `/usr/bin/git -C $WT add -- <resolved paths>`, then record the merged tree before anything checks it:
    `state.py annotate $RUN G --field tree_id=$(/usr/bin/git -C $WT write-tree)`.
-6. Commit the merge: `/usr/bin/git -C $WT commit --no-edit` (`timeout: 600000`, as in Stage D step 6).
+6. Commit the merge with the kimi gate skipped, and record `kimi: skipped` for it (owner decision 2026-10-11,
+   todo 616): mid-merge the staged diff is everything origin/main brought in, already reviewed in its own PRs,
+   so a CRITICAL or a timeout there would block the recovery on code this PR never wrote.
+   `SKIP_KIMI_REVIEW=1 /usr/bin/git -C $WT commit --no-edit` (`timeout: 600000`, as in Stage D step 6). The
+   other pre-commit hooks still run. If a fixer rewrote files, the commit aborted: stage exactly the paths it
+   rewrote (as in Stage D step 6), re-run the gates (step 4) and record the tree again (step 5), then commit
+   again. A hook failure no fixer resolves stops the group as in step 4.
 7. `ensure-worktree` again, then `/usr/bin/git -C $WT push origin <branch>` (no `-u`, no `--force`).
 8. Confirm auto-merge is still armed (`gh pr view <n> --repo $GH_REPO --json autoMergeRequest,mergeStateStatus`)
    and arm it again if not (see **Arming auto-merge**). Then go back to waiting.

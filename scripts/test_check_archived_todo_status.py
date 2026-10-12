@@ -408,6 +408,23 @@ def main():
               chk.parse(str(p))[3] == ["- [ ] Port X from todo 12",
                                        "- [ ] Port Y; re-pointed tests stay green and the notes cite todo 12"],
               chk.parse(str(p)))
+        # Todo 614 #4 (owner decision 2026-10-11): the CLAUDE.md "re-pointed DATE; ... todo N" form re-points
+        # again, while an undated `;` clause and the "todo N ... re-pointed" order stay bare.
+        p.write_text("---\nstatus: completed\n---\n## Acceptance Criteria\n"
+                     "- [ ] Bookmarks (re-pointed 2026-07-26; promoted to todo 283)\n"
+                     "- [ ] Wrapped dated form, re-pointed 2026-07-26; split out\n"
+                     "      with M8 into todo 284\n"
+                     "- [ ] Undated: re-pointed; see todo 12\n"
+                     "- [ ] Port X from todo 12, later re-pointed 2026-07-26\n"
+                     "- [ ] Dated but too far: re-pointed 2026-07-26; this clause runs on for well over forty "
+                     "characters before todo 12\n")
+        check("614 #4: 're-pointed DATE; ... todo N' re-points (on one line or wrapped); an undated ';' clause, the "
+              "'todo N ... re-pointed' order and an over-long dated clause stay bare",
+              chk.parse(str(p))[3] == ["- [ ] Undated: re-pointed; see todo 12",
+                                       "- [ ] Port X from todo 12, later re-pointed 2026-07-26",
+                                       "- [ ] Dated but too far: re-pointed 2026-07-26; this clause runs on for well "
+                                       "over forty characters before todo 12"],
+              chk.parse(str(p)))
 
     print()
     if FAILURES:

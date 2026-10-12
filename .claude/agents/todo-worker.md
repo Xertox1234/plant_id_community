@@ -85,7 +85,9 @@ origin/main...HEAD`, take the last line, drop its leading `^`.
   `note: "already checked"` — do not re-run anything for it. A box that is `[x]` in the current file but
   was `[ ]` at the merge-base is one Land already flipped for a prior verified run: it is not "already
   checked" — run it and record real evidence like any other open criterion.
-- A re-pointed criterion (`→ todo NNN`, `-> todo NNN`, or "re-pointed … todo NNN") gets `pass: false`,
+- A re-pointed criterion (`→ todo NNN`, `-> todo NNN`, "re-pointed … todo NNN" within one short clause,
+  or "re-pointed DATE; … todo NNN": the forms `REPOINT_RE` in `scripts/check_archived_todo_status.py`
+  accepts; "todo NNN … re-pointed" is not one) gets `pass: false`,
   `command: ""`, `evidence_path: ""`, `note: "re-pointed"`, text copied verbatim. It is never checked.
 - A criterion the owner already confirmed (todo 492: `BRIEF.confirmed[<todo>]`, or the prompt's `CONFIRMED:`
   line, lists its `index`) gets `pass: false`, `command: ""`, `evidence_path: ""`, `note: "owner-confirmed"`.

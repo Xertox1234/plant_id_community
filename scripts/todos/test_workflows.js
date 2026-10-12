@@ -906,6 +906,14 @@ async function main() {
   check('PR #1061: ... and a refuted `also` copy drops the identical summary it was not judged on',
     r.result.results[0].kept.length === 1 && r.result.results[0].kept[0].summary === 'nit'
     && r.result.results[0].dropped[0].line === 'medium: a.py:9 real | also: real ', r.result.results[0])
+  // Todo 614 #2: under a `fixed` item, that drop is not "the refuter agreed": it judged the summary not refuted.
+  r = await run('todo-followups', { run_id: 'r', groups: [fg({ followups: ['medium: a.py:9 real', 'medium: a.py:9 real', 'low: a.py:2 nit'] })] },
+    (p, o) => (isCurator(o) ? { pr_on_main: true, items: [item({ also: ['real ', 'nit'], on_main: 'fixed', note: 'removed by #901' })] }
+      : { judgments: [{ index: 0, refuted: false, also_refuted: [0], reason: 'wrong' }] }))
+  check('614 #2: a summary dropped only through a refuted identical `also` copy reads `refuted:`, never "the refuter agreed"',
+    r.result.results[0].dropped.length === 1 && r.result.results[0].dropped[0].why === 'refuted: wrong'
+    && r.result.results[0].dropped[0].line === 'medium: a.py:9 real | also: real '
+    && !r.result.results[0].dropped.some(d => /fixed on main|the refuter agreed/.test(d.why)), r.result.results[0])
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
     (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 1, refuted: false, also_refuted: [], reason: 'still there' }] }))
   check('541 #982-3: a fixed claim the refuter does not confirm keeps the item',

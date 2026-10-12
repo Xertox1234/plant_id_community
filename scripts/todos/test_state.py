@@ -228,6 +228,29 @@ def main():
         fm11 = todofile.read_frontmatter(repo / "todos/11-pending-p3-x.md")
         check("600: ... while one skipped without an answer keeps the triager's class and blocked_on",
               fm11["triage"] == "needs-design" and fm11["blocked_on"] == "needs the layout call", fm11)
+        # Todo 614 #1/#5: a blocked-* class answered ready is unblocked too ...
+        (repo / "todos/12-pending-p3-x.md").write_text(head.format(s="pending", i="12"))
+        (repo / "todos/13-pending-p3-x.md").write_text(head.format(s="pending", i="13"))
+        (repo / "todos/14-pending-p3-x.md").write_text(head.format(s="pending", i="14"))
+        later = state.new_run("r4g", "next", 1, [todo("12"), todo("13"), todo("14")], ["12", "13", "14"])
+        state.record_triage(later, [rec("12", "blocked-external", "Vendor ready?", "waits on the vendor"),
+                                    rec("13", "needs-design", "Which layout?", "needs the layout call"),
+                                    rec("14", "needs-research", "", "")])
+        state.decide(later, "12", "ready", decision="Unblocked: the vendor shipped (2026-10-12)")
+        state.decide(later, "13", "ready", decision="Use the two-column layout (2026-10-12)")
+        state.decide(later, "14", "ready")
+        state.confirm(later, "14", 0, "I saw it in prod", "2026-10-12")
+        # ... the `next` Land path: apply-triage runs in the worker's worktree when the todo is already verified.
+        for stage in ("executing", "staged", "verified"):
+            state.transition(later, "13", stage)
+        state.apply_triage(later, repo, "2026-10-12")
+        fm12, fm13, fm14 = (todofile.read_frontmatter(repo / f"todos/{i}-pending-p3-x.md") for i in ("12", "13", "14"))
+        check("614 #5: a blocked-* todo the owner answered ready is written triage: ready with no blocked_on",
+              fm12["triage"] == "ready" and "blocked_on" not in fm12, fm12)
+        check("614 #1: a needs-design todo answered ready is written triage: ready when apply-triage runs at Land "
+              "(stage verified, selector next)", fm13["triage"] == "ready" and "blocked_on" not in fm13, fm13)
+        check("614 #1: a needs-research todo decided plain ready, then a criterion confirmed, keeps its class",
+              fm14["triage"] == "needs-research" and "confirmed by the owner" in fm14["owner_decision"], fm14)
 
         import scan  # noqa: E402 -- scan imports state, so only here
         picked, _ = scan.select(scan.load_todos(repo / "todos"), selector="sweep", inflight=set(),
