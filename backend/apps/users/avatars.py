@@ -153,7 +153,14 @@ def strip_image_metadata(upload: "UploadedFile") -> ContentFile:
         target = _REENCODE[source_format or ""]
         has_alpha = image.mode in {"RGBA", "LA", "PA"} or "transparency" in image.info
         mode = "RGBA" if has_alpha and target != "JPEG" else "RGB"
+        # Alpha is taken from the source before the profile is applied: an
+        # RGB or L PNG keyed by tRNS has no alpha channel, and the ICC
+        # conversion to RGBA returns it opaque with the key dropped, where
+        # convert("RGBA") applies the key (todo 607 item 1).
+        alpha = image.convert("RGBA").getchannel("A") if mode == "RGBA" else None
         image = _to_srgb(image, mode).convert(mode)
+        if alpha is not None:
+            image.putalpha(alpha)
         # Rebuilt from pixels alone, so nothing still in ``image.info`` (EXIF,
         # XMP, ICC, comments) can reach the encoder.
         clean = Image.frombytes(mode, image.size, image.tobytes())

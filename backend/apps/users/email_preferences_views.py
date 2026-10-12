@@ -17,6 +17,7 @@ from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
+    OpenApiResponse,
     extend_schema,
     inline_serializer,
 )
@@ -146,10 +147,26 @@ def email_unsubscribe(request: Request) -> Response:
     return Response(_list_state(user, list_id))
 
 
+_ONE_CLICK_TOKEN = OpenApiParameter("token", str, OpenApiParameter.QUERY, required=True)
+
+
 @extend_schema(
+    methods=["POST"],
     request=None,
-    parameters=[OpenApiParameter("token", str, OpenApiParameter.QUERY, required=True)],
+    parameters=[_ONE_CLICK_TOKEN],
     responses=_UNSUBSCRIBE_SCHEMA_RESPONSES,
+)
+# A GET only redirects, and is not rate-limited: it documents no 429 (todo 607
+# item 8).
+@extend_schema(
+    methods=["GET"],
+    request=None,
+    parameters=[_ONE_CLICK_TOKEN],
+    responses={
+        302: OpenApiResponse(
+            description="Redirect to the web page /unsubscribe, which asks first."
+        )
+    },
 )
 @api_view(["GET", "POST"])
 @authentication_classes([])

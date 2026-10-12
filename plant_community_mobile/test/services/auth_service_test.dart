@@ -577,8 +577,9 @@ void main() {
   });
 
   group('account profile across sign-outs (todo 558)', () {
-    Future<(_Harness, ProviderSubscription<AsyncValue<UserProfile?>>)>
-    watched(List<Override> overrides) async {
+    Future<(_Harness, ProviderSubscription<AsyncValue<UserProfile?>>)> watched(
+      List<Override> overrides,
+    ) async {
       final harness = _Harness(
         currentUser: _FakeUser(uid: 'ada'),
         overrides: overrides,
@@ -615,8 +616,13 @@ void main() {
       await harness.emitAuthState(null);
       await pumpEventQueue();
 
-      expect(fetches, isNot(contains(false)), reason: 'a fetch went out with '
-          'no bearer');
+      expect(
+        fetches,
+        isNot(contains(false)),
+        reason:
+            'a fetch went out with '
+            'no bearer',
+      );
       final profile = harness.container.read(userProfileServiceProvider);
       expect(profile.value, isNull);
       expect(profile.hasError, isFalse);
@@ -677,7 +683,10 @@ void main() {
 
       // Mid-sign-out: still authenticated, so the profile must still be
       // there; an identity-less signed-in screen was the bug.
-      expect(harness.container.read(authServiceProvider).isAuthenticated, isTrue);
+      expect(
+        harness.container.read(authServiceProvider).isAuthenticated,
+        isTrue,
+      );
       expect(
         harness.container.read(userProfileServiceProvider).value?.username,
         'ada',
@@ -686,7 +695,10 @@ void main() {
       gate.complete();
       await expiry;
 
-      expect(harness.container.read(authServiceProvider).isAuthenticated, isFalse);
+      expect(
+        harness.container.read(authServiceProvider).isAuthenticated,
+        isFalse,
+      );
       expect(harness.container.read(userProfileServiceProvider).value, isNull);
     });
 
@@ -1385,26 +1397,28 @@ void main() {
   });
 
   group('todo 567', () {
-    test('F2: a Firebase refusal after the user switched signs nobody out',
-        () async {
-      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
-      addTearDown(harness.dispose);
-      await pumpEventQueue();
-      harness.firebaseAuth.currentUser = _FakeUser(
-        uid: 'ada',
-        getIdTokenOverride: () async {
-          // B signs in while A's token is being fetched; then Firebase
-          // refuses A's.
-          harness.firebaseAuth.currentUser = _FakeUser(uid: 'bob');
-          throw FirebaseAuthException(code: 'user-disabled');
-        },
-      );
+    test(
+      'F2: a Firebase refusal after the user switched signs nobody out',
+      () async {
+        final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+        addTearDown(harness.dispose);
+        await pumpEventQueue();
+        harness.firebaseAuth.currentUser = _FakeUser(
+          uid: 'ada',
+          getIdTokenOverride: () async {
+            // B signs in while A's token is being fetched; then Firebase
+            // refuses A's.
+            harness.firebaseAuth.currentUser = _FakeUser(uid: 'bob');
+            throw FirebaseAuthException(code: 'user-disabled');
+          },
+        );
 
-      await expectLater(
-        harness.api.accessTokenRefresher!(),
-        throwsA(isA<RefreshSupersededException>()),
-      );
-    });
+        await expectLater(
+          harness.api.accessTokenRefresher!(),
+          throwsA(isA<RefreshSupersededException>()),
+        );
+      },
+    );
 
     test('F2: the same refusal for the current user still refuses', () async {
       final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
@@ -1419,73 +1433,126 @@ void main() {
       expect(await harness.api.accessTokenRefresher!(), isNull);
     });
 
-    test('F5: a refresh 409 drops the expired JWT like the launch 409',
-        () async {
-      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
-      addTearDown(harness.dispose);
-      await pumpEventQueue();
-      expect(harness.container.read(authServiceProvider).jwtToken, isNotNull);
-      harness.api.postError = ApiException(
-        'Account linking conflict',
-        statusCode: 409,
-        code: 'account_conflict',
-      );
+    test(
+      'F5: a refresh 409 drops the expired JWT like the launch 409',
+      () async {
+        final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+        addTearDown(harness.dispose);
+        await pumpEventQueue();
+        expect(harness.container.read(authServiceProvider).jwtToken, isNotNull);
+        harness.api.postError = ApiException(
+          'Account linking conflict',
+          statusCode: 409,
+          code: 'account_conflict',
+        );
 
-      await expectLater(
-        harness.api.accessTokenRefresher!(),
-        throwsA(isA<ApiException>()),
-      );
+        await expectLater(
+          harness.api.accessTokenRefresher!(),
+          throwsA(isA<ApiException>()),
+        );
 
-      final state = harness.container.read(authServiceProvider);
-      expect(state.jwtToken, isNull);
-      expect(state.isAuthenticated, isFalse);
-      expect(state.error, accountLinkFailedMessage);
-      expect(state.firebaseUser?.uid, 'ada');
-      const storage = FlutterSecureStorage();
-      expect(await storage.read(key: 'django_jwt_token'), isNull);
-      expect(await storage.read(key: 'django_refresh_token'), isNull);
-    });
+        final state = harness.container.read(authServiceProvider);
+        expect(state.jwtToken, isNull);
+        expect(state.isAuthenticated, isFalse);
+        expect(state.error, accountLinkFailedMessage);
+        expect(state.firebaseUser?.uid, 'ada');
+        const storage = FlutterSecureStorage();
+        expect(await storage.read(key: 'django_jwt_token'), isNull);
+        expect(await storage.read(key: 'django_refresh_token'), isNull);
+      },
+    );
   });
 
   group('todo 587', () {
-    test('item 2: a refresh 409 overtaken mid-clear keeps the newer tokens',
-        () async {
-      // The in-memory store the mock platform deletes from. Once armed, the
-      // first delete is where B signs in and its exchange stores B's refresh
-      // token, before A's conflict handler issues its second delete.
-      late _Harness harness;
-      late _OnRemoveMap store;
-      var armed = false;
-      store = _OnRemoveMap((key) {
-        if (!armed || key != 'django_jwt_token') return;
-        armed = false;
-        harness.firebaseAuth.currentUser = _FakeUser(uid: 'bob');
-        store['django_refresh_token'] = 'bob-refresh';
+    test(
+      'item 2: a refresh 409 overtaken mid-clear keeps the newer tokens',
+      () async {
+        // The in-memory store the mock platform deletes from. Once armed, the
+        // first delete is where B signs in and its exchange stores B's refresh
+        // token, before A's conflict handler issues its second delete.
+        late _Harness harness;
+        late _OnRemoveMap store;
+        var armed = false;
+        store = _OnRemoveMap((key) {
+          if (!armed || key != 'django_jwt_token') return;
+          armed = false;
+          harness.firebaseAuth.currentUser = _FakeUser(uid: 'bob');
+          store['django_refresh_token'] = 'bob-refresh';
+        });
+        FlutterSecureStorage.setMockInitialValues(store);
+        harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+        addTearDown(harness.dispose);
+        await pumpEventQueue();
+        harness.api.postError = ApiException(
+          'Account linking conflict',
+          statusCode: 409,
+          code: 'account_conflict',
+        );
+        armed = true;
+
+        await expectLater(
+          harness.api.accessTokenRefresher!(),
+          throwsA(isA<ApiException>()),
+        );
+
+        const storage = FlutterSecureStorage();
+        expect(
+          await storage.read(key: 'django_refresh_token'),
+          'bob-refresh',
+          reason: "A's overtaken conflict handler deleted B's token",
+        );
+        expect(harness.container.read(authServiceProvider).error, isNull);
+      },
+    );
+  });
+
+  group('todo 607', () {
+    // Item 2: the launch exchange's failure paths re-check after each await,
+    // so an overtaken exchange leaves the newer one's tokens, bearer and
+    // state alone.
+    for (final failure in <String, Exception>{
+      'an API error': ApiException('Server error', statusCode: 500),
+      'any other error': Exception('boom'),
+    }.entries) {
+      test('item 2: a launch exchange failing with ${failure.key}, overtaken '
+          'mid-clear, keeps the newer tokens', () async {
+        late _Harness harness;
+        late _OnRemoveMap store;
+        var armed = false;
+        store = _OnRemoveMap((key) {
+          if (!armed || key != 'django_jwt_token') return;
+          armed = false;
+          harness.firebaseAuth.currentUser = _FakeUser(uid: 'bob');
+          store['django_refresh_token'] = 'bob-refresh';
+          harness.api.setAuthToken('bob-jwt');
+        });
+        FlutterSecureStorage.setMockInitialValues(store);
+        harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+        addTearDown(harness.dispose);
+        final gate = Completer<void>();
+        harness.api
+          ..postError = failure.value
+          ..postGate = gate;
+        await pumpEventQueue();
+        expect(harness.api.postCalls, isEmpty, reason: 'post not held');
+
+        // Armed after the exchange's own opening clear, so the first delete
+        // it reaches is the failure path's.
+        armed = true;
+        gate.complete();
+        await pumpEventQueue();
+
+        expect(armed, isFalse, reason: 'the failure path never cleared');
+        const storage = FlutterSecureStorage();
+        expect(
+          await storage.read(key: 'django_refresh_token'),
+          'bob-refresh',
+          reason: "A's overtaken failure path deleted B's token",
+        );
+        expect(harness.api.currentToken, 'bob-jwt');
+        expect(harness.container.read(authServiceProvider).error, isNull);
       });
-      FlutterSecureStorage.setMockInitialValues(store);
-      harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
-      addTearDown(harness.dispose);
-      await pumpEventQueue();
-      harness.api.postError = ApiException(
-        'Account linking conflict',
-        statusCode: 409,
-        code: 'account_conflict',
-      );
-      armed = true;
-
-      await expectLater(
-        harness.api.accessTokenRefresher!(),
-        throwsA(isA<ApiException>()),
-      );
-
-      const storage = FlutterSecureStorage();
-      expect(
-        await storage.read(key: 'django_refresh_token'),
-        'bob-refresh',
-        reason: "A's overtaken conflict handler deleted B's token",
-      );
-      expect(harness.container.read(authServiceProvider).error, isNull);
-    });
+    }
   });
 
   group('session-expiry exemption', () {
@@ -1566,8 +1633,6 @@ void main() {
 // Harness
 // ---------------------------------------------------------------------------
 
-/// Wires a [ProviderContainer] with fakes for every collaborator the notifier
-/// reaches: Firebase auth, the API, and push registration.
 /// A string map that calls [onRemove] after each removal: the in-memory
 /// secure-storage mock deletes through `remove`, so a test can act at the
 /// exact moment the notifier's delete lands.
@@ -1597,6 +1662,8 @@ class _OnRemoveMap extends MapBase<String, String> {
   }
 }
 
+/// Wires a [ProviderContainer] with fakes for every collaborator the notifier
+/// reaches: Firebase auth, the API, and push registration.
 class _Harness {
   _Harness({
     User? currentUser,

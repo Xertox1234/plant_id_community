@@ -88,6 +88,10 @@ class CommunityEventViewSet(viewsets.ModelViewSet):
     Provides CRUD operations plus RSVP functionality and location-based filtering.
     """
 
+    # Actions under @method_decorator(ratelimit(...)): the OpenAPI hook documents
+    # their 429 (plant_community_backend.api_schema, todo 607 item 7).
+    _throttled_actions = frozenset({"create", "rsvp"})
+
     queryset = CommunityEvent.objects.all()
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -645,6 +649,10 @@ class GardenBedViewSet(AuditActorMixin, viewsets.ModelViewSet):
         - Annotates plant_count for list view
     """
 
+    # Actions under @method_decorator(ratelimit(...)): the OpenAPI hook documents
+    # their 429 (plant_community_backend.api_schema, todo 607 item 7).
+    _throttled_actions = frozenset({"create", "update", "partial_update", "destroy"})
+
     queryset = GardenBed.objects.all()
     permission_classes = [IsGardenOwner]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -969,6 +977,10 @@ class PlantViewSet(AuditActorMixin, viewsets.ModelViewSet):
         - select_related('garden_bed', 'plant_species')
         - prefetch_related('images', 'care_tasks') for detail view
     """
+
+    # Actions under @method_decorator(ratelimit(...)): the OpenAPI hook documents
+    # their 429 (plant_community_backend.api_schema, todo 607 item 7).
+    _throttled_actions = frozenset({"create", "update", "partial_update", "destroy"})
 
     queryset = Plant.objects.all()
     permission_classes = [IsPlantOwner]
@@ -1447,6 +1459,10 @@ class CareTaskViewSet(AuditActorMixin, viewsets.ModelViewSet):
     Performance:
         - select_related('plant', 'plant__garden_bed')
     """
+
+    # Actions under @method_decorator(ratelimit(...)): the OpenAPI hook documents
+    # their 429 (plant_community_backend.api_schema, todo 607 item 7).
+    _throttled_actions = frozenset({"create", "complete", "skip"})
 
     queryset = CareTask.objects.all()
     permission_classes = [IsCareTaskOwner]
