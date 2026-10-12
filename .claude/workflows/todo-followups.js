@@ -20,7 +20,7 @@ const ITEM = {
     file: { type: 'string', maxLength: 300 },
     line: { type: 'integer' },
     summary: { type: 'string', maxLength: 600 },  // headroom over the prompt's 300, as for FINDINGS
-    also: { type: 'array', items: { type: 'string', maxLength: 600 }, maxItems: 10 },
+    also: { type: 'array', items: { type: 'string', maxLength: 600 }, maxItems: 50 },
     on_main: { type: 'string', enum: ['present', 'fixed', 'unclear'] },
     note: { type: 'string', maxLength: 300 },
   },
@@ -46,7 +46,7 @@ const JUDGED = {
           refuted: { type: 'boolean' },
           // Todo 551 (owner decision 2026-10-10): each merged phrasing is judged on its own; these are the
           // positions in the item's `also` that are refuted. `refuted` judges the summary alone.
-          also_refuted: { type: 'array', items: { type: 'integer' }, maxItems: 10 },
+          also_refuted: { type: 'array', items: { type: 'integer' }, maxItems: 50 },
           reason: { type: 'string', maxLength: 600 },
         },
         required: ['index', 'refuted', 'also_refuted', 'reason'],
@@ -160,7 +160,13 @@ const results = await pipeline(
       // stays a follow-up. Before, refuting the summary dropped every merged phrasing with it, a different problem
       // the refuter never judged among them.
       const alsoGone = new Set(((j && j.also_refuted) || []).filter(k => Number.isInteger(k) && k >= 0 && k < also.length))
-      const summaryGone = Boolean(j && j.refuted)
+      // PR #1061 review: the curator repeats an identical phrasing once per merged item (todo 596 #2), but the
+      // refuter judges each position on its own. A text refuted anywhere is refuted everywhere in the item, so an
+      // unlisted identical copy cannot survive in `stay` and be refiled as a kept follow-up.
+      const norm = t => String(t).trim()
+      const refutedText = new Set([...(j && j.refuted ? [norm(i.summary)] : []), ...[...alsoGone].map(k => norm(also[k]))])
+      also.forEach((t, k) => { if (refutedText.has(norm(t))) alsoGone.add(k) })
+      const summaryGone = refutedText.has(norm(i.summary))
       const stay = [...(summaryGone ? [] : [i.summary]), ...also.filter((_, k) => !alsoGone.has(k))]
       if (stay.length) {
         // Todo 577 #4: with its summary refuted, the item is led by a merged phrasing, which goes back to its OWN

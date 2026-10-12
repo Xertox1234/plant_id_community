@@ -890,6 +890,22 @@ async function main() {
   check('551 #3: the refuter is asked to judge every phrasing separately',
     /Judge the summary and every `also` phrasing separately/.test(r.calls[1].prompt) && /also_refuted/.test(r.calls[1].prompt),
     r.calls[1].prompt)
+  // PR #1061 review: the curator repeats an identical phrasing once per merged item (596 #2). A refuted summary
+  // takes its identical `also` copies with it, though the refuter listed none of them in also_refuted ...
+  const dupItem = { pr_on_main: true, items: [item({ also: ['real ', 'nit'] })] }
+  r = await run('todo-followups', { run_id: 'r', groups: [fg({ followups: ['medium: a.py:9 real', 'medium: a.py:9 real', 'low: a.py:2 nit'] })] },
+    (p, o) => (isCurator(o) ? dupItem : { judgments: [{ index: 0, refuted: true, also_refuted: [], reason: 'wrong' }] }))
+  const fdup = r.result.results[0]
+  check('PR #1061: a refuted summary drops its identical unrefuted `also` copy too; it is not kept as a follow-up',
+    fdup.kept.length === 1 && fdup.kept[0].summary === 'nit' && fdup.kept[0].also.length === 0
+    && !fdup.kept.some(i => [i.summary, ...i.also].some(t => t.trim() === 'real'))
+    && fdup.dropped.length === 1 && fdup.dropped[0].line === 'medium: a.py:9 real | also: real ', fdup)
+  // ... and a refuted `also` copy takes the identical summary with it.
+  r = await run('todo-followups', { run_id: 'r', groups: [fg({ followups: ['medium: a.py:9 real', 'medium: a.py:9 real', 'low: a.py:2 nit'] })] },
+    (p, o) => (isCurator(o) ? dupItem : { judgments: [{ index: 0, refuted: false, also_refuted: [0], reason: 'wrong' }] }))
+  check('PR #1061: ... and a refuted `also` copy drops the identical summary it was not judged on',
+    r.result.results[0].kept.length === 1 && r.result.results[0].kept[0].summary === 'nit'
+    && r.result.results[0].dropped[0].line === 'medium: a.py:9 real | also: real ', r.result.results[0])
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
     (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 1, refuted: false, also_refuted: [], reason: 'still there' }] }))
   check('541 #982-3: a fixed claim the refuter does not confirm keeps the item',
