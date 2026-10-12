@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "609"
 tags: [backend, testing, guard, follow-ups]
@@ -35,7 +35,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -43,3 +43,26 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-11 - Filed from the PR #1055 review (todo sweep run 2026-10-11-2219)
 
 Filed by the closing step of the run from `state.py followups-md g7`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-0349)
+
+- Finding 1 fixed: `_scopes` takes a `reach` map (the names visible where a def inside a handler is defined, before its own bindings are subtracted) and judges comprehension iterables with it, so `[(lambda e=None: {"error": a})() for a in e.args]` is flagged again. Planted case `a_lambda_rebinding_the_name_reads_a_comprehension_over_the_exception` in `backend/apps/core/tests/test_requests_exception_drift.py`.
+- Finding 2 fixed: the strict (`ast.walk`) default check now holds at any depth below the handler. `step` keeps a `strict` map of the handler's names in force in each def defined inside it, minus what that def binds, so `def outer(): def render(m=type(e).__name__)` is flagged. Planted case `a_default_two_defs_deep_names_the_exception_type`, with the quiet control `approved_a_middle_def_rebinds_the_exception_name` (`def outer(e=None)`).
+- Findings 3, 4 and 5 (one item reported three times) fixed: `test_tail_only_empty_edge_is_exactly_the_marker_cost` in `scripts/inject/test_budget_rules.py` now measures the marker instead of parsing it: the file suffix is the longest run the excerpt shares with the file's end, and the skipped count's digits are swapped arithmetically. The share-digit guard became a self-consistency re-measure, and the test asserts no marker wording.
+- Mutation checks: dropping `reach` fails only the finding-1 case, dropping the strict propagation fails only the finding-2 case, a reworded tail marker leaves the edge test green, and a 50 B over-reservation fails it.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-12-0349)
+
+- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 2 -- venv/bin/python -m pytest apps/core/tests/test_requests_exception_drift.py -q -p no:cacheprovider && python3 ../scripts/inject/test_budget_rules.py -v && grep -n -A8 'Implemented by the todo sweep (run 2026-10-12-0349)' ../todos/archive/609-completed-p4-requests-exception-guard-1055.md` — evidence `.sweep-evidence/g8/609-ac0.txt` (not committed), last lines:
+
+  ```text
+  48-
+  49-- Finding 1 fixed: `_scopes` takes a `reach` map (the names visible where a def inside a handler is defined, before its own bindings are subtracted) and judges comprehension iterables with it, so `[(lambda e=None: {"error": a})() for a in e.args]` is flagged again. Planted case `a_lambda_rebinding_the_name_reads_a_comprehension_over_the_exception` in `backend/apps/core/tests/test_requests_exception_drift.py`.
+  50-- Finding 2 fixed: the strict (`ast.walk`) default check now holds at any depth below the handler. `step` keeps a `strict` map of the handler's names in force in each def defined inside it, minus what that def binds, so `def outer(): def render(m=type(e).__name__)` is flagged. Planted case `a_default_two_defs_deep_names_the_exception_type`, with the quiet control `approved_a_middle_def_rebinds_the_exception_name` (`def outer(e=None)`).
+  51-- Findings 3, 4 and 5 (one item reported three times) fixed: `test_tail_only_empty_edge_is_exactly_the_marker_cost` in `scripts/inject/test_budget_rules.py` now measures the marker instead of parsing it: the file suffix is the longest run the excerpt shares with the file's end, and the skipped count's digits are swapped arithmetically. The share-digit guard became a self-consistency re-measure, and the test asserts no marker wording.
+  52-- Mutation checks: dropping `reach` fails only the finding-1 case, dropping the strict propagation fails only the finding-2 case, a reworded tail marker leaves the edge test green, and a 50 B over-reservation fails it.
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

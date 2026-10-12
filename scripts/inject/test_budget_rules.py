@@ -122,28 +122,41 @@ class EveryRoutedDomainContributesTests(unittest.TestCase):
         # marker read off a real excerpt with the skipped count replaced by
         # the file's byte count. Not found by scanning shares for the first
         # non-empty output: an over-reservation would just move that edge.
+        # Todo 609 (PR #1055 findings 3-5): the marker is measured, not
+        # parsed. An excerpt is the marker followed by a suffix of the file,
+        # and the fixture's last line is all "x", so the suffix is the longest
+        # run the excerpt shares with the file's end (the marker ends in a
+        # newline, never an "x"). No marker wording is read or asserted here;
+        # `test_tail_only_returns_empty_only_below_the_marker_cost` pins that.
         text = long_final_line_file()
         path = "docs/rules/x.md"
         total = len(text.encode("utf-8"))
 
-        def marker(share):
-            out = br.excerpt(text, share, path)
-            head = out[: out.index("...]\n\n") + len("...]\n\n")]
-            skipped = head.split("the first ", 1)[1].split(" ", 1)[0]
-            return head.replace(f"the first {skipped} ", f"the first {total} ", 1)
+        def split(out):
+            body = len(os.path.commonprefix([out[::-1], text[::-1]]))
+            self.assertGreater(body, 0, f"no file suffix after the marker: {out!r}")
+            self.assertLess(body, len(out), f"no marker before the suffix: {out!r}")
+            return out[:-body], out[-body:]
 
-        # The share is printed in the marker, so measure at a share with the
-        # same digit count as the edge; check that it is.
-        tail_cost = len(marker(200).encode("utf-8"))
-        self.assertEqual(len(str(tail_cost)), len("200"), tail_cost)
+        def tail_cost_at(share):
+            # The marker prints the skipped count, and the reservation sizes
+            # it at the whole file's byte count: swap the digits arithmetically.
+            out = br.excerpt(text, share, path)
+            head, body = split(out)
+            skipped = total - len(body.encode("utf-8"))
+            return len(head.encode("utf-8")) - len(str(skipped)) + len(str(total))
+
+        # The marker also prints the share, so measure again just past the
+        # first estimate: a cost that agrees with itself there is the edge's,
+        # whatever share digits the wording carries.
+        tail_cost = tail_cost_at(tail_cost_at(200) + 1)
+        self.assertEqual(tail_cost_at(tail_cost + 1), tail_cost)
         self.assertEqual(br.excerpt(text, tail_cost, path), "")
         at_edge = br.excerpt(text, tail_cost + 1, path)
-        self.assertTrue(at_edge.startswith("\n[... the first "), at_edge)
-        self.assertIn("were not injected", at_edge)
         self.assertEqual(len(at_edge.encode("utf-8")), tail_cost + 1, at_edge)
-        self.assertTrue(at_edge.endswith("...]\n\n" + text[-1:]), at_edge)
+        self.assertEqual(split(at_edge)[1], text[-1:], at_edge)
         after = br.excerpt(text, tail_cost + 2, path)
-        self.assertTrue(after.endswith("...]\n\n" + text[-2:]), after)
+        self.assertEqual(split(after)[1], text[-2:], after)
 
 
 if __name__ == "__main__":
