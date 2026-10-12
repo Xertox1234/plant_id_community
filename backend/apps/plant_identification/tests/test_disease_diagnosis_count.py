@@ -18,12 +18,13 @@ from apps.plant_identification.models import (
     PlantDiseaseDatabase,
     PlantDiseaseRequest,
     PlantDiseaseResult,
+    PlantSpecies,
 )
 from apps.plant_identification.services.disease_diagnosis_service import (
     DiseaseAutostorageService,
 )
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError, connection
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 
@@ -286,3 +287,139 @@ class DiagnosisFirstCreateRaceTest(TestCase):
         self.assertIsNotNone(stored)
         self.assertEqual(stored.disease_name, "Black Spot")
         self.assertEqual(stored.diagnosis_count, 1)
+
+
+class DiseaseNameCaseFollowupsTest(TestCase):
+    """Follow-ups from the PR #1059 review (todo 613)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="caseuser", email="case@example.com"
+        )
+        self.service = DiseaseAutostorageService()
+
+    def _result(self, name, species=None):
+        request = PlantDiseaseRequest.objects.create(
+            user=self.user,
+            status="diagnosed",
+            symptoms_description="Spots on leaves",
+            plant_species=species,
+        )
+        return PlantDiseaseResult.objects.create(
+            request=request,
+            suggested_disease_name=name,
+            suggested_disease_type="fungal",
+            confidence_score=0.9,
+            symptoms_identified=["black spots"],
+            diagnosis_source="api_plant_health",
+        )
+
+    def _disease(self, name):
+        return PlantDiseaseDatabase.objects.create(
+            disease_name=name,
+            disease_type="fungal",
+            confidence_score=0.6,
+            api_source="plant_health",
+            diagnosis_count=1,
+        )
+
+    def _store_racing(self, result):
+        """Store `result` as if the winner committed after its first lookup."""
+        real_lookup = DiseaseAutostorageService._find_existing_disease
+        calls = []
+
+        def racing_lookup(service, name):
+            calls.append(name)
+            return None if len(calls) == 1 else real_lookup(service, name)
+
+        with mock.patch.object(
+            DiseaseAutostorageService,
+            "_find_existing_disease",
+            autospec=True,
+            side_effect=racing_lookup,
+        ):
+            return self.service.store_disease_if_qualified(result)
+
+    def test_name_is_unique_ignoring_case(self):
+        # Item 1: the case-sensitive unique let both rows in.
+        self._disease("Black Spot")
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self._disease("black spot")
+
+    def test_losing_create_with_another_case_merges(self):
+        # Item 1: concurrent 'black spot' and 'Black Spot' first diagnoses.
+        winner = self._disease("black spot")
+
+        stored = self._store_racing(self._result("Black Spot"))
+
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored.pk, winner.pk)
+        winner.refresh_from_db()
+        self.assertEqual(winner.diagnosis_count, 2)
+        self.assertEqual(PlantDiseaseDatabase.objects.count(), 1)
+
+    def test_other_integrity_error_is_not_merged_into_a_same_name_row(self):
+        # Item 2: only the name constraint is a merge, even if the row exists.
+        existing = self._disease("Black Spot")
+        result = self._result("Black Spot")
+
+        with mock.patch.object(
+            DiseaseAutostorageService,
+            "_create_new_disease",
+            side_effect=IntegrityError("some other constraint"),
+        ):
+            stored = self._store_racing(result)
+
+        self.assertIsNone(stored)
+        existing.refresh_from_db()
+        self.assertEqual(existing.diagnosis_count, 1)
+        result.refresh_from_db()
+        self.assertFalse(result.stored_to_database)
+
+    def test_merge_links_the_diagnosis_species(self):
+        # Item 3: a merged diagnosis records its species, like a first one.
+        winner = self._disease("Black Spot")
+        species = PlantSpecies.objects.create(scientific_name="Rosa gallica")
+
+        stored = self._store_racing(self._result("Black Spot", species=species))
+
+        self.assertEqual(stored.pk, winner.pk)
+        self.assertEqual(list(winner.affected_plants.all()), [species])
+
+    def test_existing_row_merge_links_the_diagnosis_species(self):
+        winner = self._disease("Black Spot")
+        species = PlantSpecies.objects.create(scientific_name="Rosa canina")
+
+        stored = self.service.store_disease_if_qualified(
+            self._result("black spot", species=species)
+        )
+
+        self.assertEqual(stored.pk, winner.pk)
+        self.assertEqual(list(winner.affected_plants.all()), [species])
+
+    def test_row_deleted_after_lookup_is_created_again(self):
+        # Item 4: the old code raised DoesNotExist, swallowed it, returned None.
+        gone = self._disease("Black Spot")
+        stale = PlantDiseaseDatabase.objects.get(pk=gone.pk)
+        PlantDiseaseDatabase.objects.filter(pk=gone.pk).delete()
+        calls = []
+
+        def stale_lookup(service, name):
+            calls.append(name)
+            return stale if len(calls) == 1 else None
+
+        result = self._result("Black Spot")
+        with mock.patch.object(
+            DiseaseAutostorageService,
+            "_find_existing_disease",
+            autospec=True,
+            side_effect=stale_lookup,
+        ):
+            stored = self.service.store_disease_if_qualified(result)
+
+        self.assertIsNotNone(stored)
+        self.assertNotEqual(stored.pk, gone.pk)
+        self.assertEqual(stored.diagnosis_count, 1)
+        self.assertEqual(PlantDiseaseDatabase.objects.count(), 1)
+        result.refresh_from_db()
+        self.assertTrue(result.stored_to_database)

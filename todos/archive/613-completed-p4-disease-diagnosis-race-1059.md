@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "613"
 tags: [backend, plant-id, database, follow-ups]
@@ -29,7 +29,7 @@ PR #1059 (todo sweep run 2026-10-11-2219, group g11, todos 594); follow-ups: ver
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -53,3 +53,26 @@ fallback can rely on the constraint, so item 2's merge into a case-variant row i
 Nobody needs to count prod rows by hand, because the migration handles any data.
 
 **Items 3–5:** fix or decline as usual.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-0349)
+
+- **Items 1-2 (fixed, per the owner decision).** `backend/apps/plant_identification/migrations/0028_merge_case_variant_diseases.py` folds every group of `disease_name` rows that differ only in case into its oldest row: care instructions and diagnosis results are re-pointed before the extras are deleted, `affected_plants` is the union, and `diagnosis_count` is the sum. The reverse does nothing. `0029_disease_name_lower_unique.py` drops `unique=True` and adds `UniqueConstraint(Lower("disease_name"), name="plant_disease_name_lower_unique")`. The service's name lookup now compares with `LOWER()` as well, so lookup and constraint agree. The IntegrityError fallback merges only when that constraint fired (read from the driver's `diag.constraint_name`), so any other IntegrityError surfaces even when a same-name row exists. Tests: `backend/apps/plant_identification/tests/test_disease_name_case_merge_migration.py` (migrates 0027 -> 0029 over 'black spot'/'Black Spot' fixtures), and the case-variant race and other-constraint tests in `test_disease_diagnosis_count.py`.
+- **Item 3 (species fixed, description declined).** `_update_existing_disease` now adds the diagnosis's plant species to `affected_plants`, so both the lost-race merge and the ordinary existing-row merge record it. The description is not written on a merge: the merge writes only the fields it combines, so a moderator's edit to the description survives (todo 568, `test_update_writes_only_the_merged_fields`), and the winner's row already has the API description.
+- **Item 4 (fixed).** When the row is deleted between the lookup and the locked re-read, `store_disease_if_qualified` catches `DoesNotExist` and creates the row again instead of dropping the diagnosis.
+- **Item 5 (declined).** The SET-list test pins the `update_fields` contract on purpose, and `updated_at` is named explicitly in that list, not added by `auto_now`. A new column in the UPDATE should fail it. Its regex matches Django's quoted identifiers on PostgreSQL, the only backend the suite runs.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-12-0349)
+
+- AC 1: `sh -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 5 -- backend/venv/bin/python -m pytest backend/apps/plant_identification/tests/test_disease_diagnosis_count.py backend/apps/plant_identification/tests/test_disease_name_case_merge_migration.py --create-db -v -p no:cacheprovider && grep -n "^- \*\*Item" todos/archive/613-completed-p4-disease-diagnosis-race-1059.md'` — evidence `.sweep-evidence/g11/613-ac0.txt` (not committed), last lines:
+
+  ```text
+  ======================= 17 passed, 2 warnings in 18.83s ========================
+  59:- **Items 1-2 (fixed, per the owner decision).** `backend/apps/plant_identification/migrations/0028_merge_case_variant_diseases.py` folds every group of `disease_name` rows that differ only in case into its oldest row: care instructions and diagnosis results are re-pointed before the extras are deleted, `affected_plants` is the union, and `diagnosis_count` is the sum. The reverse does nothing. `0029_disease_name_lower_unique.py` drops `unique=True` and adds `UniqueConstraint(Lower("disease_name"), name="plant_disease_name_lower_unique")`. The service's name lookup now compares with `LOWER()` as well, so lookup and constraint agree. The IntegrityError fallback merges only when that constraint fired (read from the driver's `diag.constraint_name`), so any other IntegrityError surfaces even when a same-name row exists. Tests: `backend/apps/plant_identification/tests/test_disease_name_case_merge_migration.py` (migrates 0027 -> 0029 over 'black spot'/'Black Spot' fixtures), and the case-variant race and other-constraint tests in `test_disease_diagnosis_count.py`.
+  60:- **Item 3 (species fixed, description declined).** `_update_existing_disease` now adds the diagnosis's plant species to `affected_plants`, so both the lost-race merge and the ordinary existing-row merge record it. The description is not written on a merge: the merge writes only the fields it combines, so a moderator's edit to the description survives (todo 568, `test_update_writes_only_the_merged_fields`), and the winner's row already has the API description.
+  61:- **Item 4 (fixed).** When the row is deleted between the lookup and the locked re-read, `store_disease_if_qualified` catches `DoesNotExist` and creates the row again instead of dropping the diagnosis.
+  62:- **Item 5 (declined).** The SET-list test pins the `update_fields` contract on purpose, and `updated_at` is named explicitly in that list, not added by `auto_now`. A new column in the UPDATE should fail it. Its regex matches Django's quoted identifiers on PostgreSQL, the only backend the suite runs.
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

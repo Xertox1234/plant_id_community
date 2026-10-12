@@ -188,3 +188,9 @@ DISEASE_REQUEST_STATUS_CHOICES = [
     ("needs_help", "Needs Community Help"),
     ("failed", "Diagnosis Failed"),
 ]
+
+
+# Name of the case-insensitive unique constraint on
+# PlantDiseaseDatabase.disease_name (todo 613). The diagnosis service matches
+# an IntegrityError against it to tell a name collision from any other.
+DISEASE_NAME_LOWER_UNIQUE = "plant_disease_name_lower_unique"
