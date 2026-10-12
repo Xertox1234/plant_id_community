@@ -355,7 +355,12 @@ RESUBSCRIBE_PUSH_SCHEMA = extend_schema(
             ),
         },
     ),
-    responses={200: _MESSAGE, 400: _SIMPLE_ERROR, 404: _SIMPLE_ERROR},
+    responses={
+        200: _MESSAGE,
+        400: _SIMPLE_ERROR,
+        404: _SIMPLE_ERROR,
+        429: ERROR_ENVELOPE,
+    },
     description="Called by the service worker when the browser replaces a push "
     "subscription (todo 456). No session: the old subscription's endpoint and "
     "auth secret prove the caller holds it. CSRF-exempt, rate-limited per IP.",
