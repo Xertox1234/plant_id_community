@@ -880,7 +880,9 @@ def _mentions(value, tainted, shadowed=frozenset()):
 _COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)
 
 
-def _comprehension_shadowed(nodes, tainted, is_source=lambda n: False, masks=None):
+def _comprehension_shadowed(
+    nodes, tainted, is_source=lambda n: False, masks=None, walk=_carried
+):
     """``id()`` of every Name read, among ``nodes``, that resolves to a
     comprehension's own variable bound from an UNTAINTED iterable (todo 555).
 
@@ -900,6 +902,11 @@ def _comprehension_shadowed(nodes, tainted, is_source=lambda n: False, masks=Non
     The iterable is judged with ``_carried``, like every other binding (todo
     589, finding 6, declined): ``for msg in wrap(msg)`` is clean for the same
     reason ``x = wrap(msg)`` is -- an opaque call's argument.
+
+    ``walk=ast.walk`` is the strict form, for the defaults of a def inside a
+    handler (todo 645, finding 2): there any mention of the exception leaks,
+    so an iterable that mentions it at all -- ``for e in wrap(e)`` -- does not
+    unmask the name it rebinds.
     """
     nodes = list(nodes)
     nested = {
@@ -915,7 +922,7 @@ def _comprehension_shadowed(nodes, tainted, is_source=lambda n: False, masks=Non
         return any(
             is_source(n)
             or (isinstance(n, ast.Name) and n.id in tainted and id(n) not in shadowed)
-            for n in _carried(expr)
+            for n in walk(expr)
         )
 
     def visit(node, env):
@@ -1138,14 +1145,24 @@ def _exception_details_in_response_dicts(path):
             # Todo 633 (finding 2): a default reading a comprehension's own
             # variable, bound from a clean iterable, does not read the name it
             # spells -- `[(lambda m=type(e).__name__: ...)() for e in items]`.
-            deep_shadowed = _comprehension_shadowed(_own_nodes(scope), handler_names)
+            # Todo 645 (finding 2): judged strictly, so `for e in wrap(e)` is
+            # not clean. Todo 645 (finding 1): a def inside a clean
+            # comprehension reads its variable, not the handler's name, so the
+            # name is not strict in it either -- `[(lambda: (lambda
+            # q=type(e).__name__: ...)())() for e in items]`, two scopes down.
+            deep_masks = {}
+            deep_shadowed = _comprehension_shadowed(
+                _own_nodes(scope), handler_names, masks=deep_masks, walk=ast.walk
+            )
             for child, own in closures:
                 closure_seeds.setdefault(id(child), set()).update(
                     _params_defaulting_to(
                         child, handler_names, shadowed=deep_shadowed, walk=ast.walk
                     )
                 )
-                strict.setdefault(id(child), set()).update(handler_names - own)
+                strict.setdefault(id(child), set()).update(
+                    handler_names - own - deep_masks.get(id(child), set())
+                )
         loops = _loop_bodies(scope) if handlers else []
         # Names that outlive the frame: a nonlocal or global the handler sets
         # survives its raise or return (todo 555, finding 1). `_scopes` hoists
@@ -1162,7 +1179,12 @@ def _exception_details_in_response_dicts(path):
             check(_own_nodes(handler), visible)
             # Todo 633 (finding 2): the same clean-comprehension reads, for the
             # defaults of the defs directly in this handler.
-            handler_shadowed = _comprehension_shadowed(_own_nodes(handler), visible)
+            # Todo 645: judged strictly, and its masks kept for `strict`, as
+            # in the deeper case above.
+            handler_masks = {}
+            handler_shadowed = _comprehension_shadowed(
+                _own_nodes(handler), visible, masks=handler_masks, walk=ast.walk
+            )
             for child, own in closures:
                 # Todo 555: a def after the handler in the same loop body can
                 # still run inside the handler on a later iteration.
@@ -1179,7 +1201,9 @@ def _exception_details_in_response_dicts(path):
                         )
                     )
                     closure_reach.setdefault(id(child), set()).update(visible)
-                    strict.setdefault(id(child), set()).update(visible - own)
+                    strict.setdefault(id(child), set()).update(
+                        visible - own - handler_masks.get(id(child), set())
+                    )
             # Todo 440: `err = str(e)` in the handler, `return {"error": err}`
             # after the try. The derived locals outlive the handler, so they
             # seed a taint pass over the whole enclosing scope. The bound name
@@ -2484,6 +2508,67 @@ def approved_a_handler_lambda_default_reads_a_clean_comprehension_variable(items
             (lambda fx_near=type(e).__name__: {"error": f"{fx_near}"})()
             for e in items
         ]
+
+
+# --- Todo 645 (PR #1101 follow-ups) ---
+
+
+def approved_a_default_two_scopes_below_a_clean_comprehension(items):
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        return [
+            (lambda: (lambda sd_two=type(e).__name__: {"error": f"{sd_two}"})())()
+            for e in items
+        ]
+
+
+def approved_a_deep_default_two_scopes_below_a_clean_comprehension(items):
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+
+        def outer():
+            return [
+                (lambda: (lambda sd_deep=type(e).__name__: {"error": f"{sd_deep}"})())()
+                for e in items
+            ]
+
+        return outer()
+
+
+def a_default_reads_a_comprehension_over_a_call_on_the_exception():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        return [
+            (lambda sd_wrap=type(e).__name__: {"error": f"wrap {sd_wrap}"})()
+            for e in wrap(e)
+        ]
+
+
+def a_deep_default_reads_a_comprehension_over_a_call_on_the_exception():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+
+        def outer():
+            return [
+                (lambda sd_dw=type(e).__name__: {"error": f"deep wrap {sd_dw}"})()
+                for e in wrap(e)
+            ]
+
+        return outer()
+
+
+def a_default_two_scopes_below_a_comprehension_over_the_exception():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        return [
+            (lambda: (lambda sd_t=type(e).__name__: {"error": f"two down {sd_t}"})())()
+            for e in wrap(e)
+        ]
 """
 
 
@@ -2545,6 +2630,11 @@ def test_the_guards_resolve_scopes_the_way_python_does(tmp_path):
         # reading a comprehension's clean `e`, in the handler and a def deeper.
         "f'middle derived {fx_type}'",  # a default names what a middle def derived
         "f'deep arg {fx_arg}'",  # control: that `e` iterates the exception's args
+        # Todo 645 (PR #1101 follow-ups). Quiet beside these: a default two
+        # scopes below a clean comprehension, in the handler and a def deeper.
+        "f'wrap {sd_wrap}'",  # a call on the exception is no clean iterable here
+        "f'deep wrap {sd_dw}'",  # ...a def deeper too
+        "f'two down {sd_t}'",  # control: two scopes below that comprehension
     }, exc
     assert {src for _, src in body} == {
         "body",  # nonlocal: a child taints its parent

@@ -158,6 +158,10 @@ class EveryRoutedDomainContributesTests(unittest.TestCase):
         # (finding 3): the old re-measure repeated the call that set the cost,
         # so it could not fail. The edge assertions after the loop are what
         # catch a wrong cost: off by one digit, "" moves or at_edge's size does.
+        # Todo 645 (finding 3, declined): the loop cannot fail today either.
+        # Share 200 and the edge both have three digits, so the first
+        # re-measure settles it. It is a convergence step, not a check: it
+        # moves the cost only if a wording change takes the edge below 100 B.
         tail_cost = tail_cost_at(200)
         for _ in range(3):
             remeasured = tail_cost_at(tail_cost + 1)
