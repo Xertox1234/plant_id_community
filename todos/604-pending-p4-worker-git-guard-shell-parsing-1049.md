@@ -3,7 +3,8 @@ status: pending
 priority: p4
 issue_id: "604"
 tags: [todo-sweep, harness, security, follow-ups]
-dependencies: []
+dependencies: ["618"]
+owner_decision: "Items 1-8 are retired by todo 618 (require -C, owner 2026-10-11); once 618 lands, verify each probe is denied, fix item 9 if still present, and close (2026-10-11)"
 ---
 
 # Follow-ups from PR #1049 (todo 584, worker git guard follow-ups)
@@ -44,3 +45,9 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-11 - Filed from the PR #1049 review (todo sweep run 2026-10-11-2219)
 
 Filed by the closing step of the run from `state.py followups-md g2`.
+
+### 2026-10-11 - Owner decision: fixed by todo 618
+
+The owner chose todo 618's option 2 (require `-C` inside `.claude/worktrees/`). That retires the cwd tracker that
+items 1–8 bypass, so they are not patched one by one. After 618 merges: check that each probe here is denied
+(618 AC 2 adds them as tests), fix item 9's formatting if it is still on main, and close this todo.

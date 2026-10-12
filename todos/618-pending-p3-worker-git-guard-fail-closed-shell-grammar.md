@@ -4,6 +4,7 @@ priority: p3
 issue_id: "618"
 tags: [todo-sweep, harness, guard]
 dependencies: []
+owner_decision: "Option 2, require -C: git add/mv/rm allowed only with an explicit -C (or --work-tree) inside .claude/worktrees/; cwd tracking dropped for them (2026-10-11)"
 ---
 
 # Worker git guard: fail closed on shell grammar it cannot model, instead of patching bypasses one by one
@@ -58,3 +59,11 @@ Either way, todo 604's probes become regression tests that must all be DENIED.
 
 The owner asked for a todo after the run's pattern review. Todo 604 holds the individual probes. This todo is
 the structural fix that would retire that list.
+
+### 2026-10-11 - Owner decision: option 2, require `-C`
+
+The owner chose **option 2**. A guarded agent's `git add`, `git mv` and `git rm` are allowed only with an explicit
+`-C <path>` (or `--work-tree <path>`) that resolves inside `.claude/worktrees/`. The guard stops tracking cwd for
+these commands, so `segments()`/`compound_delta()` no longer decide them. Workers already stage this way
+(`/usr/bin/git -C WT add …`, todo-worker.md step 1). Remove any cwd-tracking code that no other check uses.
+Todo 604's probes become regression tests that must all be DENIED (AC 2), and 604 closes once this lands.

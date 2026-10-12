@@ -4,6 +4,7 @@ priority: p3
 issue_id: "617"
 tags: [todo-sweep, tooling, review]
 dependencies: []
+owner_decision: "Implement as proposed; AC 3: KEEP the manual round-1 medium read in SKILL.md as a fallback for regressions the reviewer did not flag (2026-10-11)"
 ---
 
 # todo-review: a medium that is a regression against main should hold the PR, not become a follow-up
@@ -49,3 +50,10 @@ schema just has no field for it.
 ### 2026-10-11 - Filed from run 2026-10-11-2219 (owner request)
 
 The owner asked for a todo after the run's pattern review.
+
+### 2026-10-11 - Owner decision: keep the manual read as a fallback
+
+Implement the proposed `regression` flag as written. For AC 3, the owner chose to **keep** the manual
+"read round-1 mediums for regressions" step in `completing-todos` SKILL.md Stage C, shortened to a fallback:
+skim the mediums for wording like "vs main" or "flagged on main but quiet here" that the reviewer did not
+flag. A reviewer can fail to set the flag, so the hand read stays as a backstop.

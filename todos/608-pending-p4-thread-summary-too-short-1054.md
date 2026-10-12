@@ -4,6 +4,7 @@ priority: p4
 issue_id: "608"
 tags: [web, forum, follow-ups]
 dependencies: []
+owner_decision: "Agree with the refuter: record the finding as declined (Outcome is only ready|too_short, types/forum.ts:441-444) and archive; verify-only, no code (2026-10-11)"
 ---
 
 # Follow-ups from PR #1054 (todo 588, thread summary too-short line)
@@ -32,3 +33,9 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-11 - Filed from the PR #1054 review (todo sweep run 2026-10-11-2219)
 
 Filed by the closing step of the run from `state.py followups-md g6`.
+
+### 2026-10-11 - Owner decision: close, agreeing with the refuter
+
+The owner agrees with the refuter. `Outcome = Exclude<TopicSummary, pending>` is only `'ready'` or `'too_short'`
+(`web/src/types/forum.ts:441-444`), so the condition cannot show the line next to an error or a disabled state.
+Record the finding as declined with that evidence and archive. No code change.

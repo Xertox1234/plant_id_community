@@ -4,6 +4,7 @@ priority: p4
 issue_id: "606"
 tags: [backend, garden, fcm, privacy, follow-ups]
 dependencies: []
+owner_decision: "Item 1: on a credentials stop, re-enqueue the untried recipients ONCE (countdown, flag prevents a loop), excluding users that failed on credentials. Item 2: purge also deletes every garden-model LogEntry whose actor is the user (covers objects deleted earlier); existing objects still matched by ownership. Other items: fix or decline as usual (2026-10-11)"
 ---
 
 # Follow-ups from PR #1052 (todos 586 and 593, garden audit-log purge and FCM credentials stop)
@@ -40,3 +41,19 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-11 - Filed from the PR #1052 review (todo sweep run 2026-10-11-2219)
 
 Filed by the closing step of the run from `state.py followups-md g4`.
+
+### 2026-10-11 - Owner decisions: items 1 and 2
+
+**Item 1: re-enqueue the untried recipients once.** When `send_forum_push_batch` stops on
+`FCM_CREDENTIALS_STOP_FAILURES` credentials errors, it enqueues one follow-up batch with a countdown. The batch
+holds the recipients it had not tried yet, minus the users that already failed on credentials. A flag on the
+task (for example `requeued=True`) stops a second re-enqueue, so a real project-wide credentials outage
+cannot loop. Test: a stop re-enqueues once with the right recipients, and a re-enqueued batch that stops does
+not enqueue again.
+
+**Item 2: the purge also matches on the actor.** The account-deletion purge in `garden_calendar/auditlog.py`
+also deletes every LogEntry for a garden model whose actor is the deleted user. That covers beds, plants,
+tasks, logs and harvests the user deleted earlier. Objects that still exist keep being matched by ownership,
+as today. Do not match on `object_repr` substrings. Tests: rows for a bed the user deleted before the account
+are purged, and another user's garden rows survive. Fix the docstring to say what the purge covers. Item 4's
+fixture gap belongs in the same test work.
