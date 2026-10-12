@@ -636,6 +636,11 @@ def _scopes(tree, step, is_source=lambda n: False, seeds=None):
             scope, inherited, enclosing, masked, captured = stack.pop()
             if scope is not tree:
                 inherited = inherited - _local_names(scope)
+                # A comprehension variable masks a FREE read only: a parameter
+                # that spells it is the scope's own local, and its default
+                # was evaluated outside (hand repair before round 2):
+                # `[(lambda line=f"{e}": {"error": line})() for line in items]`.
+                masked = masked - _local_names(scope)
             # Hoisted names, seeds and captured parameters are the scope's
             # OWN locals, so they join after the subtraction above.
             inherited = (inherited | seeds.get(id(scope), frozenset())) - masked
@@ -654,7 +659,15 @@ def _scopes(tree, step, is_source=lambda n: False, seeds=None):
             chain = enclosing if scope is tree else (scope, *enclosing)
             own = list(_own_nodes(scope))
             masks = {}
-            shadowed = _comprehension_shadowed(own, tainted, is_source, masks)
+            # A comprehension's iterable is judged against what a child is
+            # seeded with too, not only the scope's own taint: a handler's
+            # exception is in a child's seeds but never in ``tainted``, so
+            # `[(lambda: {"error": a})() for a in e.args]` would read as a
+            # clean `a` (hand repair before round 2).
+            seen = tainted.union(
+                *(seeds.get(id(c), ()) for c in own if isinstance(c, _SCOPES))
+            )
+            shadowed = _comprehension_shadowed(own, seen, is_source, masks)
             stack.extend(
                 (
                     child,
@@ -996,7 +1009,7 @@ def _loop_bodies(scope):
 
 
 def _params_defaulting_to(
-    child, names, is_source=lambda n: False, shadowed=frozenset()
+    child, names, is_source=lambda n: False, shadowed=frozenset(), walk=_carried
 ):
     """Parameters of ``child`` whose default carries any of ``names``, or a
     source.
@@ -1009,7 +1022,11 @@ def _params_defaulting_to(
     ``def g(b=response.text)`` are all followed. A default is a binding like
     any other, so it carries what ``_carried`` carries: ``def f(m=clean(e))``
     taints nothing. ``shadowed`` holds the reads that resolve to an enclosing
-    comprehension's own variable."""
+    comprehension's own variable.
+
+    ``walk=ast.walk`` is the strict form, for a def inside a handler reading
+    its exception: there ANY mention leaks, like a response dict's value --
+    ``def render(m=type(e).__name__)`` (hand repair before round 2)."""
     args = child.args
     positional = [*args.posonlyargs, *args.args]
     pairs = [
@@ -1022,7 +1039,7 @@ def _params_defaulting_to(
         if any(
             is_source(n)
             or (isinstance(n, ast.Name) and n.id in names and id(n) not in shadowed)
-            for n in _carried(default)
+            for n in walk(default)
         )
     }
 
@@ -1113,7 +1130,7 @@ def _exception_details_in_response_dicts(path):
                 # reads the exception captures it under the parameter's name.
                 if handler.lineno <= child.lineno <= handler.end_lineno:
                     closure_seeds.setdefault(id(child), set()).update(
-                        _params_defaulting_to(child, visible)
+                        _params_defaulting_to(child, visible, walk=ast.walk)
                     )
             # Todo 440: `err = str(e)` in the handler, `return {"error": err}`
             # after the try. The derived locals outlive the handler, so they
@@ -2291,6 +2308,37 @@ def approved_lambda_reads_its_comprehensions_clean_variable(response, items):
         return [(lambda: {"error": lam_line})() for lam_line in items]
 
     return inner
+
+
+# --- Hand repair before round 2 (todo 589): origin/main flags each of these --
+
+
+def a_lambda_param_spells_a_clean_comprehension_variable(items):
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        return [
+            (lambda hr_line=f"{e}": {"error": f"comp default {hr_line}"})()
+            for hr_line in items
+        ]
+
+
+def a_lambda_reads_a_comprehension_over_the_exception():
+    try:
+        requests.get("https://example.invalid")
+    except ValueError as e:
+        return [(lambda: {"error": f"exc arg {hr_arg}"})() for hr_arg in e.args]
+
+
+def a_default_names_the_exception_type():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+
+        def render(hr_type=type(e).__name__):
+            return {"error": f"type default {hr_type}"}
+
+        return render()
 """
 
 
@@ -2339,6 +2387,11 @@ def test_the_guards_resolve_scopes_the_way_python_does(tmp_path):
         "SIBLING_ERR",  # a tainted global reaches a SIBLING function
         "f'later default {m}'",  # a default reads a fall-through local
         "f'deep default {c}'",  # a default two defs below the handler
+        # Hand repair before round 2: three shapes origin/main flags that the
+        # first cut of todo 589 lost.
+        "f'comp default {hr_line}'",  # a param spelling a clean comp variable
+        "f'exc arg {hr_arg}'",  # a comprehension over the exception's args
+        "f'type default {hr_type}'",  # a handler default naming type(e)
     }, exc
     assert {src for _, src in body} == {
         "body",  # nonlocal: a child taints its parent

@@ -70,3 +70,12 @@ Follow-ups for PR #1026 (todo 555).
 ### 2026-10-11 - Completed by the todo sweep (run 2026-10-11-2219)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-11 - Hand repair before round 2 (owner-approved)
+
+Round-1 review probed three regressions: shapes `origin/main` flags that the PR's first cut no longer did. Each is fixed in `backend/apps/core/tests/test_requests_exception_drift.py` and planted in `PLANTED_SCOPE` as an exact-set positive; `main`'s guard flags all three specimens, and so does HEAD now.
+
+- Regression 1: the comprehension mask was subtracted from a child's seeds and captured parameters too, so `[(lambda line=f"{e}": {"error": line})() for line in items]` lost the default's taint. Fix: `_scopes` drops the child's own locals from `masked` (a parameter is not a free read). Specimen `a_lambda_param_spells_a_clean_comprehension_variable`.
+- Regression 2: masks were computed from the scope's `tainted`, which never holds a handler's exception, so `[(lambda: {"error": a})() for a in e.args]` read `a` as clean. Fix: `_scopes` judges comprehension iterables against `tainted` plus every child's seeds. Specimen `a_lambda_reads_a_comprehension_over_the_exception`.
+- Regression 3: the handler-site default check moved from `_mentions` to `_carried`, so `def render(m=type(e).__name__)` inside a handler went quiet. Fix: `_params_defaulting_to` takes `walk=`, and the handler site passes `ast.walk` (strict); the `_scopes` body path keeps `_carried`. Specimen `a_default_names_the_exception_type`.
+- Tests: `apps/core/tests/test_requests_exception_drift.py` 1323 passed before and after (the specimens join an existing exact-set test). Mutation-checked: reverting each fix alone fails `test_the_guards_resolve_scopes_the_way_python_does` on exactly its own specimen; restored, all pass. The PR's controls (findings 2, 5, 9) stay quiet.
