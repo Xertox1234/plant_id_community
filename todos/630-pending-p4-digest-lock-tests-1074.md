@@ -4,6 +4,9 @@ priority: p4
 issue_id: "630"
 tags: [forum, digest, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Finding 3 fixed: when the lock get answers None, fall back to a plain delete; fix the other findings (2026-10-12)"
 ---
 
 # Follow-ups from PR #1074 (todo 605, forum digest claim and lock)

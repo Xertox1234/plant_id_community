@@ -4,6 +4,8 @@ priority: p4
 issue_id: "634"
 tags: [web, tests, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
 ---
 
 # Follow-ups from PRs #1079 and #1085 (todos 610, 612, 615, web test gaps)

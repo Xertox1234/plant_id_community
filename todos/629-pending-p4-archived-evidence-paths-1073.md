@@ -4,6 +4,8 @@ priority: p4
 issue_id: "629"
 tags: [todo-sweep, docs, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
 ---
 
 # Follow-ups from PR #1073 (todos 603, 608, todo evidence quotes)

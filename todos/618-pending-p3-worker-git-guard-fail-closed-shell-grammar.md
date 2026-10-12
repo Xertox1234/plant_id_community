@@ -4,7 +4,9 @@ priority: p3
 issue_id: "618"
 tags: [todo-sweep, harness, guard]
 dependencies: []
-owner_decision: "Option 2, require -C: git add/mv/rm allowed only with an explicit -C (or --work-tree) inside .claude/worktrees/; cwd tracking dropped for them (2026-10-11)"
+owner_decision: "Relative -C paths are denied outright; only an absolute -C/--work-tree resolving inside .claude/worktrees/ is allowed (2026-10-12)"
+triage: ready
+triaged: 2026-10-12
 ---
 
 # Worker git guard: fail closed on shell grammar it cannot model, instead of patching bypasses one by one

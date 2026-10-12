@@ -4,6 +4,9 @@ priority: p4
 issue_id: "631"
 tags: [garden, forum, celery, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Finding 6 fixed: chunk the garden actor purge. Finding 4 fixed: work around auditlog's time-based set_actor dispatch_uid (e.g. per-request unique uid or contextvar) with a test. Fix the other findings (2026-10-12)"
 ---
 
 # Follow-ups from PR #1075 (todo 606, garden audit actor, FCM requeue)

@@ -4,6 +4,9 @@ priority: p4
 issue_id: "636"
 tags: [plant-id, migrations, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Edit 0028 to keep max confidence, union symptoms and fill blank fields from the extras when merging (helps unmigrated DBs); fix the other findings (2026-10-12)"
 ---
 
 # Follow-ups from PR #1081 (todo 613, disease name merge migration)
