@@ -292,6 +292,27 @@ describe('AppShell', () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
 
+  // Pin the claim above (todo 590): a restore deferred twice must run inside
+  // the flush, or the focus tests below pass on the very regression they
+  // guard. A flush back on runOnlyPendingTimersAsync fails both rows.
+  it.each([
+    ['setTimeout -> setTimeout', (cb: () => void) => setTimeout(() => setTimeout(cb, 0), 0)],
+    [
+      'rAF -> rAF',
+      (cb: () => void) => requestAnimationFrame(() => requestAnimationFrame(() => cb())),
+    ],
+  ])('flushDeferred runs a %s chained deferral', async (_name, defer) => {
+    vi.useFakeTimers();
+    try {
+      const ran = vi.fn();
+      defer(ran);
+      await flushDeferred();
+      expect(ran).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('drawer closes when the window widens past md (todo 420)', async () => {
     // At md the drawer is only display:none, so an open drawer kept its focus
     // trap (swallowing Tab) and its body scroll lock on the desktop layout.
