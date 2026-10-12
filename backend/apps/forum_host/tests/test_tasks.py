@@ -1253,3 +1253,40 @@ def test_the_digest_run_lock_outlives_the_task_but_not_by_much():
 
     ttl = get_setting("DIGEST_RUN_LOCK_SECONDS")
     assert tasks.DIGEST_TIME_LIMIT < ttl <= tasks.DIGEST_TIME_LIMIT + 5 * 60
+
+
+@pytest.mark.django_db
+def test_a_re_enqueue_the_broker_refuses_still_logs_the_credentials_error(caplog):
+    """Todo 631 #1/#3: the re-enqueue ran unguarded before the single ERROR,
+    so a broker outage (kombu's OperationalError, outside autoretry_for)
+    failed the task and the ERROR naming the stop was never logged. Now the
+    task returns, and the one ERROR says the untried recipients were dropped."""
+    import logging
+
+    from firebase_admin import messaging
+    from kombu.exceptions import OperationalError as BrokerError
+
+    users = _batch_recipients("broker-down", 5)
+    mock_fcm = MagicMock()
+    mock_fcm.send.side_effect = messaging.ThirdPartyAuthError("apns auth")
+
+    with caplog.at_level(logging.ERROR, logger="forum_host.tasks"), patch(
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm), patch(
+        "apps.forum_host.tasks.send_forum_push.delay"
+    ), patch(
+        "apps.forum_host.tasks.send_forum_push_batch.apply_async",
+        side_effect=BrokerError("broker down"),
+    ) as requeue:
+        from apps.forum_host.tasks import send_forum_push_batch
+
+        send_forum_push_batch("reply_added", [u.pk for u in users], {"topic_id": "1"})
+
+    requeue.assert_called_once()
+    assert mock_fcm.send.call_count == 3
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1, errors
+    assert "2 recipient(s) not tried" in errors[0]
+    assert "re-enqueue failed (OperationalError: broker down)" in errors[0]
+    assert "2 recipient(s) dropped" in errors[0]
+    assert "re-enqueued once" not in errors[0]

@@ -378,12 +378,25 @@ def send_forum_push_batch(
             # recipients get one more batch. The users that already failed
             # are not in it. A follow-up that stops again drops its untried
             # recipients, so a real outage cannot loop.
-            send_forum_push_batch.apply_async(
-                args=(event, untried, data),
-                kwargs={"requeued": True},
-                countdown=constants.FORUM_PUSH_REQUEUE_DELAY,
-            )
-            stop_note += f", re-enqueued once in {constants.FORUM_PUSH_REQUEUE_DELAY}s"
+            # Guarded (todo 631): a broker that refuses the message (kombu's
+            # OperationalError, which autoretry_for does not cover) must not
+            # fail the task before the ERROR below names the stop, and the
+            # recipients it drops are counted there.
+            try:
+                send_forum_push_batch.apply_async(
+                    args=(event, untried, data),
+                    kwargs={"requeued": True},
+                    countdown=constants.FORUM_PUSH_REQUEUE_DELAY,
+                )
+            except Exception as exc:
+                stop_note += (
+                    f", re-enqueue failed ({type(exc).__name__}: {exc}), "
+                    f"{len(untried)} recipient(s) dropped"
+                )
+            else:
+                stop_note += (
+                    f", re-enqueued once in {constants.FORUM_PUSH_REQUEUE_DELAY}s"
+                )
         elif untried:
             stop_note += ", dropped (this batch was already the re-enqueue)"
     if credentials_failed:
