@@ -6,7 +6,7 @@ tags: [backend, notifications, email, celery, reliability, security]
 dependencies: []
 triage: ready
 triaged: 2026-10-12
-owner_decision: "Owner: rechecks, then outbox — keep all of 619 here: first a shared send-time eligibility recheck slice, then a transactional outbox with per-recipient attempts and reconciliation (2026-10-12)"
+owner_decision: "Owner: rechecks, then outbox — keep all of 619 here: first a shared send-time eligibility recheck slice, then a transactional outbox with per-recipient attempts and reconciliation (2026-10-12). Owner: ship all three parts (rechecks; outbox + migration + reconciliation; async lockout mail) in ONE PR (2026-10-12)"
 ---
 
 # Revalidate and recover external notification deliveries
