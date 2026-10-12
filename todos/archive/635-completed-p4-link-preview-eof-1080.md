@@ -61,3 +61,10 @@ Filed by the closing step of the run from `state.py followups-md g10`.
 ### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-1724)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Review round 2 of PR #1097: finding 1 corrected the other way
+
+The edit above moved 611's Implemented heading to 2026-10-11. Review round 2 showed that was wrong: PR #1080
+was opened at 2026-10-12 10:19 MDT, so the 2026-10-12 heading was right. The stale dates are Land's Verified
+and Completed entries (2026-10-11), because `--date` was fixed at the run's start (21:49 MDT on 2026-10-11).
+The heading is restored, and 611's correction entry now says this. Archived Work Log headings are not rewritten.
