@@ -8,7 +8,7 @@ local disease database (for cost efficiency) and plant.health API (for comprehen
 import logging
 from typing import Callable, Dict, List, Optional
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -51,21 +51,17 @@ class DiseaseAutostorageService:
 
         try:
             with transaction.atomic():
-                # Check if disease already exists. Lock the row (todo 568) so
-                # a concurrent diagnosis of the same disease waits here and
-                # then reads the committed confidence and symptoms.
-                existing_disease = (
-                    PlantDiseaseDatabase.objects.select_for_update()
-                    .filter(disease_name__iexact=result.suggested_disease_name)
-                    .first()
+                # The lookup takes no lock: `_update_existing_disease` re-reads
+                # the row under one before it merges (todos 568, 594).
+                existing_disease = self._find_existing_disease(
+                    result.suggested_disease_name
                 )
 
                 if existing_disease:
                     # Update existing disease
                     disease = self._update_existing_disease(existing_disease, result)
                 else:
-                    # Create new disease entry
-                    disease = self._create_new_disease(result)
+                    disease = self._create_or_merge_new_disease(result)
 
                 # Mark result as stored
                 result.stored_to_database = True
@@ -86,6 +82,32 @@ class DiseaseAutostorageService:
                 f"[DIAGNOSIS] Failed to auto-store disease result {result.id}: {str(e)}"
             )
             return None
+
+    def _find_existing_disease(self, name: str) -> Optional["PlantDiseaseDatabase"]:
+        """Return the disease row whose name matches `name`, ignoring case."""
+        return PlantDiseaseDatabase.objects.filter(disease_name__iexact=name).first()
+
+    def _create_or_merge_new_disease(
+        self, result: "PlantDiseaseResult"
+    ) -> "PlantDiseaseDatabase":
+        """Create the disease row, or merge into it if another diagnosis won.
+
+        A lock cannot cover a row that does not exist yet, so two concurrent
+        first diagnoses of a disease both miss the lookup and both create it
+        (todo 594). The loser's insert hits the unique `disease_name`
+        constraint. The savepoint rolls back only that insert; the row the
+        winner committed is then read and merged like any existing row, so
+        this diagnosis is still counted and the result still stored.
+        """
+        try:
+            with transaction.atomic():
+                return self._create_new_disease(result)
+        except IntegrityError:
+            existing = self._find_existing_disease(result.suggested_disease_name)
+            if existing is None:
+                # The constraint that fired was not the name: let it surface.
+                raise
+            return self._update_existing_disease(existing, result)
 
     def _update_existing_disease(
         self, disease: "PlantDiseaseDatabase", result: "PlantDiseaseResult"
