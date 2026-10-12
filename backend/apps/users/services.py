@@ -215,7 +215,9 @@ class NotificationService:
             )
 
     @staticmethod
-    def _store_subscription(user, endpoint: str, keys: Dict[str, Any], user_agent: str):
+    def _store_subscription(
+        user, endpoint: Optional[str], keys: Dict[str, Any], user_agent: str
+    ):
         """The body of ``subscribe_to_push``, run inside one transaction so the
         release and the upsert land together (PR #852 round-2 note)."""
         from .models import PushSubscription
