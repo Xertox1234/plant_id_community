@@ -34,6 +34,22 @@ def is_allowed_push_endpoint(endpoint: Any) -> bool:
     )
 
 
+def push_service(endpoint: Any) -> Optional[str]:
+    """The allowed push service ``endpoint`` is on (its host suffix), or None.
+
+    The resubscribe swap moves a row only within one push service (todo 602,
+    owner decision 2026-10-11): FCM to FCM, Mozilla to Mozilla. Compared by
+    suffix, not exact host, because Windows endpoints vary their subdomain.
+    """
+    if not is_allowed_push_endpoint(endpoint):
+        return None
+    host = (urlsplit(endpoint).hostname or "").lower()
+    for suffix in WEB_PUSH_ALLOWED_HOST_SUFFIXES:
+        if host == suffix or host.endswith("." + suffix):
+            return suffix
+    return None
+
+
 def clean_subscription(data: Any) -> Optional[Dict[str, Any]]:
     """The browser's ``PushSubscription.toJSON()`` shape, validated, or None."""
     if not isinstance(data, dict):
