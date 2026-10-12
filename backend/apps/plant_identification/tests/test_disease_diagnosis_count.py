@@ -11,6 +11,9 @@ loaded before either update runs, which is exactly the state two concurrent
 requests are in.
 """
 
+import re
+from unittest import mock
+
 from apps.plant_identification.models import (
     PlantDiseaseDatabase,
     PlantDiseaseRequest,
@@ -20,7 +23,7 @@ from apps.plant_identification.services.disease_diagnosis_service import (
     DiseaseAutostorageService,
 )
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.db import IntegrityError, connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 
@@ -147,6 +150,30 @@ class DiagnosisMergeStaleInstanceTest(TestCase):
         self.disease.refresh_from_db()
         self.assertEqual(self.disease.description, "Edited by a moderator")
 
+    def test_update_sets_exactly_the_merged_columns(self):
+        # The test above cannot see update_fields: the merge re-reads a fresh
+        # row, so a full save() would also keep the moderator's text (todo
+        # 594). Pin the UPDATE's SET list instead.
+        table = PlantDiseaseDatabase._meta.db_table
+        with CaptureQueriesContext(connection) as ctx:
+            self.service._update_existing_disease(
+                PlantDiseaseDatabase.objects.get(pk=self.disease.pk),
+                self._result(0.8, ["wilting"]),
+            )
+
+        updates = [
+            q["sql"]
+            for q in ctx.captured_queries
+            if q["sql"].lstrip().upper().startswith("UPDATE") and table in q["sql"]
+        ]
+        self.assertEqual(len(updates), 1, ctx.captured_queries)
+        set_clause = re.search(r"\bSET\b(.*)\bWHERE\b", updates[0], re.S).group(1)
+        columns = set(re.findall(r'"(\w+)"\s*=', set_clause))
+        self.assertEqual(
+            columns,
+            {"diagnosis_count", "confidence_score", "symptoms", "updated_at"},
+        )
+
     def test_store_disease_if_qualified_locks_the_existing_row(self):
         result = self._result(0.8, ["wilting"])
 
@@ -154,12 +181,108 @@ class DiagnosisMergeStaleInstanceTest(TestCase):
             stored = self.service.store_disease_if_qualified(result)
 
         self.assertEqual(stored.pk, self.disease.pk)
-        lookups = [
-            q["sql"]
-            for q in ctx.captured_queries
-            if q["sql"].lstrip().upper().startswith("SELECT")
-            and PlantDiseaseDatabase._meta.db_table in q["sql"]
-            and "FOR UPDATE" in q["sql"].upper()
+        table = PlantDiseaseDatabase._meta.db_table
+        sqls = [q["sql"] for q in ctx.captured_queries]
+        locks = [
+            i
+            for i, sql in enumerate(sqls)
+            if sql.lstrip().upper().startswith("SELECT")
+            and table in sql
+            and "FOR UPDATE" in sql.upper()
         ]
-        # The name lookup and the merge re-read both take the row lock.
-        self.assertGreaterEqual(len(lookups), 2, ctx.captured_queries)
+        writes = [
+            i
+            for i, sql in enumerate(sqls)
+            if sql.lstrip().upper().startswith("UPDATE") and table in sql
+        ]
+        # One lock, taken by the merge re-read, before the one merge write
+        # (todo 594): the name lookup no longer takes a second one.
+        self.assertEqual(len(locks), 1, sqls)
+        self.assertEqual(len(writes), 1, sqls)
+        self.assertLess(locks[0], writes[0], sqls)
+
+
+class DiagnosisFirstCreateRaceTest(TestCase):
+    """Two first diagnoses of a new disease must both be counted (todo 594).
+
+    A row lock cannot cover a row that does not exist yet: both requests miss
+    the lookup and both insert. The loser hits the unique disease_name
+    constraint. The race is reproduced deterministically: the lookup reports
+    no row although the winner's row is already committed.
+    """
+
+    def setUp(self):
+        user = User.objects.create_user(username="raceuser", email="race@example.com")
+        request = PlantDiseaseRequest.objects.create(
+            user=user,
+            status="diagnosed",
+            symptoms_description="Black spots on leaves",
+        )
+        self.result = PlantDiseaseResult.objects.create(
+            request=request,
+            suggested_disease_name="Black Spot",
+            suggested_disease_type="fungal",
+            confidence_score=0.9,
+            symptoms_identified=["black spots"],
+            diagnosis_source="api_plant_health",
+        )
+        self.service = DiseaseAutostorageService()
+
+    def test_losing_create_merges_into_the_winners_row(self):
+        # The winner committed between this request's lookup and its insert.
+        winner = PlantDiseaseDatabase.objects.create(
+            disease_name="Black Spot",
+            disease_type="fungal",
+            confidence_score=0.6,
+            api_source="plant_health",
+            diagnosis_count=1,
+            symptoms={"identified": ["yellow leaves"]},
+        )
+        real_lookup = DiseaseAutostorageService._find_existing_disease
+        calls = []
+
+        def racing_lookup(service, name):
+            calls.append(name)
+            return None if len(calls) == 1 else real_lookup(service, name)
+
+        with mock.patch.object(
+            DiseaseAutostorageService,
+            "_find_existing_disease",
+            autospec=True,
+            side_effect=racing_lookup,
+        ):
+            stored = self.service.store_disease_if_qualified(self.result)
+
+        # The old code swallowed the IntegrityError and returned None.
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored.pk, winner.pk)
+        self.assertEqual(len(calls), 2)
+        winner.refresh_from_db()
+        self.assertEqual(winner.diagnosis_count, 2)
+        self.assertEqual(winner.confidence_score, 0.9)
+        self.assertEqual(
+            sorted(winner.symptoms["identified"]), ["black spots", "yellow leaves"]
+        )
+        self.result.refresh_from_db()
+        self.assertTrue(self.result.stored_to_database)
+        self.assertEqual(PlantDiseaseDatabase.objects.count(), 1)
+
+    def test_integrity_error_without_a_matching_row_is_not_a_merge(self):
+        with mock.patch.object(
+            DiseaseAutostorageService,
+            "_create_new_disease",
+            side_effect=IntegrityError("some other constraint"),
+        ):
+            stored = self.service.store_disease_if_qualified(self.result)
+
+        self.assertIsNone(stored)
+        self.result.refresh_from_db()
+        self.assertFalse(self.result.stored_to_database)
+        self.assertEqual(PlantDiseaseDatabase.objects.count(), 0)
+
+    def test_first_diagnosis_creates_the_row(self):
+        stored = self.service.store_disease_if_qualified(self.result)
+
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored.disease_name, "Black Spot")
+        self.assertEqual(stored.diagnosis_count, 1)
