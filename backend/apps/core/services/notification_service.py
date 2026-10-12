@@ -268,8 +268,13 @@ class NotificationService:
         reply_author: str,
         reply_excerpt: str,
         topic_url: str,
+        post_url: Optional[str] = None,
     ) -> bool:
         """Send forum reply notification.
+
+        ``post_url`` is the reply's own link (the topic at ``#post-<id>``);
+        the email's main button opens it and falls back to ``topic_url``
+        (todo 622).
 
         THE WORDING IS NOT HERE (todo 287). Subject and body come from
         ``apps/forum_host/notification_copy.py``, which both backend surfaces
@@ -300,6 +305,7 @@ class NotificationService:
             "author_name": reply_author,
             "post_excerpt": reply_excerpt,
             "topic_url": topic_url,
+            "post_url": post_url or topic_url,
         }
 
         copy = email_content("reply_added", topic_title=topic_title, actor=reply_author)

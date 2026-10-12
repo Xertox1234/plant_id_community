@@ -1,0 +1,13 @@
+{% autoescape off %}Someone created the {{ site_name }} account "{{ account }}" with this email address.
+
+If that was you, sign in as "{{ account }}" and open this link to confirm the address:
+
+{{ verify_url }}
+
+The link works for 3 days, and only while signed in to that account.
+
+If it wasn't you, don't open the link. Nobody can use this address to sign in with Google until the account's owner confirms it.
+
+---
+{{ site_name }}: this is a security message about your account. It is sent whatever your email preferences are.
+{% endautoescape %}

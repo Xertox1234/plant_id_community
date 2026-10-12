@@ -39,8 +39,8 @@ from django.contrib.auth import get_user_model
 from django.core import signing
 from django.db import IntegrityError, transaction
 from django.db.models import Case, F, Q, Value, When
+from django.template.loader import render_to_string
 from django.utils import timezone
-from django.utils.html import escape
 
 logger = logging.getLogger(__name__)
 
@@ -190,28 +190,17 @@ def deliver_verification_email(user) -> bool:
     """Send the verification mail now. Called by the Celery task only, which
     skips an address verified meanwhile: a False here means the send failed
     and is retried."""
-    url = verification_url(user)
-    account = user.username
-    text = (
-        f'Someone created the Houseplant MD account "{account}" with this email '
-        "address.\n\n"
-        f'If that was you, sign in as "{account}" and open this link to confirm '
-        f"the address:\n\n{url}\n\n"
-        "The link works for 3 days, and only while signed in to that account.\n\n"
-        "If it wasn't you, don't open the link. Nobody can use this address to sign "
-        "in with Google until the account's owner confirms it.\n"
-    )
-    html = (
-        f"<p>Someone created the Houseplant MD account <strong>{escape(account)}</strong> "
-        "with this email address.</p>"
-        f"<p>If that was you, sign in as <strong>{escape(account)}</strong> and open "
-        "this link to confirm the address:</p>"
-        f'<p><a href="{escape(url)}">Confirm my email</a></p>'
-        "<p>The link works for 3 days, and only while signed in to that account.</p>"
-        "<p>If it wasn't you, don't open the link. Nobody can use this address to sign "
-        "in with Google until the account's owner confirms it.</p>"
-    )
-    return EmailService().send_transactional_email(
+    # Templates, not f-strings (todo 622): the shared mail-safe layout, a
+    # text part of its own, and autoescape for the username.
+    service = EmailService()
+    context = {
+        "site_name": service.site_name,
+        "account": user.username,
+        "verify_url": verification_url(user),
+    }
+    text = render_to_string("emails/email_verification.txt", context)
+    html = render_to_string("emails/email_verification.html", context)
+    return service.send_transactional_email(
         recipient=user,
         subject="Confirm your email for Houseplant MD",
         message=text,

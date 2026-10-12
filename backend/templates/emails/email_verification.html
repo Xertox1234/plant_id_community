@@ -1,0 +1,28 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Confirm your email for {{ site_name }}{% endblock %}
+
+{% block preheader %}Confirm the email address for the {{ site_name }} account {{ account }}.{% endblock %}
+
+{% block content %}
+<h1 style="margin: 0 0 24px 0; font-size: 24px; font-weight: 600; color: #2c5f41;">Confirm your email</h1>
+<p style="margin: 0 0 16px 0; color: #333333;">Someone created the {{ site_name }} account <strong>{{ account }}</strong> with this email address.</p>
+<p style="margin: 0 0 24px 0; color: #333333;">If that was you, sign in as <strong>{{ account }}</strong> and open this link to confirm the address:</p>
+
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin: 0 auto 24px auto;">
+    <tr>
+        <td align="center">
+            <a href="{{ verify_url }}" class="btn btn-primary" style="display: inline-block; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; text-align: center; background-color: #2c5f41; color: #ffffff;">Confirm my email</a>
+        </td>
+    </tr>
+</table>
+
+<p style="margin: 0 0 24px 0; font-size: 14px; color: #555555;">
+    Can't use the button? Copy this link into your browser:<br>
+    <a href="{{ verify_url }}" style="color: #2c5f41; word-break: break-all;">{{ verify_url }}</a>
+</p>
+<p style="margin: 0 0 16px 0; color: #333333;">The link works for 3 days, and only while signed in to that account.</p>
+<p style="margin: 0; color: #333333;">If it wasn't you, don't open the link. Nobody can use this address to sign in with Google until the account's owner confirms it.</p>
+{% endblock %}
+
+{% block footer %}{% include "emails/_security_footer.html" %}{% endblock %}
