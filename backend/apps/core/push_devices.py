@@ -56,9 +56,14 @@ def register_device(
                 clash = Q(token=token)
                 if installation_id:
                     clash |= Q(installation_id=installation_id)
-                PushDevice.objects.filter(clash).exclude(
+                replaced = PushDevice.objects.filter(clash).exclude(
                     user=user, token=token
-                ).delete()
+                )
+                # A rotated token's old row goes, and so does that old token
+                # in this account's legacy column, or the column keeps it as a
+                # send target.
+                stale = list(replaced.filter(user=user).values_list("token", flat=True))
+                replaced.delete()
                 # The legacy column of any OTHER account that held it. A
                 # registration with an installation id is an upgraded install:
                 # its own account's column lets go of the token too, so an old
@@ -67,13 +72,21 @@ def register_device(
                 if not installation_id:
                     held = held.exclude(user=user)
                 held.update(fcm_token="")
-                defaults = {"user": user, "platform": platform[:16]}
+                if stale:
+                    ForumProfile.objects.filter(user=user, fcm_token__in=stale).update(
+                        fcm_token=""
+                    )
+                defaults = {"user": user}
                 if installation_id:
-                    # A legacy write (no id) never erases the id an upgraded
-                    # install recorded, which token rotation relies on.
+                    # A legacy write (no id) never erases the id or the
+                    # platform an upgraded install recorded; token rotation
+                    # relies on the id.
                     defaults["installation_id"] = installation_id
+                    defaults["platform"] = platform[:16]
                 device, _created = PushDevice.objects.update_or_create(
-                    token=token, defaults=defaults
+                    token=token,
+                    defaults=defaults,
+                    create_defaults={**defaults, "platform": platform[:16]},
                 )
             return device
         except IntegrityError:

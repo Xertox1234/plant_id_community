@@ -379,21 +379,30 @@ class PushDeviceApiTest(TestCase):
         Its later legacy sign-out must remove its row, and the legacy write
         must not erase the installation id it registered with.
         """
-        register_device(self.alice, "fake-token-phone-b", "install-b")
+        register_device(self.alice, "fake-token-phone-b", "install-b", platform="ios")
         self.client.force_authenticate(self.alice)
 
         response = self.client.patch(
             ME_PROFILE, {"fcm_token": "fake-token-phone-b"}, format="json"
         )
         self.assertEqual(response.status_code, 200, response.data)
-        self.assertEqual(
-            PushDevice.objects.get(token="fake-token-phone-b").installation_id,
-            "install-b",
-        )
+        device = PushDevice.objects.get(token="fake-token-phone-b")
+        self.assertEqual(device.installation_id, "install-b")
+        self.assertEqual(device.platform, "ios")
 
         response = self.client.patch(ME_PROFILE, {"fcm_token": ""}, format="json")
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(_tokens(self.alice), [])
+
+    def test_a_rotation_takes_the_old_token_out_of_the_column(self):
+        """The column holds B1 (a skew fallback wrote it); B rotates to B2."""
+        register_device(self.alice, "fake-token-b1", "install-b")
+        _set_legacy(self.alice, "fake-token-b1")
+
+        register_device(self.alice, "fake-token-b2", "install-b")
+
+        self.assertEqual(_tokens(self.alice), ["fake-token-b2"])
+        self.assertEqual(_legacy(self.alice), "")
 
     def test_a_profile_patch_without_a_token_leaves_devices_alone(self):
         register_device(self.alice, "fake-token-1", "install-1")

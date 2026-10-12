@@ -119,8 +119,13 @@ class MeProfileView(forum_views.MeProfileView):
         A phone that upgrades and registers through ``/push-devices/`` with an
         ``installation_id`` takes its token out of the column
         (``register_device``), so an old build's write here never names an
-        upgraded phone. A token the column still holds was written through
-        this endpoint, so a clear that names it is that device signing out.
+        upgraded phone. A known limit of the one-token column during deploy
+        skew: an upgraded build that falls back to this endpoint (a 404 from a
+        pre-621 instance) writes the column again, and a clear names no token,
+        so interleaved legacy writes from two phones can release the other
+        phone's row. That costs a missed push until the next registration, as
+        the single-device column always did; it never leaves a signed-out
+        device registered.
         """
         import logging
 
