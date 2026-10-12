@@ -397,6 +397,17 @@ def main():
         p.write_text("---\nstatus: completed\n---\n- [ ] Fenced wrap\n```\n  -> todo 5 (re-pointed 2026-01-01)\n```\n")
         check("572: a fenced line is never a continuation",
               chk.parse(str(p))[3] == ["- [ ] Fenced wrap"], chk.parse(str(p)))
+        # Todo 596 #5: a todo number and the word "re-pointed" far apart in one criterion are not a re-point.
+        p.write_text("---\nstatus: completed\n---\n## Acceptance Criteria\n"
+                     "- [ ] Port X from todo 12\n"
+                     "      / must not be re-pointed\n"
+                     "- [ ] Port Y; re-pointed tests stay green and the notes cite todo 12\n"
+                     "- [ ] the thing, re-pointed 2026-07-26 to todo 283\n"
+                     "- [ ] Android half RE-POINTED to todo 387 (2026-09-13)\n")
+        check("596 #5: a todo number and a later 're-pointed' in other words do not re-point a wrapped criterion",
+              chk.parse(str(p))[3] == ["- [ ] Port X from todo 12",
+                                       "- [ ] Port Y; re-pointed tests stay green and the notes cite todo 12"],
+              chk.parse(str(p)))
 
     print()
     if FAILURES:

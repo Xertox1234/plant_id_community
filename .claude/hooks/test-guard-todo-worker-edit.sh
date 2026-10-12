@@ -132,6 +132,23 @@ printf '{"todos":{"7":{"stage":"verified"}}}' > "$REPO/todos/.sweep-run-inflight
 assert_deny  "PR #1038: ... and once nothing executes without one, it is denied again" \
   "$(event todo-worker "$REPO" "$STRAY/scripts/x.py")"
 rm -f "$REPO/todos/.sweep-run-inflight.json"
+# Todo 596 #1: a reopened todo's earlier attempt (`previous`) still records its worktree, as state.py lists it.
+printf '{"todos":{"5":{"stage":"verified","previous":[{"worktree":"%s"}]}}}' "$STRAY" \
+  > "$REPO/todos/.sweep-run-prev.json"
+assert_allow "596 #1: a worktree recorded only in an entry's previous attempts is allowed" \
+  "$(event todo-worker "$REPO" "$STRAY/scripts/x.py")"
+# PR #1061 review: a stray_worktree is a path a worker wrongly reported, listed for cleanup only, never ownership.
+printf '{"todos":{"5":{"stage":"verified","previous":[{"stray_worktree":"%s"}]}}}' "$STRAY" \
+  > "$REPO/todos/.sweep-run-prev.json"
+assert_deny  "PR #1061: a worktree recorded only as an earlier attempt's stray_worktree is denied" \
+  "$(event todo-worker "$REPO" "$STRAY/scripts/x.py")"
+printf '{"todos":{"5":{"stage":"verified","stray_worktree":"%s"}}}' "$STRAY" \
+  > "$REPO/todos/.sweep-run-prev.json"
+assert_deny  "PR #1061: ... and so is one recorded only as an entry's top-level stray_worktree" \
+  "$(event todo-worker "$REPO" "$STRAY/scripts/x.py")"
+assert_deny  "596 #1: ... while an unrecorded harness worktree is still denied" \
+  "$(event todo-worker "$REPO" "$OTHER_AGENT/scripts/x.py")"
+rm -f "$REPO/todos/.sweep-run-prev.json"
 
 # ---- everyone else passes through ----
 assert_allow "the main session (no agent_type) is untouched" \

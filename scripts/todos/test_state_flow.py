@@ -3398,6 +3398,20 @@ def todo_546_tests():
     check("577 #3: ... and a kept cross-file merge covers its duplicate the same way",
           run["groups"]["g1"]["curated"] == ["medium: a.py:9 real | also: the same thing in other words"],
           run["groups"]["g1"])
+    # Todo 596 #2: the curator lists an identical merged phrasing once per merged item (todo-followups.js), so
+    # each stored copy is covered, and the stored line says the phrasing once.
+    run = merged_run([f("medium", 9, "missing test"), f("low", 4, "missing test", file="b.py")])
+    state.ingest_followups(run, [{"group": "g1", "ids": ["1"], "refuter_ok": True, "dropped": [], "kept": [
+        {"severity": "medium", "file": "a.py", "line": 9, "summary": "missing test", "also": ["missing test"]}]}])
+    check("596 #2: two identical items merged, the phrasing listed once per item: both covered, said once",
+          run["groups"]["g1"]["curated"] == ["medium: a.py:9 missing test"]
+          and "did not return" not in run["groups"]["g1"]["curation"], run["groups"]["g1"])
+    run = merged_run([f("medium", 9, "real"), f("low", 2, "nit"), f("low", 4, "nit", file="b.py")])
+    state.ingest_followups(run, [{"group": "g1", "ids": ["1"], "refuter_ok": True, "dropped": [], "kept": [
+        {"severity": "medium", "file": "a.py", "line": 9, "summary": "real", "also": ["nit", "nit"]}]}])
+    check("596 #2: ... and so is a phrasing merged twice into one item's `also`",
+          run["groups"]["g1"]["curated"] == ["medium: a.py:9 real | also: nit"]
+          and "did not return" not in run["groups"]["g1"]["curation"], run["groups"]["g1"])
 
     # Beyond the cap: a re-verify brief records an absolute --main-root too.
     with tempfile.TemporaryDirectory() as tmp:
