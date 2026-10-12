@@ -7300,3 +7300,36 @@ stop read the exception class as a fact about the server when it is a fact about
 **General rule.** When you replace atomic code or remove a lock, name the window it closed, then test the
 interleaving. Judge a push error by how far it reaches (one token, one platform, or every send) before
 stopping a batch on it. Assert behaviour, not text a library or another file renders.
+
+## 2026-10-12 — A P4 batch whose fixes broke their callers, and a CodeQL alert raised by a name (runs 0349, 1724, 1938)
+
+**What happened.** Three sweep runs merged 25 code PRs (#1070–#1108). Four shapes recurred:
+
+- **A fix was checked against its finding, not its caller.** Todo 627 made a failed `last_token_refresh`
+  stamp return 503 "so the client retries". The only caller, web `refreshAccessToken`, logs the user out on
+  any non-2xx and never retries, so the fix turned a bookkeeping write into a logout. Todo 628 mapped every
+  `IntegrityError` to a retryable 409 with no log, so an unrelated constraint fault would look like a race.
+  Round 1 reported both as non-blocking; I reverted the 503 by hand before round 2.
+- **An applied data migration was edited in place.** Todo 636 improved 0028's merge after #1081 had already
+  merged and deployed. Prod keeps the old, lossy merge, and its deleted rows cannot be recovered.
+- **A worker "corrected" a right date to a wrong one.** Todo 635 moved 611's Implemented heading from
+  2026-10-12 to 2026-10-11 to match Land's Verified entry. The Verified date was the wrong one: Land's
+  `--date` had gone stale after midnight. PR #1080's `createdAt` settled it. Todo 637 then made `land.py`
+  date a new entry no earlier than the latest Work Log heading.
+- **CodeQL raised a password alert from a name.** Five `py/clear-text-logging-sensitive-data` highs on
+  #1108 traced to the enum label `EmailType.PASSWORD_RESET`, which a test passed as `email_type` into an
+  existing log line. On 2026-10-11 the trigger was a setting name ending in `_KEY`. Both were dismissed as
+  false positives with the owner's OK.
+
+**Tooling.** A fresh sweep worktree has no `plant_community_mobile/.dart_tool`, so the commit-time
+`flutter analyze` fails on every import until `flutter pub get` runs in it. Since todo 618 the worker git guard
+allows staging only under `.claude/worktrees/`, so `ensure-worktree --scratch` must point there or a re-added
+worktree's repair worker cannot `git add`.
+
+**Root cause.** Reviewers and workers judge a change against the finding that asked for it. The caller's
+contract, the deploy state and the source of a date sit outside that frame.
+
+**General rule.** Before changing a status code or an error path, read the real caller. Before touching a
+merged migration, assume it has run in prod. Before correcting a date, find the event that fixes it, such as
+the PR's `createdAt`. Before trusting or dismissing a CodeQL logging alert, read its source: a name containing
+`KEY`, `SECRET` or `PASSWORD` is enough to taint a log line. See `docs/rules/api.md` and `docs/rules/database.md`.
