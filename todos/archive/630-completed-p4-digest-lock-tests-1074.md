@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "630"
 tags: [forum, digest, follow-ups]
@@ -36,7 +36,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -44,3 +44,27 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-12 - Filed from the PR #1074 review (todo sweep run 2026-10-12-0349)
 
 Filed by the closing step of the run from `state.py followups-md g5`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-1724)
+
+- #1 fixed: an autouse fixture in `backend/packages/wagtail_forum/wagtail_forum/tests/test_digest.py` gives every test there its own empty LocMemCache, as `test_tasks.py` did (todo 593 #9). No test in the file touches the shared Redis run-lock key now, older tests included. A new test pins the swap.
+- #2 fixed: a new parametrised test clears the email or deactivates the account right after the claim UPDATE runs, using `connection.execute_wrapper`. It shows the claim is rolled back and nobody is mailed. Deleting the `if not email:` branch fails both cases (mutation-checked).
+- #3 fixed per the owner decision: `send_forum_digest.py` now falls back to a plain delete when the release's `cache.get` answers None. A new test fails if the old form is restored (mutation-checked). The non-atomic read-then-delete part is declined: the window is one round-trip, the per-member claim still stops a double send, and an atomic compare-and-delete needs a backend-specific script that a reusable package cannot assume.
+- #4 and #5 fixed: the claim-SQL test now picks the claim from the normalised SQL, so a quoting or case change cannot match zero claims. The table name goes into every regex through `re.escape`.
+- #6 fixed: `test_a_run_releases_its_own_lock_by_token` now spies on the cache. It checks that the key held this run's token, that the release read it before the one delete, and that two runs store different tokens. The "leaves a later fire's lock alone" test still covers the mismatch direction.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-1724)
+
+- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 4 -- venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/test_digest.py --create-db -v -p no:cacheprovider` — evidence `.sweep-evidence/g4/630-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================= 45 passed, 3 warnings in 18.70s ========================
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-1724)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

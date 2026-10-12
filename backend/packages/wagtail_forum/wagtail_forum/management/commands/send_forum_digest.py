@@ -104,11 +104,21 @@ class Command(BaseCommand):
             # DIGEST_RUN_LOCK_SECONDS (a manual run with no hard time limit):
             # its key expired and another fire may hold it now, so delete
             # only while the key still holds this run's token (todo 605).
+            #
+            # A get that answers None falls back to a plain delete (todo 630,
+            # owner decision 2026-10-12). Under IGNORE_EXCEPTIONS a Redis blip
+            # makes the get answer None, and keeping the lock would block the
+            # soft-time-limit continuation for the full TTL. If the key really
+            # is gone, the delete is a no-op.
+            #
             # Read-then-delete is not atomic, but the gap is one round-trip
             # against a TTL of minutes, and the per-member claim still stops
-            # a double send.
-            if holds_lock and cache.get(lock_key) == lock_token:
-                cache.delete(lock_key)
+            # a double send. An atomic compare-and-delete needs a
+            # backend-specific script, which this package cannot assume.
+            if holds_lock:
+                current = cache.get(lock_key)
+                if current is None or current == lock_token:
+                    cache.delete(lock_key)
 
         label = "would send" if dry_run else "sent"
         self.stdout.write(
