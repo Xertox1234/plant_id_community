@@ -84,3 +84,15 @@ new todos. Round 1 found nothing blocking. These low findings are declined:
 - `test_auditlog_registration.py`: the exact DELETE/SELECT counts and the ORDER BY check across every SELECT
   are strict pins. Declined: the pins are deliberate (#4/#6). If an ORM change breaks them, they should be
   re-read, not loosened in advance.
+
+### 2026-10-12 - Review round 2: non-blocking findings declined (owner decision)
+
+Round 2 found nothing blocking. It repeated the round-1 overcount and strict-pin findings, which were declined
+above. These new low findings are also declined:
+
+- During a broker outage, the guard logs one ERROR per transiently failing recipient instead of one per batch.
+  Declined: this path runs only when the broker refuses hand-offs, and one ERROR per recipient keeps the user pk
+  in each event.
+- `except Exception` is broad and the log has no traceback, and it uses the `[FCM]` prefix without a task id.
+  Declined: this matches the sibling credentials re-enqueue guard and the module's `[FCM]` convention. Logging
+  the type only is intended (#2).
