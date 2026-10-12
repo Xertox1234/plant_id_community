@@ -4,6 +4,9 @@ priority: p2
 issue_id: "621"
 tags: [backend, mobile, flutter, firebase, notifications, ux]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Owner: foreground pushes show a restrained in-app banner plus data refresh (no OS banner, moderation sync silent); per-device PushDevice model lives in apps/core, shared by forum and care, migrating ForumProfile.fcm_token with deploy-skew support (2026-10-12)"
 ---
 
 # Support multiple push devices and complete the mobile notification experience

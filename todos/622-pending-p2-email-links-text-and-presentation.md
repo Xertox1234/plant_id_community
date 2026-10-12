@@ -4,6 +4,9 @@ priority: p2
 issue_id: "622"
 tags: [backend, web, email, templates, accessibility, testing]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Owner: keep all scope in 622; standardize every live email family on templates/emails/base.html (mail-safe, inlined). AC6 inbox checks remain owner-only (2026-10-12)"
 ---
 
 # Repair email navigation and standardize readable message presentation
