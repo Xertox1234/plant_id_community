@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "646"
 tags: [plant-id, migrations, follow-ups]
@@ -34,7 +34,7 @@ PR #1103 (todo sweep run 2026-10-12-1724, group g9, todos 636); follow-ups: veri
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -42,3 +42,37 @@ PR #1103 (todo sweep run 2026-10-12-1724, group g9, todos 636); follow-ups: veri
 ### 2026-10-12 - Filed from the PR #1103 review (todo sweep run 2026-10-12-1724)
 
 Filed by the closing step of the run from `state.py followups-md g9`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-2056)
+
+- Findings 1-4 declined (owner decision 2026-10-12): prod has already applied 0028, the variant rows it
+  deleted cannot be recovered, and editing an applied migration again would only reach fresh databases.
+  `backend/apps/plant_identification/migrations/0028_merge_case_variant_diseases.py` is unchanged.
+- Finding 5 fixed: `DiseaseAutostorageService._is_name_collision` in
+  `backend/apps/plant_identification/services/disease_diagnosis_service.py` now lets psycopg's `diag` decide
+  alone when it is present, so an error with no constraint name (NOT NULL) is never matched on its message,
+  whose DETAIL echoes the API-supplied disease name. The message fallback stays for drivers with no `diag`.
+  Two tests in `backend/apps/plant_identification/tests/test_disease_diagnosis_count.py` pin it, one with a
+  stub `diag` and one with a real PostgreSQL NOT NULL error whose row holds the constraint name; both fail
+  against the previous code.
+- Finding 6 fixed: `test_second_collision_surfaces` now asserts `_create_new_disease` ran exactly twice, so
+  re-raising on the first collision (no retry) or a retry loop both fail it.
+- Finding 7 declined: it describes the evidence of todo 636's own run, which is archived and is not
+  re-run here. CI's `backend-tests` runs against `backend/requirements.txt` and is the real check; this
+  run's local evidence carries the same pyjwt/urllib3 drift banner (todo 378).
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-2056)
+
+- AC 1: `bash -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest apps/plant_identification/tests/test_disease_diagnosis_count.py --create-db -v && grep -n "Finding" todos/archive/646-completed-p4-disease-merge-0028-gaps-1103.md'` — evidence `.sweep-evidence/g7/646-ac0.txt` (not committed), last lines:
+
+  ```text
+  21:## Findings
+  48:- Findings 1-4 declined (owner decision 2026-10-12): prod has already applied 0028, the variant rows it
+  51:- Finding 5 fixed: `DiseaseAutostorageService._is_name_collision` in
+  58:- Finding 6 fixed: `test_second_collision_surfaces` now asserts `_create_new_disease` ran exactly twice, so
+  60:- Finding 7 declined: it describes the evidence of todo 636's own run, which is archived and is not
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-2056)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

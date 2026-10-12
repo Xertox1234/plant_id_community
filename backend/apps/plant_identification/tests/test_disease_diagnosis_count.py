@@ -465,6 +465,36 @@ class DiseaseMergeFollowupsTest(TestCase):
             )
         )
 
+    def test_diag_without_a_constraint_is_not_a_collision(self):
+        # Todo 646: psycopg's diag is there but names no constraint (NOT NULL,
+        # for one). Its DETAIL echoes the row, so a disease name holding the
+        # constraint name must not be read as a collision.
+        cause = Exception("driver error")
+        cause.diag = mock.Mock(constraint_name=None)
+        exc = IntegrityError(
+            "null value in column violates not-null constraint\n"
+            f"DETAIL:  Failing row contains ({DISEASE_NAME_LOWER_UNIQUE}, null)."
+        )
+        exc.__cause__ = cause
+        self.assertFalse(DiseaseAutostorageService._is_name_collision(exc))
+
+        cause.diag = mock.Mock(constraint_name=DISEASE_NAME_LOWER_UNIQUE)
+        self.assertTrue(DiseaseAutostorageService._is_name_collision(exc))
+
+    def test_real_not_null_error_echoing_the_name_is_not_a_collision(self):
+        # Todo 646: the same case against the real database.
+        if connection.vendor != "postgresql":
+            self.skipTest("psycopg diag is PostgreSQL only")
+        with self.assertRaises(IntegrityError) as ctx, transaction.atomic():
+            PlantDiseaseDatabase.objects.create(
+                disease_name=DISEASE_NAME_LOWER_UNIQUE,
+                disease_type=None,
+                confidence_score=0.5,
+                api_source="plant_health",
+            )
+        self.assertIn(DISEASE_NAME_LOWER_UNIQUE, str(ctx.exception))
+        self.assertFalse(DiseaseAutostorageService._is_name_collision(ctx.exception))
+
     def test_collision_whose_row_is_gone_creates_it_again(self):
         # Item 3: a name collision whose re-lookup finds nothing (the winner
         # was deleted again) used to re-raise and drop the diagnosis.
@@ -547,9 +577,13 @@ class DiseaseMergeFollowupsTest(TestCase):
             DiseaseAutostorageService,
             "_create_new_disease",
             side_effect=self._collision(),
-        ):
+        ) as create:
             stored = self.service.store_disease_if_qualified(self.result)
 
+        # Todo 646: the first collision is retried exactly once, and the
+        # second one surfaces. Re-raising on the first collision would also
+        # return None, so the call count is what pins the contract.
+        self.assertEqual(create.call_count, 2)
         self.assertIsNone(stored)
         self.result.refresh_from_db()
         self.assertFalse(self.result.stored_to_database)
