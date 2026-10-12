@@ -535,10 +535,15 @@ def token_refresh(request: Request) -> Response:
 
         # A refresh is a sign-in for expire_unverified_accounts (todo 485).
         # The cron runs flushexpiredtokens first, which deletes the rotated
-        # token rows, so last_login is the activity signal that survives.
+        # token rows, so this stamp is the activity signal that survives. Not
+        # last_login: Django's password-reset token hashes it. The old token
+        # is already blacklisted, so a failed stamp must not fail the refresh.
         from django.utils import timezone
 
-        User.objects.filter(pk=user.pk).update(last_login=timezone.now())
+        try:
+            User.objects.filter(pk=user.pk).update(last_token_refresh=timezone.now())
+        except Exception as e:
+            logger.error(f"[AUTH] last_token_refresh stamp failed: {str(e)}")
 
         # Issue a fresh token pair only after successful blacklisting
         response = Response(
