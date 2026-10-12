@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "612"
 tags: [web, forum, a11y, follow-ups]
@@ -25,7 +25,7 @@ PR #1058 (todo sweep run 2026-10-11-2219, group g10, todos 592); follow-ups: ver
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -33,3 +33,29 @@ PR #1058 (todo sweep run 2026-10-11-2219, group g10, todos 592); follow-ups: ver
 ### 2026-10-11 - Filed from the PR #1058 review (todo sweep run 2026-10-11-2219)
 
 Filed by the closing step of the run from `state.py followups-md g10`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-0349)
+
+- Finding 1 (untitled mailto:/relative fallback cards get no "Opens in a new tab" hint): declined,
+  per the owner decision of 2026-10-11 — it is the intended mobile-parity behaviour from todo 592
+  (only an http(s) URL gets the full-address affordances), and titled cards already behave this way.
+- Findings 2 and 3 (one defect, reported twice): fixed. The `EmbedFallbackCard` docblock in
+  `web/src/components/StreamFieldRenderer.tsx` now says only an untitled http(s) card gets the hover
+  `title` and the hint, and that a titled card or an untitled mailto:/relative URL gets neither.
+- Comment-only change: no behaviour change, so no new test.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-12-0349)
+
+- AC 1: `sed -n 466,491p web/src/components/StreamFieldRenderer.tsx && grep -n -A10 '### 2026-10-12 - Implemented' todos/archive/612-completed-p4-embed-fallback-affordance-1058.md` — evidence `.sweep-evidence/g9/612-ac0.txt` (not committed), last lines:
+
+  ```text
+  41-  (only an http(s) URL gets the full-address affordances), and titled cards already behave this way.
+  42-- Findings 2 and 3 (one defect, reported twice): fixed. The `EmbedFallbackCard` docblock in
+  43-  `web/src/components/StreamFieldRenderer.tsx` now says only an untitled http(s) card gets the hover
+  44-  `title` and the hint, and that a titled card or an untitled mailto:/relative URL gets neither.
+  45-- Comment-only change: no behaviour change, so no new test.
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
