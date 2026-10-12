@@ -71,7 +71,7 @@
         {% endif %}
     </div>
 
-    <a href="{{ app_url }}#!/blog/{{ post.slug }}"
+    <a href="{{ app_url }}/blog/{{ post.slug }}"
        style="background-color: #10B981; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block; font-size: 16px;">
         📖 Read Full Article
     </a>
@@ -117,11 +117,11 @@
         Our community is here to help!
     </p>
     <div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 12px;">
-        <a href="{{ app_url }}#!/blog/{{ post.slug }}#comments"
+        <a href="{{ app_url }}/blog/{{ post.slug }}"
            style="background-color: #3B82F6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 500; display: inline-block; font-size: 14px;">
             💭 Leave a Comment
         </a>
-        <a href="{{ app_url }}#!/forum"
+        <a href="{{ app_url }}/forum"
            style="background-color: #10B981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 500; display: inline-block; font-size: 14px;">
             🌱 Discuss in Forums
         </a>
@@ -141,7 +141,7 @@
         </div>
         <div style="flex: 1; min-width: 0;">
             <h4 style="margin: 0; font-size: 14px; font-weight: 500; color: #1F2937;">
-                <a href="{{ app_url }}#!/blog/{{ related.slug }}" style="color: #1F2937; text-decoration: none;">
+                <a href="{{ app_url }}/blog/{{ related.slug }}" style="color: #1F2937; text-decoration: none;">
                     {{ related.title|truncatechars:60 }}
                 </a>
             </h4>
@@ -155,7 +155,7 @@
     {% endfor %}
 
     <div style="text-align: center; margin-top: 16px;">
-        <a href="{{ app_url }}#!/blog"
+        <a href="{{ app_url }}/blog"
            style="color: #10B981; text-decoration: none; font-size: 14px; font-weight: 500;">
             → Browse All Articles
         </a>
@@ -172,7 +172,7 @@
     <p style="color: #1E3A8A; font-size: 14px; margin: 0 0 16px 0;">
         Get our weekly newsletter with curated articles, plant care tips, and community highlights!
     </p>
-    <a href="{{ app_url }}#!/settings/email-preferences"
+    <a href="{{ preferences_url }}"
        style="background-color: #1D4ED8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 500; display: inline-block; font-size: 14px;">
         📧 Subscribe to Newsletter
     </a>

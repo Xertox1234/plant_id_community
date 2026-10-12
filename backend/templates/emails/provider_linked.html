@@ -1,0 +1,27 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ provider_name }} sign-in was connected to your {{ site_name }} account{% endblock %}
+
+{% block preheader %}{{ provider_name }} sign-in was connected to the account {{ account }}. Other devices were signed out.{% endblock %}
+
+{% block content %}
+<h1 style="margin: 0 0 24px 0; font-size: 24px; font-weight: 600; color: #2c5f41;">{{ provider_name }} sign-in connected</h1>
+<p style="margin: 0 0 16px 0; color: #333333;">{{ provider_name }} sign-in was just connected to the {{ site_name }} account <strong>{{ account }}</strong>.</p>
+<p style="margin: 0 0 16px 0; color: #333333;">As a precaution, its other devices and browsers were signed out. If this was you, there is nothing else to do.</p>
+<p style="margin: 0 0 24px 0; color: #333333;">If it wasn't you, someone may know the account's password: {% if reset_url %}reset the password now.{% else %}reset the password now (Forgot password? on the sign-in page).{% endif %}</p>
+{% if reset_url %}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin: 0 auto 24px auto;">
+    <tr>
+        <td align="center">
+            <a href="{{ reset_url }}" class="btn btn-primary" style="display: inline-block; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; text-align: center; background-color: #2c5f41; color: #ffffff;">Reset the password</a>
+        </td>
+    </tr>
+</table>
+<p style="margin: 0; font-size: 14px; color: #555555;">
+    Can't use the button? Copy this link into your browser:<br>
+    <a href="{{ reset_url }}" style="color: #2c5f41; word-break: break-all;">{{ reset_url }}</a>
+</p>
+{% endif %}
+{% endblock %}
+
+{% block footer %}{% include "emails/_security_footer.html" %}{% endblock %}

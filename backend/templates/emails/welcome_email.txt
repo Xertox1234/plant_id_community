@@ -1,0 +1,25 @@
+{% autoescape off %}Welcome to {{ site_name }}!
+
+Hi {{ user.first_name|default:user.username }},
+
+Your email has been verified and your {{ site_name }} account is now active. We're thrilled to have you join our community of plant enthusiasts.
+
+Getting started
+1. Identify your first plant: Upload a photo and let our AI help you discover what you're growing
+2. Save care instructions: Build your personal plant care library with AI-generated guidance
+3. Join the forums: Connect with other plant lovers, ask questions and share your successes
+4. Set up care reminders: Never forget to water, fertilize or check on your plants again
+
+Identify your first plant: {{ app_url }}/identify
+Explore the forums: {{ app_url }}/forum
+
+Tip: take clear, well-lit photos from more than one angle for the best identification results. Include close-ups of leaves, flowers and anything unusual.
+
+If you have a question or need help getting started, ask the community in the forums.
+
+Happy gardening!
+The {{ site_name }} team
+
+---
+Email preferences: {{ preferences_url }}
+{% endautoescape %}

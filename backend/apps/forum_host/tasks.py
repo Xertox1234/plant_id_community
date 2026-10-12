@@ -590,7 +590,12 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
     )
 
     topic = post.topic
-    topic_url = f"{settings.SITE_URL}{topic.get_absolute_url()}"
+    # The web app's thread route, at the reply's own anchor (ThreadDetailPage
+    # renders id="post-<id>", as _web_topic_path links for push). The bare
+    # topic URL stays the fallback link. rstrip: a SITE_URL ending in "/"
+    # would otherwise build "//forum/..." (todo 622).
+    topic_url = f"{settings.SITE_URL.rstrip('/')}{topic.get_absolute_url()}"
+    post_url = f"{topic_url}#post-{post.pk}"
     author_name = post.author.display_name if post.author else "[deleted]"
     excerpt = plain_text_excerpt(post.body, FORUM_EMAIL_EXCERPT_MAX_CHARS)
     service = NotificationService()
@@ -619,6 +624,7 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
             reply_author=author_name,
             reply_excerpt=excerpt,
             topic_url=topic_url,
+            post_url=post_url,
         )
         logger.info("[EMAIL] forum.%s email to user=%s: sent=%s", event, user.pk, sent)
 

@@ -6,7 +6,8 @@
 
 {{ post_excerpt }}
 
-Read the full discussion: {{ topic_url }}
+Read the reply: {% firstof post_url topic_url %}
+View topic to unfollow: {{ topic_url }}
 
 ---
 Manage forum notifications: {{ preferences_url }}

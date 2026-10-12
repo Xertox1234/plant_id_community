@@ -5,7 +5,9 @@ Provides a unified interface for sending emails with tracking, preferences,
 and template rendering capabilities.
 """
 
+import html
 import logging
+import re
 from typing import Any, Dict, List, Optional, Union
 
 from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_context
@@ -19,6 +21,46 @@ from django.utils.html import strip_tags
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+# html_to_text() patterns (todo 622). The plain-text part of a message whose
+# template ships no .txt: never the stylesheet, never a lost button URL.
+_NON_CONTENT = re.compile(
+    r"<(head|style|script|title)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL
+)
+_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+_LINK = re.compile(
+    r"""<a\b[^>]*?\bhref\s*=\s*(["'])(?P<url>.*?)\1[^>]*>(?P<label>.*?)</a\s*>""",
+    re.IGNORECASE | re.DOTALL,
+)
+_LINE_BREAK = re.compile(
+    r"<br\s*/?>|</(p|div|h[1-6]|li|tr|table|ul|ol|blockquote)\s*>", re.IGNORECASE
+)
+_SPACES = re.compile(r"[ \t\r\f\v]+")
+_BLANK_LINES = re.compile(r"\n{3,}")
+
+
+def html_to_text(html_content: str) -> str:
+    """A readable plain-text alternative for an HTML email that has no .txt.
+
+    Drops the head, stylesheet, scripts and comments; keeps every link as
+    ``label (url)`` so the action survives; ends blocks with a line break;
+    then strips the remaining tags and decodes entities. A fallback only:
+    every live message family ships its own .txt (todo 622).
+    """
+    text = _COMMENT.sub("", _NON_CONTENT.sub("", html_content))
+
+    def _link(match: "re.Match[str]") -> str:
+        url = match.group("url").strip()
+        label = " ".join(strip_tags(match.group("label")).split())
+        if not url or url.startswith("#") or url == label:
+            return label or url
+        return f"{label} ({url})" if label else url
+
+    text = _LINK.sub(_link, text)
+    text = _LINE_BREAK.sub("\n", text)
+    text = html.unescape(strip_tags(text))
+    lines = [_SPACES.sub(" ", line).strip() for line in text.split("\n")]
+    return _BLANK_LINES.sub("\n\n", "\n".join(lines)).strip() + "\n"
 
 
 class EmailType:
@@ -124,9 +166,10 @@ class EmailService:
         context.update(self._get_base_context(user, email_type))
 
         # Render email content. The .html body is REQUIRED — a missing/broken
-        # .html is a hard failure. The .txt alternative is OPTIONAL: most
-        # EmailType templates ship only .html, so a missing .txt falls back to a
-        # stripped-tags version of the HTML rather than silently dropping the
+        # .html is a hard failure. The .txt alternative is OPTIONAL: a missing
+        # .txt falls back to html_to_text() of the HTML (todo 622: never raw
+        # strip_tags, which kept the stylesheet and lost every button URL)
+        # rather than silently dropping the
         # whole email (todo 267, finding 2 — before this, a missing .txt raised
         # TemplateDoesNotExist that was caught into a silent `return False`, so
         # e.g. every new-user welcome email no-op'd at the render step).
@@ -146,9 +189,9 @@ class EmailService:
         try:
             text_content = render_to_string(f"emails/{template_name}.txt", context)
         except TemplateDoesNotExist:
-            # Expected for the many .html-only templates — derive plain text
+            # Expected for the legacy .html-only templates — derive plain text
             # from the HTML that already rendered.
-            text_content = strip_tags(html_content)
+            text_content = html_to_text(html_content)
         except Exception as e:
             # A genuine .txt render bug shouldn't drop an email whose .html is
             # fine; fall back to the stripped HTML but surface the bug in logs.
@@ -156,7 +199,7 @@ class EmailService:
                 f"[EMAIL] Failed to render email template {template_name}.txt "
                 f"(falling back to stripped HTML): {e}"
             )
-            text_content = strip_tags(html_content)
+            text_content = html_to_text(html_content)
 
         # Create email message. List-Unsubscribe (RFC 2369, plus RFC 8058
         # one-click when API_PUBLIC_URL is set) puts a signed link in the mail
@@ -295,6 +338,18 @@ class EmailService:
         Returns:
             bool: True if email should be sent
         """
+        # System emails (security, verification) always send: no optional-mail
+        # preference, the master toggle included, may hold them back (todo
+        # 622 — the toggle used to be checked first and did).
+        system_emails = {
+            EmailType.ACCOUNT_VERIFICATION,
+            EmailType.PASSWORD_RESET,
+            EmailType.SECURITY_ALERT,
+        }
+
+        if email_type in system_emails:
+            return True
+
         # Check master email toggle (using direct user model attributes)
         if not user.email_notifications:
             return False
@@ -307,16 +362,6 @@ class EmailService:
             EmailType.FORUM_DIGEST: user.forum_notifications,
             EmailType.IDENTIFICATION_RESULT: user.plant_id_notifications,
         }
-
-        # System emails (security, verification) always send
-        system_emails = {
-            EmailType.ACCOUNT_VERIFICATION,
-            EmailType.PASSWORD_RESET,
-            EmailType.SECURITY_ALERT,
-        }
-
-        if email_type in system_emails:
-            return True
 
         # Check specific preference or default to True
         return email_preference_map.get(email_type, True)
@@ -334,7 +379,10 @@ class EmailService:
         Returns:
             Dict: Base context variables
         """
+        # No trailing slash: every template appends a path that starts with
+        # "/", so "https://web.example/" would build "//identify" (todo 622).
         site_url = getattr(settings, "SITE_URL", "https://plantcommunity.com")
+        site_url = (site_url or "").rstrip("/")
 
         context = {
             "site_name": self.site_name,
@@ -347,7 +395,7 @@ class EmailService:
 
         # The web app's Settings page holds every email choice a user can
         # change (todo 408; the old "#!/settings/..." PWA fragment led nowhere).
-        context["preferences_url"] = f"{site_url.rstrip('/')}/settings"
+        context["preferences_url"] = f"{site_url}/settings"
 
         # A signed one-user, one-list link — only for an email type that has a
         # list to leave. No link beats one that 500s or does nothing.
