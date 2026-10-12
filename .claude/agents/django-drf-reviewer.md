@@ -31,6 +31,10 @@ Work through each item for every changed file. Emit findings in the structured f
   run on the LOCKED instance, not an earlier unlocked read (a stale read clobbers
   concurrent writes)? Is the gating value re-read from the locked row? Is the
   `except` OUTSIDE the `atomic()` (a caught DB error inside poisons the connection)?
+- A diff that replaces a filtered `.update()` with `list(qs)` + per-row `save()`,
+  or removes a `select_for_update()`: name the window the old code closed (a row
+  completed between read and save; a row deleted between lookup and lock) and ask
+  for the guard back or a test that changes the row mid-flow (PRs #1052, #1059).
 
 ### Forum-audit additions (2026-07-11)
 

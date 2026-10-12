@@ -75,6 +75,14 @@ Compact checklist auto-injected before edits. Long-form:
   `requirements.txt` before assuming — don't take this file's word for it
   either. See `backend/docs/patterns/architecture/services.md` and
   `docs/LEARNINGS.md` (2026-07-16) for the full empirical trail.
+- **Never trade a filtered `.update()` for read-then-`save()`, or drop a lock, without
+  naming the window it closed.** `qs.filter(completed=False).update(...)` re-checks
+  its `WHERE` at write time; `for t in list(qs): t.save()` does not, so a row
+  completed between the read and its save is rewritten anyway (PR #1052,
+  `reschedule_overdue_tasks`). Removing a lookup's `select_for_update()` likewise
+  reopens the delete-between-lookup-and-lock window (PR #1059). Keep the filtered
+  update (or lock the rows), and test the interleaving: change the row between the
+  read and the write, and assert the write skipped it.
 - **A `select_for_update().get(pk=…)` re-fetch can itself raise `DoesNotExist`** if
   the row was hard-deleted (e.g. a CASCADE) between the first fetch and the lock.
   In a request handler, catch it and return 404 — do NOT let a blanket

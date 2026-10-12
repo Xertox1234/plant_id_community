@@ -2052,5 +2052,21 @@
     "source": "codify: docs/codify-run-2026-10-11-1448",
     "added": "2026-10-11",
     "severity": "warn"
+  },
+  {
+    "id": "fcm-credentials-error-batch-stop",
+    "domains": [
+      "celery"
+    ],
+    "path_glob": [
+      "backend/apps/*/tasks.py"
+    ],
+    "content_present": "is_fcm_credentials_error\\(|SenderIdMismatchError|ThirdPartyAuthError",
+    "content_absent": "FCM_CREDENTIALS_STOP_FAILURES",
+    "message": "One FCM SenderIdMismatch/ThirdPartyAuth error can be one stale token or APNs-only: never stop a push batch on the first. Stop after FCM_CREDENTIALS_STOP_FAILURES distinct recipients with nothing sent, and hand untried recipients back (release claims / re-enqueue).",
+    "pattern_ref": "docs/rules/celery.md",
+    "source": "codify: docs/codify-sweep-2026-10-11-2219",
+    "added": "2026-10-11",
+    "severity": "warn"
   }
 ]

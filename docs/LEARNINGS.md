@@ -7272,3 +7272,31 @@ private caches are renamed.
 **General rule.** "Zero warnings" says nothing about whether the documented shape is right; assert the shape.
 And a gate that passes on an empty result needs a canary that proves it can see a problem, placed where the
 checker actually looks.
+
+## 2026-10-11 — Concurrency fixes that opened new windows, and a push stop that dropped every user (run 2026-10-11-2219)
+
+**What happened.** Three recurring shapes showed up across this run's 15 PRs:
+
+- **Two fixes for one race each opened another.** #1052 turned
+  `reschedule_overdue_tasks`' filtered `.update()` into `list(qs)` and a `save()` per row. A task completed
+  between the read and its save is now rescheduled anyway. #1059 dropped the disease lookup's
+  `select_for_update()`, so a row deleted between the lookup and the locked re-read is silently lost.
+- **One FCM error was treated as global.** #1052 stopped the whole care-reminder sweep, and the forum push
+  batch, on the first `SenderIdMismatchError` or `ThirdPartyAuthError`. That error can be one stale dev-build
+  token, or APNs-only, so one iOS user could block every Android user's push. Round 2 blocked it, and an
+  owner-approved round 3 settled on stopping only after `FCM_CREDENTIALS_STOP_FAILURES` distinct failures
+  with nothing sent, releasing untried claims. The forum batch still drops its untried recipients
+  (todo 606).
+- **Tests pinned rendered text.** Five PRs (#1050, #1055, #1056, #1059, #1063) drew low findings for
+  asserting Django's exact SQL quoting, an injected marker's wording, or runbook prose.
+
+**Root cause.** Each concurrency fix was reviewed for the race it targeted, not for the guarantee the
+replaced code gave for free: a `WHERE` re-checked at write time, or a lock held across the lookup. The FCM
+stop read the exception class as a fact about the server when it is a fact about one token's send.
+
+**The fix.** #1052 round 3 for the sweep. Follow-ups 606 (forum batch), 613 (#1059's windows) and 605/609/
+610/613/616 (brittle text).
+
+**General rule.** When you replace atomic code or remove a lock, name the window it closed, then test the
+interleaving. Judge a push error by how far it reaches (one token, one platform, or every send) before
+stopping a batch on it. Assert behaviour, not text a library or another file renders.

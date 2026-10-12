@@ -103,3 +103,11 @@ Compact checklist auto-injected before edits. Long-form:
   committed, so the retry's claim query could not see the batch and it was lost.
   Run everything after the claim under one guard that un-claims what was not
   handled, then re-raises (`apps/garden_calendar/tasks.py`, todo 410).
+- **One FCM `SenderIdMismatchError` or `ThirdPartyAuthError` is not proof the
+  server's credentials are broken — never stop a whole push batch on the first.**
+  `SenderIdMismatch` can be one stale token from another Firebase project (a dev
+  build), and `ThirdPartyAuthError` can be APNs-only, so stopping on it drops every
+  Android user too. Stop only after `apps.core.fcm.FCM_CREDENTIALS_STOP_FAILURES`
+  distinct recipients fail with nothing sent yet, and hand every untried recipient
+  back (release its claim or re-enqueue it); a stop must never silently drop them
+  (PR #1052 round 3; the forum batch still drops them, todo 606).
