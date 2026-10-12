@@ -108,6 +108,15 @@ class MeProfileView(forum_views.MeProfileView):
         only the device this profile last registered, never the account's
         other devices. The package writes the column itself, so a backend
         instance from before the deploy still sees it during the rollover.
+
+        The column holds one token, so a legacy write that REPLACES it also
+        unregisters the token it replaced, as the single-device semantics did:
+        otherwise a second pre-621 build on the account would leave the first
+        build's row behind, and that build's later sign-out (a clear, which can
+        only name the column's current token) would remove the second build's
+        device while the signed-out one kept receiving pushes. Devices
+        registered through ``/push/devices/`` never touch the column, so they
+        are not affected.
         """
         import logging
 
@@ -122,6 +131,8 @@ class MeProfileView(forum_views.MeProfileView):
         try:
             if token:
                 register_device(self.request.user, token, platform="legacy")
+                if previous and previous != token:
+                    unregister_device(self.request.user, previous)
             elif previous:
                 unregister_device(self.request.user, previous)
         except IntegrityError:

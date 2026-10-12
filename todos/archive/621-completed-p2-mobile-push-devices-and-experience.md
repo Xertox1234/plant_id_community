@@ -119,6 +119,12 @@ Existing owners: 547 retains the physical-device end-to-end due-care check; 387 
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-10-12 - Repaired by the todo sweep (run 2026-10-12-1736)
+
+- Round-1 review: the legacy `fcm_token` mirror in `backend/apps/forum_host/api.py` registered each new column token but never removed the one it replaced, so two pre-621 builds on one account left both rows and the first build's sign-out removed the second build's device instead of its own.
+- A legacy write that replaces the column now also unregisters the replaced token for this account (the old single-device semantics); re-sending the same token keeps its row, and `/push-devices/` registrations never touch the column.
+- Added `PushDeviceApiTest::test_two_legacy_builds_then_the_first_signs_out` in `backend/apps/core/tests/test_push_devices.py`; it fails with the fix disabled and passes with it.
+
 ## Notes
 
 P2 for cross-device loss of notification coverage. FCM-only care delivery and the 24-hour lookback are retained; this does not authorize an email/browser fallback or production messages. Use mocked sends during implementation and obtain approval for live device tests.

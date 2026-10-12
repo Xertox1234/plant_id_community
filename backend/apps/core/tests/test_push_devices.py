@@ -311,6 +311,40 @@ class PushDeviceApiTest(TestCase):
         self.assertEqual(_tokens(self.alice), ["fake-token-new-build"])
         self.assertEqual(_legacy(self.alice), "")
 
+    def test_two_legacy_builds_then_the_first_signs_out(self):
+        """Two pre-621 builds share the one-token column, as they always did.
+
+        A's write is replaced by B's, so A's row goes with it; A's later
+        sign-out clears the column (B's token, the only one it can name).
+        The signed-out build must not be left receiving pushes.
+        """
+        register_device(self.alice, "fake-token-new-build", "install-new")
+        self.client.force_authenticate(self.alice)
+
+        for token in ("fake-token-legacy-a", "fake-token-legacy-b"):
+            response = self.client.patch(
+                ME_PROFILE, {"fcm_token": token}, format="json"
+            )
+            self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(
+            sorted(_tokens(self.alice)),
+            ["fake-token-legacy-b", "fake-token-new-build"],
+        )
+        self.assertEqual(_legacy(self.alice), "fake-token-legacy-b")
+
+        # Re-sending the same token keeps its row.
+        response = self.client.patch(
+            ME_PROFILE, {"fcm_token": "fake-token-legacy-b"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertIn("fake-token-legacy-b", _tokens(self.alice))
+
+        # A signs out: no token of A remains, and the 621 device is untouched.
+        response = self.client.patch(ME_PROFILE, {"fcm_token": ""}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(_tokens(self.alice), ["fake-token-new-build"])
+        self.assertEqual(_legacy(self.alice), "")
+
     def test_a_profile_patch_without_a_token_leaves_devices_alone(self):
         register_device(self.alice, "fake-token-1", "install-1")
         self.client.force_authenticate(self.alice)
