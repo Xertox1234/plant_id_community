@@ -4,6 +4,10 @@ priority: p2
 issue_id: "626"
 tags: [email, templates, accessibility, testing, owner]
 dependencies: []
+triage: blocked-external
+triaged: 2026-10-12
+blocked_on: "Todo 622 merging, then the owner running manual checks in approved Gmail, Apple Mail and Outlook test inboxes"
+owner_decision: "Owner: will not run the Gmail/Apple Mail/Outlook inbox checks now (2026-10-12); owner hand-off"
 ---
 
 # Verify redesigned emails in real Gmail, Apple Mail and Outlook inboxes
