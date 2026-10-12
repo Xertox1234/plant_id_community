@@ -1462,7 +1462,7 @@ def runbook_tests():
     check("601: ... rebuilding a conflicted todo file from origin/main, never concatenating both sides",
           "rebuild from origin/main, never concatenate both sides" in dirty
           and "\"ours\" is the branch and \"theirs\" is origin/main" in " ".join(dirty.split())
-          and "show origin/main:<path>" in dirty and "re-apply this branch's own changes" in dirty
+          and "show origin/main:<main path>" in dirty and "re-apply this branch's own changes" in dirty
           and "keep both sides" not in dirty, dirty)
     check("601: ... disarming auto-merge before blocking the group on a non-mechanical conflict",
           "gh pr merge <n> --repo $GH_REPO --disable-auto" in dirty and "auto-merge disarmed" in dirty, dirty)
@@ -1477,8 +1477,18 @@ def runbook_tests():
           and "If any gate fails" in flat and "never commit or push it" in flat, dirty)
     check("616 #4: a conflicted todo keeps the branch's side and reads origin/main at its pre-archive path, "
           "into a scratch file first",
-          "show :2:<path> > $TMPDIR/<name>.branch" in dirty and "show origin/main:<path> > $TMPDIR/<name>.main" in dirty
-          and "pre-archive `pending` path" in flat and "show origin/main:<path> > $WT/<path>" not in dirty, dirty)
+          "show origin/main:<main path> > $TMPDIR/<name>.main" in dirty
+          and "pre-archive `pending` name" in flat and "show origin/main:<path> > $WT/<path>" not in dirty, dirty)
+    # Todo 637 #1: two placeholders, the branch side read from HEAD (stage :2 is at the completed name only when
+    # git saw a rename) and the save checked, so an empty .branch copy never stands in for the branch's ticks.
+    check("637 #1: the branch side is saved from HEAD at its own path and checked non-empty, never from :2:",
+          "show HEAD:<branch path> > $TMPDIR/<name>.branch" in dirty and "test -s $TMPDIR/<name>.branch" in dirty
+          and "show :2:<path>" not in dirty, dirty)
+    check("637 #5: a fixer-only pre-commit rewrite in step 4 is staged and re-run, not a gate failure",
+          "only rewrote a resolved file, which is not a failure" in flat and "run it again" in flat, dirty)
+    check("637 #3: the recovery's kimi skip has a recorded home the wrap-up counts, and names the hand-resolved hunks",
+          "--field kimi_recovery=skipped" in flat and "hunks resolved by hand" in flat
+          and "`kimi_recovery=skipped`" in " ".join(skill.split("## Wrap-up", 1)[1].split()), dirty)
     sandbox_off = skill.split("**Sandbox-off steps**", 1)[1].split("\n## ", 1)[0]
     check("601: the DIRTY recovery merge is listed among the sandbox-off steps", "`DIRTY`" in sandbox_off,
           sandbox_off)
