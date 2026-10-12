@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "602"
 tags: [backend, web, web-push, security, follow-ups]
@@ -58,9 +58,9 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason.
-- [ ] Item 1 and item 10 (the resubscribe credential model) are decided by the owner, and the decision is
+- [x] Item 1 and item 10 (the resubscribe credential model) are decided by the owner, and the decision is
       recorded in the Work Log with its date.
 
 ## Work Log
@@ -91,3 +91,47 @@ for an endpoint except the newest. It never deletes. Migration 2 adds
 `UniqueConstraint(fields=['endpoint'], condition=Q(is_active=True))`. The subscribe and resubscribe services
 catch the `IntegrityError` and retry the release once. Add a test that two active rows for one endpoint
 cannot coexist. No prod count is needed, because the dedupe only deactivates rows.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-0349)
+
+- Items 1, 7, 8, 10, per the owner decision of 2026-10-11 above: `resubscribe_push` refuses a new endpoint on a
+  different push service (`web_push.push_service`, matched by allowlist suffix) and a disabled account, and its
+  docstring records the accepted residual risk. `web/public/sw.js` sends the secret only to a pinned API origin
+  (`https://api.houseplant-md.com`), or to a localhost API when the worker itself runs on localhost; plain http
+  is refused anywhere else. A new deployed API origin must be added to `ALLOWED_API_ORIGINS`.
+- Item 3: migration `users/0019` deactivates all but the newest active row per endpoint (never deletes), `0020`
+  adds `UniqueConstraint(endpoint, condition is_active)`, and `_store_subscription` retries the release once on
+  the `IntegrityError` inside a savepoint (`backend/apps/users/tests/test_push_resubscribe.py`).
+- Items 2, 4, 6, 9: a test for the `OperationalError` branch of the bulk `last_used` UPDATE; a JSON array or
+  scalar body to the resubscribe endpoint is a 400; the swap locks with `select_for_update(of=("self",))`; the
+  test module's rate-limit fixture uses a per-test in-memory cache instead of `cache.clear()`.
+- Item 5 declined: an inactive row does not record why it is inactive (a gone status, a user unsubscribe, or a
+  shared-browser release that carries the same secret), so reviving one could re-enable pushes a user turned off
+  or hand them to the previous account, which `test_a_deactivated_subscription_cannot_be_revived` pins. A safe
+  fix needs a deactivation-reason column; until then the Settings page reconciles on its next load.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-12-0349)
+
+- AC 1: `/bin/sh -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 3 -- backend/venv/bin/python -m pytest apps/forum_host/tests/test_web_push.py apps/users/tests/test_push_resubscribe.py --create-db -q -p no:cacheprovider && cd web && npx vitest run src/serviceWorker.test.ts'` — evidence `.sweep-evidence/g3/602-ac0.txt` (not committed), last lines:
+
+  ```text
+
+   Test Files  1 passed (1)
+        Tests  25 passed (25)
+     Start at  22:26:12
+     Duration  769ms (transform 30ms, setup 120ms, import 18ms, tests 14ms, environment 534ms)
+  ```
+
+- AC 2: `grep -n -A3 -E '^### 2026-10-11 - Owner decisions: items 1 and 3|^\*\*Item 1 \(and items 7, 8, 10\)' todos/archive/602-completed-p4-web-push-resubscribe-1051-followups.md` — evidence `.sweep-evidence/g3/602-ac1.txt` (not committed), last lines:
+
+  ```text
+  75-
+  76:**Item 1 (and items 7, 8, 10): keep the design, harden around it.** The resubscribe endpoint keeps using the
+  77-old subscription's endpoint + auth secret as its credential (the 456 design). Close the ways it can be abused:
+  78-
+  79-- Item 10: `sw.js` accepts only a pinned set of API origins for `?api=`, so a worker registered by an XSS cannot
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

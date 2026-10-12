@@ -447,13 +447,19 @@ NEW_KEYS = {"p256dh": "BNew-key", "auth": "new-secret"}  # pragma: allowlist sec
 
 @pytest.fixture(autouse=True)
 def _fresh_rate_limit_window():
-    """The resubscribe limit is per IP in the shared cache: start each test
-    with an empty window, or earlier runs' POSTs 429 this one."""
-    from django.core.cache import cache
+    """The resubscribe limit is per IP in the shared cache: give each test its
+    own empty in-memory cache, or earlier runs' POSTs 429 this one. Never
+    cache.clear(): that flushes the whole configured cache, Redis in dev
+    (todo 602 item 9). django-ratelimit looks its cache up per call, and a
+    CACHES override resets Django's cache handler."""
+    import uuid
 
-    cache.clear()
-    yield
-    cache.clear()
+    locmem = {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": f"web-push-test-{uuid.uuid4()}",
+    }
+    with override_settings(CACHES={"default": locmem, "renditions": locmem}):
+        yield
 
 
 def _resubscribe(old_endpoint, old_auth, new_endpoint=NEW_ENDPOINT):
@@ -572,3 +578,126 @@ def test_resubscribe_is_rate_limited_per_ip():
     ]
 
     assert statuses == [404] * limit + [429]
+
+
+# --- Todo 602: follow-ups from PR #1051 --------------------------------------
+
+
+@pytest.mark.django_db
+@override_settings(**PUSH_ON)
+def test_a_failed_last_used_update_never_fails_the_sent_batch():
+    """Item 2: the bulk last_used UPDATE runs after every push went out. An
+    OperationalError there must not reach the task's autoretry, which would
+    send every notification again."""
+    from apps.forum_host.tasks import send_forum_web_push_batch
+    from django.db import OperationalError
+    from django.db.models.query import QuerySet
+
+    users = [_subscribed(f"bookkeeping{i}") for i in range(2)]
+
+    with (
+        patch(
+            "apps.users.services.NotificationService.send_web_push_notification",
+            return_value=True,
+        ) as send,
+        patch.object(
+            QuerySet, "update", side_effect=OperationalError("db went away")
+        ) as update,
+    ):
+        send_forum_web_push_batch(
+            "reply_added",
+            [u.pk for u in users],
+            {"topic_id": "1", "post_id": "2", "actor_name": "Ada"},
+        )
+
+    assert send.call_count == 2
+    update.assert_called_once()
+    assert not PushSubscription.objects.filter(last_used__isnull=False).exists()
+
+
+@pytest.mark.parametrize("body", [[], ["x"], "text", 7])
+@pytest.mark.django_db
+def test_a_non_object_json_body_is_a_400_not_a_500(body):
+    """Item 4: an array or scalar body makes request.data a list or str."""
+    client = APIClient(enforce_csrf_checks=True)
+
+    response = client.post(RESUBSCRIBE_URL, body, format="json")
+
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_a_disabled_account_is_never_resubscribed():
+    """Item 7: the unauthenticated swap must not refresh a banned user's row."""
+    user = _subscribed("banned")
+    user.is_active = False
+    user.save(update_fields=["is_active"])
+    old = PushSubscription.objects.get(user=user)
+
+    assert _resubscribe(old.endpoint, KEYS["auth"]).status_code == 404
+    assert not PushSubscription.objects.filter(endpoint=NEW_ENDPOINT).exists()
+    old.refresh_from_db()
+    assert old.is_active is True
+
+
+@pytest.mark.parametrize(
+    "new_endpoint",
+    [
+        "https://updates.push.services.mozilla.com/wpush/v2/moved",
+        "https://web.push.apple.com/moved",
+        "https://wns2-par02p.notify.windows.com/w/?token=moved",
+    ],
+)
+@pytest.mark.django_db
+def test_the_swap_stays_on_the_old_push_service(new_endpoint):
+    """Item 1 (owner decision 2026-10-11): an endpoint + auth pair can move a
+    row only within its own push service, never to another one."""
+    user = _subscribed(f"svc{len(new_endpoint)}")
+    old = PushSubscription.objects.get(user=user)
+
+    assert _resubscribe(old.endpoint, KEYS["auth"], new_endpoint).status_code == 404
+    assert not PushSubscription.objects.filter(endpoint=new_endpoint).exists()
+    old.refresh_from_db()
+    assert old.is_active is True
+
+
+def test_the_push_service_is_the_matched_allowlist_suffix():
+    from apps.users.web_push import push_service
+
+    assert push_service(FCM_ENDPOINT) == "fcm.googleapis.com"
+    assert (
+        push_service("https://wns2-par02p.notify.windows.com/w/?token=x")
+        == push_service("https://db5p.notify.windows.com/w/?token=y")
+        == "notify.windows.com"
+    )
+    assert push_service("https://169.254.169.254/x") is None
+    assert push_service(None) is None
+
+
+@pytest.mark.django_db
+def test_the_swap_locks_only_the_subscription_row():
+    """Item 6: select_related('user') with a bare select_for_update() also
+    locks the joined auth user row; FOR UPDATE OF names the table to lock."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    if not connection.features.has_select_for_update_of:
+        pytest.skip("this database has no SELECT ... FOR UPDATE OF")
+    old = PushSubscription.objects.get(user=_subscribed("lock"))
+
+    with CaptureQueriesContext(connection) as queries:
+        assert _resubscribe(old.endpoint, KEYS["auth"]).status_code == 200
+
+    # The swap's lookup is the locking query that joins the user table
+    # (update_or_create takes its own, unjoined, FOR UPDATE too).
+    user_table = User._meta.db_table
+    joined_locks = [
+        q["sql"].split("FOR UPDATE", 1)
+        for q in queries.captured_queries
+        if "FOR UPDATE" in q["sql"] and user_table in q["sql"]
+    ]
+    assert len(joined_locks) == 1
+    _select, lock_clause = joined_locks[0]
+    assert "OF" in lock_clause
+    assert PushSubscription._meta.db_table in lock_clause
+    assert user_table not in lock_clause

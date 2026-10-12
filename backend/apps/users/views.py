@@ -912,9 +912,12 @@ def resubscribe_push_notifications(request: Request) -> Response:
     from .services import NotificationService
     from .web_push import clean_subscription
 
-    old = request.data.get("old_subscription")
+    # A JSON array or scalar body makes request.data a list or str: treat it
+    # as empty, so it is a 400 and not an AttributeError 500 (todo 602).
+    data = request.data if isinstance(request.data, dict) else {}
+    old = data.get("old_subscription")
     old = old if isinstance(old, dict) else {}
-    subscription_data = clean_subscription(request.data.get("subscription"))
+    subscription_data = clean_subscription(data.get("subscription"))
     if not subscription_data:
         return Response(
             {

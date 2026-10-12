@@ -70,15 +70,30 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil(openClick(resolveClickUrl(raw, self.location.origin)));
 });
 
+/** The API origins the worker may send a subscription's auth secret to (todo
+ * 602, owner decision 2026-10-11). That secret is the resubscribe credential,
+ * and same-origin script (an XSS) can register `/sw.js?api=<anything>`, which
+ * would outlive the XSS: so the origin is pinned here, not trusted from the
+ * URL. A new deployed API origin must be added to this list. */
+const ALLOWED_API_ORIGINS = ['https://api.houseplant-md.com'];
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
+
 /** The API origin, from the registration URL (`/sw.js?api=<origin>`): this
  * file is served as-is, outside Vite, so it cannot read VITE_API_URL. Null
- * when it is missing or not an http(s) URL. */
+ * unless it is a pinned origin, or, in dev (the worker itself on localhost),
+ * a localhost origin. Never plain http anywhere else: the secret would travel
+ * in cleartext. */
 function apiOrigin() {
   try {
     const raw = new URL(self.location.href).searchParams.get('api');
     if (!raw) return null;
     const url = new URL(raw);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.origin : null;
+    if (ALLOWED_API_ORIGINS.includes(url.origin)) return url.origin;
+    const dev =
+      LOCAL_HOSTS.includes(new URL(self.location.href).hostname) &&
+      LOCAL_HOSTS.includes(url.hostname) &&
+      (url.protocol === 'http:' || url.protocol === 'https:');
+    return dev ? url.origin : null;
   } catch {
     return null;
   }
