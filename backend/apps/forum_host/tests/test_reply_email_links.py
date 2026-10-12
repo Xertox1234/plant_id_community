@@ -94,3 +94,17 @@ def test_reply_email_without_a_post_link_falls_back_to_the_topic():
     assert 'href=""' not in html
     assert HREF.findall(html).count("https://web.example/forum/1-b/2-t") == 2
     assert "Read the reply: https://web.example/forum/1-b/2-t\n" in message.body
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("origin", [None, ""])
+def test_an_unset_site_url_does_not_fail_the_batch(origin):
+    """Todo 639 finding 5: SITE_URL None or empty must not raise an
+    AttributeError a Celery retry can never fix; the email still goes out."""
+    owner, board, topic, post = _reply("nsnone" if origin is None else "nsempty")
+
+    with override_settings(SITE_URL=origin):
+        message, html = _send(owner, post)
+
+    assert f"/forum/{board.id}-{board.slug}/{topic.id}-{topic.slug}" in html
+    assert "None" not in message.body
