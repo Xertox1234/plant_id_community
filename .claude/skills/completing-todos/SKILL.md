@@ -187,7 +187,9 @@ With `--limit N`, execute only the first ⌈N / workers⌉ waves and list the de
 
 Steps 1–8 run with the sandbox off (see **Sandbox**).
 
-1. `WT=$(python3 scripts/todos/state.py ensure-worktree $RUN G --scratch $SCRATCH/worktrees)`
+1. `WT=$(python3 scripts/todos/state.py ensure-worktree $RUN G --scratch REPO/.claude/worktrees)`
+   (`--scratch` is where a lost worktree is re-added. Keep it under `.claude/worktrees/`: the worker git guard
+   denies a repair worker's `git add` anywhere else, todo 618.)
 2. `/usr/bin/git -C $WT diff --cached --stat` — the only view of the change you take.
 3. For each todo id in G: `python3 scripts/todos/land.py flip-acs --run $RUN --id <id> --repo $WT --date $TODAY`.
    If `remaining` has a criterion that is not a re-point, stop this group:
