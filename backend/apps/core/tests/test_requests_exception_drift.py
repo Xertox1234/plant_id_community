@@ -1131,9 +1131,19 @@ def _exception_details_in_response_dicts(path):
             else []
         )
         if handler_names:
+            # Todo 633 (finding 1): what this def derives from the handler's
+            # names counts as theirs, as a handler's own locals do -- `msg = e;
+            # def render(m=type(msg).__name__)` one def below the handler.
+            handler_names = _tainted_names(scope, lambda n: False, seed=handler_names)
+            # Todo 633 (finding 2): a default reading a comprehension's own
+            # variable, bound from a clean iterable, does not read the name it
+            # spells -- `[(lambda m=type(e).__name__: ...)() for e in items]`.
+            deep_shadowed = _comprehension_shadowed(_own_nodes(scope), handler_names)
             for child, own in closures:
                 closure_seeds.setdefault(id(child), set()).update(
-                    _params_defaulting_to(child, handler_names, walk=ast.walk)
+                    _params_defaulting_to(
+                        child, handler_names, shadowed=deep_shadowed, walk=ast.walk
+                    )
                 )
                 strict.setdefault(id(child), set()).update(handler_names - own)
         loops = _loop_bodies(scope) if handlers else []
@@ -1150,6 +1160,9 @@ def _exception_details_in_response_dicts(path):
             )
             visible = {handler.name} | derived
             check(_own_nodes(handler), visible)
+            # Todo 633 (finding 2): the same clean-comprehension reads, for the
+            # defaults of the defs directly in this handler.
+            handler_shadowed = _comprehension_shadowed(_own_nodes(handler), visible)
             for child, own in closures:
                 # Todo 555: a def after the handler in the same loop body can
                 # still run inside the handler on a later iteration.
@@ -1161,7 +1174,9 @@ def _exception_details_in_response_dicts(path):
                 # reads the exception captures it under the parameter's name.
                 if handler.lineno <= child.lineno <= handler.end_lineno:
                     closure_seeds.setdefault(id(child), set()).update(
-                        _params_defaulting_to(child, visible, walk=ast.walk)
+                        _params_defaulting_to(
+                            child, visible, shadowed=handler_shadowed, walk=ast.walk
+                        )
                     )
                     closure_reach.setdefault(id(child), set()).update(visible)
                     strict.setdefault(id(child), set()).update(visible - own)
@@ -2412,6 +2427,63 @@ def approved_a_middle_def_rebinds_the_exception_name():
             return render()
 
         return outer()
+
+
+# --- Todo 633 (PR #1078 follow-ups) ---
+
+
+def a_default_names_what_a_middle_def_derived():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+
+        def outer():
+            fx_msg = e
+
+            def render(fx_type=type(fx_msg).__name__):
+                return {"error": f"middle derived {fx_type}"}
+
+            return render()
+
+        return outer()
+
+
+def a_deep_lambda_default_reads_a_comprehension_over_the_exception():
+    try:
+        requests.get("https://example.invalid")
+    except ValueError as e:
+
+        def outer():
+            return [
+                (lambda fx_arg=type(e).__name__: {"error": f"deep arg {fx_arg}"})()
+                for e in e.args
+            ]
+
+        return outer()
+
+
+def approved_a_deep_lambda_default_reads_a_clean_comprehension_variable(items):
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+
+        def outer():
+            return [
+                (lambda fx_clean=type(e).__name__: {"error": f"{fx_clean}"})()
+                for e in items
+            ]
+
+        return outer()
+
+
+def approved_a_handler_lambda_default_reads_a_clean_comprehension_variable(items):
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+        return [
+            (lambda fx_near=type(e).__name__: {"error": f"{fx_near}"})()
+            for e in items
+        ]
 """
 
 
@@ -2469,6 +2541,10 @@ def test_the_guards_resolve_scopes_the_way_python_does(tmp_path):
         # whose own parameter rebinds the exception's name.
         "f'rebound arg {fu_arg}'",  # a lambda param rebinds e, the iterable reads it
         "f'deep type default {fu_type}'",  # type(e) in a default two defs deep
+        # Todo 633 (PR #1078 follow-ups). Quiet beside these: a lambda default
+        # reading a comprehension's clean `e`, in the handler and a def deeper.
+        "f'middle derived {fx_type}'",  # a default names what a middle def derived
+        "f'deep arg {fx_arg}'",  # control: that `e` iterates the exception's args
     }, exc
     assert {src for _, src in body} == {
         "body",  # nonlocal: a child taints its parent

@@ -9,6 +9,7 @@ This file pins a shape those cannot reach with today's rule files: a final line
 longer than the tail's share of the split.
 """
 import os
+import re
 import sys
 import unittest
 
@@ -146,15 +147,37 @@ class EveryRoutedDomainContributesTests(unittest.TestCase):
             skipped = total - len(body.encode("utf-8"))
             return len(head.encode("utf-8")) - len(str(skipped)) + len(str(total))
 
-        # The marker also prints the share, so measure again just past the
-        # first estimate: a cost that agrees with itself there is the edge's,
-        # whatever share digits the wording carries.
-        tail_cost = tail_cost_at(tail_cost_at(200) + 1)
-        self.assertEqual(tail_cost_at(tail_cost + 1), tail_cost)
+        # The suffix measure needs the file's last line to be one "x" run
+        # longer than every share below: assert it, so a fixture change fails
+        # here by name rather than as an odd split.
+        self.assertTrue(text.endswith("x" * 300 + "\n"), text[-40:])
+
+        # The marker also prints the share, so measure again just past each
+        # estimate until two measurements at DIFFERENT shares agree: that cost
+        # is the edge's, whatever share digits the wording carries. Todo 633
+        # (finding 3): the old re-measure repeated the call that set the cost,
+        # so it could not fail. The edge assertions after the loop are what
+        # catch a wrong cost: off by one digit, "" moves or at_edge's size does.
+        tail_cost = tail_cost_at(200)
+        for _ in range(3):
+            remeasured = tail_cost_at(tail_cost + 1)
+            if remeasured == tail_cost:
+                break
+            tail_cost = remeasured
+        else:
+            self.fail(f"the marker cost never settled: last {tail_cost}")
         self.assertEqual(br.excerpt(text, tail_cost, path), "")
         at_edge = br.excerpt(text, tail_cost + 1, path)
         self.assertEqual(len(at_edge.encode("utf-8")), tail_cost + 1, at_edge)
         self.assertEqual(split(at_edge)[1], text[-1:], at_edge)
+        # Todo 633 (finding 4): the edge carries the same marker the sibling
+        # test reads the wording of at share 200 -- equal once every number
+        # (the skipped count and the share) is masked -- so the wording is
+        # pinned there and the shape here, without this test reading either.
+        self.assertEqual(
+            re.sub(r"\d+", "N", split(at_edge)[0]),
+            re.sub(r"\d+", "N", split(br.excerpt(text, 200, path))[0]),
+        )
         after = br.excerpt(text, tail_cost + 2, path)
         self.assertEqual(split(after)[1], text[-2:], after)
 
