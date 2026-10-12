@@ -147,3 +147,6 @@ fixed in the round-1 repair above. These are declined:
   - `force_reason` denies a runtime path before `--` for rm/mv. The deny message says why, and `todo-worker.md`
     can show `--` later. A `kimi_recovery` typo through `state.py set` is not validated. Neither changes what
     lands.
+- Known trade-off (kimi gate warning on the hand fix): an array assignment right after a `case` pattern's `)`,
+  such as `case $x in a) arr=(x);; esac`, is now denied. Treating `)` as a separator would let the zsh
+  glob-group shape above through. This fails closed: put the assignment on its own line, or after `;`.
