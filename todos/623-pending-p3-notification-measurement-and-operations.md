@@ -4,6 +4,9 @@ priority: p3
 issue_id: "623"
 tags: [backend, notifications, email, observability, operations, privacy]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Owner: repo-only slice now — outcome vocabulary shared with 619, remove misleading track_opens, worker/beat/queue alert counters; provider feedback ingestion, attribution, prod checks and baseline re-pointed to a follow-up todo. Email provider unknown, decide later (2026-10-12)"
 ---
 
 # Measure delivery and engagement and verify notification operations
@@ -40,11 +43,11 @@ Existing work remains separate: 547 owns the physical-device due-care verificati
 ## Acceptance Criteria
 
 - [ ] All live email/push send paths contribute consistent attempted/accepted/failed/suppressed outcomes; tests distinguish provider acceptance from delivered/displayed and from user engagement.
-- [ ] Provider feedback authentication, malformed-event refusal, duplicate/replayed/out-of-order events and message correlation are tested. Bounce/complaint suppression prevents inappropriate future sends under a recorded policy without bypassing account-security controls.
-- [ ] Click/action attribution is implemented with recorded consent/privacy, retention and deletion rules; tests cover attribution windows and no duplicate counting. Any decision not to collect opens is explicit, and the unused track_opens promise is removed or corrected.
+- [ ] Provider feedback authentication, malformed-event refusal, duplicate/replayed/out-of-order events and message correlation are tested. Bounce/complaint suppression prevents inappropriate future sends under a recorded policy without bypassing account-security controls. → todo 625 (re-pointed 2026-10-12)
+- [ ] Click/action attribution is implemented with recorded consent/privacy, retention and deletion rules; tests cover attribution windows and no duplicate counting. Any decision not to collect opens is explicit, and the unused track_opens promise is removed or corrected. → todo 625 (re-pointed 2026-10-12)
 - [ ] Tests or controlled fault injection demonstrate alerts for broker failure, aged queues, exhausted retries, missing push configuration and missed worker/beat activity without secrets or raw PII in logs.
-- [ ] Owner-approved production checks record dates and observed results for sender-domain authentication, deployed provider settings, worker/beat and push readiness; unknowns stay explicitly open, not marked verified from repository defaults.
-- [ ] Controlled test-inbox/device delivery evidence and an initial aggregate baseline are recorded, with observation window, denominators, delivery latency and click/action/unsubscribe outcomes; existing evidence from 547 may be reused with its build/date stated.
+- [ ] Owner-approved production checks record dates and observed results for sender-domain authentication, deployed provider settings, worker/beat and push readiness; unknowns stay explicitly open, not marked verified from repository defaults. → todo 625 (re-pointed 2026-10-12)
+- [ ] Controlled test-inbox/device delivery evidence and an initial aggregate baseline are recorded, with observation window, denominators, delivery latency and click/action/unsubscribe outcomes; existing evidence from 547 may be reused with its build/date stated. → todo 625 (re-pointed 2026-10-12)
 - [ ] Operational recovery steps and the single-scheduler/scaling constraint are documented in the existing deployment/pattern docs; relevant backend/consumer tests pass. Unavailable external checks remain open or are explicitly re-pointed before archive.
 
 ## Work Log
@@ -53,6 +56,10 @@ Existing work remains separate: 547 owns the physical-device due-care verificati
 
 - Grouped delivery feedback, engagement measurement, alerting and production evidence gaps. No active todo covering this end-to-end scope was found in the backlog comparison.
 - No provider/DNS configuration or production user data was accessed or changed during filing. Production checks and any live messages require explicit approval.
+
+### 2026-10-12 - Triage split (run 2026-10-12-1616)
+
+- Owner decision at triage: repo-only slice here (outcome vocabulary, track_opens, alert counters, docs); provider feedback (AC2), attribution (AC3), prod checks (AC5) and baseline (AC6) re-pointed to [todo 625](625-pending-p3-notification-provider-feedback-and-prod-baseline.md). Provider unknown.
 
 ## Notes
 

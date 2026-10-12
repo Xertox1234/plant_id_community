@@ -4,6 +4,9 @@ priority: p2
 issue_id: "619"
 tags: [backend, notifications, email, celery, reliability, security]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Owner: rechecks, then outbox — keep all of 619 here: first a shared send-time eligibility recheck slice, then a transactional outbox with per-recipient attempts and reconciliation (2026-10-12)"
 ---
 
 # Revalidate and recover external notification deliveries

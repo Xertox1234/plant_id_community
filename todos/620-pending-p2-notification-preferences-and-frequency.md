@@ -4,6 +4,9 @@ priority: p2
 issue_id: "620"
 tags: [backend, web, mobile, notifications, preferences, product]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Owner: policy matrix + web/mobile parity only; important-event email and quiet hours/coalescing deferred to a follow-up todo (AC4/AC5 re-pointed). Plant ID Notifications switch: relabel it, do not remove or build a trigger (2026-10-12)"
 ---
 
 # Make notification choices consistent and reduce avoidable noise
@@ -42,8 +45,8 @@ Read `web/docs/patterns/react-typescript.md`, `web/docs/patterns/testing.md`, an
 - [ ] A recorded policy matrix defines effective opt-in for every live email/push event, security-mail exceptions, newsletter independence and legacy flag precedence; owner decisions on new channels/frequency defaults are recorded before implementation.
 - [ ] Web and mobile show and update the same effective forum email/push and digest choices. Tests cover mobile-off/web-on and web-off/mobile-on sequences, failed saves, and persisted state after reload.
 - [ ] Tests prove broad opt-outs, digest/newsletter choices and signed unsubscribe actions follow the documented policy; any migration preserves prior opt-outs and requires no manual user repair.
-- [ ] Mention/quote/accepted-answer email and mentioned-subscriber behavior are explicitly decided; approved channels are implemented and tested for missing push registration, deduplication and unsubscribe. Any declined channel has a dated reason, not an untracked deferral.
-- [ ] Approved quiet-hour/frequency behavior is implemented and tested across timezones/DST, rapid replies, read-before-send, preference changes while waiting, and security-mail exemptions. Any declined option has a dated owner decision.
+- [ ] Mention/quote/accepted-answer email and mentioned-subscriber behavior are explicitly decided; approved channels are implemented and tested for missing push registration, deduplication and unsubscribe. Any declined channel has a dated reason, not an untracked deferral. → todo 624 (re-pointed 2026-10-12)
+- [ ] Approved quiet-hour/frequency behavior is implemented and tested across timezones/DST, rapid replies, read-before-send, preference changes while waiting, and security-mail exemptions. Any declined option has a dated owner decision. → todo 624 (re-pointed 2026-10-12)
 - [ ] Plant ID notification switch behavior is backed by a live trigger test or is removed/relabelled under a recorded decision; a test-only sender is not evidence of a shipped feature.
 - [ ] Relevant backend preference/unsubscribe tests, web settings tests and type-check, and mobile preference tests/analyze pass.
 
@@ -53,6 +56,10 @@ Read `web/docs/patterns/react-typescript.md`, `web/docs/patterns/testing.md`, an
 
 - Grouped cross-platform settings, optional important-event email and notification-fatigue improvements into one user-policy initiative.
 - Archived 343/408 were checked: related mechanisms shipped, but no active todo covers this consistency work. No product defaults or application code changed during filing.
+
+### 2026-10-12 - Triage split (run 2026-10-12-1616)
+
+- Owner decision at triage: policy matrix + web/mobile parity ship here; important-event email (AC4) and quiet hours/coalescing (AC5) re-pointed to [todo 624](624-pending-p2-important-event-email-and-quiet-hours.md). Plant ID switch: relabel.
 
 ## Notes
 
