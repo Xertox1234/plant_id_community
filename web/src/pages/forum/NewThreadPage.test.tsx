@@ -70,6 +70,17 @@ function renderPage() {
   );
 }
 
+// Board 5 resolves to a board of its own name, so a test can wait for the
+// switch to finish -- the fetch resolved and the page re-rendered with it --
+// rather than for the fetch to start (todo 634).
+function serveBoardFive() {
+  vi.mocked(forumService.fetchCategory).mockImplementation(async (id) =>
+    Number(id) === 5
+      ? { id: '5', name: 'Pests', slug: 'pests', created_at: '' }
+      : { id: '3', name: 'Plant Care', slug: 'plant-care', created_at: '' }
+  );
+}
+
 describe('NewThreadPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -907,6 +918,7 @@ describe('NewThreadPage', () => {
       slug: 'my-topic',
       status: 'published',
     });
+    serveBoardFive();
     const view = renderPage();
     await screen.findByText('Plant Care');
     await userEvent.type(screen.getByLabelText(/title/i), 'Board A');
@@ -928,7 +940,9 @@ describe('NewThreadPage', () => {
         </AnnouncerProvider>
       </MemoryRouter>
     );
-    await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+    // Wait for the switch to finish, not just start: a reset that landed in a
+    // later tick (after the fetch resolves) would pass a wait on the call.
+    await screen.findByText('Pests');
     // No draft to load: the text stays (owner decision 2026-10-11), and the
     // poll stays with it.
     expect(screen.getByLabelText(/title/i)).toHaveValue('Board A');
@@ -1191,6 +1205,7 @@ describe('NewThreadPage', () => {
         slug: 'my-topic',
         status: 'published',
       });
+      serveBoardFive();
       const view = renderWithHandoff(HANDOFF);
       await screen.findByText('Plant Care');
       await userEvent.type(screen.getByLabelText('body'), 'hello');
@@ -1206,7 +1221,8 @@ describe('NewThreadPage', () => {
           </AnnouncerProvider>
         </MemoryRouter>
       );
-      await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+      // The switch finished, not just started (todo 634).
+      await screen.findByText('Pests');
       // No draft to load: the text stays, and the photo that goes with it.
       expect(screen.getByLabelText(/title/i)).toHaveValue('Is this Swiss cheese plant?');
       expect(screen.getByText(/identification attached/i)).toBeInTheDocument();

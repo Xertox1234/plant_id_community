@@ -41,7 +41,9 @@ type InlineChoices = { error: string } | { choices: [string, string][]; residue:
 // closing `]` up to the next `,` or `)` -- `choices=[...] + EXTRA` -- is
 // residue too (todo 590), its parentheses balanced two levels deep so a call
 // such as `+ list(EXTRA)` is reported whole, not cut at its own `)` (todo 610).
-// Known limit: a `]` inside a label ends the list early.
+// Known limits: a `]` inside a label ends the list early, and a third level of
+// parentheses cuts the tail at its own `(` -- `+ list(chain(f(A), B))` is
+// reported as `+ list`, still residue, so the drift is still caught (todo 634).
 function readInlineChoices(source: string, field: string): InlineChoices {
   const decl = source.match(
     new RegExp(`^ {4}${field} = models\\.CharField\\(((?:(?!\\n {4}\\S)[\\s\\S])*)`, 'm')
@@ -354,6 +356,16 @@ describe('readInlineChoices', () => {
     const read = ok(FIXTURE.replace('        ],\n', `        ]${tail},\n`));
     expect(read.choices).toEqual(FIXTURE_CHOICES);
     expect(read.residue).toBe(residue);
+  });
+
+  // Todo 634: the tail balances parentheses two levels deep and no further. A
+  // third level stops the tail at the `(` it cannot balance, so the residue is
+  // cut short -- but never empty, so the guard still fails. Pinned so a change
+  // to the depth (or a recursive parser) has a case that tells them apart.
+  it('cuts a three-level call after the list short, but still reports it', () => {
+    const read = ok(FIXTURE.replace('        ],\n', '        ] + list(chain(f(A), B)),\n'));
+    expect(read.choices).toEqual(FIXTURE_CHOICES);
+    expect(read.residue).toBe('+ list');
   });
 
   it('ignores a commented-out tuple', () => {
