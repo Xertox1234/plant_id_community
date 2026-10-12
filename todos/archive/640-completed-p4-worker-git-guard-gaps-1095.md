@@ -83,3 +83,18 @@ Filed by the closing step of the run from `state.py followups-md g1`.
 ### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-2056)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Repaired by the todo sweep (run 2026-10-12-2056)
+
+- Round-1 review: the #1/#4 xargs deny looked only at the wrapper right around git, so `xargs -I % env git -C
+  WT/% add -A`, `xargs nice git ...` and `echo -f | xargs env git -C WT add backend/.env` were allowed. In
+  `scripts/todos/worker_git_guard.py` the xargs state is now sticky: everything judged below an xargs (any
+  wrapper, any depth) denies a staging git, and a shell `-c` under xargs is denied outright, since `-I %`
+  can put the input into the script itself (`xargs -I % sh -c '%'`).
+- Round-1 review: the #3 exemption let any `word=(` through, but zsh reads `x=(e:'git push':)` in argument
+  position as a glob qualifier that runs a command. A glued `(` after `NAME=` (or `NAME+=`) is now exempt only
+  in assignment position (first in its command, or after other assignments); anywhere else it is a parse
+  failure, so it is denied.
+- Tests: 14 new cases in `.claude/hooks/test-guard-todo-worker-git.sh` (xargs with env, nice, timeout,
+  command and sh/bash -c; `ls WT/x=(e:'git push':)`, `echo foo=(...)`, `export x=(...)`; controls that
+  `arr=(a b)`, `arr+=(c)`, a read under `xargs env` and a git after the xargs segment stay allowed).

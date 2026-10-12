@@ -102,6 +102,10 @@ RUNTIME_FORCE_REASON = ("git {sub}: {raw} is built at runtime and could be -f / 
 # could come from its input.
 XARGS_REASON = ("git {sub} through xargs builds its arguments at runtime (a -C or a -f could come from the input); "
                 "run git -C <absolute WT> {sub} -- <paths> directly")
+# Todo 640 repair: xargs -I % sh -c '... %' puts the input into the script itself, so any command could come from it.
+XARGS_SHELL_REASON = ("{program} -c through xargs runs a script built from the input (-I/-J put it in the script); "
+                      "run the command directly")
+UNDER_XARGS = [0]  # > 0 while judging what an xargs runs, at any depth below it
 # Todo 640 #8: with WT/.git gone, git -C WT finds the repository above it -- the main checkout.
 REMOVERS = {"rm", "unlink", "rmdir", "mv"}
 DOT_GIT_REASON = ("{program} on a .git is not allowed for this agent: git -C <WT> would then find the main "
@@ -145,6 +149,7 @@ STDIN_REASON = "run git directly, not through a shell reading stdin"
 # Todo 496 G: `: ${GIT_DIR:=/x/.git}` (also = and zsh's ::=) assigns through a parameter expansion, and zsh's
 # ${(P)name::=x} assigns to the variable `name` holds. Arithmetic assigns too: $((GIT_X=1)), let, (( )).
 PARAM_ASSIGN = re.compile(r"\$\{GIT_\w*:{0,2}=|\$\{\([^)]*P[^)]*\)[^}]*=")
+ARRAY_ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=\Z")
 ARITH_ASSIGN = re.compile(r"\bGIT_\w*\s*(?:\*\*|<<|>>|[-+*/%&|^])?=(?!=)")
 PARAM_REASON = "assigning a GIT_* variable inside an expansion is not allowed for this agent"
 NAME_START = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -222,7 +227,8 @@ class Lexer:
             c = s[self.i]
             if c in "<>" and s.startswith("(", self.i + 1):
                 self.read_subst(value)
-            elif c == "(" and self.i > start and not s.startswith("()", self.i) and s[self.i - 1] != "=":
+            elif (c == "(" and self.i > start and not s.startswith("()", self.i)
+                  and not self.array_assignment(s[start:self.i])):
                 # Todo 640 #3: zsh reads a ( glued inside a word as a glob qualifier (MAIN(/) is MAIN) and bash's
                 # extglob as a pattern, so the word is not where the ( splits it. f() and NAME=( ) still split.
                 raise ValueError("a ( inside a word (a zsh glob qualifier or an extended glob)")
@@ -247,6 +253,19 @@ class Lexer:
                 value.append(c)
                 self.i += 1
         return Word("".join(value), s[start:self.i], self.nested[first:])
+
+    def array_assignment(self, text):
+        """True when a ( after `text` opens an array assignment: text is NAME= (NAME[i]=, NAME+=) and stands in
+        assignment position, first in its command or after other assignments only. In argument position zsh
+        reads x=(e:'git push':) as a glob qualifier that runs a command (todo 640 repair)."""
+        if not ARRAY_ASSIGN.match(text):
+            return False
+        for kind, token in reversed(self.tokens):
+            if kind == "op":
+                return True
+            if kind != "word" or not is_assignment(token):
+                return False
+        return True
 
     def read_double(self, value):
         s = self.s
@@ -803,6 +822,14 @@ def check_wrapper(name, args, piped, stdin, depth):
                 return PARSE_REASON
             return check_wrapper("env", parts + after, piped, stdin, depth)
         j += option_span(name, args, j)
+    if name == "xargs":
+        # Todo 640 repair: whatever xargs runs gets its words from the input, however deep it sits (xargs env
+        # git, xargs -I % sh -c '... %'), so the xargs state holds for everything judged below it.
+        UNDER_XARGS[0] += 1
+        try:
+            return check_words(args[j + operands:], piped, stdin, depth, wrapped=name)
+        finally:
+            UNDER_XARGS[0] -= 1
     return check_words(args[j + operands:], piped, stdin, depth, wrapped=name)
 
 
@@ -850,6 +877,8 @@ def check_shell(program, args, piped, stdin, depth):
     if has_script:
         if not operand:
             return "sh -c without a script"
+        if UNDER_XARGS[0]:
+            return XARGS_SHELL_REASON.format(program=program)
         return decide_command(operand.value, depth + 1)
     return shell_reads_stdin(operand, reads_stdin, piped, stdin)
 
@@ -913,7 +942,7 @@ def check_git(args, wrapped):
     reason = check_git_subcommand(sub, args[j + 1:])
     if reason:
         return reason
-    if wrapped == "xargs" and sub in FORCE_SUBCOMMANDS and sub in CONTEXT["allowed"]:
+    if (wrapped == "xargs" or UNDER_XARGS[0]) and sub in FORCE_SUBCOMMANDS and sub in CONTEXT["allowed"]:
         return XARGS_REASON.format(sub=sub)
     return check_staging(sub, where, tree, git_dir, bad)
 

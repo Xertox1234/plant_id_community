@@ -681,12 +681,28 @@ if [ -n "$R" ] && git init -q "$R/main" && git -C "$R/main" -c user.email=t@t -c
   assert_deny_msg "640.2: xargs -R 2 -I % git push" $W 'echo x | xargs -R 2 -I % git push %' 'git push is reserved'
   assert_deny_msg "640.2: xargs -S 255 -I % git commit" $W 'echo x | xargs -S 255 -I % git commit -m %' 'git commit is reserved'
   assert_deny_msg "640.2: xargs -J% (glued) git push" $W 'echo x | xargs -J% git push %' 'git push is reserved'
+  # Repair (round 1): the xargs state is sticky -- a wrapper or a shell between xargs and git does not drop it.
+  assert_deny_msg "640 repair: xargs -I % env git -C WT/% add -A" $W "echo ../../.. | xargs -I % env git -C $T/% add -A" "$XARGS_MSG"
+  assert_deny_msg "640 repair: xargs -I % nice git -C WT/% add -A" $W "echo .. | xargs -I % nice git -C $T/% add -A" "$XARGS_MSG"
+  assert_deny_msg "640 repair: xargs timeout 5 git -C WT add" $W "echo -f | xargs timeout 5 git -C $T add backend/.env" "$XARGS_MSG"
+  assert_deny_msg "640 repair: echo -f | xargs env git -C WT add backend/.env" $W "echo -f | xargs env git -C $T add backend/.env" "$XARGS_MSG"
+  assert_deny_msg "640 repair: xargs env nice command git -C WT rm" $W "echo -f | xargs env nice command git -C $T rm x" "$XARGS_MSG"
+  assert_deny_msg "640 repair: xargs -I % sh -c 'git -C WT/% add -A'" $W "echo .. | xargs -I % sh -c 'git -C $T/% add -A'" 'through xargs runs a script'
+  assert_deny_msg "640 repair: xargs -I % sh -c '%'" $W "echo 'git push' | xargs -I % sh -c '%'" 'through xargs runs a script'
+  assert_deny_msg "640 repair: xargs env bash -c" $W "echo x | xargs env bash -c 'echo \$1' _" 'through xargs runs a script'
+  assert_raw "640 repair: xargs env running a read is still fine" allow "$(cwd_event $W "$M" "printf 'a.py\n' | xargs env git -C $T diff --stat --")"
+  assert_allow "640 repair: a staging git after the xargs segment is judged on its own" $W "echo a | xargs echo; git -C $T add -A"
   # #3: zsh reads a ( glued inside a word as a glob qualifier: MAIN(/) is MAIN.
   assert_deny "640.3: git -C MAIN(/) add -A" $W "git -C $M(/) add -A"
   assert_deny "640.3: git -C /usr(/) push" $W 'git -C /usr(/) push'
   assert_deny "640.3: git -C WT(/) add -A (a qualifier is never a literal path)" $W "git -C $T(/) add -A"
   assert_deny_msg "640.3: an extglob word" $W 'ls @(a|b)' 'could not be parsed'
   assert_allow "640.3: f() and NAME=( ) still split" $W "f() { git status; }; f; arr=(a b); git -C $T add -A"
+  # Repair (round 1): zsh reads word=( in argument position as a glob qualifier too; e:'...' runs a command.
+  assert_deny_msg "640 repair: ls WT/x=(e:'git push':)" $W "mkdir -p $T/x= && ls $T/x=(e:'git push':)" 'could not be parsed'
+  assert_deny_msg "640 repair: echo foo=(e:...) after a command word" $W "echo foo=(e:'git push':)" 'could not be parsed'
+  assert_deny "640 repair: export x=(...) is not assignment position" $W "export x=(e:'git push':)"
+  assert_allow "640 repair: NAME=( after assignments and NAME+=( still split" $W "a=1 arr=(a b); arr+=(c); ( b=(e) ); git -C $T add -A"
   # #4: an option word built at runtime could be -f.
   RT_MSG='built at runtime and could be -f'
   assert_deny_msg "640.4: git -C WT add \$(printf -- -f) backend/.env" $W "git -C $T add \$(printf -- -f) backend/.env" "$RT_MSG"
