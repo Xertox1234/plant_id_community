@@ -148,10 +148,15 @@ class DiseaseAutostorageService:
         psycopg names the constraint in `diag.constraint_name`. A driver
         without it (SQLite, or an error raised by hand) still names it in the
         message, so that is checked too (todo 636).
+
+        When psycopg's `diag` is there, it alone decides: an error it names no
+        constraint for (NOT NULL, for one) is not a collision. Its message is
+        not read, because its DETAIL echoes the row's values, including the
+        API-supplied disease name (todo 646).
         """
         diag = getattr(exc.__cause__, "diag", None)
-        constraint = getattr(diag, "constraint_name", None)
-        if constraint is not None:
+        if diag is not None:
+            constraint = getattr(diag, "constraint_name", None)
             return constraint == DISEASE_NAME_LOWER_UNIQUE
         return DISEASE_NAME_LOWER_UNIQUE in str(exc)
 
