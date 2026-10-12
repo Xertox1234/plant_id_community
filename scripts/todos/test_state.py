@@ -251,6 +251,22 @@ def main():
               "(stage verified, selector next)", fm13["triage"] == "ready" and "blocked_on" not in fm13, fm13)
         check("614 #1: a needs-research todo decided plain ready, then a criterion confirmed, keeps its class",
               fm14["triage"] == "needs-research" and "confirmed by the owner" in fm14["owner_decision"], fm14)
+        # Todo 637 #2/#4: leaving triage with no owner_decision is not an answer. `decide ready --reset-stranded`
+        # with no --decision answers the stranded question only, and `state.py set <id> ready` (a bare
+        # transition) answers nothing, so both keep the triager's class and blocked_on. Both failed before.
+        (repo / "todos/15-pending-p3-x.md").write_text(head.format(s="pending", i="15"))
+        (repo / "todos/16-pending-p3-x.md").write_text(head.format(s="pending", i="16"))
+        bare = state.new_run("r4h", "sweep", 3, [todo("15"), todo("16")], ["15", "16"])
+        state.record_triage(bare, [rec("15", "needs-design", "Which layout?", "needs the layout call"),
+                                   rec("16", "blocked-external", "Vendor ready?", "waits on the vendor")])
+        state.decide(bare, "15", "ready", reset_stranded=True)
+        state.transition(bare, "16", "ready")
+        state.apply_triage(bare, repo, "2026-10-12")
+        fm15, fm16 = (todofile.read_frontmatter(repo / f"todos/{i}-pending-p3-x.md") for i in ("15", "16"))
+        check("637 #2: a needs-design todo decided ready --reset-stranded with no decision keeps its class and "
+              "blocked_on", fm15["triage"] == "needs-design" and fm15["blocked_on"] == "needs the layout call", fm15)
+        check("637 #4: a blocked-* todo moved to ready by a bare `set` keeps its class and blocked_on",
+              fm16["triage"] == "blocked-external" and fm16["blocked_on"] == "waits on the vendor", fm16)
 
         import scan  # noqa: E402 -- scan imports state, so only here
         picked, _ = scan.select(scan.load_todos(repo / "todos"), selector="sweep", inflight=set(),

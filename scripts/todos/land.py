@@ -559,6 +559,7 @@ def flip_acs(repo, todo_rel, ac_entries, verdict_ac, run_id, date, main_root="",
         notes.append(f"- AC {index + 1}: `{command}` — evidence `{evidence_display}` (not committed), "
                      f"last lines:\n\n  {fence}text\n{quoted}\n  {fence}\n")
     path.write_text("".join(lines))
+    date = _log_date(path, date)
     if notes:
         todofile.append_work_log(path, f"### {date} - Verified by the todo sweep (run {run_id})\n\n" + "\n".join(notes))
     if owner_notes:
@@ -570,6 +571,24 @@ def flip_acs(repo, todo_rel, ac_entries, verdict_ac, run_id, date, main_root="",
 
 def _valid_date(date):
     return bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(date)))
+
+
+LOG_HEADING_DATE_RE = re.compile(r"^### (\d{4}-\d{2}-\d{2}) ")
+
+
+def _log_date(path, date):
+    """The date for a new Work Log entry: `date`, or the latest dated Work Log heading when that is later.
+
+    Todo 637 #7: Land's `--date` can be a day behind the worker's entry for the same run (hypothesis, not
+    verified: RUN_ID is UTC and TODAY local, so a run started just after midnight UTC is still the day before
+    in the US), which put the Verified and Completed entries, dated the 11th, after an Implemented entry dated
+    the 12th. Entries are appended in order, so their dates must never go backwards."""
+    lines = Path(path).read_text().splitlines()
+    bounds = todofile._section_bounds(lines, "Work Log")
+    if bounds is None or not _valid_date(date):
+        return date
+    found = [m.group(1) for line in lines[bounds[0]:bounds[1]] if (m := LOG_HEADING_DATE_RE.match(line))]
+    return max([date, *found])
 
 
 def fix_baseline(repo, old_rel, new_rel):
@@ -941,7 +960,7 @@ def archive(repo, todo_rel, run_id, date, git=run_git):
     git(repo, "mv", todo_rel, dest_rel)
     todofile.set_fields(dest, {"status": "completed"})
     tail_note = "evidence is quoted above, review is on the PR." if has_verified_note else "review is on the PR."
-    todofile.append_work_log(dest, f"### {date} - Completed by the todo sweep (run {run_id})\n\n"
+    todofile.append_work_log(dest, f"### {_log_date(dest, date)} - Completed by the todo sweep (run {run_id})\n\n"
                                    f"- Archived by `land.py archive`; {tail_note}\n" + _skipped_notes(review_plan))
     baseline = fix_baseline(repo, todo_rel, dest_rel)
     review = apply_review(repo, review_plan, dest, git)

@@ -1833,6 +1833,30 @@ def main():
     check("m9: flip_acs's own heading still does",
           land.has_verified_note_for("### d - Verified by the todo sweep (run r1)\n", "r1"))
 
+    # Todo 637 #7: Land's entries never go back in date behind an entry already in the Work Log (run
+    # 2026-10-12-0349 appended Verified and Completed entries dated the 11th after an Implemented one of the 12th).
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp)
+        git = lambda *a: subprocess.run(["git", "-C", tmp, *a], check=True, capture_output=True)  # noqa: E731
+        git("init", "-q")
+        (repo / "todos" / "archive").mkdir(parents=True)
+        rel = "todos/637-pending-p4-x.md"
+        (repo / rel).write_text("---\nstatus: pending\npriority: p4\nissue_id: \"637\"\n---\n\n# X\n\n"
+                                "## Acceptance Criteria\n\n- [x] done\n\n## Work Log\n\n"
+                                "### 2026-10-12 - Implemented by the todo sweep (run r)\n\n- did it\n\n"
+                                "## Notes\n\n### 2026-12-01 - not a Work Log heading\n")
+        git("add", "-A")
+        git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "x")
+        check("637 #7: a later Work Log heading wins over an earlier --date",
+              land._log_date(repo / rel, "2026-10-11") == "2026-10-12")
+        check("637 #7: ... a later --date is kept, and a heading outside the Work Log is not read",
+              land._log_date(repo / rel, "2026-10-13") == "2026-10-13")
+        result = land.archive(repo, rel, "r", "2026-10-11")
+        text = (repo / result["archived"]).read_text()
+        check("637 #7: archive dates its Completed entry no earlier than the Implemented entry",
+              "### 2026-10-12 - Completed by the todo sweep (run r)" in text
+              and "### 2026-10-11 -" not in text, text)
+
     print()
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} check(s): {', '.join(FAILURES)}")
