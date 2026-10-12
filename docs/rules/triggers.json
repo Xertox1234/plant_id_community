@@ -2082,7 +2082,7 @@
     ],
     "content_present": "except\\s+IntegrityError[\\s\\S]{0,400}?HTTP_409_CONFLICT",
     "content_absent": "constraint_name",
-    "message": "A bare except IntegrityError -> 409 reports every integrity fault (bad FK, NOT NULL) as a retryable race, unlogged. Check exc.__cause__.diag.constraint_name, 409 only for the race constraint with a [..] log line, re-raise the rest.",
+    "message": "A bare except IntegrityError -> 409 reports every integrity fault (bad FK, NOT NULL) as a retryable race, unlogged. Check exc.__cause__.diag.constraint_name, 409 only for the race constraint with a bracketed log line, re-raise the rest.",
     "pattern_ref": "docs/rules/api.md",
     "source": "codify: docs/codify-p4-batch-2026-10-12",
     "added": "2026-10-12",

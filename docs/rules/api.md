@@ -259,13 +259,13 @@ Compact checklist auto-injected before edits. Long-form:
   PR #1040). A hand-built page dict is right only on a plain `APIView` that
   paginates by hand. Assert the generated shape in a schema test.
 - **A bookkeeping write never fails the request.** An activity stamp, counter or
-  audit row that raises is logged with a `[...]` prefix and the request goes on.
+  audit row that raises is logged with a bracketed prefix (`[AUTH]`) and the request goes on.
   Check the real caller before returning a 5xx: web `refreshAccessToken` logs the
   user out on any non-2xx and never retries, so a 503 for a failed
   `last_token_refresh` stamp became a forced logout (todo 627, PR #1096 round 1).
 - **Map only the race you mean to a 409.** Around a write, catch
   `IntegrityError`, check `exc.__cause__.diag.constraint_name`, and return 409
-  only for that constraint, logged with a `[...]` prefix; re-raise anything else
+  only for that constraint, logged with a bracketed prefix (`[PUSH]`); re-raise anything else
   so a bad FK or NOT NULL still reaches the 500 path. A bare
   `except IntegrityError: return 409` reports every integrity fault as a
   retryable race, silently (todo 628, PR #1096; follow-up 641).
