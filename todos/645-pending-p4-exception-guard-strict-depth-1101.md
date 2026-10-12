@@ -4,6 +4,8 @@ priority: p4
 issue_id: "645"
 tags: [core, tests, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
 ---
 
 # Follow-ups from PR #1101 (todo 633, requests-exception drift guard)

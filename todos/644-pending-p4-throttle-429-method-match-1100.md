@@ -4,6 +4,8 @@ priority: p4
 issue_id: "644"
 tags: [api, tests, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
 ---
 
 # Follow-ups from PR #1100 (todo 632, 429 schema gate)

@@ -4,6 +4,9 @@ priority: p4
 issue_id: "642"
 tags: [forum, digest, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Finding 1 declined (owner tradeoff from 630). Finding 2: send_blog_newsletter also falls back to a plain delete on a None get, with the same None-read test; fix the other findings (2026-10-12)"
 ---
 
 # Follow-ups from PR #1098 (todo 630, digest lock release)

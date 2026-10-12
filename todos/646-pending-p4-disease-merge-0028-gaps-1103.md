@@ -4,6 +4,9 @@ priority: p4
 issue_id: "646"
 tags: [plant-id, migrations, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Findings 1-4 declined in the Work Log: prod already applied 0028, the deleted rows are unrecoverable, and editing an applied migration again only reaches fresh DBs. Fix findings 5-7 (service/test) (2026-10-12)"
 ---
 
 # Follow-ups from PR #1103 (todo 636, disease merge migration)

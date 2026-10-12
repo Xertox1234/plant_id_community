@@ -4,6 +4,9 @@ priority: p4
 issue_id: "647"
 tags: [todo-sweep, docs, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "#2/#3: state.py reports groups with kimi_recovery=skipped (once per group) before finish deletes the run file, with a test; fix the other findings (2026-10-12)"
 ---
 
 # Follow-ups from PRs #1104 and #1097 (todos 637, 629, 635, todo-sweep runbook and archive dates)
