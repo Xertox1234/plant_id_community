@@ -30,7 +30,12 @@ _REGISTER_ATTEMPTS = 3
 
 
 def register_device(
-    user, token: str, installation_id: str | None = None, platform: str = ""
+    user,
+    token: str,
+    installation_id: str | None = None,
+    platform: str = "",
+    *,
+    legacy: bool = False,
 ):
     """Register ``token`` as one of ``user``'s devices; returns the row.
 
@@ -40,6 +45,15 @@ def register_device(
     and an installation holds one token (a rotated token replaces the old
     one instead of leaving it to receive duplicates). Never touches another
     device of ``user``.
+
+    The legacy ``ForumProfile.fcm_token`` column follows the same rule: the
+    token leaves every other account's column, and a replaced row's token
+    leaves every column, whichever account held it. A registration through
+    ``/push-devices/`` (``legacy=False``) also takes the token out of
+    ``user``'s own column, so an old build's profile write can never release
+    an upgraded phone. ``legacy=True`` is the profile-PATCH mirror: it keeps
+    the column it was just given, and never overwrites the installation id
+    or platform an upgraded install recorded.
 
     Raises ``IntegrityError`` only when it lost the race to concurrent
     registrations of the same token or installation every time; callers
@@ -56,37 +70,38 @@ def register_device(
                 clash = Q(token=token)
                 if installation_id:
                     clash |= Q(installation_id=installation_id)
-                replaced = PushDevice.objects.filter(clash).exclude(
-                    user=user, token=token
+                # Lock and delete exactly the rows read, so every deleted
+                # row's token is also cleared from the column below.
+                replaced = list(
+                    PushDevice.objects.select_for_update()
+                    .filter(clash)
+                    .exclude(user=user, token=token)
+                    .values_list("pk", "token")
                 )
-                # A rotated token's old row goes, and so does that old token
-                # in this account's legacy column, or the column keeps it as a
-                # send target.
-                stale = list(replaced.filter(user=user).values_list("token", flat=True))
-                replaced.delete()
-                # The legacy column of any OTHER account that held it. A
-                # registration with an installation id is an upgraded install:
-                # its own account's column lets go of the token too, so an old
-                # build's profile write cannot later release this device.
-                held = ForumProfile.objects.filter(fcm_token=token)
-                if not installation_id:
-                    held = held.exclude(user=user)
-                held.update(fcm_token="")
-                if stale:
-                    ForumProfile.objects.filter(user=user, fcm_token__in=stale).update(
-                        fcm_token=""
-                    )
-                defaults = {"user": user}
-                if installation_id:
-                    # A legacy write (no id) never erases the id or the
-                    # platform an upgraded install recorded; token rotation
-                    # relies on the id.
-                    defaults["installation_id"] = installation_id
+                if replaced:
+                    PushDevice.objects.filter(
+                        pk__in=[pk for pk, _ in replaced]
+                    ).delete()
+                column = Q(fcm_token=token)
+                if legacy:
+                    column &= ~Q(user=user)
+                old_tokens = [old for _, old in replaced if old != token]
+                if old_tokens:
+                    column |= Q(fcm_token__in=old_tokens)
+                ForumProfile.objects.filter(column).update(fcm_token="")
+                defaults = {}
+                if not legacy:
                     defaults["platform"] = platform[:16]
+                    if installation_id:
+                        defaults["installation_id"] = installation_id
                 device, _created = PushDevice.objects.update_or_create(
                     token=token,
                     defaults=defaults,
-                    create_defaults={**defaults, "platform": platform[:16]},
+                    create_defaults={
+                        "user": user,
+                        "installation_id": installation_id,
+                        "platform": platform[:16],
+                    },
                 )
             return device
         except IntegrityError:

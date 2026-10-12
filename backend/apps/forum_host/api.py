@@ -116,16 +116,15 @@ class MeProfileView(forum_views.MeProfileView):
         only name the column's current token) would remove the second build's
         device while the signed-out one kept receiving pushes.
 
-        A phone that upgrades and registers through ``/push-devices/`` with an
-        ``installation_id`` takes its token out of the column
-        (``register_device``), so an old build's write here never names an
-        upgraded phone. A known limit of the one-token column during deploy
-        skew: an upgraded build that falls back to this endpoint (a 404 from a
-        pre-621 instance) writes the column again, and a clear names no token,
-        so interleaved legacy writes from two phones can release the other
-        phone's row. That costs a missed push until the next registration, as
-        the single-device column always did; it never leaves a signed-out
-        device registered.
+        A phone that registers through ``/push-devices/`` takes its token out
+        of the column (``register_device``), so an old build's write here never
+        names it. Known limits of the one-token column during deploy skew: an
+        upgraded build that falls back to this endpoint (a 404 from a pre-621
+        instance) writes the column again, and a clear names no token, so
+        interleaved legacy writes from two phones can release the other
+        phone's row (a missed push until its next registration). A legacy
+        clear that lands on a pre-621 instance clears only the column, so that
+        device's row stays until its next registration or a dead-token report.
         """
         import logging
 
@@ -139,7 +138,9 @@ class MeProfileView(forum_views.MeProfileView):
         token = serializer.validated_data["fcm_token"]
         try:
             if token:
-                register_device(self.request.user, token, platform="legacy")
+                register_device(
+                    self.request.user, token, platform="legacy", legacy=True
+                )
                 if previous and previous != token:
                     unregister_device(self.request.user, previous)
             elif previous:

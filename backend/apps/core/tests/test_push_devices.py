@@ -404,6 +404,44 @@ class PushDeviceApiTest(TestCase):
         self.assertEqual(_tokens(self.alice), ["fake-token-b2"])
         self.assertEqual(_legacy(self.alice), "")
 
+    def test_a_shared_phone_rotation_clears_the_previous_account_column(self):
+        """Bob's phone (T1, install X) moves to Alice on a rotated T2.
+
+        Bob's row goes, and T1 leaves Bob's column too, or Bob's pushes keep
+        reaching the phone Alice now uses.
+        """
+        bob = User.objects.create_user(username="bob-rot", password="x")
+        register_device(bob, "fake-token-t1", "install-x")
+        _set_legacy(bob, "fake-token-t1")
+
+        register_device(self.alice, "fake-token-t2", "install-x")
+
+        self.assertEqual(_tokens(bob), [])
+        self.assertEqual(_legacy(bob), "")
+        self.assertEqual(_tokens(self.alice), ["fake-token-t2"])
+
+    def test_an_upgraded_registration_without_an_installation_id(self):
+        """Secure storage failed: no id, but it came through /push-devices/.
+
+        It still takes the token out of its own column, so an old build's
+        later write cannot release it.
+        """
+        _set_legacy(self.alice, "fake-token-a")
+        register_device(self.alice, "fake-token-a", platform="ios")
+        self.assertEqual(_legacy(self.alice), "")
+        self.client.force_authenticate(self.alice)
+
+        response = self.client.patch(
+            ME_PROFILE, {"fcm_token": "fake-token-old-b"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(
+            sorted(_tokens(self.alice)), ["fake-token-a", "fake-token-old-b"]
+        )
+        self.assertEqual(
+            PushDevice.objects.get(token="fake-token-old-b").platform, "legacy"
+        )
+
     def test_a_profile_patch_without_a_token_leaves_devices_alone(self):
         register_device(self.alice, "fake-token-1", "install-1")
         self.client.force_authenticate(self.alice)
