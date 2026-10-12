@@ -218,12 +218,48 @@ describe('service worker (public/sw.js)', () => {
     ['no old subscription', null, `${ORIGIN}/sw.js?api=${API}`],
     ['no API origin on the registration URL', fakeSubscription('old'), `${ORIGIN}/sw.js`],
     ['a non-http API origin', fakeSubscription('old'), `${ORIGIN}/sw.js?api=javascript:x`],
+    // Todo 602 items 10 and 8: an XSS-registered `?api=` must not carry the
+    // secret off-site, and plain http is refused outside local dev.
+    ['an unpinned API origin', fakeSubscription('old'), `${ORIGIN}/sw.js?api=https://evil.example`],
+    [
+      'a look-alike of the pinned origin',
+      fakeSubscription('old'),
+      `${ORIGIN}/sw.js?api=https://api.houseplant-md.com.evil.example`,
+    ],
+    [
+      'the pinned origin over http',
+      fakeSubscription('old'),
+      `${ORIGIN}/sw.js?api=http://api.houseplant-md.com`,
+    ],
+    [
+      'a localhost API from a deployed worker',
+      fakeSubscription('old'),
+      `${ORIGIN}/sw.js?api=http://localhost:8000`,
+    ],
+    [
+      'a non-local http API from a local worker',
+      fakeSubscription('old'),
+      'http://localhost:5174/sw.js?api=http://10.0.0.5:8000',
+    ],
   ])('does nothing with %s (the page reconciles on load)', async (_name, old, href) => {
     const { listeners, fetch } = loadWorker([], href);
 
     await subscriptionChange(listeners, old, fakeSubscription('new'));
 
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('in local dev it sends to a localhost API over http', async () => {
+    const { listeners, fetch } = loadWorker(
+      [],
+      'http://localhost:5174/sw.js?api=http://localhost:8000'
+    );
+
+    await subscriptionChange(listeners, fakeSubscription('old'), fakeSubscription('new'));
+
+    expect(postedBody(fetch).url).toBe(
+      'http://localhost:8000/api/v1/auth/push-notifications/resubscribe/'
+    );
   });
 
   it('does nothing when the old key is unknown and there is no new subscription', async () => {

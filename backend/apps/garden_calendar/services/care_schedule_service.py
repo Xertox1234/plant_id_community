@@ -467,27 +467,27 @@ class CareScheduleService:
 
         cutoff_date = timezone.now() - timedelta(days=days_overdue)
 
-        overdue_tasks = list(
-            CareTask.objects.filter(
-                plant__owner=user,
-                completed=False,
-                skipped=False,
-                scheduled_date__lt=cutoff_date,
-            ).select_related(
-                "plant"
-            )  # each LogEntry's object_repr reads it
-        )
-
-        count = len(overdue_tasks)
-        if count == 0:
-            return 0
-
         # Reschedule to tomorrow
         tomorrow = timezone.now() + timedelta(days=1)
         # One save() per task, not QuerySet.update(): CareTask is audited
         # (auditlog.py), and update() sends no save signal, so a bulk
-        # reschedule would leave no LogEntry (todo 586 #6).
+        # reschedule would leave no LogEntry (todo 586 #6). The read locks
+        # the rows it returns, so a task completed or skipped meanwhile is
+        # either seen as done (the filter re-checks it once the lock is
+        # granted) or waits for this reschedule; it is never rescheduled from
+        # a stale read (todo 606). Only the task rows are locked, not plants.
         with transaction.atomic():
+            overdue_tasks = list(
+                CareTask.objects.filter(
+                    plant__owner=user,
+                    completed=False,
+                    skipped=False,
+                    scheduled_date__lt=cutoff_date,
+                )
+                .select_related("plant")  # each LogEntry's object_repr reads it
+                .select_for_update(of=("self",))
+            )
+            count = len(overdue_tasks)
             for task in overdue_tasks:
                 task.scheduled_date = tomorrow
                 task.notes = "Rescheduled from overdue status"

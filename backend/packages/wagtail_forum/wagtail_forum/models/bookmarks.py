@@ -16,8 +16,8 @@ class TopicBookmark(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         # Mirrors TopicSubscription's related_name discipline (models/subscriptions.py)
-        # — must not clash with forum_subscriptions/forum_notifications/
-        # forum_topic_subscriptions/forum_topic_reads, all already claimed on User.
+        # — must not clash with forum_notifications/forum_topic_subscriptions/
+        # forum_topic_reads, all already claimed on User.
         related_name="forum_topic_bookmarks",
     )
     topic = models.ForeignKey(

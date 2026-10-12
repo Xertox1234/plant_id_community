@@ -518,6 +518,17 @@ class PushSubscription(models.Model):
             models.Index(fields=["user", "is_active"]),
             models.Index(fields=["endpoint"]),
         ]
+        constraints = [
+            # One browser endpoint delivers to one account at a time (todo
+            # 602 item 3). A transaction alone does not hold this under READ
+            # COMMITTED: two concurrent subscribes each release nothing the
+            # other has committed. The services retry once on the violation.
+            models.UniqueConstraint(
+                fields=["endpoint"],
+                condition=models.Q(is_active=True),
+                name="push_sub_one_active_endpoint",
+            ),
+        ]
 
     def __str__(self):
         return f"Push subscription for {self.user.username} ({self.device_name or 'Unknown device'})"

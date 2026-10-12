@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "606"
 tags: [backend, garden, fcm, privacy, follow-ups]
@@ -35,7 +35,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -59,3 +59,27 @@ tasks, logs and harvests the user deleted earlier. Objects that still exist keep
 as today. Do not match on `object_repr` substrings. Tests: rows for a bed the user deleted before the account
 are purged, and another user's garden rows survive. Fix the docstring to say what the purge covers. Item 4's
 fixture gap belongs in the same test work.
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-12-0349)
+
+- **Item 1 (fixed, owner decision):** `send_forum_push_batch` now orders profiles by user id, counts only the untried recipients it would really have sent to (not opted-out, muted or tokenless ones), and on a credentials stop enqueues one follow-up batch (`requeued=True`, countdown `FORUM_PUSH_REQUEUE_DELAY`) holding those recipients; the follow-up never re-enqueues. The "two ERROR lines" sub-finding was already fixed on main: the credentials branch `continue`s before the permanent-failure log, and `test_a_credentials_error_logs_at_error_level[...-batch]` asserts exactly one. Tests in `backend/apps/forum_host/tests/test_tasks.py`.
+- **Item 2 (fixed, owner decision):** new `backend/apps/garden_calendar/api/audit_actor.py` enters auditlog's `set_actor` after DRF authenticates, on the bed, plant, task, log and harvest viewsets. The account-deletion purge also deletes every garden LogEntry the user is the actor of (collected in `pre_delete`, before `SET_NULL` clears it), so a bed deleted earlier through the API is purged. Covers rows written from now on only; the docstring says so.
+- **Item 3 (fixed):** `reschedule_overdue_tasks` reads inside the transaction with `select_for_update(of=("self",))`, so a task completed or skipped meanwhile is never rescheduled from a stale read. Test asserts the read ends `FOR UPDATE OF` the task table.
+- **Item 4 (fixed):** a purge test puts Alice's task and care log on Bob's plant; dropping the `created_by`/`user` operands from `_garden_objects_of` fails it (mutation-checked).
+- **Item 5 (already fixed on main):** `backend/apps/garden_calendar/tasks.py` has 385 lines (no `:547`); a credentials-failed owner goes into `done` so its claim stands and only untried owners with a token are released. `test_the_next_sweep_moves_past_the_owners_that_failed` pins it.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-12-0349)
+
+- AC 1: `bash -c 'W=.; M=.; echo "== Work Log items 1-5:"; grep -n "^- \*\*Item [1-5]" $W/todos/606-pending-p4-garden-auditlog-fcm-stop-1052.md | cut -c1-90; echo "== tests (items 1-5):"; cd $W/backend && python3 $W/scripts/todos/slot_env.py --main-root $M 6 -- $M/backend/venv/bin/python -m pytest apps/forum_host/tests/test_tasks.py apps/garden_calendar/tests/test_auditlog_registration.py apps/garden_calendar/tests/test_care_reminders.py::CareReminderCredentialsErrorTest -v -p no:cacheprovider --create-db 2>&1 | grep -E "re_enqueue|_requeue|re_enqueued|logs_at_error_level.*batch|bed_deleted_before|records_the_user_as_actor|another_owners_plant|locks_the_tasks|moves_past_the_owners|passed|failed"'` — evidence `.sweep-evidence/g6/606-ac0.txt` (not committed), last lines:
+
+  ```text
+  apps/garden_calendar/tests/test_auditlog_registration.py::GardenAuditlogActorTest::test_the_api_records_the_user_as_actor_and_only_inside_the_request PASSED [ 75%]
+  apps/garden_calendar/tests/test_care_reminders.py::CareReminderCredentialsErrorTest::test_the_next_sweep_moves_past_the_owners_that_failed PASSED [ 81%]
+  apps/forum_host/tests/test_tasks.py::test_weekly_digest_task_re_enqueues_itself_after_a_soft_time_limit PASSED [ 98%]
+  apps/garden_calendar/tests/test_auditlog_registration.py::GardenAuditlogActorTest::test_rows_of_a_bed_deleted_before_the_account_are_purged
+  ============== 95 passed, 3 warnings, 4 subtests passed in 21.23s ==============
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

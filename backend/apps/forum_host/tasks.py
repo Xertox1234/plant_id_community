@@ -243,7 +243,9 @@ def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
     max_retries=constants.NOTIFICATION_BATCH_MAX_RETRIES,
     ignore_result=True,  # side-effect only; every call site is a bare .delay()
 )
-def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict):
+def send_forum_push_batch(
+    event: str, recipient_user_ids: list[int], data: dict, requeued: bool = False
+):
     """Fan out one forum FCM push to many recipients from a SINGLE enqueue (todo 268).
 
     forum_host/notifications.py used to call send_forum_push.delay() once per
@@ -264,6 +266,8 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
         event: forum event name (see send_forum_push).
         recipient_user_ids: pks of the Users to notify.
         data: FCM data payload (values coerced to str).
+        requeued: True on the one follow-up batch a credentials stop enqueues
+            (todo 606); that batch never re-enqueues again.
     """
     from apps.core.firebase_config import get_fcm_client, is_firebase_available
     from wagtail_forum.models import ForumProfile
@@ -284,11 +288,22 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
     # (forum_notifications) and the fcm_token. A user with no ForumProfile has
     # no token, so the single-task path would skip them too — omitting them
     # here is equivalent.
+    # Ordered, so which recipients a credentials stop leaves untried is
+    # deterministic (todo 606).
     profiles = list(
-        ForumProfile.objects.filter(user_id__in=recipient_user_ids).select_related(
-            "user"
-        )
+        ForumProfile.objects.filter(user_id__in=recipient_user_ids)
+        .select_related("user")
+        .order_by("user_id")
     )
+
+    def wants_push(profile) -> bool:
+        if getattr(profile.user, "forum_notifications", True) is not True:
+            return False
+        # Per-event preference (todo 343) — checked here, where the profile
+        # row is already in hand, rather than in the enqueueing request.
+        if not wants_channel(profile.notification_preferences, event, "push"):
+            return False
+        return bool(profile.fcm_token)
 
     str_data = {k: str(v) for k, v in data.items()}
     str_data["event"] = event
@@ -297,16 +312,13 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
     sent = 0
     credentials_failed: list[int] = []
     last_credentials_exc: Exception | None = None
-    unsent_on_stop: int | None = None
+    # The recipients a credentials stop left untried: only those this batch
+    # would have sent to, so the count is not inflated by opted-out, muted or
+    # tokenless profiles (todo 606).
+    untried: list[int] | None = None
     for index, profile in enumerate(profiles):
         user = profile.user
-        if getattr(user, "forum_notifications", True) is not True:
-            continue
-        # Per-event preference (todo 343) — checked here, where the profile
-        # row is already in hand, rather than in the enqueueing request.
-        if not wants_channel(profile.notification_preferences, event, "push"):
-            continue
-        if not profile.fcm_token:
+        if not wants_push(profile):
             continue
         try:
             response = core_fcm.send_fcm_message(
@@ -328,7 +340,9 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
                     and len(credentials_failed)
                     >= core_fcm.FCM_CREDENTIALS_STOP_FAILURES
                 ):
-                    unsent_on_stop = len(profiles) - index - 1
+                    untried = [
+                        p.user_id for p in profiles[index + 1 :] if wants_push(p)
+                    ]
                     break
                 continue
             if core_fcm.is_permanent_fcm_error(exc):
@@ -352,6 +366,26 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
                 exc,
             )
             send_forum_push.delay(event, user.pk, data)
+    stop_note = ""
+    if untried is not None:
+        stop_note = (
+            f"; batch stopped with no successful send, "
+            f"{len(untried)} recipient(s) not tried"
+        )
+        if untried and not requeued:
+            # Once only (owner decision 2026-10-11, todo 606): the stop can be
+            # a few bad devices at the head of the batch, so the untried
+            # recipients get one more batch. The users that already failed
+            # are not in it. A follow-up that stops again drops its untried
+            # recipients, so a real outage cannot loop.
+            send_forum_push_batch.apply_async(
+                args=(event, untried, data),
+                kwargs={"requeued": True},
+                countdown=constants.FORUM_PUSH_REQUEUE_DELAY,
+            )
+            stop_note += f", re-enqueued once in {constants.FORUM_PUSH_REQUEUE_DELAY}s"
+        elif untried:
+            stop_note += ", dropped (this batch was already the re-enqueue)"
     if credentials_failed:
         logger.log(
             logging.ERROR,
@@ -362,12 +396,7 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
             len(credentials_failed),
             credentials_failed,
             last_credentials_exc,
-            (
-                f"; batch stopped with no successful send, "
-                f"{unsent_on_stop} recipient(s) not tried"
-                if unsent_on_stop is not None
-                else ""
-            ),
+            stop_note,
         )
 
 
