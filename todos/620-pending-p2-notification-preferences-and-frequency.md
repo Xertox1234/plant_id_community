@@ -6,7 +6,7 @@ tags: [backend, web, mobile, notifications, preferences, product]
 dependencies: []
 triage: ready
 triaged: 2026-10-12
-owner_decision: "Owner: policy matrix + web/mobile parity only; important-event email and quiet hours/coalescing deferred to a follow-up todo (AC4/AC5 re-pointed). Plant ID Notifications switch: relabel it, do not remove or build a trigger (2026-10-12)"
+owner_decision: "Owner: policy matrix + web/mobile parity only; important-event email and quiet hours/coalescing re-pointed to todo 624 (2026-10-12). Owner: keep User.email_notifications/forum_notifications as master switches shown on web AND mobile; off = no optional email (digest included) / no forum push; security mail exempt; per-event matrix applies beneath; no data migration (2026-10-12). Owner: relabel the inert Plant ID switch, not remove or build a trigger; 'Plant ID' is no longer the app's name (it is Houseplant MD), so the label must not use 'Plant ID' branding — describe it as plant identification updates, coming soon (2026-10-12)"
 ---
 
 # Make notification choices consistent and reduce avoidable noise
