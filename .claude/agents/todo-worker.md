@@ -114,9 +114,11 @@ Log names a home path, and CI's archived-todo tripwire fails on one.
 ## Finish
 
 1. `/usr/bin/git -C WT add -A` — except in `MODE: repair` (todo 483): there, stage only the paths you
-   changed, `/usr/bin/git -C WT add -- <path>...` (and `git rm` / `git mv` for a delete or a move), list every
-   one in `files_changed`, and never stage, edit or delete a path in the prompt's `UNTRACKED_BEFORE`: those
-   were untracked before the review round, and staging one would commit it into the PR.
+   changed, `/usr/bin/git -C WT add -- <path>...` (and `/usr/bin/git -C WT rm` / `mv` for a delete or a move),
+   list every one in `files_changed`, and never stage, edit or delete a path in the prompt's `UNTRACKED_BEFORE`:
+   those were untracked before the review round, and staging one would commit it into the PR. Write `WT` out
+   as the literal absolute path (todo 618): the git guard denies `git add`/`mv`/`rm` after a `cd`, with a
+   relative `-C`, or with `-C "$WT"`.
 2. Run pre-commit on what you staged (todo 540, owner decision 2026-10-10), so Land's commit never stops on a
    fixer: `/usr/bin/git -C WT diff --cached --name-only --diff-filter=d -z | (cd WT && SKIP=kimi-review xargs -0
    pre-commit run --files)`. When a fixer rewrote files (Black, isort, prettier, trailing whitespace, …),
