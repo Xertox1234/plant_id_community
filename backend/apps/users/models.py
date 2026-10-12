@@ -57,6 +57,17 @@ class User(AbstractUser):  # type: ignore[django-manager-missing]
         help_text="When the current verification-mail window began",
     )
 
+    # Stamped by the token refresh view (todo 485). expire_unverified_accounts
+    # reads it as "came back": the rotated OutstandingToken rows that also show
+    # it are deleted by flushexpiredtokens. Not last_login, which Django's
+    # password-reset token hashes, so a refresh would void every reset link.
+    last_token_refresh = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="When this account last rotated a refresh token",
+    )
+
     # Profile Information
     bio = models.TextField(
         max_length=500,
