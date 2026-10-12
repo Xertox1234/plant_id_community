@@ -359,3 +359,216 @@ def test_a_recipient_with_no_forum_profile_still_gets_the_push():
         )
 
     assert [c.args[0].user_id for c in send.call_args_list] == [lurker.pk]
+
+
+# --- Todo 456: shared session, no redirects, bulk last_used ------------------
+
+
+@pytest.mark.django_db
+@override_settings(**PUSH_ON)
+def test_a_batch_shares_one_session_and_records_last_used_once():
+    from apps.forum_host.tasks import send_forum_web_push_batch
+    from apps.users.services import NoRedirectSession
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    users = [_subscribed(f"batch{i}") for i in range(3)]
+    failing = PushSubscription.objects.get(user=users[1])
+
+    def fake_send(subscription, **kwargs):
+        return subscription.pk != failing.pk
+
+    with (
+        patch(
+            "apps.users.services.NotificationService.send_web_push_notification",
+            side_effect=fake_send,
+        ) as send,
+        CaptureQueriesContext(connection) as queries,
+    ):
+        send_forum_web_push_batch(
+            "reply_added",
+            [u.pk for u in users],
+            {"topic_id": "1", "post_id": "2", "actor_name": "Ada"},
+        )
+
+    sessions = {id(c.kwargs["requests_session"]) for c in send.call_args_list}
+    assert len(send.call_args_list) == 3 and len(sessions) == 1
+    assert isinstance(send.call_args.kwargs["requests_session"], NoRedirectSession)
+    assert all(c.kwargs["mark_used"] is False for c in send.call_args_list)
+    updates = [
+        q["sql"]
+        for q in queries.captured_queries
+        if q["sql"].startswith('UPDATE "users_pushsubscription"')
+    ]
+    assert len(updates) == 1
+    used = dict(PushSubscription.objects.values_list("user_id", "last_used"))
+    assert used[users[0].pk] and used[users[2].pk]
+    assert used[users[1].pk] is None  # a failed send is not "used"
+
+
+def test_the_push_session_never_follows_a_redirect():
+    import requests
+    from apps.users.services import web_push_session
+
+    with patch.object(requests.Session, "request") as parent:
+        web_push_session().post("https://fcm.googleapis.com/fcm/send/x", data=b"")
+    assert parent.call_args.kwargs["allow_redirects"] is False
+
+
+@pytest.mark.django_db
+@override_settings(**PUSH_ON)
+def test_a_single_send_uses_a_no_redirect_session_and_a_redirect_fails_it():
+    from apps.users.services import NoRedirectSession, NotificationService
+
+    subscription = PushSubscription.objects.get(user=_subscribed("redirect"))
+
+    with patch("apps.users.services.webpush") as webpush:
+        assert NotificationService.send_web_push_notification(
+            subscription, title="t", body="b"
+        )
+    assert isinstance(webpush.call_args.kwargs["requests_session"], NoRedirectSession)
+
+    # pywebpush raises for any status above 202, a 3xx included: the send
+    # fails and is logged, and the row stays (a redirect is not "gone").
+    with patch("apps.users.services.webpush", side_effect=_webpush_error(301)):
+        assert not NotificationService.send_web_push_notification(
+            subscription, title="t", body="b"
+        )
+    subscription.refresh_from_db()
+    assert subscription.is_active is True
+
+
+# --- Todo 456: the service worker's re-subscribe -----------------------------
+
+RESUBSCRIBE_URL = "/api/v1/auth/push-notifications/resubscribe/"
+NEW_ENDPOINT = "https://fcm.googleapis.com/fcm/send/new456"
+NEW_KEYS = {"p256dh": "BNew-key", "auth": "new-secret"}  # pragma: allowlist secret
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limit_window():
+    """The resubscribe limit is per IP in the shared cache: start each test
+    with an empty window, or earlier runs' POSTs 429 this one."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
+def _resubscribe(old_endpoint, old_auth, new_endpoint=NEW_ENDPOINT):
+    # A cookie-less client that enforces CSRF, like a service worker's fetch.
+    client = APIClient(enforce_csrf_checks=True)
+    return client.post(
+        RESUBSCRIBE_URL,
+        {
+            "old_subscription": {"endpoint": old_endpoint, "auth": old_auth},
+            "subscription": {"endpoint": new_endpoint, "keys": NEW_KEYS},
+        },
+        format="json",
+    )
+
+
+@pytest.mark.django_db
+def test_the_worker_swaps_in_the_new_subscription_with_the_old_secret():
+    user = _subscribed("swap")
+    old = PushSubscription.objects.get(user=user)
+
+    response = _resubscribe(old.endpoint, KEYS["auth"])
+
+    assert response.status_code == 200
+    old.refresh_from_db()
+    assert old.is_active is False
+    new = PushSubscription.objects.get(endpoint=NEW_ENDPOINT)
+    assert (new.user_id, new.is_active) == (user.pk, True)
+    assert (new.p256dh_key, new.auth_key) == (NEW_KEYS["p256dh"], NEW_KEYS["auth"])
+
+
+@pytest.mark.django_db
+def test_a_wrong_secret_or_an_unknown_endpoint_is_one_404():
+    user = _subscribed("guard")
+    old = PushSubscription.objects.get(user=user)
+
+    wrong = _resubscribe(old.endpoint, "not-the-secret")
+    unknown = _resubscribe(f"{FCM_ENDPOINT}-nobody", KEYS["auth"])
+    missing = _resubscribe(None, None)
+
+    assert wrong.status_code == unknown.status_code == missing.status_code == 404
+    assert wrong.data == unknown.data == missing.data
+    assert not PushSubscription.objects.filter(endpoint=NEW_ENDPOINT).exists()
+    old.refresh_from_db()
+    assert old.is_active is True
+
+
+@pytest.mark.django_db
+def test_a_deactivated_subscription_cannot_be_revived():
+    user = _subscribed("dead")
+    old = PushSubscription.objects.get(user=user)
+    old.deactivate()
+
+    assert _resubscribe(old.endpoint, KEYS["auth"]).status_code == 404
+    assert not PushSubscription.objects.filter(endpoint=NEW_ENDPOINT).exists()
+
+
+@pytest.mark.django_db
+def test_on_a_shared_browser_only_the_active_account_moves():
+    """A released row for the previous account has the same endpoint and
+    secret; the swap must go to the account that holds it now."""
+    first = User.objects.create_user(username="before")
+    second = User.objects.create_user(username="now")
+    for user, active in ((first, False), (second, True)):
+        PushSubscription.objects.create(
+            user=user,
+            endpoint=FCM_ENDPOINT,
+            p256dh_key=KEYS["p256dh"],
+            auth_key=KEYS["auth"],
+            is_active=active,
+        )
+
+    assert _resubscribe(FCM_ENDPOINT, KEYS["auth"]).status_code == 200
+
+    active = PushSubscription.objects.filter(is_active=True)
+    assert list(active.values_list("user_id", "endpoint")) == [
+        (second.pk, NEW_ENDPOINT)
+    ]
+
+
+@pytest.mark.django_db
+def test_the_new_endpoint_must_pass_the_ssrf_allowlist():
+    user = _subscribed("ssrf456")
+    old = PushSubscription.objects.get(user=user)
+
+    response = _resubscribe(old.endpoint, KEYS["auth"], "https://169.254.169.254/x")
+
+    assert response.status_code == 400
+    old.refresh_from_db()
+    assert old.is_active is True
+
+
+@pytest.mark.django_db
+def test_the_subscription_list_carries_an_exact_endpoint_hash():
+    import hashlib
+
+    user = _subscribed("hash")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    rows = client.get("/api/v1/auth/me/push-notifications/").data["subscriptions"]
+
+    endpoint = f"{FCM_ENDPOINT}-hash"
+    assert [r["endpoint_sha256"] for r in rows] == [
+        hashlib.sha256(endpoint.encode()).hexdigest()
+    ]
+
+
+@pytest.mark.django_db
+def test_resubscribe_is_rate_limited_per_ip():
+    from apps.users.constants import RATE_LIMIT_PUSH_RESUBSCRIBE
+
+    limit = int(RATE_LIMIT_PUSH_RESUBSCRIBE.split("/")[0])
+    statuses = [
+        _resubscribe(f"{FCM_ENDPOINT}-guess", "guess").status_code
+        for _ in range(limit + 1)
+    ]
+
+    assert statuses == [404] * limit + [429]

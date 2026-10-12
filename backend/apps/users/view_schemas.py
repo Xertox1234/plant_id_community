@@ -354,6 +354,53 @@ UNSUBSCRIBE_PUSH_SCHEMA = extend_schema(
     ],
 )
 
+RESUBSCRIBE_PUSH_SCHEMA = extend_schema(
+    request=inline_serializer(
+        "PushResubscribeRequest",
+        {
+            "old_subscription": inline_serializer(
+                "PushOldSubscription",
+                {
+                    "endpoint": serializers.CharField(),
+                    "auth": serializers.CharField(
+                        help_text="The old subscription's keys.auth secret."
+                    ),
+                },
+            ),
+            "subscription": serializers.DictField(
+                help_text="The new PushSubscription.toJSON(), checked like subscribe."
+            ),
+        },
+    ),
+    responses={
+        200: _MESSAGE,
+        400: _SIMPLE_ERROR,
+        404: _SIMPLE_ERROR,
+        429: ERROR_ENVELOPE,
+    },
+    description="Called by the service worker when the browser replaces a push "
+    "subscription (todo 456). No session: the old subscription's endpoint and "
+    "auth secret prove the caller holds it. CSRF-exempt, rate-limited per IP.",
+    examples=[
+        _example(
+            "Browser replaced its subscription",
+            {
+                "old_subscription": {
+                    "endpoint": "https://fcm.googleapis.com/fcm/send/example-old-id",
+                    "auth": "example-old-auth-secret",
+                },
+                "subscription": {
+                    "endpoint": "https://fcm.googleapis.com/fcm/send/example-new-id",
+                    "keys": {
+                        "p256dh": "example-p256dh-key",
+                        "auth": "example-auth-secret",
+                    },
+                },
+            },
+        )
+    ],
+)
+
 PUSH_PUBLIC_KEY_SCHEMA = extend_schema(
     responses={
         200: inline_serializer(
@@ -380,6 +427,10 @@ PUSH_SUBSCRIPTIONS_SCHEMA = extend_schema(
                         "last_used": serializers.DateTimeField(allow_null=True),
                         "endpoint": serializers.CharField(
                             help_text="Truncated to 50 characters."
+                        ),
+                        "endpoint_sha256": serializers.CharField(
+                            help_text="SHA-256 hex of the full endpoint, so a "
+                            "browser can find its own row (todo 456)."
                         ),
                     },
                     many=True,
