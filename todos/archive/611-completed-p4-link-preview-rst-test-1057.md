@@ -32,7 +32,7 @@ PR #1057 (todo sweep run 2026-10-11-2219, group g9, todos 591, 598); follow-ups:
 
 Filed by the closing step of the run from `state.py followups-md g9`.
 
-### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-0349)
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-12-0349)
 
 - Findings 1 and 2 (the same race): `DripServer` in `backend/apps/forum_host/tests/conftest.py` now sets an
   `accepted` event once a client is accepted, and records how a client that sent nothing left
@@ -59,3 +59,16 @@ Filed by the closing step of the run from `state.py followups-md g9`.
 ### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Work Log date and eof mutation evidence corrected by the todo sweep (run 2026-10-12-1724, todo 635)
+
+- The Implemented heading above read 2026-10-12; it now reads 2026-10-11. Work Log headings use the local
+  date (`TODAY` = `date +%Y-%m-%d`) and run ids use UTC (`RUN_ID` = `date -u ...`,
+  `.claude/skills/completing-todos/SKILL.md:28-29`), so run 2026-10-12-0349 (03:49 UTC) ran on 2026-10-11
+  local, the date Land gave the Verified and Completed entries. The log now reads in order.
+- The ENVIRONMENT DRIFT in the Verified quote (pyjwt, urllib3) is the local venv lagging
+  `backend/requirements.txt` (todo 378), not this test; CI installs the pins. It still prints on a re-run.
+- Mutation check for the `"eof"` assertion in `test_576_item2_...`: deleting only
+  `self.left_before_request = "eof"` in `DripServer._receive_request` (keeping its `return None`) makes the
+  test fail at `assert server.left_before_request == "eof"` (`AssertionError: assert None == 'eof'`), after
+  its `received == b""` and thread-ended asserts passed; restored, and the file passes again.

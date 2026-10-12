@@ -68,3 +68,33 @@ Record the finding as declined with that evidence and archive. No code change.
 ### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - AC 1 evidence corrected by the todo sweep (run 2026-10-12-1724, todo 629)
+
+- The quoted AC 1 output above does not match its command: its lines 63-65 print
+  `todos/608-pending-p4-thread-summary-too-short-1054.md:45`, `:47` and `:49`, the pre-archive path,
+  while the command names `todos/archive/608-completed-p4-thread-summary-too-short-1054.md`.
+  The quote is left as Land wrote it; this entry supersedes it.
+- The same command, re-run on origin/main `7559dc57` before this entry was added, prints in full:
+
+  ```text
+  web/src/components/forum/ThreadSummaryPanel.tsx:57:type Outcome = Exclude<TopicSummary, { status: 'pending' }>;
+  web/src/components/forum/ThreadSummaryPanel.tsx:143:    setOutcome(null);
+  web/src/components/forum/ThreadSummaryPanel.tsx:149:          setOutcome(result);
+  web/src/types/forum.ts:442:  | { status: 'ready'; summary: string; post_count: number; generated_at: string }
+  web/src/types/forum.ts:443:  | { status: 'pending' }
+  web/src/types/forum.ts:444:  | { status: 'too_short'; post_count: number };
+  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:45:### 2026-10-11 - Implemented by the todo sweep (run 2026-10-12-0349)
+  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:47:- Finding (`ThreadSummaryPanel.tsx`, `outcome?.status !== 'ready'` "broader than the comment"): declined, per
+  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:49:- Reason: `type Outcome = Exclude<TopicSummary, { status: 'pending' }>`
+  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:58:- AC 1: `grep -n -E "type Outcome = Exclude<TopicSummary|status: 'ready'; summary|status: 'pending' \}|status: 'too_short'; post_count|setOutcome\(|Implemented by the todo sweep \(run 2026-10-12-0349\)|declined, per" web/src/components/forum/ThreadSummaryPanel.tsx web/src/types/forum.ts todos/archive/608-completed-p4-thread-summary-too-short-1054.md` — evidence `.sweep-evidence/g4/608-ac0.txt` (not committed), last lines:
+  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:61:  web/src/types/forum.ts:443:  | { status: 'pending' }
+  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:62:  web/src/types/forum.ts:444:  | { status: 'too_short'; post_count: number };
+  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:63:  todos/608-pending-p4-thread-summary-too-short-1054.md:45:### 2026-10-11 - Implemented by the todo sweep (run 2026-10-12-0349)
+  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:64:  todos/608-pending-p4-thread-summary-too-short-1054.md:47:- Finding (`ThreadSummaryPanel.tsx`, `outcome?.status !== 'ready'` "broader than the comment"): declined, per
+  todos/archive/608-completed-p4-thread-summary-too-short-1054.md:65:  todos/608-pending-p4-thread-summary-too-short-1054.md:49:- Reason: `type Outcome = Exclude<TopicSummary, { status: 'pending' }>`
+  ```
+
+- Lines 45, 47 and 49 of this file are still the Implemented heading, the "declined, per" bullet and the
+  `Reason:` bullet, now printed under their archived path, which is what the old quote meant to show.
+  The command matches its own quoted evidence, so a re-run after this entry prints more lines than shown here.

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "635"
 tags: [forum, tests, follow-ups]
@@ -26,7 +26,7 @@ PR #1080 (todo sweep run 2026-10-12-0349, group g10, todos 611); follow-ups: ver
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -34,3 +34,30 @@ PR #1080 (todo sweep run 2026-10-12-0349, group g10, todos 611); follow-ups: ver
 ### 2026-10-12 - Filed from the PR #1080 review (todo sweep run 2026-10-12-0349)
 
 Filed by the closing step of the run from `state.py followups-md g10`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-1724)
+
+- Finding 1 (611's Work Log out of date order): fixed as a doc correction. The worker's Implemented heading
+  read 2026-10-12 (UTC); headings use the local date (`.claude/skills/completing-todos/SKILL.md:28-29`), so it
+  now reads 2026-10-11 like Land's Verified and Completed entries, and a correction entry says why. The
+  ENVIRONMENT DRIFT note is the local venv (todo 378), not the test.
+- Finding 2 (no mutation evidence for the `"eof"` assertion): mutation check run. Deleting only
+  `self.left_before_request = "eof"` in `DripServer._receive_request` makes `test_576_item2_...` fail with
+  `AssertionError: assert None == 'eof'` at the new assertion; restored. Recorded in archived 611's Work Log.
+- No code or test changed, so no new test.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-1724)
+
+- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 3 -- venv/bin/python -m pytest apps/forum_host/tests/test_link_preview.py -p no:cacheprovider --create-db -q && /usr/bin/grep -n -E '^### 2026-10-11 - Implemented by the todo sweep \(run 2026-10-12-0349\)|^### 2026-10-12 - Work Log date and eof mutation evidence corrected|assert None == .eof.' ../todos/archive/611-completed-p4-link-preview-rst-test-1057.md` — evidence `.sweep-evidence/g3/635-ac0.txt` (not committed), last lines:
+
+  ```text
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================= 58 passed, 3 warnings in 26.80s ========================
+  35:### 2026-10-11 - Implemented by the todo sweep (run 2026-10-12-0349)
+  63:### 2026-10-12 - Work Log date and eof mutation evidence corrected by the todo sweep (run 2026-10-12-1724, todo 635)
+  73:  test fail at `assert server.left_before_request == "eof"` (`AssertionError: assert None == 'eof'`), after
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-1724)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
