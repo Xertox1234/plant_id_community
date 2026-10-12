@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "604"
 tags: [todo-sweep, harness, security, follow-ups]
@@ -39,7 +39,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -53,3 +53,28 @@ Filed by the closing step of the run from `state.py followups-md g2`.
 The owner chose todo 618's option 2 (require `-C` inside `.claude/worktrees/`). That retires the cwd tracker that
 items 1–8 bypass, so they are not patched one by one. After 618 merges: check that each probe here is denied
 (618 AC 2 adds them as tests), fix item 9's formatting if it is still on main, and close this todo.
+
+### 2026-10-12 - Checked by the todo sweep (run 2026-10-12-1938)
+
+- Items 1-8 are already fixed on main by todo 618 (#1095): `git add`/`mv`/`rm` now stage only through a literal
+  absolute `-C` inside `.claude/worktrees/<name>/`, so none of the cwd-tracking bypasses can reach the main checkout.
+- Each probe is a deny test in `.claude/hooks/test-guard-todo-worker-git.sh` (`604.1`-`604.8` and `604 dropped`).
+  `bash .claude/hooks/test-guard-todo-worker-git.sh` passes all 14 of them, 538 passed and 0 failed in total.
+- Item 9 is already fixed on main: `grep -cE "name =arg" scripts/todos/worker_git_guard.py` prints 0, and both
+  sites (lines 993 and 1008) read `name = arg[2:]...`. No code changed in this run.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-1938)
+
+- AC 1: `bash -c 'W=.; bash $W/.claude/hooks/test-guard-todo-worker-git.sh | grep -E "^PASS: 604|^FAIL|^Results"; echo "--- item 9 (no \"name =arg\" left; both sites spaced):"; grep -cE "name =arg" $W/scripts/todos/worker_git_guard.py; grep -nE "name = arg\[2:\]" $W/scripts/todos/worker_git_guard.py'` — evidence `.sweep-evidence/g1/604-ac0.txt` (not committed), last lines:
+
+  ```text
+  Results: 538 passed, 0 failed
+  --- item 9 (no "name =arg" left; both sites spaced):
+  0
+  993:    name = arg[2:].partition("=")[0] if arg.startswith("--") else ""
+  1008:            name = arg[2:].partition("=")[0]
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-1938)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
