@@ -114,11 +114,28 @@ def unsubscribe_links(user) -> dict | None:
         return None
 
 
+def mailable_accounts():
+    """Active accounts with an address that the host's
+    ``DIGEST_RECIPIENT_FILTER`` allows (todo 620). One queryset for both the
+    recipient query and the per-member claim, so the two cannot drift."""
+    from django.contrib.auth import get_user_model
+
+    accounts = get_user_model().objects.filter(is_active=True).exclude(email="")
+    path = get_setting("DIGEST_RECIPIENT_FILTER")
+    if path:
+        # Not caught: a broken policy hook must stop the run, never fall back
+        # to mailing everyone it was written to hold back.
+        accounts = accounts.filter(import_string(path)())
+    return accounts
+
+
 def digest_recipients(frequency: str = DigestFrequency.WEEKLY):
     """Profiles opted in at `frequency` whose account can receive mail."""
     return (
-        ForumProfile.objects.filter(digest_frequency=frequency, user__is_active=True)
-        .exclude(user__email="")
+        ForumProfile.objects.filter(
+            digest_frequency=frequency,
+            user_id__in=mailable_accounts().values("pk"),
+        )
         .select_related("user")
         .order_by("pk")
     )

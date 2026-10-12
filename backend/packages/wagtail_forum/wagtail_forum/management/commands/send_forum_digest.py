@@ -19,14 +19,20 @@ mirroring send_blog_newsletter after todo 534).
 import logging
 from uuid import uuid4
 
-from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
 from ...conf import get_setting
-from ...digest import build_digest, digest_recipients, is_due, send_digest, since_for
+from ...digest import (
+    build_digest,
+    digest_recipients,
+    is_due,
+    mailable_accounts,
+    send_digest,
+    since_for,
+)
 from ...models import DigestFrequency, ForumProfile
 
 logger = logging.getLogger("wagtail_forum")
@@ -199,8 +205,9 @@ class Command(BaseCommand):
         # wait ends when the send returns (todo 585).
         #
         # The claim rechecks every digest_recipients condition (todos 585,
-        # 605): the recipient query was read up to a 200-row chunk ago, and a
-        # member who has since opted out, been deactivated or cleared their
+        # 605, and the host's DIGEST_RECIPIENT_FILTER since 620): the
+        # recipient query was read up to a 200-row chunk ago, and a member
+        # who has since opted out, been deactivated or cleared their
         # email must not be mailed. The address is re-read after the claim,
         # so a member who changed it in that window (say, off a compromised
         # account) is mailed at the new one, never the one read with the
@@ -213,11 +220,7 @@ class Command(BaseCommand):
         # two emails. `user_id__in` is a join-free subquery, so the marker
         # stays in the outer WHERE on the locked row.
         previous = profile.last_digest_sent_at
-        active_account = (
-            get_user_model()
-            .objects.filter(pk=profile.user_id, is_active=True)
-            .exclude(email="")
-        )
+        active_account = mailable_accounts().filter(pk=profile.user_id)
         with transaction.atomic():
             claimed = ForumProfile.objects.filter(
                 pk=profile.pk,

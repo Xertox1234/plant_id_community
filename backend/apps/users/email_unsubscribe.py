@@ -8,7 +8,10 @@ A list is registered only when its unsubscribe flips a preference the web
 Settings page can flip back — otherwise "unsubscribe" would be a one-way door.
 That is why ``forum_reply`` turns off the reply EMAIL cell of the forum
 notification matrix (todo 343), and not ``User.forum_notifications`` (which
-also silences push) or ``User.email_notifications`` (no UI re-enables it).
+also silences push). A link turns off ONE list, never the account-wide
+``User.email_notifications`` master switch, which web Settings and the mobile
+profile both show since todo 620 (docs/notifications-policy.md). With that
+master switch off, no list's email is sent, whatever the list says.
 """
 
 from dataclasses import dataclass

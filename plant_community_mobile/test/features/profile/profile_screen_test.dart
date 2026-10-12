@@ -5,10 +5,13 @@ import 'package:go_router/go_router.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/profile/profile_screen.dart';
 import 'package:plant_community_mobile/models/user_profile.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
+
+import '../forum/support/forum_test_support.dart';
 
 final _mockDate = DateTime(2024, 1, 15);
 
@@ -50,6 +53,8 @@ Widget _wrap(AppDensity density, {bool loggedIn = true}) => ProviderScope(
       () => _FakeAuthService(loggedIn: loggedIn),
     ),
     userProfileServiceProvider.overrideWith(_FakeUserProfileService.new),
+    // The settings card reads forum/me/profile/ (todo 620): never the network.
+    forumApiProvider.overrideWithValue(FakeForumApi()),
   ],
   child: MaterialApp(
     theme: AppTheme.build(Brightness.light, density),
@@ -128,6 +133,7 @@ void main() {
             () => _FakeAuthService(loggedIn: true),
           ),
           userProfileServiceProvider.overrideWith(_FakeUserProfileService.new),
+          forumApiProvider.overrideWithValue(FakeForumApi()),
         ],
         child: MaterialApp.router(routerConfig: router),
       ),
@@ -139,5 +145,25 @@ void main() {
 
     expect(find.text('edit profile screen'), findsOneWidget);
     expect(find.text('Edit profile coming soon!'), findsNothing);
+  });
+
+  testWidgets('notification switches say what they do (todo 620)', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_wrap(AppDensity.cozy));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Email notifications'), findsOneWidget);
+    expect(find.text('Forum notifications'), findsOneWidget);
+    expect(find.textContaining('forum digest included'), findsOneWidget);
+    // The inert switch is relabelled, with no "Plant ID" branding (owner
+    // decision 2026-10-12): nothing in production sends it.
+    expect(find.text('Plant identification updates'), findsOneWidget);
+    expect(find.text('Coming soon. Nothing is sent yet.'), findsOneWidget);
+    expect(find.textContaining('Plant ID'), findsNothing);
+    // The digest and per-event choices web Settings shows are here too.
+    await tester.scrollUntilVisible(find.text('Weekly forum digest'), 200);
+    expect(find.text('Weekly forum digest'), findsOneWidget);
+    expect(find.text('Replies to topics you follow: Email'), findsOneWidget);
   });
 }
