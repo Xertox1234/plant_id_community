@@ -994,7 +994,11 @@ it back too, so no separate release can strand a member. A cache run lock
 (TTL `DIGEST_RUN_LOCK_SECONDS`, the host task's hard limit + 5 min) stops
 overlapping runs; `cache.add` answering `None` (a Redis outage under
 `IGNORE_EXCEPTIONS`) sends without it with a warning, only `False` exits
-(todo 548, mirroring `send_blog_newsletter` after todo 534). Opt-in lives on `ForumProfile.digest_frequency` (`me/profile/`);
+(todo 548, mirroring `send_blog_newsletter` after todo 534). Both senders
+release the lock the same way: only a run that took it, only while the key
+still holds that run's token, and a release `get` that answers `None` (a
+blip) falls back to a plain delete so the continuation is not blocked for
+the full TTL (todos 605, 630, 642). Opt-in lives on `ForumProfile.digest_frequency` (`me/profile/`);
 `DIGEST_DEFAULT_FREQUENCY` seeds NEW profiles only. The host schedules it
 (`CELERY_BEAT_SCHEDULE` → `send_forum_weekly_digest` → `call_command`) with
 beat embedded in the co-located worker.

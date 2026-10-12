@@ -80,10 +80,19 @@ class Command(BaseCommand):
             else:
                 totals["pruned"] = newsletter_digest.prune_stale_unconfirmed(now)
         finally:
+            # A get that answers None falls back to a plain delete (todo 642,
+            # owner decision 2026-10-12, the same contract as the forum
+            # digest after todo 630). Under IGNORE_EXCEPTIONS a Redis blip
+            # makes the get answer None, and keeping the lock would block the
+            # soft-time-limit continuation for the full TTL. If the key really
+            # is gone, the delete is a no-op.
+            #
             # get-then-delete is not atomic, but the gap is one round-trip
             # against a 35-minute TTL; the row claims stop a double send.
-            if owned and cache.get(LOCK_KEY) == token:
-                cache.delete(LOCK_KEY)
+            if owned:
+                current = cache.get(LOCK_KEY)
+                if current is None or current == token:
+                    cache.delete(LOCK_KEY)
 
         label = "would send" if dry_run else "sent"
         self.stdout.write(

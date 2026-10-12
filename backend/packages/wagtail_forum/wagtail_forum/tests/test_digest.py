@@ -3,6 +3,7 @@ template-overridable. Emails land in Django's locmem outbox (`mail.outbox`)."""
 
 import copy
 import importlib
+import inspect
 import re
 from datetime import timedelta
 from io import StringIO
@@ -53,12 +54,52 @@ def _private_cache():
 def test_the_run_lock_tests_never_touch_the_shared_cache():
     """Todo 630: the autouse fixture above swaps the default cache for a
     private, empty one, so the real run-lock key is never on the shared
-    Redis while these tests run."""
-    from django.core.cache import cache, caches
-    from django.core.cache.backends.locmem import LocMemCache
+    Redis while these tests run.
 
+    Todo 642: a bare LocMem check passed without the fixture wherever the
+    default cache is already LocMem (CI). This pins the fixture's own private
+    LOCATION, that it is the only alias (a lock on another alias would raise
+    here), and that the command's module-level `cache` routes to it, so a
+    cache object captured at import time would fail too."""
+    from django.conf import settings
+    from django.core.cache import caches
+    from django.core.cache.backends.locmem import LocMemCache
+    from wagtail_forum.management.commands import send_forum_digest
+
+    assert list(settings.CACHES) == ["default"]
+    location = settings.CACHES["default"]["LOCATION"]
+    assert location.startswith("wagtail-forum-digest-tests-")
     assert isinstance(caches["default"], LocMemCache)
-    assert cache.get("wagtail_forum:digest-run:weekly") is None
+
+    key = "wagtail_forum:digest-run:weekly"
+    assert send_forum_digest.cache.add(key, "canary", 60)
+    try:
+        assert caches["default"].get(key) == "canary"
+    finally:
+        send_forum_digest.cache.delete(key)
+
+
+def _normalise_sql(raw):
+    """Drop identifier quotes, fold case and collapse whitespace, so a test
+    compares the SQL's shape, not Django's exact rendering (todo 605)."""
+    return re.sub(r"\s+", " ", raw.replace('"', "")).strip().lower()
+
+
+def _is_the_claim(raw):
+    """True for the digest claim UPDATE on ForumProfile, matched on the
+    normalised SQL (todos 630, 642), never on a quoted `UPDATE "<table>"`."""
+    sql = _normalise_sql(raw)
+    table = re.escape(ForumProfile._meta.db_table.lower())
+    return bool(re.match(rf"update {table}\b", sql)) and "last_digest_sent_at" in sql
+
+
+def _add_call_value(call):
+    """The value a `cache.add` call stored, bound by name (todo 642), so the
+    test survives a switch between positional and keyword arguments."""
+    from django.core.cache.backends.base import BaseCache
+
+    bound = inspect.signature(BaseCache.add).bind(None, *call.args, **call.kwargs)
+    return bound.arguments["value"]
 
 
 def _index():
@@ -1001,26 +1042,21 @@ def test_the_claim_update_stays_on_one_table_with_the_marker_outside(monkeypatch
     profile = _opt_in(member)
     _one_topic_digest_patches(monkeypatch, lambda digest: True)
 
-    table = ForumProfile._meta.db_table
     with CaptureQueriesContext(connection) as ctx:
         call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
 
-    # Compare on the shape, not Django's exact rendering (todo 605): drop
-    # identifier quotes, fold case and collapse whitespace first. The claim
+    # Compare on the shape, not Django's exact rendering (todo 605). The claim
     # is picked from the normalised SQL too, so a change in quoting or case
     # cannot make it match nothing (todo 630).
-    def normalise(raw):
-        return re.sub(r"\s+", " ", raw.replace('"', "")).strip().lower()
-
-    table = re.escape(table.lower())
     claims = [
-        sql
-        for sql in (normalise(q["sql"]) for q in ctx.captured_queries)
-        if re.match(rf"update {table}\b", sql) and "last_digest_sent_at" in sql
+        _normalise_sql(q["sql"])
+        for q in ctx.captured_queries
+        if _is_the_claim(q["sql"])
     ]
     assert len(claims) == 1, claims
     sql = claims[0]
     assert " join " not in sql
+    table = re.escape(ForumProfile._meta.db_table.lower())
     where = sql.split(" where ", 1)[1]
     # The outer WHERE (before any subquery) carries the pk and the marker.
     outer = where.split("(select", 1)[0]
@@ -1156,7 +1192,7 @@ def test_a_run_releases_its_own_lock_by_token(monkeypatch):
         ForumProfile.objects.filter(pk=profile.pk).update(last_digest_sent_at=None)
         spy.reset_mock()
         call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
-        token = spy.add.call_args.args[1]
+        token = _add_call_value(spy.add.call_args)
         tokens.append(token)
         assert held[-1] == token  # the key held this run's token
         spy.get.assert_called_once_with(key)  # the release compared it
@@ -1217,12 +1253,11 @@ def test_an_account_change_between_the_claim_and_the_read_gives_the_claim_back(
         return True
 
     _one_topic_digest_patches(monkeypatch, send)
-    table = ForumProfile._meta.db_table
     claims = []
 
     def change_after_the_claim(execute, sql, params, many, context):
         result = execute(sql, params, many, context)
-        if sql.startswith(f'UPDATE "{table}"') and "last_digest_sent_at" in sql:
+        if _is_the_claim(sql):
             claims.append(sql)
             if change == "cleared_email":
                 User.objects.filter(pk=member.pk).update(email="")
