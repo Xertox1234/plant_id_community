@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "605"
 tags: [backend, forum, email, follow-ups]
@@ -25,7 +25,7 @@ PR #1050 (todo sweep run 2026-10-11-2219, group g3, todos 585); follow-ups: veri
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -33,3 +33,26 @@ PR #1050 (todo sweep run 2026-10-11-2219, group g3, todos 585); follow-ups: veri
 ### 2026-10-11 - Filed from the PR #1050 review (todo sweep run 2026-10-11-2219)
 
 Filed by the closing step of the run from `state.py followups-md g3`.
+
+### 2026-10-11 - Implemented by the todo sweep (run 2026-10-12-0349)
+
+- Finding 1 (fixed): the claim in `backend/packages/wagtail_forum/wagtail_forum/management/commands/send_forum_digest.py` now also requires `email != ""` (still a join-free `user_id__in` subquery). After the claim it re-reads the address and mails that one. When the address is gone, it rolls the claim back. Tests: `test_a_member_who_clears_their_email_mid_run_is_not_claimed_or_mailed`, `test_a_member_who_changes_their_email_mid_run_is_mailed_at_the_new_one`.
+- Finding 2 (fixed): the run lock's value is now a per-run token. The `finally` deletes the key only while it still holds that token, so a run that outlived `DIGEST_RUN_LOCK_SECONDS` leaves a later fire's lock alone. Tests: `test_a_run_that_outlives_its_lock_leaves_a_later_fires_lock_alone`, `test_a_run_releases_its_own_lock_by_token`. The MagicMock TTL test now stubs `cache.get` to return the token it added.
+- Findings 3 and 4 (the same test, fixed): `test_the_claim_update_stays_on_one_table_with_the_marker_outside` normalises the SQL before checking it (drops quotes, folds case, collapses whitespace), so a quoting or casing change in Django's rendering no longer turns it red. It still fails on a JOIN or on a marker that moved into a subquery.
+- Before landing, the three new behaviour tests failed against the pre-change command and passed after it. `backend/packages/wagtail_forum/wagtail_forum/tests/test_digest.py` 41 passed, and `apps/core/tests` 1670 passed.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-12-0349)
+
+- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 5 -- venv/bin/python -m pytest packages/wagtail_forum/wagtail_forum/tests/test_digest.py --create-db -v -p no:cacheprovider && grep -n 'Finding' ../todos/archive/605-completed-p4-forum-digest-claim-email-1050.md` — evidence `.sweep-evidence/g5/605-ac0.txt` (not committed), last lines:
+
+  ```text
+  ======================= 41 passed, 3 warnings in 19.71s ========================
+  17:## Findings
+  39:- Finding 1 (fixed): the claim in `backend/packages/wagtail_forum/wagtail_forum/management/commands/send_forum_digest.py` now also requires `email != ""` (still a join-free `user_id__in` subquery). After the claim it re-reads the address and mails that one. When the address is gone, it rolls the claim back. Tests: `test_a_member_who_clears_their_email_mid_run_is_not_claimed_or_mailed`, `test_a_member_who_changes_their_email_mid_run_is_mailed_at_the_new_one`.
+  40:- Finding 2 (fixed): the run lock's value is now a per-run token. The `finally` deletes the key only while it still holds that token, so a run that outlived `DIGEST_RUN_LOCK_SECONDS` leaves a later fire's lock alone. Tests: `test_a_run_that_outlives_its_lock_leaves_a_later_fires_lock_alone`, `test_a_run_releases_its_own_lock_by_token`. The MagicMock TTL test now stubs `cache.get` to return the token it added.
+  41:- Findings 3 and 4 (the same test, fixed): `test_the_claim_update_stays_on_one_table_with_the_marker_outside` normalises the SQL before checking it (drops quotes, folds case, collapses whitespace), so a quoting or casing change in Django's rendering no longer turns it red. It still fails on a JOIN or on a marker that moved into a subquery.
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
