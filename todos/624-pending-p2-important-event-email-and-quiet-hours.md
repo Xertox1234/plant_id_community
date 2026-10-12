@@ -4,6 +4,9 @@ priority: p2
 issue_id: "624"
 tags: [backend, web, mobile, notifications, preferences, product]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Owner: approve optional mention/quote/accepted-answer email, OFF by default (no silent opt-in), and a mentioned subscriber gets ONE merged email (2026-10-12). Owner: quiet hours are opt-in, default window 22:00-07:00 in the client-reported IANA timezone (UTC if unknown); held pushes/emails release at window end; security mail exempt (2026-10-12). Owner: coalesce same-topic replies within a 10-minute window into one email/push, and skip the external send if the user already read the post in-app (2026-10-12). Executes after 620 merges"
 ---
 
 # Add important-event email and quiet hours for forum notifications
