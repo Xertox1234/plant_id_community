@@ -19,7 +19,9 @@ BEFORE = ("plant_identification", "0027_remove_dead_cms_and_diagnosis_models")
 AFTER = ("plant_identification", "0029_disease_name_lower_unique")
 
 
-def _seed_disease(old_apps, user, name, species_name, count, age_days):
+def _seed_disease(
+    old_apps, user, name, species_name, count, age_days, treatment_names=None
+):
     Disease = old_apps.get_model("plant_identification", "PlantDiseaseDatabase")
     Care = old_apps.get_model("plant_identification", "DiseaseCareInstructions")
     Species = old_apps.get_model("plant_identification", "PlantSpecies")
@@ -39,12 +41,13 @@ def _seed_disease(old_apps, user, name, species_name, count, age_days):
     )
     species = Species.objects.create(scientific_name=species_name)
     disease.affected_plants.add(species)
-    Care.objects.create(
-        disease=disease,
-        treatment_name=f"{name} treatment",
-        treatment_type="organic",
-        instructions="Remove affected leaves.",
-    )
+    for treatment_name in treatment_names or [f"{name} treatment"]:
+        Care.objects.create(
+            disease=disease,
+            treatment_name=treatment_name,
+            treatment_type="organic",
+            instructions=f"{name}: remove affected leaves.",
+        )
     request = Request.objects.create(user_id=user.pk, symptoms_description=name)
     Result.objects.create(
         request=request,
@@ -126,3 +129,69 @@ def test_case_variant_diseases_merge_into_the_oldest_row():
             disease_type="fungal",
             confidence_score=0.8,
         )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_shared_treatment_name_keeps_the_keepers_instruction():
+    """(disease, treatment_name) is unique, and the service names every
+    treatment "<Type> Treatment", so case variants usually share one. The
+    merge must not re-point a duplicate onto the keeper (IntegrityError would
+    abort the deploy): the keeper's instruction stays, the extra's is dropped,
+    and the extra's other instructions still move."""
+    user = get_user_model().objects.create_user(
+        username="mig-0028-shared", email="mig-0028-shared@example.com"
+    )
+    executor = MigrationExecutor(connection)
+    executor.migrate([BEFORE])
+    try:
+        old_apps = executor.loader.project_state([BEFORE]).apps
+        oldest = _seed_disease(
+            old_apps,
+            user,
+            "black spot",
+            "Rosa canina",
+            2,
+            10,
+            treatment_names=["Chemical Treatment"],
+        )
+        _seed_disease(
+            old_apps,
+            user,
+            "Black Spot",
+            "Rosa gallica",
+            3,
+            5,
+            treatment_names=["Chemical Treatment", "Organic Treatment"],
+        )
+        _seed_disease(
+            old_apps,
+            user,
+            "BLACK SPOT",
+            "Rosa rugosa",
+            1,
+            1,
+            treatment_names=["Organic Treatment", "Cultural Treatment"],
+        )
+
+        executor = MigrationExecutor(connection)
+        executor.migrate([AFTER])
+    finally:
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    from apps.plant_identification.models import (
+        DiseaseCareInstructions,
+        PlantDiseaseDatabase,
+    )
+
+    disease = PlantDiseaseDatabase.objects.get(disease_name__iexact="black spot")
+    assert disease.pk == oldest
+    assert disease.diagnosis_count == 6
+    care = dict(disease.care_instructions.values_list("treatment_name", "instructions"))
+    assert care == {
+        "Chemical Treatment": "black spot: remove affected leaves.",
+        "Organic Treatment": "Black Spot: remove affected leaves.",
+        "Cultural Treatment": "BLACK SPOT: remove affected leaves.",
+    }
+    assert DiseaseCareInstructions.objects.count() == 3
+    assert disease.diagnosis_results.count() == 3

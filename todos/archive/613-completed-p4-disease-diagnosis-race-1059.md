@@ -76,3 +76,9 @@ Nobody needs to count prod rows by hand, because the migration handles any data.
 ### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Repaired by the todo sweep (run 2026-10-12-0349)
+
+- **Round-1 review (high): 0028 could abort the deploy.** `DiseaseCareInstructions` is unique on `(disease, treatment_name)` and the service names every treatment `"<Type> Treatment"`, so case variants usually share a name and re-pointing them onto the keeper raised `IntegrityError`.
+- `backend/apps/plant_identification/migrations/0028_merge_case_variant_diseases.py` now keeps the keeper's instruction for a shared name, drops the extra row's duplicate (also between extra rows), and re-points the rest. Nothing references care instructions since 0027, so the drop orphans nothing.
+- New test `test_shared_treatment_name_keeps_the_keepers_instruction` in `backend/apps/plant_identification/tests/test_disease_name_case_merge_migration.py` merges three variants sharing names; with the delete removed it fails on that IntegrityError.
