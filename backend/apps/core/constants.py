@@ -131,3 +131,15 @@ SECURITY_SENSITIVE_PATHS = (
     "/api/v1/auth/token/refresh/",
     "/api/v1/auth/firebase-token-exchange/",
 )
+
+# ============================================================================
+# Push devices (todo 621)
+# ============================================================================
+# Per account, shared by every device: sign-in, token rotation and the app's
+# bounded reconciliation retries all register, so a few devices signing in
+# and out must fit with room to spare.
+PUSH_DEVICE_RATE_LIMIT = "30/h"
+# Model field limits, mirrored by the API serializer.
+PUSH_DEVICE_TOKEN_MAX_LENGTH = 255
+PUSH_DEVICE_INSTALLATION_ID_MAX_LENGTH = 64
+PUSH_DEVICE_PLATFORMS = ("ios", "android")

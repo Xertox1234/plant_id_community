@@ -232,3 +232,40 @@ class InAppNotification(models.Model):
             self.is_read = True
             self.read_at = timezone.now()
             self.save(update_fields=["is_read", "read_at"])
+
+
+class PushDevice(models.Model):
+    """One mobile installation's FCM registration (todo 621).
+
+    An account may hold any number of these, one per device, so a second
+    phone no longer replaces the first. Shared by every push feature (forum
+    and care reminders), which is why it lives here and not in the forum
+    package. ``apps.core.push_devices`` is the only writer.
+
+    ``token`` is globally unique: an FCM token identifies one installation,
+    so registering it for an account releases it from any other. A token is
+    a credential: never log it or echo it from the API.
+
+    ``installation_id`` is a random id the app keeps for its install. When a
+    token rotates, registering the new one replaces the row of the same
+    installation instead of leaving the old token behind. Null for a row
+    migrated from the legacy ``ForumProfile.fcm_token`` or written by an
+    older app build, which sends no id.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="push_devices"
+    )
+    token = models.CharField(max_length=255, unique=True)
+    installation_id = models.CharField(
+        max_length=64, null=True, blank=True, unique=True
+    )
+    platform = models.CharField(max_length=16, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+
+    def __str__(self):
+        return f"PushDevice({self.platform or 'unknown'}) for user {self.user_id}"

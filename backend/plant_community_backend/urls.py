@@ -156,6 +156,8 @@ urlpatterns = [
                     # Host wrapper adds rate limiting around the package views.
                     path("forum/", include("apps.forum_host.api_urls")),
                     path("calendar/", include("apps.garden_calendar.urls")),
+                    # Mobile push devices (todo 621).
+                    path("", include("apps.core.urls")),
                 ],
                 "v1",
             )

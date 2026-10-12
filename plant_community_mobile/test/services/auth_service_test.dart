@@ -1273,32 +1273,42 @@ void main() {
       harness.container.read(authServiceProvider);
       await pumpEventQueue();
       expect(harness.container.read(authServiceProvider).jwtToken, isNull);
-      // A registration from earlier is still live on the server.
-      await harness.realPush!.registerToken('device-token-1');
+      // A registration from earlier is still live on the server. Since
+      // todo 621 it is a POST, which postError would fail, so the error is
+      // lifted first; the launch exchange has already failed.
       harness.api.postError = null;
+      await harness.realPush!.registerToken('device-token-1');
       harness.api.realHttp = true;
 
       await harness.container.read(authServiceProvider.notifier).signOut();
       await waitUntil(
         () =>
-            backend.bodies.where((b) => b.$1 == '/forum/me/profile/').length >=
+            backend.bodies
+                .where((b) => b.$1 == '/push-devices/unregister/')
+                .length >=
             2,
         'the clear and its re-send',
       );
-      // Give a stray syncAfterLogin time to PATCH.
+      // Give a stray syncAfterLogin time to register.
       await Future<void>.delayed(const Duration(milliseconds: 50));
       await pumpEventQueue();
 
-      final patches = [
+      // Todo 621: sign-out unregisters this device by its token.
+      final clears = [
         for (final b in backend.bodies)
-          if (b.$1 == '/forum/me/profile/') b.$2,
+          if (b.$1 == '/push-devices/unregister/') b.$2,
       ];
-      expect(patches, [
-        {'fcm_token': ''},
-        {'fcm_token': ''},
-      ], reason: 'the refresh re-registered push mid-sign-out');
+      expect(clears, [
+        {'token': 'device-token-1'},
+        {'token': 'device-token-1'},
+      ]);
       expect(
-        backend.seen.where((r) => r.$1 == '/forum/me/profile/').last.$2,
+        backend.bodies.where((b) => b.$1 == '/push-devices/'),
+        isEmpty,
+        reason: 'the refresh re-registered push mid-sign-out',
+      );
+      expect(
+        backend.seen.where((r) => r.$1 == '/push-devices/unregister/').last.$2,
         'Bearer fresh',
       );
       final state = harness.container.read(authServiceProvider);
@@ -1556,7 +1566,7 @@ void main() {
   });
 
   group('session-expiry exemption', () {
-    test('signOut\'s FCM-clear PATCH carries skipSessionExpiryKey', () async {
+    test('signOut\'s FCM unregister carries skipSessionExpiryKey', () async {
       // Asserted through the REQUEST options, not a notifier flag — there is
       // no `_signingOut` boolean in lib/ and by design there must not be one.
       final harness = _Harness(
@@ -1571,11 +1581,12 @@ void main() {
 
       await harness.container.read(authServiceProvider.notifier).signOut();
 
-      // Selected by payload, not position: with the real push service the
-      // build-time exchange also PATCHes this endpoint (a registration), so
-      // `.last` would be leaning on production ordering to pick the clear.
-      final clear = harness.api.patchCalls.singleWhere(
-        (c) => c.data?['fcm_token'] == '',
+      // Selected by path, not position: with the real push service the
+      // build-time exchange and a registration are POSTs too, so `.last`
+      // would be leaning on production ordering to pick the clear. Since
+      // todo 621 the clear is the device unregister.
+      final clear = harness.api.postCalls.singleWhere(
+        (c) => c.path == '/push-devices/unregister/',
       );
       expect(clear.options?.extra?[ApiService.skipSessionExpiryKey], isTrue);
     });

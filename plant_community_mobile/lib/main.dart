@@ -11,9 +11,9 @@ import 'core/routing/app_router.dart';
 import 'features/auth/password_reset_link.dart';
 import 'features/forum/services/forum_link_launcher.dart';
 import 'services/auth_service.dart';
+import 'services/push_foreground_presenter.dart';
 import 'services/push_message_router_service.dart';
-
-final _rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+import 'shared/root_scaffold_messenger.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -79,6 +79,8 @@ class MyApp extends ConsumerWidget {
     final router = ref.watch(appRouterProvider);
     ref.watch(authServiceProvider);
     ref.watch(pushMessageRouterServiceProvider);
+    // Foreground pushes: in-app banner + data refresh (todo 621).
+    ref.watch(pushForegroundPresenterProvider);
     ref.listen<AuthState>(authServiceProvider, (previous, next) {
       final error = next.error;
       if (error == null || error == previous?.error) {
@@ -87,7 +89,7 @@ class MyApp extends ConsumerWidget {
         if (previous?.unverifiedAccountConflict == true &&
             !next.unverifiedAccountConflict) {
           WidgetsBinding.instance.addPostFrameCallback(
-            (_) => _rootScaffoldMessengerKey.currentState?.clearSnackBars(),
+            (_) => rootScaffoldMessengerKey.currentState?.clearSnackBars(),
           );
         }
         return;
@@ -106,7 +108,7 @@ class MyApp extends ConsumerWidget {
           : null;
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        final messenger = _rootScaffoldMessengerKey.currentState;
+        final messenger = rootScaffoldMessengerKey.currentState;
         messenger
           ?..clearSnackBars()
           ..showSnackBar(
@@ -125,7 +127,7 @@ class MyApp extends ConsumerWidget {
     return MaterialApp.router(
       title: AppBrand.name,
       debugShowCheckedModeBanner: false,
-      scaffoldMessengerKey: _rootScaffoldMessengerKey,
+      scaffoldMessengerKey: rootScaffoldMessengerKey,
       theme: AppTheme.build(Brightness.light, density),
       darkTheme: AppTheme.build(Brightness.dark, density),
       themeMode: themeMode,

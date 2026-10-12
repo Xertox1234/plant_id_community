@@ -100,7 +100,59 @@ class PostReportView(forum_views.PostReportView):
 
 @_throttled("profile_update", "PATCH")
 class MeProfileView(forum_views.MeProfileView):
-    pass
+    def perform_update(self, serializer):
+        """Mirror a legacy ``fcm_token`` write into ``PushDevice`` (todo 621).
+
+        An app build from before todo 621 registers and clears its token here.
+        A token becomes one of the account's devices; a clear (``""``) removes
+        only the device this profile last registered, never the account's
+        other devices. The package writes the column itself, so a backend
+        instance from before the deploy still sees it during the rollover.
+
+        The column holds one token, so a legacy write that REPLACES it also
+        unregisters the token it replaced, as the single-device semantics did:
+        otherwise a second pre-621 build on the account would leave the first
+        build's row behind, and that build's later sign-out (a clear, which can
+        only name the column's current token) would remove the second build's
+        device while the signed-out one kept receiving pushes.
+
+        A phone that registers through ``/push-devices/`` takes its token out
+        of the column (``register_device``), so an old build's write here never
+        names it. Known limits of the one-token column during deploy skew: an
+        upgraded build that falls back to this endpoint (a 404 from a pre-621
+        instance) writes the column again, and a clear names no token, so
+        interleaved legacy writes from two phones can release the other
+        phone's row (a missed push until its next registration). A legacy
+        clear that lands on a pre-621 instance clears only the column, so that
+        device's row stays until its next registration or a dead-token report.
+        """
+        import logging
+
+        from apps.core.push_devices import register_device, unregister_device
+        from django.db import IntegrityError
+
+        previous = serializer.instance.fcm_token
+        super().perform_update(serializer)
+        if "fcm_token" not in serializer.validated_data:
+            return
+        token = serializer.validated_data["fcm_token"]
+        try:
+            if token:
+                register_device(
+                    self.request.user, token, platform="legacy", legacy=True
+                )
+                if previous and previous != token:
+                    unregister_device(self.request.user, previous)
+            elif previous:
+                unregister_device(self.request.user, previous)
+        except IntegrityError:
+            # Lost a race to a concurrent registration of the same token. The
+            # column write above stands and the send path reads it, so the
+            # device is still reached; the next registration settles the row.
+            logging.getLogger("forum_host.api").warning(
+                "[PUSH] legacy token mirror lost a race (user=%s)",
+                self.request.user.pk,
+            )
 
 
 @_throttled("search", "GET", key=client_ip_key)
