@@ -51,7 +51,7 @@ Filed by the closing step of the run from `state.py followups-md g7`.
 - Findings 3, 4 and 5 (one item reported three times) fixed: `test_tail_only_empty_edge_is_exactly_the_marker_cost` in `scripts/inject/test_budget_rules.py` now measures the marker instead of parsing it: the file suffix is the longest run the excerpt shares with the file's end, and the skipped count's digits are swapped arithmetically. The share-digit guard became a self-consistency re-measure, and the test asserts no marker wording.
 - Mutation checks: dropping `reach` fails only the finding-1 case, dropping the strict propagation fails only the finding-2 case, a reworded tail marker leaves the edge test green, and a 50 B over-reservation fails it.
 
-### 2026-10-11 - Verified by the todo sweep (run 2026-10-12-0349)
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-0349)
 
 - AC 1: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 2 -- venv/bin/python -m pytest apps/core/tests/test_requests_exception_drift.py -q -p no:cacheprovider && python3 ../scripts/inject/test_budget_rules.py -v && grep -n -A8 'Implemented by the todo sweep (run 2026-10-12-0349)' ../todos/archive/609-completed-p4-requests-exception-guard-1055.md` — evidence `.sweep-evidence/g8/609-ac0.txt` (not committed), last lines:
 
@@ -63,6 +63,6 @@ Filed by the closing step of the run from `state.py followups-md g7`.
   52-- Mutation checks: dropping `reach` fails only the finding-1 case, dropping the strict propagation fails only the finding-2 case, a reworded tail marker leaves the edge test green, and a 50 B over-reservation fails it.
   ```
 
-### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-0349)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
