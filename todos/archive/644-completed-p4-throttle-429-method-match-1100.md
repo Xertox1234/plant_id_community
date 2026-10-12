@@ -67,3 +67,17 @@ Filed by the closing step of the run from `state.py followups-md g6`.
 ### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-2056)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Review round 1: non-blocking findings declined (owner decision)
+
+The owner decided on 2026-10-12 that this batch's non-blocking review findings are recorded here, not filed as
+new todos. Round 1 found nothing blocking. These low findings are declined:
+
+- `test_hook_test_helper_restores_the_thread_state` deletes `_state.throttled_operations` in `finally` instead
+  of restoring a prior value, and it tests a test helper. Declined: the hook reads the attribute with a default,
+  and preprocessing resets it, so nothing leaks.
+- Method filtering can choose a lone wrong candidate when a method-scoped exclude hides the recorded route and
+  a same-shape route has that method. Declined: the two routes would collide in the URLconf, so this cannot
+  happen in practice.
+- The evidence run used a drifted venv (pyjwt/urllib3). CI runs on the pinned requirements and is the
+  authoritative run.
