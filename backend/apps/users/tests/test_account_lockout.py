@@ -298,8 +298,10 @@ class AccountLockoutTestCase(TestCase):
             self.assertEqual(alert_details["attempts"], ACCOUNT_LOCKOUT_THRESHOLD)
 
     def test_lockout_security_alert_carries_no_raw_client_ip(self):
-        """Todo 587 item 6: the alert reaches Sentry, so the account owner's
-        IPs go out pseudonymized, as every other security log line has them."""
+        """Todo 587 item 6: the account_lockout alert reaches Sentry, so the
+        account owner's IPs go out pseudonymized. Only this alert: the
+        brute_force_login and suspicious_login_frequency alerts keep the raw
+        IP so an operator can block it (todo 607 item 4, owner decision)."""
         with patch.object(SecurityMonitor, "_trigger_security_alert") as mock_alert:
             for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
                 SecurityMonitor.track_failed_login_attempt(

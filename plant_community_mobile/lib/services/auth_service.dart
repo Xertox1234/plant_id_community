@@ -527,7 +527,9 @@ class AuthService extends _$AuthService {
         debugPrint('[AUTH ERROR] Token exchange failed: ${e.message}');
       }
 
-      await _clearJWT();
+      // Re-checked after every await: once overtaken, a newer exchange may
+      // already hold its own tokens, bearer and state (todo 607 item 2).
+      if (!await _clearJWTWhileCurrent(user, exchangeGeneration)) return;
       apiService.setAuthToken(null);
 
       // Don't throw - allow user to stay signed in to Firebase
@@ -554,7 +556,7 @@ class AuthService extends _$AuthService {
         debugPrint('[AUTH ERROR] Token exchange failed: $e');
       }
 
-      await _clearJWT();
+      if (!await _clearJWTWhileCurrent(user, exchangeGeneration)) return;
       apiService.setAuthToken(null);
 
       state = AuthState(
@@ -780,14 +782,7 @@ class AuthService extends _$AuthService {
     int generation,
     ApiException e,
   ) async {
-    // Each delete is issued only while this exchange is still current: once
-    // it is overtaken, a newer exchange may already have stored its own
-    // tokens, and deleting them would sign that user out (todo 587 item 2).
-    for (final key in const [_jwtKey, _refreshTokenKey]) {
-      if (!_isCurrentExchange(user, generation)) return;
-      await _secureStorage.delete(key: key);
-    }
-    if (!_isCurrentExchange(user, generation)) return;
+    if (!await _clearJWTWhileCurrent(user, generation)) return;
     final unverified = e.code == 'unverified_account';
     state = AuthState(
       firebaseUser: user,
@@ -881,6 +876,19 @@ class AuthService extends _$AuthService {
   }
 
   /// Clear stored JWT tokens
+  /// Delete the stored tokens, each only while this exchange is still
+  /// current: once it is overtaken, a newer exchange may already have stored
+  /// its own tokens, and deleting them would sign that user out (todos 587
+  /// item 2, 607 item 2). True when the exchange is still current after the
+  /// last delete, so the caller may go on to clear the bearer and set state.
+  Future<bool> _clearJWTWhileCurrent(User user, int generation) async {
+    for (final key in const [_jwtKey, _refreshTokenKey]) {
+      if (!_isCurrentExchange(user, generation)) return false;
+      await _secureStorage.delete(key: key);
+    }
+    return _isCurrentExchange(user, generation);
+  }
+
   Future<void> _clearJWT() async {
     await _secureStorage.delete(key: _jwtKey);
     await _secureStorage.delete(key: _refreshTokenKey);

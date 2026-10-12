@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "607"
 tags: [backend, mobile, avatars, auth, openapi, follow-ups]
@@ -36,7 +36,7 @@ PR #1053 (todo sweep run 2026-10-11-2219, group g5, todos 587, 599); follow-ups:
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -44,3 +44,26 @@ PR #1053 (todo sweep run 2026-10-11-2219, group g5, todos 587, 599); follow-ups:
 ### 2026-10-11 - Filed from the PR #1053 review (todo sweep run 2026-10-11-2219)
 
 Filed by the closing step of the run from `state.py followups-md g5`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-0349)
+
+- Items 1/3: `backend/apps/users/avatars.py` takes the alpha channel from the source (`convert("RGBA")`, which applies a tRNS key) before the ICC conversion and puts it back after, so a keyed RGB PNG with a profile stays transparent. Test: `test_a_tagged_png_keeps_its_trns_colour_key` in `backend/apps/users/tests/test_avatar_privacy.py` (fails on the old code with `255 != 0`).
+- Item 2: the launch exchange's `ApiException` and catch-all paths in `plant_community_mobile/lib/services/auth_service.dart` now clear through `_clearJWTWhileCurrent`, which re-checks the exchange before each delete and after the last, and only then clear the bearer and write state; `_surfaceAccountConflict` uses the same helper. Two tests in the `todo 607` group of `plant_community_mobile/test/services/auth_service_test.dart` (both fail on the old code). Items 5/9/10: `_Harness`'s doc comment moved back above `_Harness`.
+- Item 4: declined (owner decision 2026-10-11). The `brute_force_login` and `suspicious_login_frequency` alerts keep the raw IP on purpose so an operator can block it (`backend/apps/core/security.py`, the comment at the failed-login log line, todo 435 finding 5). The overstated docstring of `test_lockout_security_alert_carries_no_raw_client_ip` (`backend/apps/users/tests/test_account_lockout.py`) now says only the `account_lockout` alert is pseudonymized.
+- Items 6/7/8: `backend/apps/core/tests/test_openapi_rate_limit_429.py` now fails on a limited operation missing from the schema (6), walks class-based views and ViewSet actions under `method_decorator` (7), and fails on a 429 documented for a method the limit does not cover (8). Item 7 found 14 undocumented ViewSet operations (garden calendar, disease requests): they are named in a new `_throttled_actions` attribute that the existing schema hook in `backend/plant_community_backend/api_schema.py` reads, and the hook now matches paths with parameter names blanked (a ViewSet's `{pk}` is renamed `{id}` after preprocessing). Item 8 found two GET one-click unsubscribe operations documenting 429: `backend/apps/blog/newsletter_views.py` and `backend/apps/users/email_preferences_views.py` now document GET as a 302 redirect. New canaries cover each check.
+
+### 2026-10-11 - Verified by the todo sweep (run 2026-10-12-0349)
+
+- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 1 -- venv/bin/python -m pytest apps/users/tests/test_avatar_privacy.py apps/core/tests/test_openapi_rate_limit_429.py apps/users/tests/test_account_lockout.py -p no:cacheprovider -q --create-db && cd ../plant_community_mobile && flutter test test/services/auth_service_test.dart` — evidence `.sweep-evidence/g7/607-ac0.txt` (not committed), last lines:
+
+  ```text
+  00:00 +58: todo 607 item 2: a launch exchange failing with an API error, overtaken mid-clear, keeps the newer tokens
+  00:00 +59: todo 607 item 2: a launch exchange failing with any other error, overtaken mid-clear, keeps the newer tokens
+  00:00 +60: session-expiry exemption signOut's FCM-clear PATCH carries skipSessionExpiryKey
+  00:00 +61: session-expiry exemption a real 401 on an exempt request does not trigger the session-expired handler, while an unexempt one does
+  00:00 +62: All tests passed!
+  ```
+
+### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
