@@ -122,15 +122,21 @@ async function resubscribe(oldSubscription, newSubscription) {
       applicationServerKey,
     });
   }
-  await fetch(`${api}/api/v1/auth/push-notifications/resubscribe/`, {
-    method: 'POST',
-    credentials: 'omit',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      old_subscription: { endpoint: old.endpoint, auth: old.keys.auth },
-      subscription: fresh.toJSON(),
-    }),
-  });
+  const send = () =>
+    fetch(`${api}/api/v1/auth/push-notifications/resubscribe/`, {
+      method: 'POST',
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        old_subscription: { endpoint: old.endpoint, auth: old.keys.auth },
+        subscription: fresh.toJSON(),
+      }),
+    });
+  // 409: other accounts took the new endpoint concurrently twice running and
+  // the server rolled everything back, so one retry is safe (todo 641, owner
+  // decision 2026-10-12). After that the Settings page reconciles on load.
+  const response = await send();
+  if (response && response.status === 409) await send();
 }
 
 self.addEventListener('pushsubscriptionchange', (event) => {

@@ -199,6 +199,24 @@ describe('service worker (public/sw.js)', () => {
     });
   });
 
+  it.each([
+    ['a 409 is retried once and then succeeds', [409, 200], 2],
+    ['a second 409 gives up', [409, 409, 200], 2],
+    ['a 200 is sent once', [200], 1],
+    ['a 500 is not retried', [500, 200], 1],
+  ])('resubscribe: %s (todo 641)', async (_name, statuses, sent) => {
+    const { listeners, fetch } = loadWorker();
+    fetch.mockImplementation(async () => new Response('{}', { status: statuses.shift() ?? 200 }));
+
+    await subscriptionChange(listeners, fakeSubscription('old'), fakeSubscription('new'));
+
+    expect(fetch).toHaveBeenCalledTimes(sent);
+    const bodies = fetch.mock.calls.map((call) =>
+      String((call as unknown as [string, RequestInit])[1].body)
+    );
+    expect(new Set(bodies).size).toBe(1);
+  });
+
   it('with no new subscription it subscribes again with the old key', async () => {
     const key = new Uint8Array([4, 1, 2]).buffer;
     const { self, listeners, fetch } = loadWorker();

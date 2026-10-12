@@ -31,6 +31,25 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# The partial unique constraint behind the endpoint race (todo 602 item 3).
+ONE_ACTIVE_ENDPOINT_CONSTRAINT = "push_sub_one_active_endpoint"
+
+
+class PushEndpointConflict(IntegrityError):
+    """A subscribe lost the endpoint race to other accounts twice running.
+
+    Raised only for the one-active-row-per-endpoint constraint, so the views
+    can answer it with a retryable 409 while any other IntegrityError (a bad
+    FK, a NOT NULL) stays a logged 500 (todo 641 item 2). Subclasses
+    IntegrityError, so a caller that catches that still catches this.
+    """
+
+
+def _is_endpoint_race(exc: IntegrityError) -> bool:
+    """True when ``exc`` is the one-active-endpoint constraint refusing a row."""
+    diag = getattr(exc.__cause__, "diag", None)
+    return getattr(diag, "constraint_name", None) == ONE_ACTIVE_ENDPOINT_CONSTRAINT
+
 
 def vapid_claims_email() -> str:
     """The VAPID ``sub`` contact address without a ``mailto:`` prefix, or ""."""
@@ -242,9 +261,11 @@ class NotificationService:
                         user=user, endpoint=endpoint, defaults=defaults
                     )
                 break
-            except IntegrityError:
-                if attempt:
+            except IntegrityError as exc:
+                if not _is_endpoint_race(exc):
                     raise
+                if attempt:
+                    raise PushEndpointConflict(str(exc)) from exc
                 logger.info(
                     f"[PUSH] Endpoint taken concurrently; releasing again for "
                     f"{log_safe_user_context(user)}"

@@ -326,6 +326,11 @@ SUBSCRIBE_PUSH_SCHEMA = extend_schema(
         429: RATE_LIMITED,
         500: _SIMPLE_ERROR,
     },
+    description="Register this browser's push subscription for the signed-in "
+    "user. One endpoint belongs to one account: another account's active row "
+    "on it is released. 409 when other accounts took the endpoint concurrently "
+    "twice running: nothing changed, so the caller may retry (todo 628); the "
+    "web client retries once (todo 641). Any other failure is a 500.",
     examples=[
         _example(
             "Browser subscription",
@@ -379,12 +384,15 @@ RESUBSCRIBE_PUSH_SCHEMA = extend_schema(
         404: _SIMPLE_ERROR,
         409: _SIMPLE_ERROR,
         429: ERROR_ENVELOPE,
+        500: _SIMPLE_ERROR,
     },
     description="Called by the service worker when the browser replaces a push "
     "subscription (todo 456). No session: the old subscription's endpoint and "
     "auth secret prove the caller holds it. CSRF-exempt, rate-limited per IP. "
     "409 when other accounts took the new endpoint concurrently twice running: "
-    "nothing changed, so the caller may retry (todo 628).",
+    "nothing changed, so the caller may retry (todo 628); the service worker "
+    "retries once, and after that the Settings page reconciles on its next "
+    "load (todo 641).",
     examples=[
         _example(
             "Browser replaced its subscription",
