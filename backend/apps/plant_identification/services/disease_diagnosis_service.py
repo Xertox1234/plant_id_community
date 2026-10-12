@@ -9,9 +9,11 @@ import logging
 from typing import Callable, Dict, List, Optional
 
 from django.db import IntegrityError, transaction
-from django.db.models import F
+from django.db.models import F, Value
+from django.db.models.functions import Lower
 from django.utils import timezone
 
+from ..constants import DISEASE_NAME_LOWER_UNIQUE
 from ..models import (
     DiseaseCareInstructions,
     PlantDiseaseDatabase,
@@ -57,10 +59,18 @@ class DiseaseAutostorageService:
                     result.suggested_disease_name
                 )
 
+                disease = None
                 if existing_disease:
-                    # Update existing disease
-                    disease = self._update_existing_disease(existing_disease, result)
-                else:
+                    try:
+                        disease = self._update_existing_disease(
+                            existing_disease, result
+                        )
+                    except PlantDiseaseDatabase.DoesNotExist:
+                        # Deleted between the lookup and the locked re-read:
+                        # create it again rather than drop this diagnosis
+                        # (todo 613).
+                        disease = None
+                if disease is None:
                     disease = self._create_or_merge_new_disease(result)
 
                 # Mark result as stored
@@ -84,8 +94,16 @@ class DiseaseAutostorageService:
             return None
 
     def _find_existing_disease(self, name: str) -> Optional["PlantDiseaseDatabase"]:
-        """Return the disease row whose name matches `name`, ignoring case."""
-        return PlantDiseaseDatabase.objects.filter(disease_name__iexact=name).first()
+        """Return the disease row whose name matches `name`, ignoring case.
+
+        Compared with LOWER(), the same function the unique constraint uses
+        (todo 613), so the lookup and the constraint agree on what one name is.
+        """
+        return (
+            PlantDiseaseDatabase.objects.alias(name_lower=Lower("disease_name"))
+            .filter(name_lower=Lower(Value(name)))
+            .first()
+        )
 
     def _create_or_merge_new_disease(
         self, result: "PlantDiseaseResult"
@@ -94,20 +112,31 @@ class DiseaseAutostorageService:
 
         A lock cannot cover a row that does not exist yet, so two concurrent
         first diagnoses of a disease both miss the lookup and both create it
-        (todo 594). The loser's insert hits the unique `disease_name`
-        constraint. The savepoint rolls back only that insert; the row the
+        (todo 594). The loser's insert hits the unique constraint on the
+        name, which ignores case (todo 613), so 'Black Spot' and 'black spot'
+        collide too. The savepoint rolls back only that insert; the row the
         winner committed is then read and merged like any existing row, so
         this diagnosis is still counted and the result still stored.
+
+        Only that constraint is a merge. Any other IntegrityError surfaces,
+        even when a row with this name exists.
         """
         try:
             with transaction.atomic():
                 return self._create_new_disease(result)
-        except IntegrityError:
+        except IntegrityError as exc:
+            if not self._is_name_collision(exc):
+                raise
             existing = self._find_existing_disease(result.suggested_disease_name)
             if existing is None:
-                # The constraint that fired was not the name: let it surface.
                 raise
             return self._update_existing_disease(existing, result)
+
+    @staticmethod
+    def _is_name_collision(exc: IntegrityError) -> bool:
+        """True when `exc` is the case-insensitive disease-name constraint."""
+        diag = getattr(exc.__cause__, "diag", None)
+        return getattr(diag, "constraint_name", None) == DISEASE_NAME_LOWER_UNIQUE
 
     def _update_existing_disease(
         self, disease: "PlantDiseaseDatabase", result: "PlantDiseaseResult"
@@ -119,6 +148,9 @@ class DiseaseAutostorageService:
         diagnosis committed: merging into that stale copy and saving every
         field would drop the other diagnosis's symptoms or lower a higher
         confidence score. The returned instance is the fresh, updated row.
+
+        Raises `PlantDiseaseDatabase.DoesNotExist` when the row was deleted
+        after `disease` was read.
         """
         with transaction.atomic():
             disease = PlantDiseaseDatabase.objects.select_for_update().get(
@@ -148,6 +180,11 @@ class DiseaseAutostorageService:
                     "updated_at",
                 ]
             )
+
+            # Record this diagnosis's species, as a first diagnosis does in
+            # _create_new_disease (todo 613).
+            if result.request.plant_species_id:
+                disease.affected_plants.add(result.request.plant_species_id)
         # The instance holds the F() expression until it is re-read.
         disease.refresh_from_db(fields=["diagnosis_count"])
         return disease

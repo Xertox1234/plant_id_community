@@ -11,12 +11,13 @@ from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import F
+from django.db.models.functions import Lower
 from django.urls import reverse
 from imagekit.models import ImageSpecField, ProcessedImageField
 from imagekit.processors import ResizeToFill, ResizeToFit
 from taggit.managers import TaggableManager
 
-from .constants import DISEASE_REQUEST_STATUS_CHOICES
+from .constants import DISEASE_NAME_LOWER_UNIQUE, DISEASE_REQUEST_STATUS_CHOICES
 
 # Wagtail models will be appended at the end to avoid circular imports
 
@@ -937,8 +938,9 @@ class PlantDiseaseDatabase(models.Model):
     )
 
     # Disease Information
+    # Unique ignoring case: see Meta.constraints (todo 613).
     disease_name = models.CharField(
-        max_length=200, unique=True, help_text="Common name of the disease"
+        max_length=200, help_text="Common name of the disease"
     )
 
     scientific_name = models.CharField(
@@ -1055,6 +1057,14 @@ class PlantDiseaseDatabase(models.Model):
         ordering = ["-diagnosis_count", "disease_name"]
         verbose_name = "Disease Database Entry"
         verbose_name_plural = "Disease Database Entries"
+        constraints = [
+            # The service looks names up ignoring case, so 'Black Spot' and
+            # 'black spot' are one disease. A case-sensitive unique let two
+            # concurrent first diagnoses insert both (todo 613).
+            models.UniqueConstraint(
+                Lower("disease_name"), name=DISEASE_NAME_LOWER_UNIQUE
+            ),
+        ]
 
     def __str__(self):
         return f"{self.disease_name} ({self.disease_type})"
