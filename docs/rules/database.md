@@ -306,3 +306,8 @@ Compact checklist auto-injected before edits. Long-form:
   or create with `get_or_create` and re-run the locked update on
   `IntegrityError`. Never swallow that error and return `None`: the caller's
   count is silently lost (todo 568 review, open as todo 594).
+- **Never edit a data migration after it has merged.** Prod auto-deploys `main`,
+  so the migration has already run there: an in-place edit reaches only databases
+  that have not applied it, and rows it deleted cannot come back. Get the merge
+  logic right before the first merge, and put any later correction in a NEW
+  migration. 0028 was edited after #1081 shipped (todos 636, 646).

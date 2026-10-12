@@ -1637,5 +1637,53 @@ class TestRun1448Triggers(unittest.TestCase):
             'ALLOWED = ["JPEG", "PNG"]\nimg.save(out, format="JPEG")\n'
         ), "image-reencode-map-needs-mpo"))
 
+
+class TestRun1724Triggers(unittest.TestCase):
+    """Codify of the P4 batch of 2026-10-12, against the REAL index. The
+    positive is the handler #1096 shipped; the negatives are its fix and the
+    get_or_create retry, which also catches IntegrityError but returns no 409."""
+
+    VIEWS = "backend/apps/users/views.py"
+    TRIGGER = "integrityerror-409-unscoped"
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        cls.real = mt.load_triggers(root)
+
+    def hit(self, path, content):
+        tn, ti = write(path, content)
+        return self.TRIGGER in ids(mt.find_matches(tn, ti, self.real, None))
+
+    def test_bare_integrityerror_409_fires(self):
+        self.assertTrue(self.hit(self.VIEWS, (
+            "    except IntegrityError:\n"
+            "        # Lost the endpoint race twice (todo 628 item 3): a conflict the\n"
+            "        # client can retry, not a server fault.\n"
+            "        return Response(\n"
+            '            {"error": "Subscription changed concurrently; retry"},\n'
+            "            status=status.HTTP_409_CONFLICT,\n"
+            "        )\n"
+        )))
+
+    def test_constraint_scoped_409_silent(self):
+        self.assertFalse(self.hit(self.VIEWS, (
+            "    except IntegrityError as exc:\n"
+            '        diag = getattr(exc.__cause__, "diag", None)\n'
+            '        if getattr(diag, "constraint_name", None) != "unique_active_endpoint":\n'
+            "            raise\n"
+            '        logger.warning("[PUSH] lost the endpoint race twice")\n'
+            "        return Response(status=status.HTTP_409_CONFLICT)\n"
+        )))
+
+    def test_get_or_create_retry_silent(self):
+        self.assertFalse(self.hit(self.VIEWS, (
+            "    try:\n"
+            "        obj = Model.objects.create(**kwargs)\n"
+            "    except IntegrityError:\n"
+            "        obj = Model.objects.get(**lookup)\n"
+            "    return Response(serializer(obj).data, status=status.HTTP_200_OK)\n"
+        )))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

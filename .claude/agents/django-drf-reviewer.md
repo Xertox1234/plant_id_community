@@ -201,6 +201,12 @@ Use Grep as fallback for any LSP call that returns an error or an empty/inconclu
 - [ ] **Shared-room block policy is explicit and pinned:** visibility of the room, filtering of the blocked member's messages/previews/unread counts, an explicit 403 on send, and the same generic 400 for adding a blocked as a missing member (no oracle) — each with a test
 - [ ] **Membership endpoints answer 404 for a direct thread, a stranger and a non-member alike;** the last-member / creator-leave edge is decided (orphan rows or forbid) and tested
 
+### P4 batch additions (2026-10-12, PRs #1096, #1103)
+
+- [ ] **A changed status code or error path is checked against its real caller.** Read the client before accepting a new 5xx/409: web `refreshAccessToken` logs out on any non-2xx, so a bookkeeping write (stamp, counter, audit row) that fails must log and continue, not fail the request
+- [ ] **`except IntegrityError` → 409 is scoped to one constraint** (`exc.__cause__.diag.constraint_name`), logged with a `[...]` prefix, and re-raises everything else
+- [ ] **No edit to a data migration that has already merged** (`git log origin/main -- <migration>`): prod has applied it, so a correction belongs in a new migration
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):
