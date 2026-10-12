@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "644"
 tags: [api, tests, follow-ups]
@@ -35,7 +35,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -43,3 +43,52 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-12 - Filed from the PR #1100 review (todo sweep run 2026-10-12-1724)
 
 Filed by the closing step of the run from `state.py followups-md g6`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-2056)
+
+- Item 1 (fixed): `_schema_path_item` became `_schema_operation(path, method, ...)` in `backend/plant_community_backend/api_schema.py`; a shape-match candidate must now have the recorded method, so `/x/{pk}/` POST lands on `/x/{id}/` when `/x/{slug}/` has only a GET. An exact key still returns early (`paths[path].get(method)`) and never falls through to a shape match. Test: `test_hook_resolves_a_shape_match_by_the_recorded_method` (also pins that two candidates with the method stay ambiguous).
+- Item 2 (fixed): the gate's `_excluded(view, method)` sets `schema.method` as `get_operation` does before calling `is_excluded()`. Canary `test_gate_honours_a_method_scoped_exclude` (`extend_schema(exclude=True, methods=["POST"])`) raised `AttributeError: 'ExtendedSchema' object has no attribute 'method'` before the fix.
+- Item 3 (fixed): the hook tests now go through `_documented_429`, which restores the thread's prior `throttled_operations` (or deletes it if absent); pinned by `test_hook_test_helper_restores_the_thread_state`.
+- Item 4 (verified, no change): `dart run build_runner build` in `plant_community_mobile` wrote 18 outputs and left `git status` clean, so `auth_service.g.dart` is current. A `--build-filter` run first deleted nine other `.g.dart` files; the full build restored them byte-identical.
+- Item 5 (fixed): the 632-item-1 test adds a `{topic_pk}` -> lone `{topic_id}` case (documented) and a `{slug}` vs lone `{id}` case (nothing documented). All in `backend/apps/core/tests/test_openapi_rate_limit_429.py`, 8 passed.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-2056)
+
+- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 5 -- venv/bin/python -m pytest apps/core/tests/test_openapi_rate_limit_429.py --create-db -v -p no:warnings` — evidence `.sweep-evidence/g5/644-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ============================== 8 passed in 0.67s ===============================
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-2056)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Review round 1: non-blocking findings declined (owner decision)
+
+The owner decided on 2026-10-12 that this batch's non-blocking review findings are recorded here, not filed as
+new todos. Round 1 found nothing blocking. These low findings are declined:
+
+- `test_hook_test_helper_restores_the_thread_state` deletes `_state.throttled_operations` in `finally` instead
+  of restoring a prior value, and it tests a test helper. Declined: the hook reads the attribute with a default,
+  and preprocessing resets it, so nothing leaks.
+- Method filtering can choose a lone wrong candidate when a method-scoped exclude hides the recorded route and
+  a same-shape route has that method. Declined: the two routes would collide in the URLconf, so this cannot
+  happen in practice.
+- The evidence run used a drifted venv (pyjwt/urllib3). CI runs on the pinned requirements and is the
+  authoritative run.
+
+### 2026-10-12 - Review round 2: non-blocking findings declined (owner decision)
+
+Round 2 found nothing blocking. These low findings are declined:
+
+- An exact path key returns `paths[path].get(method)` without trying the shape match. So if the recorded route
+  was renamed and the old path still exists with other methods, no 429 is added. Declined: the gate fails loudly
+  in that case.
+- One reviewer read the round-1 note above as describing `_documented_429`. It describes
+  `test_hook_test_helper_restores_the_thread_state`, which does `del` in `finally` (test line 412). The note
+  stands.

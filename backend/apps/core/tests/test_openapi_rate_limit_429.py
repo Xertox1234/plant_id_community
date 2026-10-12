@@ -97,12 +97,21 @@ def _marked_throttled(view, method):
     return bool(action) and action in getattr(view, "_throttled_actions", ())
 
 
-def _excluded(view):
-    """True for a view kept out of the schema (``extend_schema(exclude=True)``).
-    ``_get_paths_and_endpoints`` still yields it; ``parse`` drops it."""
+def _excluded(view, method):
+    """True for an operation kept out of the schema (``extend_schema(exclude=True)``).
+    ``_get_paths_and_endpoints`` still yields it; ``parse`` drops it.
+
+    ``is_excluded`` judges a method-scoped exclude (``methods=[...]``) by
+    ``schema.method``, which only ``get_operation`` sets, so it is set here
+    first as ``get_operation`` would. A fresh view's schema has none (an
+    AttributeError), and a shared one holds the last method generated (todo
+    644 item 2)."""
     schema = getattr(view, "schema", None)
     is_excluded = getattr(schema, "is_excluded", None)
-    return bool(is_excluded and is_excluded())
+    if is_excluded is None:
+        return False
+    schema.method = method.upper()
+    return bool(is_excluded())
 
 
 def _missing_429(patterns=None):
@@ -133,7 +142,7 @@ def _missing_429(patterns=None):
                 extra.append(op)
             continue
         if operation is None:
-            if _excluded(view):
+            if _excluded(view, method):
                 # Hidden from the schema on purpose: nothing to document
                 # (todo 632 item 4).
                 continue
@@ -321,7 +330,6 @@ def test_hook_does_not_mix_up_paths_that_differ_only_in_parameter_name():
     parameter names are blanked. The 429 lands on the path recorded, a
     ``{pk}`` still finds its renamed ``{id}`` when that is the only fit, and
     an ambiguous ``{pk}`` documents nothing rather than the wrong operation."""
-    from plant_community_backend import api_schema
 
     def result():
         return {
@@ -329,22 +337,100 @@ def test_hook_does_not_mix_up_paths_that_differ_only_in_parameter_name():
                 "/x/{id}/": {"post": {"responses": {}}},
                 "/x/{slug}/": {"post": {"responses": {}}},
                 "/y/{id}/": {"post": {"responses": {}}},
+                "/z/{topic_id}/": {"post": {"responses": {}}},
+                "/w/{id}/": {"post": {"responses": {}}},
             }
         }
 
     def documented(recorded):
-        api_schema._state.throttled_operations = {(p, "post") for p in recorded}
-        try:
-            paths = api_schema.document_throttle_429(result(), None, None, True)
-        finally:
-            api_schema._state.throttled_operations = set()
-        return sorted(
-            p
-            for p, item in paths["paths"].items()
-            if "429" in item["post"]["responses"]
-        )
+        ops = _documented_429(result(), {(p, "post") for p in recorded})
+        return [op.removeprefix("POST ") for op in ops]
 
     assert documented(["/x/{slug}/"]) == ["/x/{slug}/"]
     assert documented(["/x/{id}/"]) == ["/x/{id}/"]
     assert documented(["/y/{pk}/"]) == ["/y/{id}/"]
     assert documented(["/x/{pk}/"]) == []
+    # Todo 644 item 5: a ``{<x>_pk}`` finds its renamed lone fit, but a name
+    # the generator never renames does not match a different lone name.
+    assert documented(["/z/{topic_pk}/"]) == ["/z/{topic_id}/"]
+    assert documented(["/w/{slug}/"]) == []
+
+
+def _documented_429(result, recorded):
+    """Run the postprocessing hook on ``result`` with ``recorded`` as the
+    throttled (path, method) pairs; return the "METHOD path" pairs that got a
+    429. The thread-local state is restored afterwards (todo 644 item 3)."""
+    from plant_community_backend import api_schema
+
+    missing = object()
+    prior = getattr(api_schema._state, "throttled_operations", missing)
+    api_schema._state.throttled_operations = set(recorded)
+    try:
+        paths = api_schema.document_throttle_429(result, None, None, True)
+    finally:
+        if prior is missing:
+            del api_schema._state.throttled_operations
+        else:
+            api_schema._state.throttled_operations = prior
+    return sorted(
+        f"{method.upper()} {p}"
+        for p, item in paths["paths"].items()
+        for method, operation in item.items()
+        if "429" in operation["responses"]
+    )
+
+
+def test_hook_resolves_a_shape_match_by_the_recorded_method():
+    """Todo 644 item 1: ``/x/{id}/`` has a POST and ``/x/{slug}/`` only a GET.
+    A recorded ``/x/{pk}/`` POST fits one of them only, so it is documented
+    there rather than dropped as ambiguous."""
+
+    def result(*slug_methods):
+        return {
+            "paths": {
+                "/x/{id}/": {"post": {"responses": {}}},
+                "/x/{slug}/": {m: {"responses": {}} for m in slug_methods},
+            }
+        }
+
+    recorded = {("/x/{pk}/", "post")}
+    assert _documented_429(result("get"), recorded) == ["POST /x/{id}/"]
+    # Both have the method: still ambiguous, still nothing documented.
+    assert _documented_429(result("get", "post"), recorded) == []
+
+
+def test_hook_test_helper_restores_the_thread_state():
+    """Todo 644 item 3: the helper puts back what the thread had before."""
+    from plant_community_backend import api_schema
+
+    sentinel = {("/kept/", "post")}
+    api_schema._state.throttled_operations = sentinel
+    try:
+        _documented_429({"paths": {}}, {("/x/", "post")})
+        assert api_schema._state.throttled_operations is sentinel
+    finally:
+        del api_schema._state.throttled_operations
+
+
+def test_gate_honours_a_method_scoped_exclude():
+    """Canary, todo 644 item 2: ``extend_schema(exclude=True, methods=[...])``
+    hides only that method. The gate must judge the exclusion for the method
+    it is checking, not for whatever method the schema last saw."""
+    from drf_spectacular.utils import extend_schema
+    from rest_framework import serializers
+
+    @extend_schema(exclude=True, methods=["POST"])
+    @extend_schema(request=None, responses={200: serializers.DictField()})
+    @api_view(["GET", "POST"])
+    @django_ratelimit.decorators.ratelimit(key="ip", rate="1/m")
+    def half_hidden(request):
+        return Response({})
+
+    limited, missing, unmatched, extra = _missing_429(
+        patterns=[path("api/v1/canary/half-hidden/", half_hidden)]
+    )
+
+    # GET is in the schema and limited, with no 429: reported. POST is
+    # hidden on purpose: neither limited nor unmatched.
+    assert limited == missing == ["GET /canary/half-hidden/"]
+    assert unmatched == extra == []
