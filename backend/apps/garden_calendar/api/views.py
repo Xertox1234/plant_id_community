@@ -57,6 +57,7 @@ from ..models import (
     WeatherAlert,
 )
 from ..permissions import IsCareTaskOwner, IsGardenOwner, IsPlantOwner
+from .audit_actor import AuditActorMixin
 from .serializers import (
     CareLogSerializer,
     CareTaskCreateUpdateSerializer,
@@ -632,7 +633,7 @@ class WeatherAlertViewSet(viewsets.ReadOnlyModelViewSet):
         tags=["Garden Beds"],
     ),
 )
-class GardenBedViewSet(viewsets.ModelViewSet):
+class GardenBedViewSet(AuditActorMixin, viewsets.ModelViewSet):
     """
     ViewSet for managing garden beds.
 
@@ -958,7 +959,7 @@ class GardenBedViewSet(viewsets.ModelViewSet):
         tags=["Plants"],
     ),
 )
-class PlantViewSet(viewsets.ModelViewSet):
+class PlantViewSet(AuditActorMixin, viewsets.ModelViewSet):
     """
     ViewSet for managing plants.
 
@@ -1437,7 +1438,7 @@ def _skip_refusal(task: CareTask) -> Optional[Response]:
         tags=["Care Tasks"],
     ),
 )
-class CareTaskViewSet(viewsets.ModelViewSet):
+class CareTaskViewSet(AuditActorMixin, viewsets.ModelViewSet):
     """
     ViewSet for managing care tasks.
 
@@ -1719,7 +1720,7 @@ class CareTaskViewSet(viewsets.ModelViewSet):
             return "#3B82F6"  # Blue
 
 
-class CareLogViewSet(viewsets.ModelViewSet):
+class CareLogViewSet(AuditActorMixin, viewsets.ModelViewSet):
     """
     ViewSet for managing care logs.
 
@@ -1753,7 +1754,7 @@ class CareLogViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
 
 
-class HarvestViewSet(viewsets.ModelViewSet):
+class HarvestViewSet(AuditActorMixin, viewsets.ModelViewSet):
     """
     ViewSet for managing harvest records.
 

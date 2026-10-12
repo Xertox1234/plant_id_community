@@ -20,15 +20,26 @@ that way when adding a field: no ``TextField`` may be listed
 ``include_fields`` limits ``changes`` only. Every LogEntry also stores
 ``object_repr = str(instance)``, which auditlog does not filter: GardenBed's
 carries the owner's username, and the others carry the plant's common name or
-the bed's name. Those are labels, not prose, and they live only as long as the
-account: deleting a user purges every LogEntry of their garden objects, the
-DELETE rows the cascade itself writes included (owner decision 2026-10-11,
-todo 586; see ``purge_garden_audit_entries`` below).
+the bed's name. Those are labels, not prose. Deleting a user purges a garden
+LogEntry when either (see ``purge_garden_audit_entries`` below):
 
-``actor`` is NULL on every garden LogEntry: no ``AuditlogMiddleware`` or
-``set_actor`` is wired, and middleware could not see a JWT user anyway (DRF
-authenticates in the view, after middleware runs). The trail records what
-changed and when, not who changed it (todo 586).
+- it describes a garden object the user still has when the account goes,
+  the DELETE rows the cascade itself writes included (owner decision
+  2026-10-11, todo 586); or
+- the user is its ``actor``, which also covers objects the user deleted
+  before the account (owner decision 2026-10-11, todo 606).
+
+What neither matches survives the account: a row written with no actor (by a
+Celery task, the CMS admin, or a garden view before todo 606 wired the actor)
+for an object the user had already deleted. The actor match covers rows
+written from todo 606 on, not older ones.
+
+``actor`` is set by the garden API views (``api/audit_actor.py``), which enter
+auditlog's ``set_actor`` once DRF has authenticated the request.
+``AuditlogMiddleware`` could not do it: it runs before DRF authenticates the
+JWT. Rows written outside those views (Celery tasks, the CMS admin) have a NULL
+actor. auditlog also stores the actor's email in ``actor_email``; the actor
+match purges those rows with the account.
 
 Registering a model gives it a ``post_delete`` receiver, so Django can no
 longer fast-delete it: deleting a plant, bed or user loads each garden row and
@@ -47,7 +58,7 @@ from .models import CareLog, CareTask, GardenBed, Harvest, Plant
 
 # Register GardenBed for garden ownership and modification tracking
 # Tracks: User garden bed creation, layout changes, soil condition updates
-# (what changed and when; actor is not recorded, see the module docstring)
+# (what changed, when, and by whom from the garden API; see the module docstring)
 auditlog.register(
     GardenBed,
     include_fields=[
@@ -143,27 +154,38 @@ def _garden_objects_of(user):
 
 def collect_garden_audit_targets(sender, instance, **kwargs):
     """Before a user is deleted, note which garden objects their LogEntry rows
-    describe. After the delete the rows are gone and cannot be looked up."""
+    describe, and which garden LogEntry rows name them as actor. After the
+    delete the garden rows are gone and the actor is NULL (``on_delete=
+    SET_NULL``), so neither can be looked up then."""
     targets = []
+    content_type_ids = []
     for model, queryset in _garden_objects_of(instance).items():
+        content_type_id = ContentType.objects.get_for_model(model).pk
+        content_type_ids.append(content_type_id)
         pks = [str(pk) for pk in queryset.values_list("pk", flat=True)]
         if pks:
-            targets.append((ContentType.objects.get_for_model(model).pk, pks))
-    setattr(instance, _TARGETS_ATTR, targets)
+            targets.append((content_type_id, pks))
+    acted = list(
+        get_logentry_model()
+        .objects.filter(actor=instance, content_type_id__in=content_type_ids)
+        .values_list("pk", flat=True)
+    )
+    setattr(instance, _TARGETS_ATTR, (targets, acted))
 
 
 def purge_garden_audit_entries(sender, instance, **kwargs):
-    """Delete every LogEntry of the deleted user's garden objects.
+    """Delete every LogEntry of the deleted user's garden objects, and every
+    garden LogEntry the user is the actor of (todo 606).
 
     Runs on the user's ``post_delete``, which Django sends after the cascade
     has deleted (and so audited) every garden row: the DELETE entries the
     cascade wrote are purged with the older CREATE and UPDATE ones. It runs
     inside the delete's transaction, so a rolled-back delete keeps its trail.
     """
-    targets = instance.__dict__.pop(_TARGETS_ATTR, None)
-    if not targets:
+    targets, acted = instance.__dict__.pop(_TARGETS_ATTR, ((), ()))
+    if not targets and not acted:
         return
-    match = Q()
+    match = Q(pk__in=acted) if acted else Q()
     for content_type_id, pks in targets:
         match |= Q(content_type_id=content_type_id, object_pk__in=pks)
     get_logentry_model().objects.filter(match).delete()

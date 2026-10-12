@@ -85,6 +85,37 @@ class GardenAuditlogRegistrationTest(TestCase):
         self.assertEqual(len(entries), 1)
         self.assertIn("scheduled_date", entries[0].changes_dict)
 
+    def test_overdue_reschedule_locks_the_tasks_it_reads(self):
+        """Todo 606 item 3: the per-row save() above replaced an atomic
+        filtered update(), so the read must lock the task rows. Unlocked, a
+        task completed or skipped between the read and its save was still
+        moved to tomorrow, its notes overwritten and its reminder re-armed.
+        Only the task rows are locked, not the joined plant."""
+        from datetime import timedelta
+
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from ..services.care_schedule_service import CareScheduleService
+
+        task = self._task()
+        CareTask.objects.filter(pk=task.pk).update(
+            scheduled_date=timezone.now() - timedelta(days=10)
+        )
+
+        with CaptureQueriesContext(connection) as ctx:
+            count = CareScheduleService.reschedule_overdue_tasks(self.user)
+
+        self.assertEqual(count, 1)
+        task_table = connection.ops.quote_name(CareTask._meta.db_table)
+        reads = [
+            q["sql"]
+            for q in ctx.captured_queries
+            if q["sql"].startswith("SELECT") and f"FROM {task_table}" in q["sql"]
+        ]
+        self.assertTrue(reads, ctx.captured_queries)
+        self.assertTrue(reads[0].endswith(f"FOR UPDATE OF {task_table}"), reads[0])
+
     def test_all_five_models_are_registered(self):
         for model in (GardenBed, Plant, CareTask, CareLog, Harvest):
             self.assertTrue(auditlog.contains(model), model.__name__)
@@ -236,3 +267,104 @@ class GardenAuditlogPurgeOnAccountDeletionTest(TestCase):
                 action=LogEntry.Action.DELETE,
             ).exists()
         )
+
+    def test_rows_of_another_owners_plant_the_user_created_are_purged(self):
+        """Todo 606 item 4: each operand of ``_garden_objects_of`` is covered.
+        A task Alice created and a care log she wrote on Bob's plant are
+        matched only by ``created_by=user`` and ``user=user``; Bob's own rows
+        on that plant survive."""
+        alice, _alices = self._garden("alice_helper")
+        bob, bobs = self._garden("bob_owner")
+        bob_plant = bobs[1]
+        alice_task = CareTask.objects.create(
+            plant=bob_plant,
+            created_by=alice,
+            task_type="watering",
+            title="Water Bob's tomato",
+            priority="medium",
+            scheduled_date=timezone.now(),
+        )
+        alice_log = CareLog.objects.create(
+            plant=bob_plant, user=alice, activity_type="watering"
+        )
+        alice_rows = [alice_task, alice_log]
+        self.assertEqual(self._entries(alice_rows).count(), 2)
+        before_bob = self._entries(bobs).count()
+
+        alice.delete()
+
+        self.assertFalse(self._entries(alice_rows).exists())
+        self.assertEqual(self._entries(bobs).count(), before_bob)
+
+
+class GardenAuditlogActorTest(TestCase):
+    """Todo 606 item 2 (owner decision 2026-10-11): the garden API records the
+    user as each LogEntry's actor, and deleting the account purges every
+    garden row the user is the actor of. That covers a bed the user deleted
+    before the account, which ownership can no longer match."""
+
+    BEDS = "/api/v1/calendar/api/garden-beds/"
+
+    def _user(self, username):
+        return User.objects.create_user(
+            username=username,
+            email=f"{username}@test.com",
+            password="testpass123",  # pragma: allowlist secret
+        )
+
+    def _client(self, user):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        return client
+
+    def _bed_entries(self, pk):
+        return LogEntry.objects.filter(
+            content_type=ContentType.objects.get_for_model(GardenBed),
+            object_pk=str(pk),
+        )
+
+    def test_the_api_records_the_user_as_actor_and_only_inside_the_request(self):
+        alice = self._user("alice_actor")
+        response = self._client(alice).post(
+            self.BEDS, {"name": "Alice bed", "bed_type": "raised"}
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        bed = GardenBed.objects.get(uuid=response.data["uuid"])
+
+        created = self._bed_entries(bed.pk).get(action=LogEntry.Action.CREATE)
+        self.assertEqual(created.actor, alice)
+
+        # The request's actor does not leak into a write after it.
+        bed.name = "Renamed outside a request"
+        bed.save()
+        updated = self._bed_entries(bed.pk).get(action=LogEntry.Action.UPDATE)
+        self.assertIsNone(updated.actor)
+
+    def test_rows_of_a_bed_deleted_before_the_account_are_purged(self):
+        alice = self._user("alice_gone_bed")
+        bob = self._user("bob_stays")
+        alice_client = self._client(alice)
+        response = alice_client.post(
+            self.BEDS, {"name": "alice_gone_bed's bed", "bed_type": "raised"}
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        bed_uuid = response.data["uuid"]
+        bed_pk = GardenBed.objects.get(uuid=bed_uuid).pk
+        response = alice_client.patch(f"{self.BEDS}{bed_uuid}/", {"soil_ph": "6.5"})
+        self.assertEqual(response.status_code, 200, response.data)
+        response = alice_client.delete(f"{self.BEDS}{bed_uuid}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(self._bed_entries(bed_pk).count(), 3)  # CREATE/UPDATE/DELETE
+
+        response = self._client(bob).post(
+            self.BEDS, {"name": "Bob bed", "bed_type": "raised"}
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        bob_bed_pk = GardenBed.objects.get(uuid=response.data["uuid"]).pk
+
+        alice.delete()
+
+        self.assertFalse(self._bed_entries(bed_pk).exists())
+        self.assertEqual(self._bed_entries(bob_bed_pk).count(), 1)

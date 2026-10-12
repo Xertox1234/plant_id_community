@@ -616,6 +616,12 @@ RAG_INDEX_RETRY_DELAY = 30
 NOTIFICATION_BATCH_MAX_RETRIES = 3
 NOTIFICATION_BATCH_RETRY_DELAY = 30
 
+# When send_forum_push_batch stops on Firebase credentials errors, the
+# recipients it had not tried yet go out in ONE follow-up batch after this many
+# seconds (owner decision 2026-10-11, todo 606). The follow-up never re-enqueues
+# again, so a real project-wide outage cannot loop.
+FORUM_PUSH_REQUEUE_DELAY = 300
+
 # Grounded-generation prompt. TWO untrusted slots, both fenced: the QUESTION is
 # user input, and the PASSAGES are user-authored forum text and blog copy that
 # can carry injection attempts at greater length. The ingestion/dosing refusal
