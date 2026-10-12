@@ -4,10 +4,7 @@ priority: p3
 issue_id: "445"
 tags: [blog, content, ai, rag]
 dependencies: []
-triage: blocked-owner
-triaged: 2026-09-28
-blocked_on: "Owner spot-checks and publishes the 53 prod drafts in /cms/ and records the date (AC3)"
-owner_decision: "Owner: the 53 care-guide drafts are not yet spot-checked or published (2026-09-28)"
+owner_decision: "Owner spot-checked and published the 53 care drafts on 2026-10-11; verified in prod (59/59 BlogPostPage live+public, 0 drafts); AC 3 done, archive (2026-10-11)"
 ---
 
 # Draft ~50 AI care articles in the CMS for the owner to spot-check
@@ -35,7 +32,7 @@ articles are allowed, spot-checked by the owner before publishing.
 
 - [x] ~50 draft care articles exist in the CMS, tagged, unpublished. (completed 2026-09-27: 53 drafts in production, see the Work Log)
 - [x] The topic list and the generation command/prompt are recorded here. (completed 2026-09-27, see the Work Log)
-- [ ] The owner has spot-checked and published them (owner step; record the date).
+- [x] The owner has spot-checked and published them (owner step; record the date). (completed 2026-10-11: 59/59 live in prod, see the Work Log)
 
 ## Work Log
 
@@ -130,3 +127,16 @@ AC 3 is the owner's: spot-check the 53 drafts under the blog index in the CMS
 (`/cms/`, "My pages" for `plantadmin`) and publish. Set `publish_date` when
 publishing. Published `care-guide` posts are what the mobile care guides list
 (todo 386).
+
+### 2026-10-11 - Owner published the drafts; verified in prod
+
+The owner spot-checked the 53 care-guide drafts and published them in `/cms/` (Blog, page 16) on 2026-10-11.
+Read-only check in prod afterwards (`railway ssh … manage.py shell`):
+
+```
+LIVE_PUBLIC 59 ALL 59 NOTLIVE 0
+STILL_DRAFT []
+```
+
+`last_published_at` is 2026-10-12 UTC for all 59. AC 3 is met, so archive this todo. An earlier check that day
+showed the 53 still unpublished, so this todo stayed open until the re-check above.

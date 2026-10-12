@@ -8,8 +8,8 @@ source_review: "docs/audits/2026-07-11-forum-modernization-COMPLETED.md"
 source_finding: "M13"
 triage: blocked-prod
 triaged: 2026-09-28
-blocked_on: "Gate 2: todo 445's care articles published and owner-checked (≥50 articles). After that, the owner flips FORUM_RAG_ENABLED in prod and reads the prod [RAG] logs."
-owner_decision: "Owner hand-off: waits for todo 445's articles and a corpus of >=50 articles or >=200 topics; the owner flips FORUM_RAG_ENABLED in prod (2026-09-28)"
+blocked_on: "AC 4-5: a first real 'answered' response from a premium user, then RAG_SIMILARITY_FLOOR reviewed against real [RAG] top-score lines"
+owner_decision: "Gates 1-3 hold; FORUM_RAG_ENABLED=True set in prod 2026-10-11 (owner-approved) and BlogChunks rebuilt (59 pages). Remaining AC 4-5 need real premium traffic: owner hand-off (2026-10-11)"
 ---
 
 # Enable RAG plant-care answers in a target environment
@@ -117,12 +117,12 @@ In this order — each step is a precondition of the next:
 
 ## Acceptance Criteria
 
-- [ ] Gate 1 holds: `FORUM_VECTOR_SEARCH_ENABLED=True` on the target service
+- [x] Gate 1 holds: `FORUM_VECTOR_SEARCH_ENABLED=True` on the target service
       with both indexes built (`rebuild_indexes SimilarTopics BlogChunks`
-      output quoted)
-- [ ] Gate 2 holds: corpus re-measured and at/above threshold (≥200 live
-      topics or ≥50 blog articles), counts quoted
-- [ ] Gate 3 holds: the review-queue owner is named in this file
+      output quoted) (completed 2026-10-11: built 2026-09-25, BlogChunks rebuilt 2026-10-11, see the Work Log)
+- [x] Gate 2 holds: corpus re-measured and at/above threshold (≥200 live
+      topics or ≥50 blog articles), counts quoted (completed 2026-10-11: 59 live articles)
+- [x] Gate 3 holds: the review-queue owner is named in this file (completed 2026-09-24: the owner, weekly)
 - [ ] `FORUM_RAG_ENABLED=True` and the first real `answered` response observed
       (question class + cited sources quoted, no PII)
 - [ ] `RAG_SIMILARITY_FLOOR` reviewed against real `[RAG]` top-score lines and
@@ -188,3 +188,21 @@ live. `manage.py rebuild_indexes SimilarTopics BlogChunks` ran in production
 2026-09-25 03:52 UTC: both rebuilt (1.59 s and 1.61 s), exit 0. The
 similar-topics endpoint then returned relevant results. Remaining: gate 2 (the
 corpus, via todo 445), then `FORUM_RAG_ENABLED` per steps 5–6.
+
+### 2026-10-11 - RAG enabled in production
+
+The owner approved the flip once todo 445's articles were published.
+
+- **Gate 2, re-measured** (read-only prod shell): 59 `BlogPostPage`s are live and public, out of 59. That is
+  at least 50 articles. Forum topics: 26.
+- **Flag:** `FORUM_RAG_ENABLED=True` was set on `plant_id_community` through the Railway MCP. The redeployed
+  container reports `rag_enabled() == True`. It is declared as `preserve()` in `.railway/railway.ts`, in a
+  separate PR that the owner merges, because merging it applies the prod config.
+- **BlogChunks rebuilt.** `sync_blog_page_chunks` only purges while the flag is off, so the pages published
+  today had no chunks. `manage.py rebuild_indexes BlogChunks` then ran: `Successful rebuilds: 1`, 9.77 s,
+  exit 0. Afterwards: `CHUNKS 302 PAGES 59 LIVE 59 MISSING []`.
+- **Endpoint:** an anonymous `POST /api/v1/forum/care/ask/` returns 401. That says nothing about the flag,
+  because the flag is checked inside the view after authentication (`rag.py:135`).
+- **Still open:** AC 4 (a first real `answered` from a premium user) and AC 5 (review the floor against real
+  `[RAG] retrieval top scores` lines). Both wait on real traffic, so they stay with the owner. Rollback:
+  unset `FORUM_RAG_ENABLED`.

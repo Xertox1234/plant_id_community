@@ -6,10 +6,7 @@ tags: [backend, core, dead-code, migration, operator]
 dependencies: []
 source_review: "todos/archive/415-completed-p3-remove-dead-django-email-preferences-views.md"
 source_finding: "recommended action 2"
-triage: blocked-prod
-triaged: 2026-10-02
-blocked_on: "Owner runs the read-only prod count (railway ssh --service plant_id_community -- manage.py shell: ForumNotificationSubscription.objects.count()) and records it in the todo"
-owner_decision: "Still blocked: owner runs the read-only prod count (railway ssh --service plant_id_community -- manage.py shell: ForumNotificationSubscription.objects.count()) and records it in the todo (2026-10-02)"
+owner_decision: "Unblocked: prod count is 0 (read-only railway ssh, owner-approved, 2026-10-11); remove the model by migration (2026-10-11)"
 ---
 
 # Drop the orphaned `ForumNotificationSubscription` model once production confirms it is empty
@@ -45,7 +42,7 @@ be done on an assumption.
 
 ## Acceptance Criteria
 
-- [ ] The production row count is recorded here, with its date.
+- [x] The production row count is recorded here, with its date. (completed 2026-10-11: count 0, see the Work Log)
 - [ ] The model is removed by a migration, or kept with a written reason.
 
 ## Work Log
@@ -54,3 +51,14 @@ be done on an assumption.
 
 The views and helpers were removed in todo 415's PR. The model was left in
 place because the production count could not be taken.
+
+### 2026-10-11 - Prod count recorded: 0
+
+With the owner's approval, read-only from prod (`railway ssh --service plant_id_community -- python manage.py shell -c
+"from apps.core.models import ForumNotificationSubscription as F; print('COUNT', F.objects.count())"`):
+
+```
+COUNT 0
+```
+
+No rows, so nothing is lost. AC 2 goes ahead: remove the model with a migration.

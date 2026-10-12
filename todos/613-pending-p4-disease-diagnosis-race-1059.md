@@ -4,6 +4,7 @@ priority: p4
 issue_id: "613"
 tags: [backend, plant-id, database, follow-ups]
 dependencies: []
+owner_decision: "Items 1-2: data migration merges case-variant disease_name groups into the oldest row (re-point FKs + M2M, sum diagnosis_count, delete extras), then add UniqueConstraint(Lower('disease_name')); no prod count needed. Items 3-5: fix as usual (2026-10-11)"
 ---
 
 # Follow-ups from PR #1059 (todo 594, disease diagnosis first-create race)
@@ -34,3 +35,19 @@ PR #1059 (todo sweep run 2026-10-11-2219, group g11, todos 594); follow-ups: ver
 ### 2026-10-11 - Filed from the PR #1059 review (todo sweep run 2026-10-11-2219)
 
 Filed by the closing step of the run from `state.py followups-md g11`.
+
+### 2026-10-11 - Owner decision: merge migration, then a case-insensitive constraint
+
+**Items 1–2.** Migration 1 (RunPython) groups `PlantDiseaseDatabase` rows by `Lower('disease_name')`. In each
+group with more than one row it keeps the **oldest** row and moves everything onto it: `care_instructions`
+(FK, CASCADE, so re-point **before** deleting), diagnosis results (FK), and `affected_plants` (M2M, union).
+It adds up `diagnosis_count`, then deletes the extra rows. Migration 2 replaces the case-sensitive uniqueness
+with `UniqueConstraint(Lower('disease_name'), name=…)`. Follow `docs/rules/database.md` for migrations: no
+f-string SQL, and give the data migration a reverse that does nothing.
+
+Test the merge with fixture rows 'Black Spot' and 'black spot', each with a care instruction, a diagnosis and
+an affected plant. After the merge there is one row, and every reference and count is on it. Then the race
+fallback can rely on the constraint, so item 2's merge into a case-variant row is correct by construction.
+Nobody needs to count prod rows by hand, because the migration handles any data.
+
+**Items 3–5:** fix or decline as usual.

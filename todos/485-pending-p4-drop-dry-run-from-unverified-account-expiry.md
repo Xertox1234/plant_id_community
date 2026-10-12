@@ -5,10 +5,7 @@ issue_id: "485"
 tags: [backend, auth, ops]
 dependencies: []
 source_review: "PR #877"
-triage: blocked-prod
-triaged: 2026-10-02
-blocked_on: "AC1: the owner pastes the date + \"[PRUNE] unverified accounts: N candidate(s)...\" line from one prod cron night's logs (Railway forum-prune-cron service)."
-owner_decision: "Still blocked: owner pastes the date and the '[PRUNE] unverified accounts: N candidate(s)' line from one prod forum-prune-cron night into the todo (2026-10-02)"
+owner_decision: "Unblocked: owner-approved read of forum-prune-cron logs 2026-10-01..2026-10-11 shows 0 candidates every night (2026-10-11); remove --dry-run per AC 2-3 (2026-10-11)"
 ---
 
 # Drop `--dry-run` from the unverified-account expiry cron; tidy archived 447
@@ -33,8 +30,8 @@ this.
 
 ## Acceptance Criteria
 
-- [ ] The owner has read a prod night's `[PRUNE] unverified accounts` counts. The date and the
-      quoted counts are recorded here.
+- [x] The owner has read a prod night's `[PRUNE] unverified accounts` counts. The date and the
+      quoted counts are recorded here. (completed 2026-10-11: 0 candidates nightly 10-01..10-11, see the Work Log)
 - [ ] `--dry-run` is removed from the expiry cron in `.railway/railway.ts`, and the comment names
       this todo or none.
 - [ ] Archived 447's `blocked_on` is removed, or renamed to a non-blocking note that points here.
@@ -42,3 +39,15 @@ this.
 ## Work Log
 
 ### 2026-09-28 - Filed from PR #877 rounds 1 and 2 (todo sweep run 2026-09-28-2018)
+
+### 2026-10-11 - Prod cron counts recorded (AC 1)
+
+Read with the owner's approval from the Railway `forum-prune-cron` deploy logs (MCP `get-logs`, read-only). The
+run on 2026-10-11 at 03:02:59 UTC (argv `expire_unverified_accounts --dry-run`) logged:
+
+```
+[PRUNE] unverified accounts: 0 candidate(s) older than 7d, 0 kept, would delete 0, 0 failed.
+```
+
+Every night from 2026-10-01 through 2026-10-11 logged the same line, 0 candidates each time. Removing
+`--dry-run` deletes nothing today. AC 2 and AC 3 go ahead.
