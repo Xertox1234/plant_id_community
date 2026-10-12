@@ -4,6 +4,8 @@ priority: p4
 issue_id: "640"
 tags: [todo-sweep, harness, security, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
 ---
 
 # Follow-ups from PR #1095 (todo 618, worker git guard fail-closed)

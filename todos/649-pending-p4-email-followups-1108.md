@@ -4,6 +4,9 @@ priority: p4
 issue_id: "649"
 tags: [email, templates, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Finding 4: replace every hardcoded 'Houseplant-MD' (code defaults, email templates, WAGTAIL_SITE_NAME, forum feed) with 'Houseplant MD', plus a guard test that the old spelling is gone from backend code and templates; fix the other findings (2026-10-12)"
 ---
 
 # Follow-ups from PR #1108 (todo 639, email text parts, SITE_NAME, blog layout)

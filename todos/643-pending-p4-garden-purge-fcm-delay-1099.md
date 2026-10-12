@@ -4,6 +4,8 @@ priority: p4
 issue_id: "643"
 tags: [garden, forum, celery, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
 ---
 
 # Follow-ups from PR #1099 (todo 631, garden actor, FCM requeue)

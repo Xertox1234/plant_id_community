@@ -4,6 +4,9 @@ priority: p4
 issue_id: "641"
 tags: [users, web-push, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Items 3/5: sw.js resubscribe and web enableBrowserPush retry the request once on 409 before giving up, with tests; fix the other findings (2026-10-12)"
 ---
 
 # Follow-ups from PR #1096 (todos 627, 628, refresh stamp, push 409)
