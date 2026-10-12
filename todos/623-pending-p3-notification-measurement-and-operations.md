@@ -6,7 +6,7 @@ tags: [backend, notifications, email, observability, operations, privacy]
 dependencies: []
 triage: ready
 triaged: 2026-10-12
-owner_decision: "Owner: repo-only slice now — outcome vocabulary shared with 619, remove misleading track_opens, worker/beat/queue alert counters; provider feedback ingestion, attribution, prod checks and baseline re-pointed to a follow-up todo. Email provider unknown, decide later (2026-10-12)"
+owner_decision: "Owner: repo-only slice now — outcome vocabulary shared with 619, remove misleading track_opens, worker/beat/queue alert counters; provider feedback ingestion, attribution, prod checks and baseline re-pointed to todo 625. Email provider unknown, decide later (2026-10-12). Owner: 623 executes after 619 merges and extends 619's outbox attempt states — no second ledger (2026-10-12). Owner: operational alerts go to Sentry — cron-monitor check-ins for beat-scheduled tasks plus Sentry events/error logs for broker, retry-exhaustion and missing-push-config failures (2026-10-12)"
 ---
 
 # Measure delivery and engagement and verify notification operations
