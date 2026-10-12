@@ -120,6 +120,11 @@ class DiseaseAutostorageService:
 
         Only that constraint is a merge. Any other IntegrityError surfaces,
         even when a row with this name exists.
+
+        The winner's row can be deleted again before it is read: not found by
+        the re-lookup, or gone at the locked re-read. Then this diagnosis
+        creates the row once more rather than be dropped (todo 636); a second
+        collision surfaces.
         """
         try:
             with transaction.atomic():
@@ -127,16 +132,28 @@ class DiseaseAutostorageService:
         except IntegrityError as exc:
             if not self._is_name_collision(exc):
                 raise
-            existing = self._find_existing_disease(result.suggested_disease_name)
-            if existing is None:
-                raise
-            return self._update_existing_disease(existing, result)
+        existing = self._find_existing_disease(result.suggested_disease_name)
+        if existing is not None:
+            try:
+                return self._update_existing_disease(existing, result)
+            except PlantDiseaseDatabase.DoesNotExist:
+                pass
+        with transaction.atomic():
+            return self._create_new_disease(result)
 
     @staticmethod
     def _is_name_collision(exc: IntegrityError) -> bool:
-        """True when `exc` is the case-insensitive disease-name constraint."""
+        """True when `exc` is the case-insensitive disease-name constraint.
+
+        psycopg names the constraint in `diag.constraint_name`. A driver
+        without it (SQLite, or an error raised by hand) still names it in the
+        message, so that is checked too (todo 636).
+        """
         diag = getattr(exc.__cause__, "diag", None)
-        return getattr(diag, "constraint_name", None) == DISEASE_NAME_LOWER_UNIQUE
+        constraint = getattr(diag, "constraint_name", None)
+        if constraint is not None:
+            return constraint == DISEASE_NAME_LOWER_UNIQUE
+        return DISEASE_NAME_LOWER_UNIQUE in str(exc)
 
     def _update_existing_disease(
         self, disease: "PlantDiseaseDatabase", result: "PlantDiseaseResult"

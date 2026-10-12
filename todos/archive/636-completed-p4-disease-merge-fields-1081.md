@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "636"
 tags: [plant-id, migrations, follow-ups]
@@ -37,7 +37,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -45,3 +45,26 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-12 - Filed from the PR #1081 review (todo sweep run 2026-10-12-0349)
 
 Filed by the closing step of the run from `state.py followups-md g11`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-1724)
+
+- Findings 1 and 5: `backend/apps/plant_identification/migrations/0028_merge_case_variant_diseases.py` still keeps the oldest row (owner decision), but now folds the extras into it: highest confidence, union of `symptoms['identified']`, either review flag, and every blank field (description, scientific name, prevention tips, reference image, JSON lists, a missing symptoms key) filled from the oldest extra with a value. A same-name care instruction whose text differs is appended to the kept one before the duplicate is dropped.
+- Findings 2 and 4 (second half): `_create_or_merge_new_disease` creates the row once more when the winner is gone at the re-lookup or the locked re-read, instead of dropping the diagnosis; a second collision surfaces.
+- Finding 4: `_is_name_collision` falls back to the constraint name in the error message when the driver has no `diag.constraint_name` (SQLite, hand-raised errors).
+- Finding 3: `DiagnosisFirstCreateRaceTest` docstring names the case-insensitive constraint; new tests cover the collision-but-no-row branch, the vanished-row branch, the message fallback and the migration field merge. `test_shared_treatment_name_keeps_the_keepers_instruction` now expects the appended text (behaviour change of finding 5).
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-1724)
+
+- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 3 -- venv/bin/python -m pytest apps/plant_identification/tests/test_disease_diagnosis_count.py apps/plant_identification/tests/test_disease_name_case_merge_migration.py --create-db -v -p no:cacheprovider` — evidence `.sweep-evidence/g9/636-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================= 23 passed, 2 warnings in 19.48s ========================
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-1724)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

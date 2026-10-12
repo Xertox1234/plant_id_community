@@ -10,11 +10,19 @@ the other rows are deleted, everything that points at them moves to it:
 
 - care instructions (FK, CASCADE: deleting first would destroy them). The
   pair (disease, treatment_name) is unique, so an extra row's instruction
-  whose name the keeper already has is dropped and the keeper's is kept;
+  whose name the keeper already has is not moved: its text is appended to
+  the keeper's instruction of that name when it says something different,
+  and the duplicate row is then dropped (todo 636);
 - diagnosis results (FK, SET_NULL: deleting first would orphan them);
 - affected plants (M2M: the union of every row's species).
 
-The kept row's `diagnosis_count` becomes the sum of the group's counts.
+The kept row's `diagnosis_count` becomes the sum of the group's counts. Its
+own fields are merged the way the service merges a live diagnosis, so no
+variant's content is lost (todo 636): the highest `confidence_score`, the
+union of `symptoms['identified']`, either review flag if any row has it, and
+every blank field (description, scientific name, prevention tips, reference
+image, the JSON lists, a missing symptoms key) filled from the oldest extra
+row that has a value.
 
 Merging cannot be undone, so the reverse does nothing.
 """
@@ -22,6 +30,58 @@ Merging cannot be undone, so the reverse does nothing.
 from django.db import migrations
 from django.db.models import Count, F
 from django.db.models.functions import Lower
+
+# Fields a merge fills on the keeper when blank, from the oldest extra row
+# that has a value (todo 636).
+FILL_IF_BLANK = (
+    "scientific_name",
+    "description",
+    "prevention_tips",
+    "reference_image",
+    "severity_levels",
+    "affected_plant_families",
+    "seasonal_patterns",
+    "environmental_triggers",
+)
+
+
+def _merged_fields(keeper, extras):
+    """The keeper's fields with every extra row folded in (todo 636).
+
+    Mirrors the service's live merge: the highest confidence and the union of
+    identified symptoms. Beyond that, a review flag set on any row is kept and
+    a blank field takes the first value an extra row has.
+    """
+    rows = [keeper, *extras]
+    fields = {
+        "confidence_score": max(row.confidence_score for row in rows),
+        "expert_reviewed": any(row.expert_reviewed for row in rows),
+        "community_confirmed": any(row.community_confirmed for row in rows),
+    }
+    for name in FILL_IF_BLANK:
+        if getattr(keeper, name):
+            continue
+        filled = next(
+            (getattr(row, name) for row in extras if getattr(row, name)), None
+        )
+        if filled is not None:
+            # An ImageField's value is a FieldFile: store its name.
+            fields[name] = getattr(filled, "name", filled)
+
+    symptoms = dict(keeper.symptoms) if isinstance(keeper.symptoms, dict) else {}
+    identified = list(symptoms.get("identified") or [])
+    for row in extras:
+        other = row.symptoms if isinstance(row.symptoms, dict) else {}
+        for symptom in other.get("identified") or []:
+            if symptom not in identified:
+                identified.append(symptom)
+        for key, value in other.items():
+            if key != "identified" and value and not symptoms.get(key):
+                symptoms[key] = value
+    if identified or "identified" in symptoms:
+        symptoms["identified"] = identified
+    fields["symptoms"] = symptoms
+    return fields
 
 
 def merge_case_variant_diseases(apps, schema_editor):
@@ -51,22 +111,36 @@ def merge_case_variant_diseases(apps, schema_editor):
         # treatment "<Type> Treatment", so the variants usually share names.
         # The keeper's instruction wins; an extra one with a name already on
         # the keeper (or on an earlier extra row) is dropped, the rest move.
-        taken = set(
-            CareInstructions.objects.filter(disease_id=keeper.pk).values_list(
-                "treatment_name", flat=True
-            )
+        # A dropped instruction whose text differs is appended to the one
+        # that is kept, so its advice survives (todo 636).
+        keeper_care = CareInstructions.objects.filter(disease_id=keeper.pk).values_list(
+            "pk", "treatment_name", "instructions"
         )
+        taken = {
+            treatment_name: [care_pk, instructions]
+            for care_pk, treatment_name, instructions in keeper_care
+        }
         duplicate_care_pks = []
-        for care_pk, treatment_name in (
+        extended = {}
+        for care_pk, treatment_name, instructions in (
             CareInstructions.objects.filter(disease_id__in=extra_pks)
             .order_by("pk")
-            .values_list("pk", "treatment_name")
+            .values_list("pk", "treatment_name", "instructions")
         ):
-            if treatment_name in taken:
-                duplicate_care_pks.append(care_pk)
-            else:
-                taken.add(treatment_name)
+            if treatment_name not in taken:
+                taken[treatment_name] = [care_pk, instructions]
+                continue
+            duplicate_care_pks.append(care_pk)
+            kept = taken[treatment_name]
+            text = (instructions or "").strip()
+            if text and text not in kept[1]:
+                kept[1] = f"{kept[1].rstrip()}\n\n{text}" if kept[1].strip() else text
+                extended[kept[0]] = kept[1]
         CareInstructions.objects.filter(pk__in=duplicate_care_pks).delete()
+        for care_pk, instructions in extended.items():
+            CareInstructions.objects.filter(pk=care_pk).update(
+                instructions=instructions
+            )
         CareInstructions.objects.filter(disease_id__in=extra_pks).update(
             disease_id=keeper.pk
         )
@@ -94,7 +168,8 @@ def merge_case_variant_diseases(apps, schema_editor):
 
         Disease.objects.filter(pk=keeper.pk).update(
             diagnosis_count=F("diagnosis_count")
-            + sum(row.diagnosis_count for row in extras)
+            + sum(row.diagnosis_count for row in extras),
+            **_merged_fields(keeper, extras),
         )
         Disease.objects.filter(pk__in=extra_pks).delete()
 
