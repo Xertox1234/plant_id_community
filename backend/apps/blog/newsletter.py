@@ -247,7 +247,7 @@ def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
     try:
         # Inside the try: a failure building the link must still undo the
         # stamp, or the address stays throttled with nothing sent.
-        site_name = getattr(settings, "SITE_NAME", "Houseplant-MD")
+        site_name = getattr(settings, "SITE_NAME", "Houseplant MD")
         context = {
             "site_name": site_name,
             "confirm_url": confirm_url(subscriber),
@@ -262,11 +262,23 @@ def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
         message.attach_alternative(
             render_to_string(CONFIRM_HTML_TEMPLATE, context), "text/html"
         )
-        message.send()
     except Warning:
         # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
         # and Warning subclasses Exception: never log it as a failed send
         # (todo 454).
+        raise
+    except Exception as e:
+        # The type only: a template error can quote the signed confirm link
+        # (todo 649 finding 1). A send failure below keeps its traceback.
+        logger.error(
+            "[EMAIL] newsletter confirmation could not be built for subscriber=%s: %s",
+            subscriber.pk,
+            type(e).__name__,
+        )
+        return False
+    try:
+        message.send()
+    except Warning:
         raise
     except Exception:
         logger.exception(

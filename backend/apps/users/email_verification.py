@@ -204,9 +204,11 @@ def deliver_verification_email(user) -> bool:
         text = render_to_string("emails/email_verification.txt", context)
         html = render_to_string("emails/email_verification.html", context)
     except Exception as exc:
+        # The exception's type only, never its text (todo 649): a template
+        # error can echo a context value, and the context holds a signed link.
         logger.error(
             f"[EMAIL] Could not render the verification mail for "
-            f"{log_safe_user_context(user)}: {exc}"
+            f"{log_safe_user_context(user)}: {type(exc).__name__}"
         )
         return False
     return service.send_transactional_email(

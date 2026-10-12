@@ -218,6 +218,33 @@ class RequestConfirmationTests(TestCase):
             self.assertFalse(newsletter.request_confirmation("reader@example.com"))
         self.assertIsNone(BlogNewsletter.objects.get().confirmation_sent_at)
 
+    def test_a_render_error_logs_its_type_not_the_signed_link(self):
+        """Todo 649 review: a render failure logs the type only, since its
+        text can quote the signed confirm link; a send failure keeps its
+        traceback for the SMTP detail."""
+        with (
+            mock.patch.object(
+                newsletter,
+                "render_to_string",
+                side_effect=ValueError("confirm?token=FAKE-SIGNED-TOKEN"),
+            ),
+            mock.patch.object(newsletter, "logger") as logger,
+        ):
+            self.assertFalse(newsletter.request_confirmation("reader@example.com"))
+        [call] = logger.error.call_args_list
+        self.assertIn("ValueError", call.args)
+        self.assertNotIn("FAKE-SIGNED-TOKEN", repr(call))
+        logger.exception.assert_not_called()
+
+        with (
+            mock.patch.object(
+                newsletter.EmailMultiAlternatives, "send", side_effect=OSError("smtp")
+            ),
+            mock.patch.object(newsletter, "logger") as logger,
+        ):
+            self.assertFalse(newsletter.request_confirmation("other@example.com"))
+        logger.exception.assert_called_once()
+
     def test_a_row_from_the_old_endpoint_is_not_subscribed(self):
         # Single opt-in rows: active, never confirmed. Never mailed a newsletter.
         self.assertFalse(_subscriber(is_active=True).is_subscribed)
@@ -265,10 +292,13 @@ class RequestConfirmationTests(TestCase):
 
         gone = mock.Mock()
         gone.filter.return_value.first.return_value = None
-        with mock.patch.object(
-            BlogNewsletter.objects, "get_or_create", side_effect=read
-        ), mock.patch.object(
-            BlogNewsletter.objects, "select_for_update", return_value=gone
+        with (
+            mock.patch.object(
+                BlogNewsletter.objects, "get_or_create", side_effect=read
+            ),
+            mock.patch.object(
+                BlogNewsletter.objects, "select_for_update", return_value=gone
+            ),
         ):
             with self.assertRaises(BlogNewsletter.DoesNotExist) as raised:
                 newsletter.request_confirmation("reader@example.com")

@@ -287,7 +287,7 @@ If you did not attempt to log in, please contact support immediately as your acc
 
 If you forgot your password, you can reset it after the lockout period expires.
 
-This is an automated security message from Houseplant-MD.
+This is an automated security message from Houseplant MD.
             """.strip()
 
             send_mail(
