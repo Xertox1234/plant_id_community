@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from apps.core.fcm import (
+    FCM_CREDENTIALS_STOP_FAILURES,
     clear_dead_fcm_token,
     is_dead_fcm_token_error,
     is_fcm_credentials_error,
@@ -27,7 +28,6 @@ from .constants import (
     CARE_REMINDER_BATCH_SIZE,
     CARE_REMINDER_BODY_MAX_TASKS,
     CARE_REMINDER_COLLAPSE_KEY,
-    CARE_REMINDER_CREDENTIALS_STOP_OWNERS,
     CARE_REMINDER_EVENT,
     CARE_REMINDER_LOOKBACK_HOURS,
     CARE_REMINDER_SOFT_TIME_LIMIT,
@@ -256,10 +256,10 @@ def _push_to_owners(
 
     Adds each handled owner to ``done`` and a transient failure's tasks to
     ``retry_later``, so the caller can un-claim exactly what did not go out.
-    A credentials error releases that owner's tasks and keeps going; on
-    ``CARE_REMINDER_CREDENTIALS_STOP_OWNERS`` distinct owners it is the
-    server's setup, so every owner not yet sent moves to ``retry_later`` and
-    the loop ends (todo 593). Either way the sweep logs one ERROR.
+    A credentials error leaves that owner's claim standing and keeps going.
+    The sweep stops only after ``FCM_CREDENTIALS_STOP_FAILURES`` of them with
+    no successful send yet: then every untried owner with a token moves to
+    ``retry_later`` (todo 593 round 3). Either way the sweep logs one ERROR.
     """
     from django.contrib.auth import get_user_model
     from wagtail_forum.models import ForumProfile
@@ -278,7 +278,6 @@ def _push_to_owners(
 
     sent = 0
     credentials_failed: list[int] = []
-    credentials_released = 0
     for owner_id, tasks in by_owner.items():
         token = tokens.get(owner_id)
         if not token:
@@ -304,41 +303,52 @@ def _push_to_owners(
         except Exception as exc:
             if is_fcm_credentials_error(exc):
                 # Keep the token: clearing it would wipe a healthy device on a
-                # server misconfiguration (todo 566). Release this owner's
-                # tasks for the next sweep. One owner is a device (a dev-build
-                # token, an APNs-only fault), so the sweep goes on; several
-                # distinct owners is the server's setup, where every later
-                # send fails the same way, so release everyone not yet tried
-                # and stop. One ERROR per sweep, not one per owner (owner
-                # decision 2026-10-11, todo 593).
-                retry_later.extend(tasks)
+                # server misconfiguration (todo 566). The claim stands, as for
+                # a tokenless owner: the error can be the device's (a
+                # dev-build token, an APNs-only fault), and a released task is
+                # re-claimed oldest-first, so it would head every sweep.
                 done.add(owner_id)
                 credentials_failed.append(owner_id)
-                credentials_released += len(tasks)
                 logger.warning(
                     "[FCM] care reminder hit a Firebase credentials error "
-                    "(user=%s, task=%s): %s — token kept, released for the "
-                    "next sweep",
+                    "(user=%s, task=%s): %s — token kept, claim stands",
                     owner_id,
                     task_id,
                     exc,
                 )
-                if len(credentials_failed) >= CARE_REMINDER_CREDENTIALS_STOP_OWNERS:
+                if (
+                    not sent
+                    and len(credentials_failed) >= FCM_CREDENTIALS_STOP_FAILURES
+                ):
+                    # No send has worked yet: the server's setup, where every
+                    # later send fails the same way (owner decision
+                    # 2026-10-11, todo 593 round 3). Release the untried
+                    # owners who have a token; a tokenless owner's claim
+                    # stands as it would have. The failed owners' claims
+                    # stand too: released, they would be re-claimed first and
+                    # stop the next sweep again, so a few bad devices could
+                    # starve everyone until the lookback. Holding them makes
+                    # each sweep move on; a real outage costs at most this
+                    # many owners' reminders per sweep, named in the ERROR.
                     pending = [
-                        t for o, ts in by_owner.items() if o not in done for t in ts
+                        t
+                        for o, ts in by_owner.items()
+                        if o not in done and o in tokens
+                        for t in ts
                     ]
                     retry_later.extend(pending)
                     done.update(by_owner)
                     logger.error(
                         "[FCM] care reminders failed permanently on a Firebase "
-                        "credentials error for %s owners (users=%s, task=%s): "
-                        "%s — stopping the sweep; %s tasks released for the "
-                        "next one",
+                        "credentials error for %s owners with no successful "
+                        "send (users=%s, task=%s): %s — stopping the sweep; "
+                        "their claims stand, %s untried tasks released for "
+                        "the next one",
                         len(credentials_failed),
                         credentials_failed,
                         task_id,
                         exc,
-                        credentials_released + len(pending),
+                        len(pending),
                     )
                     return sent
                 continue
@@ -366,11 +376,10 @@ def _push_to_owners(
     if credentials_failed:
         logger.error(
             "[FCM] care reminders failed permanently on a Firebase credentials "
-            "error for %s owner(s) (users=%s, task=%s) — tokens kept; %s tasks "
-            "released for the next sweep",
+            "error for %s owner(s) (users=%s, task=%s) — tokens kept, claims "
+            "stand",
             len(credentials_failed),
             credentials_failed,
             task_id,
-            credentials_released,
         )
     return sent

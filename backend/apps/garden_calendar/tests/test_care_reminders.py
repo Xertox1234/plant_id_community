@@ -741,9 +741,16 @@ def test_the_sweep_interval_constant_matches_the_beat_schedule():
 
 
 class CareReminderCredentialsErrorTest(TestCase):
-    """Todo 593 #1 (owner decision 2026-10-11): a Firebase credentials error
-    fails every send the same way, so the sweep releases its claims, stops,
-    and logs one ERROR; the next sweep retries once the deploy is fixed."""
+    """Todo 593 #1, round 3 (owner decision 2026-10-11): "Stop only when every
+    send so far in the sweep failed with a credentials error (none succeeded),
+    and keep claims on device-level failures." A credentials error leaves the
+    owner's claim standing and the token kept; the sweep stops only after
+    FCM_CREDENTIALS_STOP_FAILURES of them with no successful send, releasing
+    the untried owners who have a token. One ERROR per sweep.
+
+    A deliberate behaviour change from rounds 1-2, approved by the owner: the
+    failed owners' claims are no longer released, because a released task is
+    re-claimed oldest-first and a few bad devices would stop every sweep."""
 
     _set_token = CareReminderSweepTest._set_token
     _run = CareReminderSweepTest._run
@@ -760,54 +767,120 @@ class CareReminderCredentialsErrorTest(TestCase):
         task.refresh_from_db()
         return task.notification_sent
 
-    def _more_owners(self):
-        """Carol and Dave, due after Alice and Bob, so a sweep tries them last."""
-        owners = []
-        for name, minutes in (("carol", 3), ("dave", 1)):
-            user = User.objects.create_user(username=name, email=f"{name}@x.com")
+    def _owner(self, name, minutes, *, token=True):
+        """An owner whose one task fell due ``minutes`` ago; claims run
+        oldest-first, so a sweep tries the owners in due order."""
+        user = User.objects.create_user(username=name, email=f"{name}@x.com")
+        if token:
             self._set_token(user, f"{name}-device")
-            owners.append(
-                _task(_plant(user), due=self.now - timedelta(minutes=minutes))
-            )
-        return owners
+        return _task(_plant(user), due=self.now - timedelta(minutes=minutes))
 
-    def test_a_credentials_error_on_several_owners_releases_every_claim_and_stops(
-        self,
-    ):
-        """Todo 593 repair: the sweep stops only once the error is seen on
-        CARE_REMINDER_CREDENTIALS_STOP_OWNERS distinct owners (3), which is the
-        server's setup; the owner after that is never tried."""
+    def _errors(self, logs):
+        return [m for m in logs.output if m.startswith("ERROR:")]
+
+    def test_credentials_errors_after_a_success_do_not_stop_the_sweep(self):
+        """Alice's send works, so the server's credentials are fine: the
+        four failures after it are devices. The sweep goes on to the end
+        (Erin, after the third failure, is still tried) and every failed
+        owner's claim stands (not released)."""
+        from apps.core.fcm import FCM_CREDENTIALS_STOP_FAILURES
         from firebase_admin import messaging
 
-        from ..constants import CARE_REMINDER_CREDENTIALS_STOP_OWNERS
+        carols = self._owner("carol", 3)
+        daves = self._owner("dave", 2)
+        erins = self._owner("erin", 1)
+        calls = []
 
-        self.assertEqual(CARE_REMINDER_CREDENTIALS_STOP_OWNERS, 3)
-        carols, daves = self._more_owners()
-        for exc in (
-            messaging.SenderIdMismatchError("other project"),
-            messaging.ThirdPartyAuthError("apns cert"),
+        def send(message):
+            calls.append(message)
+            if len(calls) == 1:
+                return "ok"
+            raise messaging.ThirdPartyAuthError("apns cert")
+
+        with self.assertLogs("apps.garden_calendar.tasks", "ERROR") as logs:
+            fcm = self._run(send=send)
+
+        self.assertGreaterEqual(3, FCM_CREDENTIALS_STOP_FAILURES)
+        self.assertEqual(
+            self._sent_tokens(fcm),
+            [
+                "alice-device",
+                "bob-device",
+                "carol-device",
+                "dave-device",
+                "erin-device",
+            ],
+        )
+        for task in (self.alices, self.bobs, carols, daves, erins):
+            self.assertTrue(self._claimed(task))
+        self.assertEqual(
+            ForumProfile.objects.get(user=self.bob).fcm_token, "bob-device"
+        )
+        errors = self._errors(logs)
+        self.assertEqual(len(errors), 1, logs.output)
+        self.assertIn("4 owner(s)", errors[0])
+        self.assertIn("claims stand", errors[0])
+
+    def test_credentials_errors_with_no_success_stop_at_the_threshold(self):
+        """Alice, Bob and Carol fail and nothing has worked: the server's
+        setup. The sweep stops; their claims stand, Dave (untried, has a
+        token) is released for the next sweep, and Erin (untried, no token)
+        keeps her claim as the no-token branch would have."""
+        from apps.core.fcm import FCM_CREDENTIALS_STOP_FAILURES
+        from firebase_admin import messaging
+
+        self.assertEqual(FCM_CREDENTIALS_STOP_FAILURES, 3)
+        for i, exc in enumerate(
+            (
+                messaging.SenderIdMismatchError("other project"),
+                messaging.ThirdPartyAuthError("apns cert"),
+            )
         ):
             with self.subTest(exc=type(exc).__name__):
+                CareTask.objects.update(notification_sent=True)
+                for task in (self.alices, self.bobs):
+                    task.notification_sent = False
+                    task.save(update_fields=["notification_sent"])
+                carols = self._owner(f"carol{i}", 3)
+                erins = self._owner(f"erin{i}", 2, token=False)
+                daves = self._owner(f"dave{i}", 1)
+
                 with self.assertLogs("apps.garden_calendar.tasks", "ERROR") as logs:
                     fcm = self._run(send=exc)
 
-                # Alice, Bob and Carol failed; Dave was never tried.
-                self.assertEqual(fcm.send.call_count, 3)
                 self.assertEqual(
                     self._sent_tokens(fcm),
-                    ["alice-device", "bob-device", "carol-device"],
+                    ["alice-device", "bob-device", f"carol{i}-device"],
                 )
-                for task in (self.alices, self.bobs, carols, daves):
-                    self.assertFalse(self._claimed(task))
-                errors = [m for m in logs.output if m.startswith("ERROR:")]
+                for task in (self.alices, self.bobs, carols, erins):
+                    self.assertTrue(self._claimed(task))
+                self.assertFalse(self._claimed(daves))
+                errors = self._errors(logs)
                 self.assertEqual(len(errors), 1, logs.output)
-                self.assertIn("stopping the sweep; 4 tasks released", errors[0])
+                self.assertIn("stopping the sweep", errors[0])
+                self.assertIn("1 untried tasks released", errors[0])
+
+    def test_the_next_sweep_moves_past_the_owners_that_failed(self):
+        """Pins the stop's choice to hold the failed owners' claims: released,
+        they would be re-claimed first and stop the next sweep too. Held, the
+        next sweep reaches Dave."""
+        from firebase_admin import messaging
+
+        carols = self._owner("carol", 3)
+        daves = self._owner("dave", 1)
+
+        self._run(send=messaging.SenderIdMismatchError("other project"))
+        fcm = self._run()
+
+        self.assertEqual(self._sent_tokens(fcm), ["dave-device"])
+        for task in (self.alices, self.bobs, carols, daves):
+            self.assertTrue(self._claimed(task))
 
     def test_a_credentials_error_on_one_owner_does_not_stop_the_sweep(self):
-        """Todo 593 repair: claims are oldest-first, so a device-level
-        credentials error (a dev-build token, an APNs-only fault) on the
-        oldest owner must not stall everyone else. Only that owner is
-        released; the token is kept; the sweep logs one ERROR."""
+        """Claims are oldest-first, so a device-level credentials error (a
+        dev-build token, an APNs-only fault) on the oldest owner must not
+        stall everyone else. Alice's claim stands, her token is kept, Bob is
+        sent, and the sweep logs one ERROR."""
         from firebase_admin import messaging
 
         for exc in (
@@ -815,8 +888,7 @@ class CareReminderCredentialsErrorTest(TestCase):
             messaging.SenderIdMismatchError("dev build"),
         ):
             with self.subTest(exc=type(exc).__name__):
-                self.bobs.notification_sent = False
-                self.bobs.save(update_fields=["notification_sent"])
+                CareTask.objects.update(notification_sent=False)
                 calls = []
 
                 def send(message, exc=exc):
@@ -829,25 +901,15 @@ class CareReminderCredentialsErrorTest(TestCase):
                     fcm = self._run(send=send)
 
                 self.assertEqual(self._sent_tokens(fcm), ["alice-device", "bob-device"])
-                self.assertFalse(self._claimed(self.alices))
+                self.assertTrue(self._claimed(self.alices))
                 self.assertTrue(self._claimed(self.bobs))
                 self.assertEqual(
                     ForumProfile.objects.get(user=self.alice).fcm_token,
                     "alice-device",
                 )
-                errors = [m for m in logs.output if m.startswith("ERROR:")]
+                errors = self._errors(logs)
                 self.assertEqual(len(errors), 1, logs.output)
-                self.assertIn("1 tasks released", errors[0])
-
-    def test_the_next_sweep_sends_once_the_credentials_are_fixed(self):
-        from firebase_admin import messaging
-
-        self._run(send=messaging.SenderIdMismatchError("other project"))
-        fcm = self._run()
-
-        self.assertEqual(sorted(self._sent_tokens(fcm)), ["alice-device", "bob-device"])
-        self.assertTrue(self._claimed(self.alices))
-        self.assertTrue(self._claimed(self.bobs))
+                self.assertIn("claims stand", errors[0])
 
     def test_a_dead_token_does_not_stop_the_sweep(self):
         from firebase_admin import messaging

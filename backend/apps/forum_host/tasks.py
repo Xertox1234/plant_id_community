@@ -284,15 +284,21 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
     # (forum_notifications) and the fcm_token. A user with no ForumProfile has
     # no token, so the single-task path would skip them too — omitting them
     # here is equivalent.
-    profiles = ForumProfile.objects.filter(
-        user_id__in=recipient_user_ids
-    ).select_related("user")
+    profiles = list(
+        ForumProfile.objects.filter(user_id__in=recipient_user_ids).select_related(
+            "user"
+        )
+    )
 
     str_data = {k: str(v) for k, v in data.items()}
     str_data["event"] = event
     content = _notification_content(event, data)
 
-    for profile in profiles:
+    sent = 0
+    credentials_failed: list[int] = []
+    last_credentials_exc: Exception | None = None
+    unsent_on_stop: int | None = None
+    for index, profile in enumerate(profiles):
         user = profile.user
         if getattr(user, "forum_notifications", True) is not True:
             continue
@@ -307,7 +313,24 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
                 fcm, profile.fcm_token, str_data, content, _forum_collapse_key(event)
             )
             logger.info("[FCM] forum.%s sent to user=%s: %s", event, user.pk, response)
+            sent += 1
         except Exception as exc:
+            if core_fcm.is_fcm_credentials_error(exc):
+                # Not retried, token kept (todo 566). It can be the device's
+                # (a dev-build token, an APNs-only fault), so go on to the
+                # next recipient; stop only when this many have failed and no
+                # send has worked yet, which is the server's setup (owner
+                # decision 2026-10-11, todo 593 round 3). One ERROR per batch.
+                credentials_failed.append(user.pk)
+                last_credentials_exc = exc
+                if (
+                    not sent
+                    and len(credentials_failed)
+                    >= core_fcm.FCM_CREDENTIALS_STOP_FAILURES
+                ):
+                    unsent_on_stop = len(profiles) - index - 1
+                    break
+                continue
             if core_fcm.is_permanent_fcm_error(exc):
                 if core_fcm.is_dead_fcm_token_error(exc):
                     core_fcm.clear_dead_fcm_token(user.pk, profile.fcm_token)
@@ -319,16 +342,6 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
                     user.pk,
                     exc,
                 )
-                if core_fcm.is_fcm_credentials_error(exc):
-                    # The server's credentials: every remaining recipient
-                    # fails the same way. Stop, rather than spend an FCM
-                    # call and an ERROR line on each (todo 593 #1).
-                    logger.error(
-                        "[FCM] forum.%s batch stopped on a Firebase "
-                        "credentials error; remaining recipients not sent",
-                        event,
-                    )
-                    break
                 continue
             # Transient: hand off to the retry-capable single-recipient task
             # rather than retrying (and re-sending) the whole batch.
@@ -339,6 +352,23 @@ def send_forum_push_batch(event: str, recipient_user_ids: list[int], data: dict)
                 exc,
             )
             send_forum_push.delay(event, user.pk, data)
+    if credentials_failed:
+        logger.log(
+            logging.ERROR,
+            "[FCM] forum.%s send failed permanently on a Firebase credentials "
+            "error for %s recipient(s) (users=%s): %s — not retrying, tokens "
+            "kept%s",
+            event,
+            len(credentials_failed),
+            credentials_failed,
+            last_credentials_exc,
+            (
+                f"; batch stopped with no successful send, "
+                f"{unsent_on_stop} recipient(s) not tried"
+                if unsent_on_stop is not None
+                else ""
+            ),
+        )
 
 
 def _web_topic_path(topic_id: str | int | None, post_id: str | int | None) -> str:
