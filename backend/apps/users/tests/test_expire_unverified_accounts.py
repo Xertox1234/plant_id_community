@@ -275,6 +275,32 @@ def test_a_refresh_after_registering_is_not_a_candidate():
 
 
 @pytest.mark.django_db
+def test_a_refresh_survives_flushexpiredtokens():
+    """forum-prune-cron runs flushexpiredtokens just before this command
+    (todo 485). Once the rotated tokens expire and are flushed, the refresh
+    view's last_login stamp is what still marks the user as active."""
+    cache.clear()  # the refresh endpoint is rate limited per IP
+    user = stale_account()
+    client = APIClient(enforce_csrf_checks=True)
+    csrf = client.get("/api/v1/auth/csrf/").cookies["csrftoken"].value
+    client.cookies["csrftoken"] = csrf
+    response = client.post(
+        "/api/v1/auth/token/refresh/",
+        {"refresh": str(RefreshToken.for_user(user))},
+        HTTP_X_CSRFTOKEN=csrf,
+    )
+    assert response.status_code == 200, response.content
+    OutstandingToken.objects.filter(user=user).update(
+        expires_at=timezone.now() - timedelta(days=1)
+    )
+    call_command("flushexpiredtokens")
+    assert not OutstandingToken.objects.filter(user=user).exists()
+
+    summary(expire(), candidates=0, kept=0, deleted=0)
+    assert exists(user)
+
+
+@pytest.mark.django_db
 def test_a_forum_post_is_not_a_candidate(board):
     user = stale_account()
     topic = Topic.objects.create(board=board, title="T", slug="t")

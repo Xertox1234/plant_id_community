@@ -806,10 +806,13 @@ keeping the account.
    no provider link, not staff, age, no sign-in after registering, no forum
    post, topic or revision.
 2. **"Never signed in" checks two signals.** `last_login` moves on a password
-   sign-in only. The refresh view rotates through `RefreshToken.for_user`,
-   which writes an `OutstandingToken`, so a kept-alive session shows up as a
-   token created after `date_joined` plus a small margin. Registration's own
-   token lands a fraction of a second after the row.
+   sign-in and on every token refresh (todo 485). The refresh view also
+   rotates through `RefreshToken.for_user`, which writes an `OutstandingToken`
+   created after `date_joined` plus a small margin. Registration's own token
+   lands a fraction of a second after the row. Only `last_login` survives
+   `flushexpiredtokens`, which the same cron runs first and which deletes
+   token rows once they expire, so the refresh view's stamp is the guard that
+   keeps a refresh-only user who went idle.
 3. **A backstop against a measured baseline.** Registration hands back a
    15-minute access token, so an account that "never signed in" can still own
    data. Count every relation, hidden ones included, and allow only what a

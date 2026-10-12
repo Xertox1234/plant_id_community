@@ -533,6 +533,13 @@ def token_refresh(request: Request) -> Response:
                 status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+        # A refresh is a sign-in for expire_unverified_accounts (todo 485).
+        # The cron runs flushexpiredtokens first, which deletes the rotated
+        # token rows, so last_login is the activity signal that survives.
+        from django.utils import timezone
+
+        User.objects.filter(pk=user.pk).update(last_login=timezone.now())
+
         # Issue a fresh token pair only after successful blacklisting
         response = Response(
             {"message": "Token refreshed successfully"}, status=status.HTTP_200_OK

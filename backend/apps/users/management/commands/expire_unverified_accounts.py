@@ -17,10 +17,12 @@ An account is deleted only when ALL of these hold:
 - **It is older than** ``UNVERIFIED_ACCOUNT_EXPIRY_DAYS``.
 - **It never signed in after registering.** ``last_login`` is empty or falls
   within ``UNVERIFIED_ACCOUNT_SIGNUP_MARGIN_SECONDS`` of ``date_joined``, and
-  no refresh token was issued after that margin. The refresh view issues a
-  new token on every rotation, so a user who kept the registration session
-  alive counts as active although ``last_login`` never moved. Nothing runs
-  ``flushexpiredtokens``; if something ever does, ``last_login`` still holds.
+  no refresh token was issued after that margin. The refresh view stamps
+  ``last_login`` on every rotation (todo 485), so a user who kept the
+  registration session alive counts as active. That stamp is what survives
+  ``flushexpiredtokens``, which ``forum-prune-cron`` runs just before this
+  command and which deletes the rotated token rows once they expire; the
+  later-token check only covers refreshes from before the stamp existed.
 - **It wrote nothing in the forum**: no post, no topic, no Wagtail revision.
 - **It holds nothing registration did not create.** Registration's access
   token works for 15 minutes, so a user can post, message, comment or run a

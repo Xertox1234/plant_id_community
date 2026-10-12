@@ -90,3 +90,15 @@ Every night from 2026-10-01 through 2026-10-11 logged the same line, 0 candidate
 ### 2026-10-11 - Completed by the todo sweep (run 2026-10-12-0349)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Review round 1: refresh-only users and flushexpiredtokens
+
+- Three reviewers on PR #1071 found that `forum-prune-cron` runs `flushexpiredtokens` just before the expiry.
+  That deletes the rotated `OutstandingToken` rows, which were the only sign that a refresh-only user was
+  active, because only a password login moved `last_login`. Owner decision (2026-10-12): fix it in 485
+  before merging.
+- `token_refresh` now stamps `last_login` on every rotation. The command docstring and
+  `authentication.md` now say the stamp is the signal that survives the flush.
+- New test `test_a_refresh_survives_flushexpiredtokens` drives the real refresh endpoint, expires and flushes
+  the tokens, and asserts the account is kept. Mutation: removing the stamp fails it.
+  Expiry + refresh tests: 49 passed.
