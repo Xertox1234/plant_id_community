@@ -25,8 +25,8 @@ class ForumActivityDate(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         # Mirrors TopicBookmark/TopicRead's related_name discipline — must not
-        # clash with forum_subscriptions/forum_notifications/
-        # forum_topic_subscriptions/forum_topic_reads/forum_topic_bookmarks,
+        # clash with forum_notifications/forum_topic_subscriptions/
+        # forum_topic_reads/forum_topic_bookmarks,
         # all already claimed on User.
         related_name="forum_activity_dates",
     )
