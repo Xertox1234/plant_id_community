@@ -597,7 +597,7 @@ def _local_names(func):
     return names
 
 
-def _scopes(tree, step, is_source=lambda n: False, seeds=None):
+def _scopes(tree, step, is_source=lambda n: False, seeds=None, reach=None):
     """Visit the module, then every function and lambda, parents first.
 
     ``step(scope, inherited)`` returns the scope's tainted names, which its
@@ -626,9 +626,15 @@ def _scopes(tree, step, is_source=lambda n: False, seeds=None):
     parent (findings 1, 4, 8). And a def or lambda inside a comprehension does
     NOT inherit the comprehension's own variable when it is bound from a clean
     iterable -- it reads the comprehension's, not the parent's (finding 5).
+
+    ``reach`` maps ``id(child)`` to the names visible where the child is
+    DEFINED, before the child's own bindings are subtracted (todo 609). It is
+    only read to judge the iterables of the comprehensions around the child,
+    which run in the parent, so it can unmask a name but never seeds one.
     """
     hoisted = {}  # id(scope) -> names a nested def rebound there via nonlocal
     seeds = {} if seeds is None else seeds
+    reach = {} if reach is None else reach
     while True:
         changed = False
         stack = [(tree, frozenset(), (), frozenset(), frozenset())]
@@ -664,8 +670,16 @@ def _scopes(tree, step, is_source=lambda n: False, seeds=None):
             # exception is in a child's seeds but never in ``tainted``, so
             # `[(lambda: {"error": a})() for a in e.args]` would read as a
             # clean `a` (hand repair before round 2).
+            # ``reach`` too (todo 609, finding 1): a child's seeds leave out the
+            # names it binds itself, but the iterable around it runs in THIS
+            # scope -- `[(lambda e=None: {"error": a})() for a in e.args]`.
             seen = tainted.union(
-                *(seeds.get(id(c), ()) for c in own if isinstance(c, _SCOPES))
+                *(
+                    names
+                    for c in own
+                    if isinstance(c, _SCOPES)
+                    for names in (seeds.get(id(c), ()), reach.get(id(c), ()))
+                )
             )
             shadowed = _comprehension_shadowed(own, seen, is_source, masks)
             stack.extend(
@@ -1026,7 +1040,8 @@ def _params_defaulting_to(
 
     ``walk=ast.walk`` is the strict form, for a def inside a handler reading
     its exception: there ANY mention leaks, like a response dict's value --
-    ``def render(m=type(e).__name__)`` (hand repair before round 2)."""
+    ``def render(m=type(e).__name__)`` (hand repair before round 2). It holds
+    at any depth below the handler, not only for its direct defs (todo 609)."""
     args = child.args
     positional = [*args.posonlyargs, *args.args]
     pairs = [
@@ -1093,18 +1108,34 @@ def _exception_details_in_response_dicts(path):
     # earlier ones). Filled by the parent's step and read by the child's --
     # `_scopes` runs parents first.
     closure_seeds = {}
+    # Todo 609: id(child) -> the names visible where a def inside a handler
+    # is defined, for `_scopes` to judge the comprehensions around it with.
+    closure_reach = {}
+    # Todo 609 (finding 2): id(scope) -> a handler's names (the exception and
+    # what it derived) in force throughout a def defined inside that handler,
+    # at any depth. A default naming one is judged strictly (`ast.walk`) one
+    # def deeper as well, so `def outer(): def render(m=type(e).__name__)`
+    # leaks like `def render(m=type(e).__name__)` directly in the handler.
+    strict = {}
 
     def step(scope, inherited):
         seeds = set(inherited)  # `_scopes` already joined closure_seeds
         enclosed = _enclosed_tries(scope)
         handlers = list(_named_handlers(scope))
+        handler_names = strict.get(id(scope), set())
         # The scope's own defs and lambdas, each with the names it binds itself
         # (which shadow whatever a handler would seed).
         closures = (
             [(n, _local_names(n)) for n in _own_nodes(scope) if isinstance(n, _SCOPES)]
-            if handlers
+            if handlers or handler_names
             else []
         )
+        if handler_names:
+            for child, own in closures:
+                closure_seeds.setdefault(id(child), set()).update(
+                    _params_defaulting_to(child, handler_names, walk=ast.walk)
+                )
+                strict.setdefault(id(child), set()).update(handler_names - own)
         loops = _loop_bodies(scope) if handlers else []
         # Names that outlive the frame: a nonlocal or global the handler sets
         # survives its raise or return (todo 555, finding 1). `_scopes` hoists
@@ -1132,6 +1163,8 @@ def _exception_details_in_response_dicts(path):
                     closure_seeds.setdefault(id(child), set()).update(
                         _params_defaulting_to(child, visible, walk=ast.walk)
                     )
+                    closure_reach.setdefault(id(child), set()).update(visible)
+                    strict.setdefault(id(child), set()).update(visible - own)
             # Todo 440: `err = str(e)` in the handler, `return {"error": err}`
             # after the try. The derived locals outlive the handler, so they
             # seed a taint pass over the whole enclosing scope. The bound name
@@ -1146,7 +1179,7 @@ def _exception_details_in_response_dicts(path):
         check(_own_nodes(scope), tainted)
         return tainted
 
-    _scopes(tree, step, seeds=closure_seeds)
+    _scopes(tree, step, seeds=closure_seeds, reach=closure_reach)
     yield from ((line, src) for line, _, src in sorted(found.values()))
 
 
@@ -2339,6 +2372,46 @@ def a_default_names_the_exception_type():
             return {"error": f"type default {hr_type}"}
 
         return render()
+
+
+# --- Todo 609 (PR #1055 follow-ups) ---
+
+
+def a_lambda_rebinding_the_name_reads_a_comprehension_over_the_exception():
+    try:
+        requests.get("https://example.invalid")
+    except ValueError as e:
+        return [
+            (lambda e=None: {"error": f"rebound arg {fu_arg}"})() for fu_arg in e.args
+        ]
+
+
+def a_default_two_defs_deep_names_the_exception_type():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+
+        def outer():
+            def render(fu_type=type(e).__name__):
+                return {"error": f"deep type default {fu_type}"}
+
+            return render()
+
+        return outer()
+
+
+def approved_a_middle_def_rebinds_the_exception_name():
+    try:
+        requests.get("https://example.invalid")
+    except Exception as e:
+
+        def outer(e=None):
+            def render(fu_quiet=type(e).__name__):
+                return {"error": f"quiet type default {fu_quiet}"}
+
+            return render()
+
+        return outer()
 """
 
 
@@ -2392,6 +2465,10 @@ def test_the_guards_resolve_scopes_the_way_python_does(tmp_path):
         "f'comp default {hr_line}'",  # a param spelling a clean comp variable
         "f'exc arg {hr_arg}'",  # a comprehension over the exception's args
         "f'type default {hr_type}'",  # a handler default naming type(e)
+        # Todo 609 (PR #1055 follow-ups). Quiet beside these: a middle def
+        # whose own parameter rebinds the exception's name.
+        "f'rebound arg {fu_arg}'",  # a lambda param rebinds e, the iterable reads it
+        "f'deep type default {fu_type}'",  # type(e) in a default two defs deep
     }, exc
     assert {src for _, src in body} == {
         "body",  # nonlocal: a child taints its parent
