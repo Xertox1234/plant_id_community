@@ -90,3 +90,23 @@ Round 1 found nothing blocking. These lows were cheap and in scope, so they were
 
 Tests: `test_email_links_and_text.py`, `test_email_presentation.py` and `apps/blog/tests` pass: 513 passed,
 7 skipped.
+
+### 2026-10-12 - Review round 2: the round-1 log fix completed (owner decision: no new todos)
+
+Round 2 found nothing blocking, but it showed the round-1 log fix above was incomplete. That entry's
+"all three now log the exception type only" missed one site, and it was too broad for another:
+
+- `newsletter_digest.send` still used `logger.exception` around a render that holds the signed unsubscribe
+  link (medium). It now logs a build failure (token, render, message) by type only.
+- Changing the newsletter confirmation to log the type only also dropped the traceback, and the SMTP detail,
+  of a real send failure (low ×2). In both `newsletter.py` and `newsletter_digest.py`, building the message is
+  now separate from `message.send()`. A build failure logs its type only. A send failure keeps
+  `logger.exception`, because SMTP errors do not quote the template context.
+- Nothing tested the newsletter change (low ×2). Two new tests, one in `test_newsletter.py` and one in
+  `test_newsletter_digest.py`, feed a fake signed token through a render error. Each asserts the token is
+  absent from the log, then that a send failure still calls `logger.exception`. Switching the digest's
+  build-failure log back to `logger.exception` fails the digest test (mutation check).
+- Declined: widening the brand guard past `.py`/`.html`/`.txt`, for the same reason as round 1.
+
+Tests: `apps/blog/tests`, `test_email_links_and_text.py` and `test_email_presentation.py` pass: 515 passed,
+7 skipped. There is no round 3; the CLAUDE.md review budget is two rounds.

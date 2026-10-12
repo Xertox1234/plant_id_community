@@ -262,7 +262,6 @@ def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
         message.attach_alternative(
             render_to_string(CONFIRM_HTML_TEMPLATE, context), "text/html"
         )
-        message.send()
     except Warning:
         # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
         # and Warning subclasses Exception: never log it as a failed send
@@ -270,11 +269,20 @@ def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
         raise
     except Exception as e:
         # The type only: a template error can quote the signed confirm link
-        # (todo 649 finding 1).
+        # (todo 649 finding 1). A send failure below keeps its traceback.
         logger.error(
-            "[EMAIL] newsletter confirmation failed for subscriber=%s: %s",
+            "[EMAIL] newsletter confirmation could not be built for subscriber=%s: %s",
             subscriber.pk,
             type(e).__name__,
+        )
+        return False
+    try:
+        message.send()
+    except Warning:
+        raise
+    except Exception:
+        logger.exception(
+            "[EMAIL] newsletter confirmation failed for subscriber=%s", subscriber.pk
         )
         return False
     logger.info("[EMAIL] newsletter confirmation sent to subscriber=%s", subscriber.pk)

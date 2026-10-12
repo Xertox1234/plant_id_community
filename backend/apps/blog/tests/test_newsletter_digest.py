@@ -282,6 +282,37 @@ class NewsletterSenderTests(TestCase):
         self.assertIsNone(subscriber.last_sent_at)
         self.assertIn("failed=1", out)
 
+    def test_a_render_error_logs_its_type_not_the_signed_link(self):
+        """Todo 649 review: the digest renders the signed unsubscribe link, so
+        a render failure logs the type only; a send failure keeps its
+        traceback."""
+        self._post("fresh-post", days_ago=1)
+        subscriber = self._subscriber()
+
+        with (
+            mock.patch.object(
+                newsletter_digest,
+                "render",
+                side_effect=ValueError("unsubscribe?token=FAKE-SIGNED-TOKEN"),
+            ),
+            mock.patch.object(newsletter_digest, "logger") as logger,
+        ):
+            self.assertFalse(newsletter_digest.send(subscriber, []))
+        [call] = logger.error.call_args_list
+        self.assertIn("ValueError", call.args)
+        self.assertNotIn("FAKE-SIGNED-TOKEN", repr(call))
+        logger.exception.assert_not_called()
+
+        with (
+            mock.patch(
+                "django.core.mail.EmailMultiAlternatives.send",
+                side_effect=ConnectionError("smtp down"),
+            ),
+            mock.patch.object(newsletter_digest, "logger") as logger,
+        ):
+            self.assertFalse(newsletter_digest.send(subscriber, []))
+        logger.exception.assert_called_once()
+
     def test_the_soft_time_limit_stops_the_run_and_gives_the_claim_back(self):
         self._post("fresh-post", days_ago=1)
         subscriber = self._subscriber()
