@@ -9,9 +9,10 @@ import '../../core/constants/app_brand.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../core/theme/theme_preview_screen.dart';
 import '../../shared/widgets/canopy_label.dart';
+import 'notification_status_tile.dart';
 
-/// App settings: theme mode, layout density, and (in debug builds) the theme
-/// preview gallery.
+/// App settings: theme mode, layout density, notification status, and (in
+/// debug builds) the theme preview gallery.
 ///
 /// The palette picker is gone. Canopy is one identity (spec §2) — the four
 /// palettes it offered (Loam / Garden / Forest / Heritage) were a Flutter-only
@@ -88,6 +89,13 @@ class SettingsScreen extends ConsumerWidget {
               selected: {density},
               onSelectionChanged: (s) => densityNotifier.setDensity(s.first),
             ),
+            SizedBox(height: ext.gapY * 2),
+
+            // Notifications: what the OS allows and whether this device is
+            // registered (todo 621).
+            const CanopyLabel('NOTIFICATIONS'),
+            SizedBox(height: ext.gapY),
+            const NotificationStatusTile(),
             SizedBox(height: ext.gapY * 2),
 
             // About

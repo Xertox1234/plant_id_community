@@ -133,19 +133,29 @@ def _forum_collapse_key(event: str) -> str:
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30, ignore_result=True)
-def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
-    """Send a single FCM data message for a forum event.
+def send_forum_push(
+    self, event: str, recipient_user_id: int, data: dict, token: str | None = None
+):
+    """Send one forum FCM push to every device of one account (todo 621).
 
     Args:
         event: one of "reply_added", "moderation_decided", "topic_created",
                "mention" (todo 253 slice 4, H4 — dispatched from both
                reply_added and topic_created's mention handling, not a
                signal name of its own).
-        recipient_user_id: pk of the User whose FCM token to look up.
+        recipient_user_id: pk of the User whose devices to look up.
         data: dict of string key/value pairs to include in the FCM data payload.
               All values are coerced to strings (FCM requirement).
+        token: one device only. Set when an earlier send reached some of the
+              account's devices and this one failed transiently, so a retry
+              never re-sends to the devices that already have it. Skipped if
+              the token is no longer this account's.
+
+    A transient failure retries this task only when no device got the push;
+    otherwise each failed device is handed to its own retry (``token=``).
     """
     from apps.core.firebase_config import get_fcm_client, is_firebase_available
+    from apps.core.push_devices import device_tokens_for_users
     from django.contrib.auth import get_user_model
     from wagtail_forum.models import ForumProfile
 
@@ -178,8 +188,10 @@ def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
             event,
         )
         return
-    token = profile.fcm_token
-    if not token:
+    tokens = device_tokens_for_users([recipient_user_id]).get(recipient_user_id, [])
+    if token is not None:
+        tokens = [t for t in tokens if t == token]
+    if not tokens:
         logger.debug(
             "[FCM] forum push skipped — user %s has no FCM token", recipient_user_id
         )
@@ -196,42 +208,66 @@ def send_forum_push(self, event: str, recipient_user_id: int, data: dict):
 
     content = _notification_content(event, data)
 
-    try:
-        response = core_fcm.send_fcm_message(
-            fcm, token, str_data, content, _forum_collapse_key(event)
-        )
-        logger.info(
-            "[FCM] forum.%s sent to user=%s: %s", event, recipient_user_id, response
-        )
-    except Exception as exc:
-        if core_fcm.is_permanent_fcm_error(exc):
-            # e.g. the device token is stale — retrying can never succeed.
-            if core_fcm.is_dead_fcm_token_error(exc):
-                # Forget it, so the next push does not target it (todo 457).
-                core_fcm.clear_dead_fcm_token(recipient_user_id, token)
-            # A credentials error keeps the token and logs at ERROR: it is
-            # the server's setup, not this device (todo 566).
-            logger.log(
-                _permanent_failure_level(exc),
-                "[FCM] forum.%s send failed permanently (user=%s, task_id=%s):"
-                " %s — not retrying",
+    transient: list[tuple[str, Exception]] = []
+    for device_token in tokens:
+        try:
+            response = core_fcm.send_fcm_message(
+                fcm, device_token, str_data, content, _forum_collapse_key(event)
+            )
+            logger.info(
+                "[FCM] forum.%s sent to user=%s: %s", event, recipient_user_id, response
+            )
+        except Exception as exc:
+            if core_fcm.is_permanent_fcm_error(exc):
+                # e.g. the device token is stale — retrying can never succeed.
+                if core_fcm.is_dead_fcm_token_error(exc):
+                    # Forget that device only (todos 457, 621).
+                    core_fcm.clear_dead_fcm_token(recipient_user_id, device_token)
+                # A credentials error keeps the token and logs at ERROR: it is
+                # the server's setup, not this device (todo 566).
+                logger.log(
+                    _permanent_failure_level(exc),
+                    "[FCM] forum.%s send failed permanently (user=%s, task_id=%s):"
+                    " %s — not retrying",
+                    event,
+                    recipient_user_id,
+                    self.request.id,
+                    exc,
+                )
+                continue
+            transient.append((device_token, exc))
+
+    if not transient:
+        return
+    if len(transient) < len(tokens):
+        # Some devices got it, or failed for good: retry only the ones that
+        # failed transiently, each on its own (todo 621), so no device that
+        # has the push gets it twice and no dropped one is tried again.
+        for device_token, exc in transient:
+            logger.warning(
+                "[FCM] forum.%s send failed on one device (user=%s, task_id=%s):"
+                " %s — retrying that device",
                 event,
                 recipient_user_id,
                 self.request.id,
                 exc,
             )
-            return
-        logger.warning(
-            "[FCM] forum.%s send failed (user=%s, task_id=%s): %s — retrying",
-            event,
-            recipient_user_id,
-            self.request.id,
-            exc,
-        )
-        # Exponential backoff: 30s, 60s, 120s across max_retries=3.
-        raise self.retry(
-            exc=exc, countdown=self.default_retry_delay * (2**self.request.retries)
-        )
+            send_forum_push.delay(event, recipient_user_id, data, token=device_token)
+        return
+    exc = transient[-1][1]
+    logger.warning(
+        "[FCM] forum.%s send failed (user=%s, task_id=%s): %s — retrying",
+        event,
+        recipient_user_id,
+        self.request.id,
+        exc,
+    )
+    # Every device failed transiently: retry the task. Exponential backoff:
+    # 30s, 60s, 120s across max_retries=3. A ``token=`` retry keeps its
+    # token, which rides in the request kwargs.
+    raise self.retry(
+        exc=exc, countdown=self.default_retry_delay * (2**self.request.retries)
+    )
 
 
 @shared_task(
@@ -270,6 +306,7 @@ def send_forum_push_batch(
             (todo 606); that batch never re-enqueues again.
     """
     from apps.core.firebase_config import get_fcm_client, is_firebase_available
+    from apps.core.push_devices import device_tokens_for_users
     from wagtail_forum.models import ForumProfile
 
     if not recipient_user_ids:
@@ -284,10 +321,10 @@ def send_forum_push_batch(
         logger.error("[FCM] FCM client unavailable — cannot send forum push")
         return
 
-    # One bulk fetch instead of N: the profile row carries both the recipient
-    # (forum_notifications) and the fcm_token. A user with no ForumProfile has
-    # no token, so the single-task path would skip them too — omitting them
-    # here is equivalent.
+    # One bulk fetch instead of N: the profile row carries the recipient's
+    # preferences (forum_notifications, per-event push). A user with no
+    # ForumProfile is skipped, as before. Devices come from one more bulk
+    # read (todo 621): every device of the account, legacy token included.
     # Ordered, so which recipients a credentials stop leaves untried is
     # deterministic (todo 606).
     profiles = list(
@@ -295,6 +332,7 @@ def send_forum_push_batch(
         .select_related("user")
         .order_by("user_id")
     )
+    tokens_by_user = device_tokens_for_users(p.user_id for p in profiles)
 
     def wants_push(profile) -> bool:
         if getattr(profile.user, "forum_notifications", True) is not True:
@@ -303,7 +341,7 @@ def send_forum_push_batch(
         # row is already in hand, rather than in the enqueueing request.
         if not wants_channel(profile.notification_preferences, event, "push"):
             return False
-        return bool(profile.fcm_token)
+        return bool(tokens_by_user.get(profile.user_id))
 
     str_data = {k: str(v) for k, v in data.items()}
     str_data["event"] = event
@@ -320,52 +358,70 @@ def send_forum_push_batch(
         user = profile.user
         if not wants_push(profile):
             continue
-        try:
-            response = core_fcm.send_fcm_message(
-                fcm, profile.fcm_token, str_data, content, _forum_collapse_key(event)
-            )
-            logger.info("[FCM] forum.%s sent to user=%s: %s", event, user.pk, response)
-            sent += 1
-        except Exception as exc:
-            if core_fcm.is_fcm_credentials_error(exc):
-                # Not retried, token kept (todo 566). It can be the device's
-                # (a dev-build token, an APNs-only fault), so go on to the
-                # next recipient; stop only when this many have failed and no
-                # send has worked yet, which is the server's setup (owner
-                # decision 2026-10-11, todo 593 round 3). One ERROR per batch.
-                credentials_failed.append(user.pk)
-                last_credentials_exc = exc
-                if (
-                    not sent
-                    and len(credentials_failed)
-                    >= core_fcm.FCM_CREDENTIALS_STOP_FAILURES
-                ):
-                    untried = [
-                        p.user_id for p in profiles[index + 1 :] if wants_push(p)
-                    ]
-                    break
-                continue
-            if core_fcm.is_permanent_fcm_error(exc):
-                if core_fcm.is_dead_fcm_token_error(exc):
-                    core_fcm.clear_dead_fcm_token(user.pk, profile.fcm_token)
-                logger.log(
-                    _permanent_failure_level(exc),
-                    "[FCM] forum.%s send failed permanently (user=%s): %s"
-                    " — not retrying",
+        devices = tokens_by_user[user.pk]
+        user_sent = 0
+        user_credentials_failed = False
+        transient: list[str] = []
+        for device_token in devices:
+            try:
+                response = core_fcm.send_fcm_message(
+                    fcm, device_token, str_data, content, _forum_collapse_key(event)
+                )
+                logger.info(
+                    "[FCM] forum.%s sent to user=%s: %s", event, user.pk, response
+                )
+                user_sent += 1
+            except Exception as exc:
+                if core_fcm.is_fcm_credentials_error(exc):
+                    # Not retried, token kept (todo 566). It can be the
+                    # device's (a dev-build token, an APNs-only fault). One
+                    # ERROR per batch, below.
+                    user_credentials_failed = True
+                    last_credentials_exc = exc
+                    continue
+                if core_fcm.is_permanent_fcm_error(exc):
+                    if core_fcm.is_dead_fcm_token_error(exc):
+                        # That device only (todos 457, 621).
+                        core_fcm.clear_dead_fcm_token(user.pk, device_token)
+                    logger.log(
+                        _permanent_failure_level(exc),
+                        "[FCM] forum.%s send failed permanently (user=%s): %s"
+                        " — not retrying",
+                        event,
+                        user.pk,
+                        exc,
+                    )
+                    continue
+                logger.warning(
+                    "[FCM] forum.%s send failed (user=%s): %s — re-enqueuing single",
                     event,
                     user.pk,
                     exc,
                 )
-                continue
-            # Transient: hand off to the retry-capable single-recipient task
-            # rather than retrying (and re-sending) the whole batch.
-            logger.warning(
-                "[FCM] forum.%s send failed (user=%s): %s — re-enqueuing single",
-                event,
-                user.pk,
-                exc,
-            )
-            send_forum_push.delay(event, user.pk, data)
+                transient.append(device_token)
+        sent += user_sent
+        if transient:
+            # Hand off to the retry-capable single-recipient task rather than
+            # retrying (and re-sending) the whole batch. When every device of
+            # the account failed transiently it re-sends to all of them;
+            # otherwise each failed device retries alone, so a device that
+            # has the push never gets it twice (todo 621).
+            if len(transient) == len(devices):
+                send_forum_push.delay(event, user.pk, data)
+            else:
+                for device_token in transient:
+                    send_forum_push.delay(event, user.pk, data, token=device_token)
+        if user_credentials_failed and not user_sent:
+            # Counted per recipient, at the recipient boundary: stop only
+            # when this many have failed and no send has worked yet, which is
+            # the server's setup (owner decision 2026-10-11, todo 593 round 3).
+            credentials_failed.append(user.pk)
+            if (
+                not sent
+                and len(credentials_failed) >= core_fcm.FCM_CREDENTIALS_STOP_FAILURES
+            ):
+                untried = [p.user_id for p in profiles[index + 1 :] if wants_push(p)]
+                break
     stop_note = ""
     if untried is not None:
         stop_note = (

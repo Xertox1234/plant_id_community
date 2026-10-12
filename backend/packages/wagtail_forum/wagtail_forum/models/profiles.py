@@ -40,9 +40,11 @@ class ForumProfile(models.Model):
     )
     bio = models.TextField(blank=True)
     signature = models.CharField(max_length=255, blank=True)
-    # FCM device token — registered by the mobile app on login. Used by
-    # forum_host/tasks.py to deliver push notifications. Nullable: a user
-    # who has never registered a token (web-only) simply receives no pushes.
+    # FCM device token — registered by the mobile app on login. Blank for a
+    # user who has never registered one (web-only). One token per account:
+    # a host that supports several devices keeps them elsewhere and treats
+    # this column as the legacy single-device registration (this project:
+    # apps.core.PushDevice, todo 621, mirrored from writes here).
     fcm_token = models.CharField(max_length=255, blank=True, default="")
     # Forum "user title" (cf. Discourse): a role label shown beside the name
     # ("Head moderator", "Master gardener"). Admin-set only — deliberately NOT

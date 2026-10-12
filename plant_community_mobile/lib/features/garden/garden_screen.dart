@@ -7,6 +7,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../services/api_service.dart';
 import 'models/models.dart';
+import 'providers/garden_focus_provider.dart';
 import 'providers/garden_provider.dart';
 import 'services/garden_api_service.dart';
 
@@ -15,7 +16,8 @@ import 'services/garden_api_service.dart';
 /// Built on the houseplant core of `apps/garden_calendar` only — plants
 /// without beds, CareTasks and the CareLog (owner decision 2026-09-24). A
 /// pending task that falls due is pushed to the device by the server's
-/// reminder sweep (todo 410), and tapping that push opens this screen.
+/// reminder sweep (todo 410), and tapping that push opens this screen,
+/// highlighting the task it named (todo 621, via [gardenFocusProvider]).
 ///
 /// Auth-only: the route is in the router's `protectedRoutes`.
 class GardenScreen extends ConsumerWidget {
@@ -54,7 +56,9 @@ class GardenScreen extends ConsumerWidget {
                 ),
               ],
             ),
-            data: (data) => _GardenList(data: data),
+            // Settled: not mid-reload, so a push's target is checked
+            // against the list the server has now.
+            data: (data) => _GardenList(data: data, settled: !garden.isLoading),
           ),
         ),
       ),
@@ -62,13 +66,65 @@ class GardenScreen extends ConsumerWidget {
   }
 }
 
-class _GardenList extends ConsumerWidget {
-  const _GardenList({required this.data});
+class _GardenList extends ConsumerStatefulWidget {
+  const _GardenList({required this.data, required this.settled});
 
   final GardenData data;
+  final bool settled;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_GardenList> createState() => _GardenListState();
+}
+
+/// Shown when a tapped reminder names a task that is not among the user's
+/// pending ones: done or skipped since, deleted, or not theirs (todo 621).
+const String gardenTaskGoneNotice = 'That care task is no longer due.';
+
+class _GardenListState extends ConsumerState<_GardenList> {
+  /// The task a tapped reminder pointed at, once found in the list.
+  String? _highlighted;
+  final GlobalKey _highlightedKey = GlobalKey();
+
+  /// Applies a pending [GardenFocus] once the list is settled, then clears
+  /// it, so it is acted on once.
+  void _consume(GardenFocus focus) {
+    // Already consumed by an earlier frame's callback, or replaced.
+    if (!mounted || ref.read(gardenFocusProvider) != focus) return;
+    ref.read(gardenFocusProvider.notifier).clear();
+    final id = focus.taskId;
+    if (id == null) {
+      // The due list: it heads the screen already.
+      setState(() => _highlighted = null);
+      return;
+    }
+    final found = widget.data.tasks.any((t) => t.id.toLowerCase() == id);
+    if (!found) {
+      setState(() => _highlighted = null);
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(const SnackBar(content: Text(gardenTaskGoneNotice)));
+      return;
+    }
+    setState(() => _highlighted = id);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = _highlightedKey.currentContext;
+      if (target != null && target.mounted) {
+        Scrollable.ensureVisible(
+          target,
+          alignment: 0.2,
+          duration: const Duration(milliseconds: 250),
+        );
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = widget.data;
+    final focus = ref.watch(gardenFocusProvider);
+    if (focus != null && widget.settled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _consume(focus));
+    }
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
         GreenThumbExtension.fallback;
@@ -104,7 +160,17 @@ class _GardenList extends ConsumerWidget {
           )
         else
           for (final task in data.tasks)
-            _TaskTile(key: ValueKey(task.id), task: task),
+            if (task.id.toLowerCase() == _highlighted)
+              KeyedSubtree(
+                key: _highlightedKey,
+                child: _TaskTile(
+                  key: ValueKey(task.id),
+                  task: task,
+                  highlighted: true,
+                ),
+              )
+            else
+              _TaskTile(key: ValueKey(task.id), task: task),
         SizedBox(height: ext.gapY * 2),
         Text('YOUR PLANTS', style: eyebrow),
         SizedBox(height: ext.gapY),
@@ -123,9 +189,12 @@ class _GardenList extends ConsumerWidget {
 /// one request, not two (todo 386 review; the server also refuses the
 /// loser, but a disabled button never sends it).
 class _TaskTile extends ConsumerStatefulWidget {
-  const _TaskTile({super.key, required this.task});
+  const _TaskTile({super.key, required this.task, this.highlighted = false});
 
   final CareTask task;
+
+  /// The task a tapped reminder named (todo 621).
+  final bool highlighted;
 
   @override
   ConsumerState<_TaskTile> createState() => _TaskTileState();
@@ -153,7 +222,14 @@ class _TaskTileState extends ConsumerState<_TaskTile> {
     final cs = Theme.of(context).colorScheme;
     final due = _dueLabel(task);
     return Card(
+      shape: widget.highlighted
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: cs.primary, width: 2),
+            )
+          : null,
       child: ListTile(
+        selected: widget.highlighted,
         title: Text(task.title.isEmpty ? task.taskTypeDisplay : task.title),
         subtitle: Text(
           '${task.plantName} · $due',
