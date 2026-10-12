@@ -102,3 +102,18 @@ Every night from 2026-10-01 through 2026-10-11 logged the same line, 0 candidate
 - New test `test_a_refresh_survives_flushexpiredtokens` drives the real refresh endpoint, expires and flushes
   the tokens, and asserts the account is kept. Mutation: removing the stamp fails it.
   Expiry + refresh tests: 49 passed.
+
+### 2026-10-12 - Review round 2 → owner-approved round 3: dedicated field
+
+- Round 2 on PR #1071 blocked the `last_login` stamp. Django's password-reset token hashes `last_login`, so
+  every refresh would void the reset links already sent. Owner decision (2026-10-12): approve round 3 with
+  a dedicated field.
+- New `User.last_token_refresh` (users migration 0021, after #1072's 0019/0020). `token_refresh` stamps
+  it in its own try/except, because the old token is already blacklisted, and `last_login` is left alone.
+  `_candidates` excludes accounts stamped after the signup margin. 0021 backfills the stamp from each
+  account's newest token issued after the margin, so the first flush after deploy cannot erase a pre-field
+  refresh.
+- Tests: a reset link still validates after a refresh, a failed refresh does not stamp, the stamp counts
+  only after the margin, the flush-then-expire path keeps the account, and the backfill works.
+  `apps/users`: 409 passed. `apps/core`: 1682 passed. `makemigrations --check`: no changes. `mypy apps/users`:
+  clean. Mutations: removing the candidate exclusion or the view stamp each fails 2 tests.

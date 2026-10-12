@@ -7,6 +7,7 @@ the per-row checks (password, extra data, the locked re-check) show up as
 individually testable although the extra-data backstop overlaps several.
 """
 
+import importlib
 import io
 import logging
 from datetime import timedelta
@@ -26,6 +27,7 @@ from apps.users.signup import (
     create_default_plant_collection,
     join_forum_members_group,
 )
+from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.contrib.auth.tokens import default_token_generator
@@ -351,6 +353,28 @@ def test_a_token_refresh_stamp_inside_the_margin_is_not_a_sign_in():
 
     summary(expire(), candidates=1, kept=0, deleted=1)
     assert not exists(user)
+
+
+@pytest.mark.django_db
+def test_migration_0021_backfills_refreshes_made_before_the_field():
+    """Before 0021 a refresh left only a token row, which the flush deletes."""
+    migration = importlib.import_module(
+        "apps.users.migrations.0021_user_last_token_refresh"
+    )
+    came_back = stale_account(username="back", email="back@example.com")
+    later = came_back.date_joined + MARGIN + timedelta(hours=1)
+    token = RefreshToken.for_user(came_back)
+    OutstandingToken.objects.filter(jti=token["jti"]).update(created_at=later)
+    never = stale_account(username="never", email="never@example.com")
+    token_within_margin(never)
+    User.objects.update(last_token_refresh=None)
+
+    migration.backfill_from_tokens(django_apps, None)
+
+    came_back.refresh_from_db()
+    never.refresh_from_db()
+    assert came_back.last_token_refresh == later
+    assert never.last_token_refresh is None
 
 
 @pytest.mark.django_db
