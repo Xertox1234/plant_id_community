@@ -4,6 +4,9 @@ priority: p4
 issue_id: "628"
 tags: [users, web-push, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Item 3: a second lost resubscribe race returns 409 Conflict (schema + test). Items 2, 4, 6 (shipped migrations) and 5 (sw.js origin pin) declined with reasons (2026-10-12)"
 ---
 
 # Follow-ups from PR #1072 (todo 602, web push resubscribe hardening)

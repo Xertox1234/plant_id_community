@@ -4,6 +4,9 @@ priority: p4
 issue_id: "627"
 tags: [users, auth, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Items 1 and 5 declined in the Work Log, citing the 0-candidate dry-run nights 2026-10-01..10-11; no prod access; fix the other items (2026-10-12)"
 ---
 
 # Follow-ups from PR #1071 (todo 485, unverified-account expiry live)

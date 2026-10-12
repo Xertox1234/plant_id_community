@@ -4,6 +4,9 @@ priority: p4
 issue_id: "637"
 tags: [todo-sweep, docs, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Finding 2: the apply-triage unblock requires an owner_decision; a plain --reset-stranded keeps the triage class and blocked_on (2026-10-12)"
 ---
 
 # Follow-ups from PR #1082 (todos 614, 616, todo-sweep runbook)

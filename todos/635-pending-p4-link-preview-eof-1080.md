@@ -4,6 +4,8 @@ priority: p4
 issue_id: "635"
 tags: [forum, tests, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
 ---
 
 # Follow-ups from PR #1080 (todo 611, link-preview drip test)

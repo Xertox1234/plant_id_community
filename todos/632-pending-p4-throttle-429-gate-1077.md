@@ -4,6 +4,8 @@ priority: p4
 issue_id: "632"
 tags: [api, mobile, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
 ---
 
 # Follow-ups from PR #1077 (todo 607, 429 schema gate, auth exchange)
