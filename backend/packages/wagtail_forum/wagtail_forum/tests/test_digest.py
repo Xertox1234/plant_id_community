@@ -3,6 +3,7 @@ template-overridable. Emails land in Django's locmem outbox (`mail.outbox`)."""
 
 import copy
 import importlib
+import re
 from datetime import timedelta
 from io import StringIO
 
@@ -757,6 +758,8 @@ def test_the_run_lock_ttl_comes_from_the_package_setting(monkeypatch):
     assert DEFAULTS["DIGEST_RUN_LOCK_SECONDS"] == 35 * 60
     lock = MagicMock()
     lock.add.return_value = True
+    # The key still holds this run's token at release (todo 605).
+    lock.get.side_effect = lambda key: lock.add.call_args.args[1]
     monkeypatch.setattr(send_forum_digest, "cache", lock)
 
     call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
@@ -978,13 +981,134 @@ def test_the_claim_update_stays_on_one_table_with_the_marker_outside(monkeypatch
         and "last_digest_sent_at" in q["sql"]
     ]
     assert len(claims) == 1, claims
-    sql = claims[0]
-    assert "JOIN" not in sql.upper()
-    where = sql.split(" WHERE ", 1)[1]
+    # Compare on the shape, not Django's exact rendering (todo 605): drop
+    # identifier quotes, fold case and collapse whitespace first.
+    sql = re.sub(r"\s+", " ", claims[0].replace('"', "")).lower()
+    assert " join " not in sql
+    where = sql.split(" where ", 1)[1]
     # The outer WHERE (before any subquery) carries the pk and the marker.
-    outer = where.split("(SELECT", 1)[0]
-    assert f'"{table}"."id" = ' in outer
-    assert f'"{table}"."last_digest_sent_at" IS NULL' in outer
-    assert f'"{table}"."digest_frequency" = ' in outer
+    outer = where.split("(select", 1)[0]
+    table = table.lower()
+    assert re.search(rf"\b{table}\.id = ", outer), outer
+    assert re.search(rf"\b{table}\.last_digest_sent_at is null", outer), outer
+    assert re.search(rf"\b{table}\.digest_frequency = ", outer), outer
     profile.refresh_from_db()
     assert profile.last_digest_sent_at is not None
+
+
+def _patches_with_a_mid_run_change(monkeypatch, change):
+    """Like _one_topic_digest_patches, but `change(user)` runs after the
+    chunk was read (inside the build), and every send is recorded."""
+    from wagtail_forum.management.commands import send_forum_digest
+
+    sent = []
+
+    def send(digest):
+        sent.append(digest.user.email)
+        return True
+
+    _one_topic_digest_patches(monkeypatch, send)
+    build = send_forum_digest.build_digest
+
+    def build_then_change(user, since, profile=None):
+        change(user)
+        return build(user, since, profile)
+
+    monkeypatch.setattr(send_forum_digest, "build_digest", build_then_change)
+    return sent
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_a_member_who_clears_their_email_mid_run_is_not_claimed_or_mailed(
+    monkeypatch,
+):
+    """Todo 605: the claim rechecks digest_recipients' third condition,
+    `user.email != ""`, not only the opt-in and is_active."""
+    member = User.objects.create_user(username="dg-cleared", email="gone@example.com")
+    profile = _opt_in(member)
+    sent = _patches_with_a_mid_run_change(
+        monkeypatch, lambda user: User.objects.filter(pk=user.pk).update(email="")
+    )
+
+    out = StringIO()
+    call_command("send_forum_digest", frequency="weekly", stdout=out)
+
+    assert sent == []
+    assert "sent=0 failed=0" in out.getvalue()
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is None
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_a_member_who_changes_their_email_mid_run_is_mailed_at_the_new_one(
+    monkeypatch,
+):
+    """Todo 605: the digest goes to the address on the row at claim time,
+    never the stale one read with the 200-row chunk."""
+    member = User.objects.create_user(username="dg-moved", email="old@example.com")
+    profile = _opt_in(member)
+    sent = _patches_with_a_mid_run_change(
+        monkeypatch,
+        lambda user: User.objects.filter(pk=user.pk).update(email="new@example.com"),
+    )
+
+    out = StringIO()
+    call_command("send_forum_digest", frequency="weekly", stdout=out)
+
+    assert sent == ["new@example.com"]
+    assert "sent=1 failed=0" in out.getvalue()
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is not None
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_a_run_that_outlives_its_lock_leaves_a_later_fires_lock_alone(monkeypatch):
+    """Todo 605: when this run's key expired and another fire took it, the
+    finally must not delete that fire's lock."""
+    from django.core.cache import cache
+
+    key = "wagtail_forum:digest-run:weekly"
+    member = User.objects.create_user(username="dg-outlived", email="o@example.com")
+    _opt_in(member)
+
+    def expire_and_retake(user):
+        cache.delete(key)  # our TTL ran out mid-run
+        assert cache.add(key, "a-later-fire", 60)
+
+    _patches_with_a_mid_run_change(monkeypatch, expire_and_retake)
+    try:
+        call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
+        assert cache.get(key) == "a-later-fire"
+    finally:
+        cache.delete(key)
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example", WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None
+)
+def test_a_run_releases_its_own_lock_by_token(monkeypatch):
+    """Todo 605: the token check still releases the lock this run holds."""
+    from django.core.cache import cache
+
+    key = "wagtail_forum:digest-run:weekly"
+    member = User.objects.create_user(username="dg-own-lock", email="l@example.com")
+    _opt_in(member)
+    seen = []
+    _patches_with_a_mid_run_change(
+        monkeypatch, lambda user: seen.append(cache.get(key))
+    )
+
+    call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
+
+    assert len(seen) == 1 and seen[0]  # held during the run
+    assert cache.get(key) is None  # released after

@@ -17,6 +17,7 @@ mirroring send_blog_newsletter after todo 534).
 """
 
 import logging
+from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -66,12 +67,14 @@ class Command(BaseCommand):
         # after a soft time limit can take over. Its TTL
         # (DIGEST_RUN_LOCK_SECONDS) is the host task's hard time limit plus a
         # margin, so a hard-killed holder blocks the next run for minutes,
-        # not hours (todo 548).
+        # not hours (todo 548). The value is this run's own token, so the
+        # release below can tell its lock from a later fire's (todo 605).
         lock_key = f"wagtail_forum:digest-run:{frequency}"
+        lock_token = f"{now.isoformat()}:{uuid4().hex}"
         holds_lock = False
         if not dry_run:
             locked = cache.add(
-                lock_key, now.isoformat(), get_setting("DIGEST_RUN_LOCK_SECONDS")
+                lock_key, lock_token, get_setting("DIGEST_RUN_LOCK_SECONDS")
             )
             if locked is False:
                 self.stdout.write(
@@ -97,8 +100,14 @@ class Command(BaseCommand):
             # Release only a lock this run took. After an outage (add
             # answered None) the cache may recover mid-run and another fire
             # may take the lock; deleting it here would let a third fire
-            # start (todo 585).
-            if holds_lock:
+            # start (todo 585). The same goes for a run that outlived
+            # DIGEST_RUN_LOCK_SECONDS (a manual run with no hard time limit):
+            # its key expired and another fire may hold it now, so delete
+            # only while the key still holds this run's token (todo 605).
+            # Read-then-delete is not atomic, but the gap is one round-trip
+            # against a TTL of minutes, and the per-member claim still stops
+            # a double send.
+            if holds_lock and cache.get(lock_key) == lock_token:
                 cache.delete(lock_key)
 
         label = "would send" if dry_run else "sent"
@@ -179,9 +188,13 @@ class Command(BaseCommand):
         # profile PATCH, a trust update). Other rows are not blocked, and the
         # wait ends when the send returns (todo 585).
         #
-        # The claim rechecks the opt-in and the account (todo 585): the
-        # recipient query was read up to a 200-row chunk ago, and a member
-        # who has since opted out or been deactivated must not be mailed.
+        # The claim rechecks every digest_recipients condition (todos 585,
+        # 605): the recipient query was read up to a 200-row chunk ago, and a
+        # member who has since opted out, been deactivated or cleared their
+        # email must not be mailed. The address is re-read after the claim,
+        # so a member who changed it in that window (say, off a compromised
+        # account) is mailed at the new one, never the one read with the
+        # chunk.
         #
         # The UPDATE must stay on one table. A join (`user__is_active`) makes
         # Django rewrite it as `id IN (SELECT ... JOIN user ...)`, and then
@@ -190,8 +203,10 @@ class Command(BaseCommand):
         # two emails. `user_id__in` is a join-free subquery, so the marker
         # stays in the outer WHERE on the locked row.
         previous = profile.last_digest_sent_at
-        active_account = get_user_model().objects.filter(
-            pk=profile.user_id, is_active=True
+        active_account = (
+            get_user_model()
+            .objects.filter(pk=profile.user_id, is_active=True)
+            .exclude(email="")
         )
         with transaction.atomic():
             claimed = ForumProfile.objects.filter(
@@ -202,6 +217,12 @@ class Command(BaseCommand):
             ).update(last_digest_sent_at=now)
             if not claimed:
                 return None
+            email = active_account.values_list("email", flat=True).first()
+            if not email:
+                # Cleared or deactivated between the claim and this read.
+                transaction.set_rollback(True)
+                return None
+            digest.user.email = email
             # A strict bool (todo 585): a falsy non-bool from a send is a
             # failure, never a silent "neither sent nor failed".
             sent = bool(send_digest(digest))
