@@ -134,3 +134,84 @@ class FallbackSendTests(TestCase):
         self.assertIn("View Details (https://web.example/forum)", message.body)
         self.assertNotIn("{", message.body)
         self.assertNotIn("<", message.body)
+
+
+class HtmlToTextPreheaderAndDataHrefTests(SimpleTestCase):
+    """Todo 639 findings 1 and 7."""
+
+    def test_the_hidden_preheader_is_not_body_text(self):
+        # base.html alone: its default preheader and default content.
+        html = render_to_string("emails/base.html", {})
+        self.assertIn("Stay connected with your plant community", html)
+        text = html_to_text(html)
+        self.assertNotIn("Stay connected", text)
+        self.assertIn("This is a default email template.", text)
+
+    def test_data_href_is_never_read_as_the_link(self):
+        text = html_to_text('<p><a data-href="x" href="https://y.example">L</a></p>')
+        self.assertEqual(text, "L (https://y.example)\n")
+
+
+@override_settings(SITE_URL="https://web.example/")
+class BlogPostLayoutTests(TestCase):
+    """Todo 639 finding 6: blog_post.html has no live caller, so the
+    per-family tests in apps/users/tests/test_email_presentation.py cannot
+    reach it; this sends it through EmailService and applies the same
+    mail-safe checks."""
+
+    def test_blog_post_is_mail_safe_and_links_real_routes(self):
+        from datetime import datetime, timezone
+
+        post = {
+            "title": "Repotting a monstera",
+            "slug": "repotting-a-monstera",
+            "excerpt": "Roots first.",
+            "summary": "",
+            "published_date": datetime(2026, 10, 1, tzinfo=timezone.utc),
+            "reading_time": 4,
+            "author": {"get_full_name": "Fern Gully", "username": "fern"},
+            "category": {"name": "Care"},
+            "key_points": ["Water less"],
+            "tags": [{"name": "aroids"}, {"name": "repotting"}],
+        }
+        related = [{"title": "Light", "slug": "light", "category": {"name": "Care"}}]
+        from django.contrib.auth import get_user_model
+
+        reader = get_user_model().objects.create_user(
+            username="reader", email="reader@example.com", first_name="Rae"
+        )
+        self.assertTrue(
+            EmailService().send_email(
+                email_type=EmailType.BLOG_POST,
+                recipient=reader,
+                subject="New post",
+                template_name="blog_post",
+                context={"post": post, "related_posts": related},
+                respect_preferences=False,
+            )
+        )
+        [message] = mail.outbox
+        html = message.alternatives[0][0]
+        body = html.partition("<body")[2]
+
+        self.assertIn('role="presentation"', body)
+        self.assertNotIn("display: flex", html)
+        self.assertNotIn("inline-flex", html)
+        self.assertNotIn("gradient", html)
+        hrefs = HREF.findall(html)
+        self.assertNotIn("", hrefs)
+        self.assertEqual([h for h in hrefs if "#!" in h or "example//" in h], [])
+        for url in (
+            "https://web.example/blog/repotting-a-monstera",
+            "https://web.example/blog/light",
+            "https://web.example/blog",
+            "https://web.example/forum",
+            "https://web.example/settings",
+        ):
+            self.assertIn(url, hrefs)
+            self.assertIn(url, message.body)
+        for tag in re.findall(r"<a\b[^>]*>", html):
+            self.assertRegex(tag, r'style="[^"]*(?<![-\w])color:')
+        self.assertNotIn("Houseplant-MD", html)
+        # The preheader (the excerpt) is not where the text part opens.
+        self.assertFalse(message.body.startswith("Roots first."))

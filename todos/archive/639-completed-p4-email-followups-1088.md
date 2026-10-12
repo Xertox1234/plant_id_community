@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "639"
 tags: [email, templates, follow-ups]
@@ -36,7 +36,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -44,3 +44,26 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-12 - Filed from the PR #1088 review (todo sweep run 2026-10-12-1637)
 
 Filed by the closing step of the run from `state.py followups-md g1`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-1938)
+
+- Findings 1 and 7 (`backend/apps/core/services/email_service.py`): `html_to_text()` now drops a div hidden with an inline `display: none` (the base.html preheader), and the link pattern needs whitespace before `href`, so `data-href=` is never read as the URL. Tests in `backend/apps/core/tests/test_email_links_and_text.py`.
+- Findings 2, 5 and 8: the verification and sign-in link notices return False (with an `[EMAIL]` error log) when a template fails to render, so the Celery task retries and logs its give-up. `send_forum_email_batch` and `unsubscribe_url()` (`backend/apps/users/email_unsubscribe.py`, the same `SITE_URL.rstrip` pattern) guard an unset `SITE_URL` with `or ""`. Per the owner decision, `SITE_NAME` defaults to "Houseplant MD" and both notice subjects, plus the welcome subject, which had the same mismatch, read `site_name`. The base and security-footer template fallbacks now say "Houseplant MD" too. `WAGTAIL_SITE_NAME`, the feeds and the hardcoded names in other legacy templates are unchanged.
+- Finding 6: `backend/templates/emails/blog_post.html` now uses presentation tables with no flexbox and no gradient, colors every link inline, takes its name from `site_name`, and drops its own footer, whose "Unsubscribe from blog updates" link had an empty href because `blog_post` has no unsubscribe list. The base footer already links the preferences page. Trailing slash: already fixed on main, because `EmailService._get_base_context` strips it from `app_url` (todo 622). `#comments`: declined. `web/src` has no comments section or `id="comments"` anchor (grep finds none), so the "Leave a Comment" button is gone and "Discuss in the forums" remains. New `BlogPostLayoutTests` sends the template through `EmailService` and applies the no-flex and link checks.
+- Findings 3 and 4: `FALLBACK_RENDERABLE_TEMPLATES` no longer lists `welcome_email`, which ships a .txt. `generic_notification` stays the fallback case, because `forum_mention` cannot render from the base context alone. The stale `strip_tags` and "one real .txt" comments are corrected. A new test sends the required types through `send_email(respect_preferences=True)` for an opted-out user, which exercises the `_should_send_email` reorder end to end.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-1938)
+
+- AC 1: `python3 scripts/todos/slot_env.py --main-root . 2 -- backend/venv/bin/python -m pytest backend/apps/core/tests/test_email_links_and_text.py backend/apps/core/tests/test_email_service_silent_failures.py backend/apps/users/tests/test_email_presentation.py backend/apps/forum_host/tests/test_reply_email_links.py --create-db -p no:cacheprovider -v` — evidence `.sweep-evidence/g2/639-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ============== 63 passed, 3 warnings, 8 subtests passed in 17.72s ==============
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-1938)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

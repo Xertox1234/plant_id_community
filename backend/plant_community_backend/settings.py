@@ -1195,7 +1195,7 @@ VAPID_CLAIMS_EMAIL = config(
 EMAIL_USE_LOCALTIME = config("EMAIL_USE_LOCALTIME", default=False, cast=bool)
 
 # Site configuration for email templates
-SITE_NAME = config("SITE_NAME", default="Houseplant-MD")
+SITE_NAME = config("SITE_NAME", default="Houseplant MD")
 SITE_URL = config("SITE_URL", default="https://plantcommunity.com")
 
 # Logging configuration

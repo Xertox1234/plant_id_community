@@ -607,7 +607,10 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
     # renders id="post-<id>", as _web_topic_path links for push). The bare
     # topic URL stays the fallback link. rstrip: a SITE_URL ending in "/"
     # would otherwise build "//forum/..." (todo 622).
-    topic_url = f"{settings.SITE_URL.rstrip('/')}{topic.get_absolute_url()}"
+    # `or ""`: an unset SITE_URL must not fail the whole batch with an
+    # AttributeError a retry cannot fix (todo 639; email_service guards alike).
+    site_url = (getattr(settings, "SITE_URL", "") or "").rstrip("/")
+    topic_url = f"{site_url}{topic.get_absolute_url()}"
     post_url = f"{topic_url}#post-{post.pk}"
     author_name = post.author.display_name if post.author else "[deleted]"
     excerpt = plain_text_excerpt(post.body, FORUM_EMAIL_EXCERPT_MAX_CHARS)

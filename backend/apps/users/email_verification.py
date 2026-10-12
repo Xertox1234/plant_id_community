@@ -198,11 +198,20 @@ def deliver_verification_email(user) -> bool:
         "account": user.username,
         "verify_url": verification_url(user),
     }
-    text = render_to_string("emails/email_verification.txt", context)
-    html = render_to_string("emails/email_verification.html", context)
+    # A render failure is a failed send (todo 639): False lets the task retry
+    # and, at the end, log its [EMAIL] give-up, never escape the task raw.
+    try:
+        text = render_to_string("emails/email_verification.txt", context)
+        html = render_to_string("emails/email_verification.html", context)
+    except Exception as exc:
+        logger.error(
+            f"[EMAIL] Could not render the verification mail for "
+            f"{log_safe_user_context(user)}: {exc}"
+        )
+        return False
     return service.send_transactional_email(
         recipient=user,
-        subject="Confirm your email for Houseplant MD",
+        subject=f"Confirm your email for {service.site_name}",
         message=text,
         html_message=html,
     )

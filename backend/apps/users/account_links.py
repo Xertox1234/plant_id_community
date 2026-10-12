@@ -109,11 +109,20 @@ def deliver_provider_linked_notice(user, provider: str) -> bool:
         "account": user.username,
         "reset_url": password_reset_url(),
     }
-    text = render_to_string("emails/provider_linked.txt", context)
-    html = render_to_string("emails/provider_linked.html", context)
+    # A render failure is a failed send (todo 639): False lets the task retry
+    # and, at the end, log its [EMAIL] give-up, never escape the task raw.
+    try:
+        text = render_to_string("emails/provider_linked.txt", context)
+        html = render_to_string("emails/provider_linked.html", context)
+    except Exception as exc:
+        logger.error(
+            f"[EMAIL] Could not render the sign-in link notice for "
+            f"{log_safe_user_context(user)}: {exc}"
+        )
+        return False
     return service.send_transactional_email(
         recipient=user,
-        subject=f"{name} sign-in was connected to your Houseplant MD account",
+        subject=f"{name} sign-in was connected to your {service.site_name} account",
         message=text,
         html_message=html,
     )

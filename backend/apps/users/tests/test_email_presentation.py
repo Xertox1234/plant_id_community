@@ -318,3 +318,92 @@ def test_required_mail_ignores_optional_mail_preferences():
         topic_url=f"{SITE}/forum/1-b/2-t",
     )
     assert mail.outbox == []
+
+
+# --- todo 639 follow-ups -------------------------------------------------------
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL=SITE, API_PUBLIC_URL=API)
+def test_required_mail_passes_preferences_through_send_email():
+    """Finding 4: drive the preference check through send_email itself (the
+    loop above never reaches _should_send_email)."""
+    quiet = {"email_notifications": False, "forum_notifications": False}
+    user = _user("quiet-required", **quiet)
+    service = EmailService()
+    mail.outbox.clear()
+    for required in (
+        EmailType.ACCOUNT_VERIFICATION,
+        EmailType.PASSWORD_RESET,
+        EmailType.SECURITY_ALERT,
+    ):
+        assert service.send_email(
+            email_type=required,
+            recipient=user,
+            subject=required,
+            template_name="generic_notification",
+            respect_preferences=True,
+        ), required
+    assert not service.send_email(
+        email_type=EmailType.FORUM_REPLY,
+        recipient=user,
+        subject="held",
+        template_name="generic_notification",
+        respect_preferences=True,
+    )
+    assert [m.subject for m in mail.outbox] == [
+        EmailType.ACCOUNT_VERIFICATION,
+        EmailType.PASSWORD_RESET,
+        EmailType.SECURITY_ALERT,
+    ]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "module, deliver",
+    [
+        (
+            "apps.users.email_verification",
+            lambda u: deliver_verification_email(u),
+        ),
+        (
+            "apps.users.account_links",
+            lambda u: deliver_provider_linked_notice(u, "google"),
+        ),
+    ],
+)
+def test_a_template_error_is_a_failed_send_not_a_raise(module, deliver):
+    """Finding 2: False lets the Celery task retry and log its give-up."""
+    from unittest import mock
+
+    user = _user(f"broken-{module.rsplit('.', 1)[1]}")
+    mail.outbox.clear()
+    with (
+        mock.patch(f"{module}.render_to_string", side_effect=ValueError("boom")),
+        mock.patch(f"{module}.logger") as logger,
+    ):
+        assert deliver(user) is False
+    assert mail.outbox == []
+    [call] = logger.error.call_args_list
+    assert call.args[0].startswith("[EMAIL]") and "boom" in call.args[0]
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL=SITE, API_PUBLIC_URL=API, SITE_NAME="Leafy Place")
+def test_security_notices_name_the_site_one_way():
+    """Finding 8: subject and body both read SITE_NAME."""
+    for message in (verification("named1"), provider_linked("named2")):
+        assert "Leafy Place" in message.subject
+        assert "Leafy Place" in message.body
+        assert "Leafy Place" in _html(message)
+        for part in (message.subject, message.body, _html(message)):
+            assert "Houseplant" not in part
+
+
+def test_site_name_fallback_is_the_product_name():
+    """Finding 8: the name mail falls back to is the one the subjects used."""
+    from django.conf import settings
+
+    with override_settings():
+        del settings.SITE_NAME
+        assert EmailService().site_name == "Houseplant MD"

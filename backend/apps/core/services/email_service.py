@@ -28,8 +28,18 @@ _NON_CONTENT = re.compile(
     r"<(head|style|script|title)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL
 )
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+# A div hidden with an inline display:none: base.html's preheader, the inbox
+# preview line, which is not body text (todo 639). Non-greedy to the first
+# </div>, so it is only right for a hidden div holding no nested div, which
+# is all the preheader ever holds.
+_HIDDEN_DIV = re.compile(
+    r"""<div\b[^>]*\bstyle\s*=\s*(["'])[^"']*?display\s*:\s*none[^"']*\1[^>]*>.*?</div\s*>""",
+    re.IGNORECASE | re.DOTALL,
+)
+# \s before href: an attribute always follows whitespace, so data-href= (where
+# "-" makes a word boundary) is never read as the link (todo 639).
 _LINK = re.compile(
-    r"""<a\b[^>]*?\bhref\s*=\s*(["'])(?P<url>.*?)\1[^>]*>(?P<label>.*?)</a\s*>""",
+    r"""<a\b[^>]*?\shref\s*=\s*(["'])(?P<url>.*?)\1[^>]*>(?P<label>.*?)</a\s*>""",
     re.IGNORECASE | re.DOTALL,
 )
 _LINE_BREAK = re.compile(
@@ -42,12 +52,14 @@ _BLANK_LINES = re.compile(r"\n{3,}")
 def html_to_text(html_content: str) -> str:
     """A readable plain-text alternative for an HTML email that has no .txt.
 
-    Drops the head, stylesheet, scripts and comments; keeps every link as
-    ``label (url)`` so the action survives; ends blocks with a line break;
-    then strips the remaining tags and decodes entities. A fallback only:
-    every live message family ships its own .txt (todo 622).
+    Drops the head, stylesheet, scripts, comments and the hidden preheader
+    (todo 639); keeps every link as ``label (url)`` so the action survives;
+    ends blocks with a line break; then strips the remaining tags and decodes
+    entities. A fallback only: every live message family ships its own .txt
+    (todo 622).
     """
     text = _COMMENT.sub("", _NON_CONTENT.sub("", html_content))
+    text = _HIDDEN_DIV.sub("", text)
 
     def _link(match: "re.Match[str]") -> str:
         url = match.group("url").strip()
@@ -106,7 +118,7 @@ class EmailService:
         self.from_email = getattr(
             settings, "DEFAULT_FROM_EMAIL", "noreply@plantcommunity.com"
         )
-        self.site_name = getattr(settings, "SITE_NAME", "Houseplant-MD")
+        self.site_name = getattr(settings, "SITE_NAME", "Houseplant MD")
 
     def send_email(
         self,
@@ -509,7 +521,7 @@ class EmailService:
         return self.send_email(
             email_type=EmailType.ACCOUNT_VERIFICATION,
             recipient=user,
-            subject=f"🎉 Welcome to Houseplant-MD, {user.first_name or user.username}!",
+            subject=f"🎉 Welcome to {self.site_name}, {user.first_name or user.username}!",
             template_name="welcome_email",
             context=context,
             priority="high",

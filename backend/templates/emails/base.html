@@ -8,7 +8,7 @@
     {# half-applies a dark theme to it gives light text on light panels (todo 622). #}
     <meta name="color-scheme" content="light">
     <meta name="supported-color-schemes" content="light">
-    <title>{% block title %}{{ site_name|default:"Houseplant-MD" }}{% endblock %}</title>
+    <title>{% block title %}{{ site_name|default:"Houseplant MD" }}{% endblock %}</title>
     {# Progressive enhancement only: every style a message needs to read is inline. #}
     <style>
         body, table, td, p, a, li, blockquote { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
@@ -46,7 +46,7 @@
                     <tr>
                         <td class="email-pad" align="center" style="background-color: #2c5f41; color: #ffffff; padding: 28px 24px; border-radius: 8px 8px 0 0;">
                             {% block header %}
-                            <p style="margin: 0; font-size: 24px; font-weight: 600; color: #ffffff;">{{ site_name|default:"Houseplant-MD" }}</p>
+                            <p style="margin: 0; font-size: 24px; font-weight: 600; color: #ffffff;">{{ site_name|default:"Houseplant MD" }}</p>
                             {% block header_subtitle %}{% endblock %}
                             {% endblock %}
                         </td>
@@ -62,7 +62,7 @@
                         <td class="email-pad" align="center" style="background-color: #f8f9fa; padding: 24px; border-top: 1px solid #e9ecef; border-radius: 0 0 8px 8px; color: #6c757d; font-size: 14px;">
                             {% block footer %}
                             <p style="margin: 0; font-size: 14px; color: #6c757d;">
-                                <strong>{{ site_name|default:"Houseplant-MD" }}</strong><br>
+                                <strong>{{ site_name|default:"Houseplant MD" }}</strong><br>
                                 Your plant community companion
                             </p>
                             {% if preferences_url or unsubscribe_url %}

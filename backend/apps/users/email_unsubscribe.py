@@ -156,7 +156,8 @@ def unsubscribe_url(user, list_id: str, token: str | None = None) -> str:
     """The web app's unsubscribe page for this user and list (``SITE_URL`` is
     the web app's origin, as for every other link in our email)."""
     query = urlencode({"token": token or make_token(user, list_id)})
-    return f"{settings.SITE_URL.rstrip('/')}/unsubscribe?{query}"
+    site_url = (getattr(settings, "SITE_URL", "") or "").rstrip("/")
+    return f"{site_url}/unsubscribe?{query}"
 
 
 def one_click_url(user, list_id: str, token: str | None = None):
