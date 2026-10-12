@@ -14,6 +14,7 @@ requests are in.
 import re
 from unittest import mock
 
+from apps.plant_identification.constants import DISEASE_NAME_LOWER_UNIQUE
 from apps.plant_identification.models import (
     PlantDiseaseDatabase,
     PlantDiseaseRequest,
@@ -207,8 +208,8 @@ class DiagnosisFirstCreateRaceTest(TestCase):
     """Two first diagnoses of a new disease must both be counted (todo 594).
 
     A row lock cannot cover a row that does not exist yet: both requests miss
-    the lookup and both insert. The loser hits the unique disease_name
-    constraint. The race is reproduced deterministically: the lookup reports
+    the lookup and both insert. The loser hits the disease-name constraint,
+    unique ignoring case (todo 613). The race is reproduced deterministically: the lookup reports
     no row although the winner's row is already committed.
     """
 
@@ -423,3 +424,132 @@ class DiseaseNameCaseFollowupsTest(TestCase):
         self.assertEqual(PlantDiseaseDatabase.objects.count(), 1)
         result.refresh_from_db()
         self.assertTrue(result.stored_to_database)
+
+
+class DiseaseMergeFollowupsTest(TestCase):
+    """Follow-ups from the PR #1081 review (todo 636)."""
+
+    def setUp(self):
+        user = User.objects.create_user(
+            username="followuser", email="follow@example.com"
+        )
+        request = PlantDiseaseRequest.objects.create(
+            user=user,
+            status="diagnosed",
+            symptoms_description="Black spots on leaves",
+        )
+        self.result = PlantDiseaseResult.objects.create(
+            request=request,
+            suggested_disease_name="Black Spot",
+            suggested_disease_type="fungal",
+            confidence_score=0.9,
+            symptoms_identified=["black spots"],
+            diagnosis_source="api_plant_health",
+        )
+        self.service = DiseaseAutostorageService()
+
+    @staticmethod
+    def _collision():
+        # No psycopg __cause__: the message alone names the constraint, as
+        # SQLite's "UNIQUE constraint failed: index '...'" does.
+        return IntegrityError(
+            f"UNIQUE constraint failed: index '{DISEASE_NAME_LOWER_UNIQUE}'"
+        )
+
+    def test_name_collision_is_recognised_without_psycopg_diag(self):
+        # Item 4: a driver without diag.constraint_name still merges.
+        self.assertTrue(DiseaseAutostorageService._is_name_collision(self._collision()))
+        self.assertFalse(
+            DiseaseAutostorageService._is_name_collision(
+                IntegrityError("some other constraint")
+            )
+        )
+
+    def test_collision_whose_row_is_gone_creates_it_again(self):
+        # Item 3: a name collision whose re-lookup finds nothing (the winner
+        # was deleted again) used to re-raise and drop the diagnosis.
+        real_create = DiseaseAutostorageService._create_new_disease
+        calls = []
+
+        def colliding_create(service, result):
+            calls.append(result.pk)
+            if len(calls) == 1:
+                raise self._collision()
+            return real_create(service, result)
+
+        with mock.patch.object(
+            DiseaseAutostorageService,
+            "_create_new_disease",
+            autospec=True,
+            side_effect=colliding_create,
+        ):
+            stored = self.service.store_disease_if_qualified(self.result)
+
+        self.assertIsNotNone(stored)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(stored.diagnosis_count, 1)
+        self.assertEqual(PlantDiseaseDatabase.objects.count(), 1)
+        self.result.refresh_from_db()
+        self.assertTrue(self.result.stored_to_database)
+
+    def test_collision_whose_row_vanishes_at_the_locked_read_creates_it_again(self):
+        # Item 2: the winner is found, then deleted before the locked re-read.
+        # DoesNotExist reached the outer except and the diagnosis was dropped.
+        gone = PlantDiseaseDatabase.objects.create(
+            disease_name="Black Spot",
+            disease_type="fungal",
+            confidence_score=0.6,
+            api_source="plant_health",
+            diagnosis_count=1,
+        )
+        stale = PlantDiseaseDatabase.objects.get(pk=gone.pk)
+        real_create = DiseaseAutostorageService._create_new_disease
+        lookups = []
+        creates = []
+
+        def racing_lookup(service, name):
+            lookups.append(name)
+            if len(lookups) == 1:
+                return None
+            # The winner's row is found, then deleted before the merge.
+            PlantDiseaseDatabase.objects.filter(pk=gone.pk).delete()
+            return stale
+
+        def colliding_create(service, result):
+            creates.append(result.pk)
+            if len(creates) == 1:
+                raise self._collision()
+            return real_create(service, result)
+
+        with mock.patch.object(
+            DiseaseAutostorageService,
+            "_find_existing_disease",
+            autospec=True,
+            side_effect=racing_lookup,
+        ), mock.patch.object(
+            DiseaseAutostorageService,
+            "_create_new_disease",
+            autospec=True,
+            side_effect=colliding_create,
+        ):
+            stored = self.service.store_disease_if_qualified(self.result)
+
+        self.assertIsNotNone(stored)
+        self.assertNotEqual(stored.pk, gone.pk)
+        self.assertEqual(len(lookups), 2)
+        self.assertEqual(len(creates), 2)
+        self.assertEqual(PlantDiseaseDatabase.objects.count(), 1)
+        self.result.refresh_from_db()
+        self.assertTrue(self.result.stored_to_database)
+
+    def test_second_collision_surfaces(self):
+        with mock.patch.object(
+            DiseaseAutostorageService,
+            "_create_new_disease",
+            side_effect=self._collision(),
+        ):
+            stored = self.service.store_disease_if_qualified(self.result)
+
+        self.assertIsNone(stored)
+        self.result.refresh_from_db()
+        self.assertFalse(self.result.stored_to_database)

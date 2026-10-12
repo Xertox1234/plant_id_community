@@ -137,7 +137,8 @@ def test_shared_treatment_name_keeps_the_keepers_instruction():
     treatment "<Type> Treatment", so case variants usually share one. The
     merge must not re-point a duplicate onto the keeper (IntegrityError would
     abort the deploy): the keeper's instruction stays, the extra's is dropped,
-    and the extra's other instructions still move."""
+    and the extra's other instructions still move. A dropped instruction whose
+    text differs is appended to the kept one, not lost (todo 636)."""
     user = get_user_model().objects.create_user(
         username="mig-0028-shared", email="mig-0028-shared@example.com"
     )
@@ -189,9 +190,94 @@ def test_shared_treatment_name_keeps_the_keepers_instruction():
     assert disease.diagnosis_count == 6
     care = dict(disease.care_instructions.values_list("treatment_name", "instructions"))
     assert care == {
-        "Chemical Treatment": "black spot: remove affected leaves.",
-        "Organic Treatment": "Black Spot: remove affected leaves.",
+        "Chemical Treatment": (
+            "black spot: remove affected leaves.\n\n"
+            "Black Spot: remove affected leaves."
+        ),
+        "Organic Treatment": (
+            "Black Spot: remove affected leaves.\n\n"
+            "BLACK SPOT: remove affected leaves."
+        ),
         "Cultural Treatment": "BLACK SPOT: remove affected leaves.",
     }
     assert DiseaseCareInstructions.objects.count() == 3
     assert disease.diagnosis_results.count() == 3
+
+
+@pytest.mark.django_db(transaction=True)
+def test_merge_keeps_the_extras_fields():
+    """The keeper is the oldest row, but the extras' content survives (todo
+    636): the highest confidence, the union of identified symptoms, any review
+    flag, and every blank field filled from the oldest extra with a value. An
+    instruction with the same name and the same text is not duplicated."""
+    user = get_user_model().objects.create_user(
+        username="mig-0028-fields", email="mig-0028-fields@example.com"
+    )
+    executor = MigrationExecutor(connection)
+    executor.migrate([BEFORE])
+    try:
+        old_apps = executor.loader.project_state([BEFORE]).apps
+        Disease = old_apps.get_model("plant_identification", "PlantDiseaseDatabase")
+        Care = old_apps.get_model("plant_identification", "DiseaseCareInstructions")
+        oldest = _seed_disease(
+            old_apps, user, "black spot", "Rosa canina", 1, 10, ["Organic Treatment"]
+        )
+        middle = _seed_disease(
+            old_apps, user, "Black Spot", "Rosa gallica", 1, 5, ["Organic Treatment"]
+        )
+        newest = _seed_disease(old_apps, user, "BLACK SPOT", "Rosa rugosa", 1, 1)
+        Disease.objects.filter(pk=oldest).update(
+            confidence_score=0.6,
+            description="Kept description.",
+            symptoms={"identified": ["black spots"]},
+        )
+        Disease.objects.filter(pk=middle).update(
+            confidence_score=0.95,
+            description="Middle description.",
+            prevention_tips="Water at the base.",
+            expert_reviewed=True,
+            symptoms={"identified": ["yellow leaves", "black spots"]},
+            environmental_triggers=["humidity"],
+        )
+        Disease.objects.filter(pk=newest).update(
+            confidence_score=0.7,
+            scientific_name="Diplocarpon rosae",
+            prevention_tips="Newest tips.",
+            community_confirmed=True,
+            reference_image="diseases/reference/black-spot.jpg",
+            symptoms={"identified": ["leaf drop"], "api_data": {"id": "x"}},
+        )
+        # Same name and same text as the keeper's: dropped, nothing appended.
+        Care.objects.filter(disease_id=middle).update(
+            instructions="black spot: remove affected leaves."
+        )
+
+        executor = MigrationExecutor(connection)
+        executor.migrate([AFTER])
+    finally:
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    from apps.plant_identification.models import PlantDiseaseDatabase
+
+    disease = PlantDiseaseDatabase.objects.get(disease_name__iexact="black spot")
+    assert disease.pk == oldest
+    assert disease.diagnosis_count == 3
+    assert disease.confidence_score == 0.95
+    assert disease.symptoms == {
+        "identified": ["black spots", "yellow leaves", "leaf drop"],
+        "api_data": {"id": "x"},
+    }
+    # The keeper's own value wins; a blank one takes the oldest extra's.
+    assert disease.description == "Kept description."
+    assert disease.prevention_tips == "Water at the base."
+    assert disease.scientific_name == "Diplocarpon rosae"
+    assert disease.environmental_triggers == ["humidity"]
+    assert disease.reference_image.name == "diseases/reference/black-spot.jpg"
+    assert disease.expert_reviewed is True
+    assert disease.community_confirmed is True
+    care = dict(disease.care_instructions.values_list("treatment_name", "instructions"))
+    assert care == {
+        "Organic Treatment": "black spot: remove affected leaves.",
+        "BLACK SPOT treatment": "BLACK SPOT: remove affected leaves.",
+    }
