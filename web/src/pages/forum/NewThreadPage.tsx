@@ -102,14 +102,26 @@ interface StoredDraft {
 /**
  * Parse a stored draft string. A missing or unparseable draft reads as no
  * fields at all — the stored value itself is left alone (see `baselineRef`).
+ * Validated rather than cast (todo 597): a draft that is valid JSON but not an
+ * object (`null`, `5`, `[]`), or whose title or tags is not a string, would
+ * otherwise put a non-string into string state and crash `title.trim()` on the
+ * next render. A field of the wrong type reads as absent; `body` is left to
+ * `toComposerDoc`, which already reads anything.
  */
 function parseDraft(raw: string | null): StoredDraft {
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(raw || '{}');
-    return parsed && typeof parsed === 'object' ? (parsed as StoredDraft) : {};
+    parsed = JSON.parse(raw || '{}');
   } catch {
     return {};
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  const fields = parsed as Record<string, unknown>;
+  return {
+    ...(typeof fields.title === 'string' ? { title: fields.title } : {}),
+    ...('body' in fields ? { body: fields.body } : {}),
+    ...(typeof fields.tags === 'string' ? { tags: fields.tags } : {}),
+  };
 }
 
 /**
@@ -298,6 +310,17 @@ export default function NewThreadPage() {
       setTitle(next.title);
       setBody(next.body);
       setTagsInput(next.tags);
+      // The poll and the identification attachment belong to the old board's
+      // topic, not to the draft just loaded (owner decision 2026-10-11, todo
+      // 597): left in place, board B's text would post with board A's poll or
+      // photo without the user noticing. Neither is part of the stored draft,
+      // so neither is restored on a switch back.
+      setPollEnabled(false);
+      setPollQuestion('');
+      setPollOptions(['', '']);
+      setPollClosesAt('');
+      setPollMaxChoices(1);
+      setIdentification(null);
       // TipTap takes its content at mount only.
       setComposerEpoch((e) => e + 1);
       return;
