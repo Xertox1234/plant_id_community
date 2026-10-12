@@ -81,3 +81,14 @@ new todos. Round 1 found nothing blocking. These low findings are declined:
   happen in practice.
 - The evidence run used a drifted venv (pyjwt/urllib3). CI runs on the pinned requirements and is the
   authoritative run.
+
+### 2026-10-12 - Review round 2: non-blocking findings declined (owner decision)
+
+Round 2 found nothing blocking. These low findings are declined:
+
+- An exact path key returns `paths[path].get(method)` without trying the shape match. So if the recorded route
+  was renamed and the old path still exists with other methods, no 429 is added. Declined: the gate fails loudly
+  in that case.
+- One reviewer read the round-1 note above as describing `_documented_429`. It describes
+  `test_hook_test_helper_restores_the_thread_state`, which does `del` in `finally` (test line 412). The note
+  stands.
