@@ -380,11 +380,11 @@ def test_a_replayed_refresh_token_does_not_restamp(own_cache):
 
 
 @pytest.mark.django_db
-def test_a_failed_stamp_fails_the_refresh_without_burning_the_token(own_cache):
-    """Todo 627 item 3: the stamp runs before the blacklist, so when it fails
-    the old token is still valid and the client can simply retry."""
+def test_a_failed_stamp_is_logged_and_does_not_fail_the_refresh(own_cache):
+    """Todo 627 item 3: a failed stamp is logged and the refresh still
+    succeeds (the web client logs out on any non-2xx refresh); the next
+    successful refresh restamps."""
     user = stale_account()
-    token = str(RefreshToken.for_user(user))
     real_update = QuerySet.update
 
     def failing_stamp(self, **kwargs):
@@ -392,17 +392,23 @@ def test_a_failed_stamp_fails_the_refresh_without_burning_the_token(own_cache):
             raise DatabaseError("stamp down")
         return real_update(self, **kwargs)
 
-    with patch.object(QuerySet, "update", autospec=True, side_effect=failing_stamp):
-        response = _refresh(user, token=token)
+    with (
+        patch.object(QuerySet, "update", autospec=True, side_effect=failing_stamp),
+        patch("apps.users.views.logger") as logger,
+    ):
+        response = _refresh(user)
 
-    assert response.status_code == 503, response.content
+    assert response.status_code == 200, response.content
+    assert any(
+        "last_token_refresh stamp failed" in str(c) for c in logger.error.call_args_list
+    ), "todo 627 item 3: logged"
     user.refresh_from_db()
     assert user.last_token_refresh is None, "todo 627 item 3: nothing stamped"
-    assert (
-        _refresh(user, token=token).status_code == 200
-    ), "todo 627 item 3: a failed stamp must not have burned the token"
+    assert _refresh(user).status_code == 200
     user.refresh_from_db()
-    assert user.last_token_refresh is not None
+    assert (
+        user.last_token_refresh is not None
+    ), "todo 627 item 3: the next refresh restamps"
 
 
 @pytest.mark.django_db

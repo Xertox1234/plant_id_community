@@ -523,18 +523,12 @@ def token_refresh(request: Request) -> Response:
         # token gets here. Stamped first, there is no moment where the old
         # token is burned, the new one not yet written and the stamp missing,
         # which a cron re-check could read as "never came back". A failed
-        # stamp fails the refresh with nothing burned: the client retries
-        # with the same, still valid token.
+        # stamp is logged and the refresh goes on: the web client logs out on
+        # any non-2xx refresh, and the next successful refresh restamps.
         try:
             User.objects.filter(pk=user.pk).update(last_token_refresh=timezone.now())
         except Exception as e:
             logger.error(f"[AUTH] last_token_refresh stamp failed: {str(e)}")
-            return create_error_response(
-                "TOKEN_REFRESH_UNAVAILABLE",
-                "Token refresh service temporarily unavailable",
-                "Please try again in a moment or contact support if the issue persists",
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
 
         # CRITICAL SECURITY: Blacklist MUST succeed before issuing new tokens
         # If blacklisting fails, the old refresh token remains valid

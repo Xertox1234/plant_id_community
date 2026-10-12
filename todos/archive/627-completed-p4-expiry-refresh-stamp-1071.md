@@ -74,3 +74,12 @@ Filed by the closing step of the run from `state.py followups-md g2`.
 ### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-1724)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Review round 1 of PR #1096: a failed stamp no longer fails the refresh
+
+The item 3 fix above returned 503 when the stamp failed. Review round 1 found that the web client
+(`AuthContext.tsx` `refreshAccessToken`) logs out on any non-2xx refresh and never retries, so a
+bookkeeping write would become a logout. The stamp still runs before the blacklist; a failure is now
+logged and the refresh goes on, and the next successful refresh restamps. The test is now
+`test_a_failed_stamp_is_logged_and_does_not_fail_the_refresh` (asserts 200, the log line, no stamp,
+and a restamp on the next refresh).
