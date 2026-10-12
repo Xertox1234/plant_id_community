@@ -1445,7 +1445,8 @@ def runbook_tests():
           "**Waiting on an armed PR**" in merge_section and "mergeStateStatus" in waiting
           and "DIRTY" in waiting and "as a stop" in waiting, waiting)
     dirty = merge_section.split("**An armed PR that goes `DIRTY`**", 1)[-1]
-    order = ["sandbox off", "ensure-worktree", "merge origin/main", "merge --abort", "pre-commit run --files",
+    order = ["sandbox off", "ensure-worktree", "merge --no-commit --no-ff origin/main", "--disable-auto",
+             "merge --abort", "set-group $RUN G blocked", "pre-commit run --files",
              "add --", "annotate $RUN G --field tree_id=$(/usr/bin/git -C $WT write-tree)", "commit --no-edit",
              "ensure-worktree` again", "push origin <branch>", "autoMergeRequest"]
     found = [dirty.find(step) for step in order]
@@ -1458,10 +1459,19 @@ def runbook_tests():
           all(p in dirty for p in ("`todos/`", "`docs/LEARNINGS.md`", "`.secrets.baseline`", "`generated_at`",
                                    "line number", "stops the group for the owner", "set-group $RUN G blocked")),
           dirty)
+    check("601: ... rebuilding a conflicted todo file from origin/main, never concatenating both sides",
+          "rebuild from origin/main, never concatenate both sides" in dirty
+          and "\"ours\" is the branch and \"theirs\" is origin/main" in " ".join(dirty.split())
+          and "show origin/main:<path>" in dirty and "re-apply this branch's own changes" in dirty
+          and "keep both sides" not in dirty, dirty)
+    check("601: ... disarming auto-merge before blocking the group on a non-mechanical conflict",
+          "gh pr merge <n> --repo $GH_REPO --disable-auto" in dirty and "auto-merge disarmed" in dirty, dirty)
+    check("601: ... stopping even a clean merge before it commits",
+          "merge --no-commit --no-ff origin/main" in dirty and "stops even a clean merge" in dirty, dirty)
     sandbox_off = skill.split("**Sandbox-off steps**", 1)[1].split("\n## ", 1)[0]
     check("601: the DIRTY recovery merge is listed among the sandbox-off steps", "`DIRTY`" in sandbox_off,
           sandbox_off)
-    step6 =skill.split("## Stage D", 1)[1].split("\n6. ", 1)[1].split("\n7. ", 1)[0]
+    step6 = skill.split("## Stage D", 1)[1].split("\n6. ", 1)[1].split("\n7. ", 1)[0]
     check("513: Stage D step 6 says what to do when a fixer aborts the Land commit",
           "fixer" in step6 and "diff --name-only" in step6 and "re-run step 1" in step6, step6)
     root = Path(os.path.abspath(__file__)).parents[2]

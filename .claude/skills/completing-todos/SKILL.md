@@ -367,18 +367,26 @@ Treat `DIRTY` as a stop, never as "still waiting", and recover it as below.
 **An armed PR that goes `DIRTY`** (todo 601). Recover it with the sandbox off, in this order:
 
 1. `ensure-worktree` (Stage D step 1), then `/usr/bin/git -C $WT fetch origin main`.
-2. `/usr/bin/git -C $WT merge origin/main` — a merge commit, never a rebase plus force-push: the branch is
-   already pushed and reviewed, and a force-push rewrites what the reviewers read.
+2. `/usr/bin/git -C $WT merge --no-commit --no-ff origin/main` — a merge commit,
+   never a rebase plus force-push: the branch is already pushed and reviewed, and a force-push rewrites what
+   the reviewers read. `--no-commit` stops even a clean merge here, so steps 4–6 run before the commit
+   exists.
 3. Resolve the conflicts. Only these are mechanical:
-   - `todos/` files — keep both sides;
+   - `todos/` files — rebuild from origin/main, never concatenate both sides (that leaves duplicate `status:`
+     keys and doubled criteria and Work Log lines). In this merge "ours" is the branch and "theirs" is
+     origin/main: write origin/main's version (`/usr/bin/git -C $WT show origin/main:<path> > $WT/<path>`),
+     then re-apply this branch's own changes to it by hand — its criteria ticks, its Work Log entries, its
+     archive move;
    - append-only docs (`docs/LEARNINGS.md`, `docs/rules/*.md`) — keep both entries, origin/main's first;
    - `.secrets.baseline` — only its `generated_at` and the `line_number` values: take origin/main's
      `generated_at`, and fix each line number against the merged file. The baseline is hand-maintained;
      never regenerate it with a scan.
 
-   Any other conflict stops the group for the owner: `/usr/bin/git -C $WT merge --abort`, then
+   Any other conflict stops the group for the owner. Disarm first, so nothing merges it before the owner
+   resolves it: `gh pr merge <n> --repo $GH_REPO --disable-auto` (from REPO). Then
+   `/usr/bin/git -C $WT merge --abort`, then
    `state.py set-group $RUN G blocked --field reason="merge conflict with origin/main: <paths>"`, and report
-   the PR. Never resolve a source conflict by hand.
+   the PR in the wrap-up as blocked with auto-merge disarmed. Never resolve a source conflict by hand.
 4. Re-run the group's gates on the merged tree: the `command` of every criterion in its `ac.json` whose
    files the merge touched, and `pre-commit run --files <resolved paths>` (`SKIP=kimi-review`; the commit runs
    the kimi gate).
