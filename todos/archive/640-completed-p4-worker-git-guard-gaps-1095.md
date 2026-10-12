@@ -98,3 +98,29 @@ Filed by the closing step of the run from `state.py followups-md g1`.
 - Tests: 14 new cases in `.claude/hooks/test-guard-todo-worker-git.sh` (xargs with env, nice, timeout,
   command and sh/bash -c; `ls WT/x=(e:'git push':)`, `echo foo=(...)`, `export x=(...)`; controls that
   `arr=(a b)`, `arr+=(c)`, a read under `xargs env` and a git after the xargs segment stay allowed).
+
+### 2026-10-12 - Review round 1: non-blocking findings declined (owner decision)
+
+The owner decided on 2026-10-12 that this batch's non-blocking review findings are recorded here, not filed as
+new todos. The three blocking findings (xargs under a nested wrapper, and the zsh `word=(` qualifier) were
+fixed in the round-1 repair above. These are declined:
+
+- **.git removers match only literal operands** (medium, #8). Globs and runtime words get past the check:
+  `rm WT/.gi[t]`, `rm WT/.g*`, `mv WT/.git{,.bak}`, `rm $(echo WT/.git)`, `find WT -name .git -delete`,
+  `ln -sf MAIN/.git WT/.git`, a redirect into `WT/.git`. Declined: the guard is a denylist for a cooperative
+  worker's accidents, not a sandbox against an adversarial one. Each of these shapes takes deliberate intent,
+  and the verifier and reviewers re-check every worktree's index. A sounder fix would re-check
+  `git rev-parse --git-common-dir` at the staging git.
+- **`-C` resolves at hook time** (medium, pre-existing). `ln -s MAIN WT/l && git -C WT/l add -A` is allowed
+  because the link does not exist yet. Declined for the same reason as the item above.
+- **`check_worktree_root` accepts a `.claude/worktrees` in any ancestor of the main root** (medium/low ×3),
+  where the guard's #7 anchoring would then deny staging. Declined: `execute-args` always passes the main
+  root's own `.claude/worktrees`. A wrong ancestor root fails loudly at the guard on the first staging, not
+  silently.
+- **False positives that fail closed** (low): `'a$b.txt'` is read as runtime-built, and `f( )` and
+  `[[ x =~ ^(a|b) ]]` are refused as parse errors. Declined: they deny, never allow.
+- **`triage_answer` is not backfilled for runs decided before this lands** (low ×2). Declined: this is already
+  recorded in the discoveries above, and no open run predates this PR except run 2026-10-12-2056, which was
+  decided with the new `decide()`.
+- `repo_main_root` spawns a PATH-resolved `git` with no timeout (low). `kimi_skipped_groups` sorts `g10`
+  before `g2` (low, cosmetic). Declined: neither changes a decision.
