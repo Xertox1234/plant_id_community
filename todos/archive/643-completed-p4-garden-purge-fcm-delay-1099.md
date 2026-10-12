@@ -68,3 +68,19 @@ Filed by the closing step of the run from `state.py followups-md g5`.
 ### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-2056)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Review round 1: non-blocking findings declined (owner decision)
+
+The owner decided on 2026-10-12 that this batch's non-blocking review findings are recorded here, not filed as
+new todos. Round 1 found nothing blocking. These low findings are declined:
+
+- `forum_host/tasks.py`: in the per-device branch, one `try` wraps the whole re-enqueue loop. A broker refusal
+  part-way logs `len(transient)` devices dropped even though earlier devices were already handed off, and the
+  later devices are not tried. Five reviewers raised this; it only affects the log count. Declined: when the
+  broker refuses one hand-off, the next ones fail the same way, and the ERROR already shows the hand-off failed.
+- `send_forum_push`'s own per-device `.delay` loop is still unguarded. Declined: kombu's `OperationalError`
+  there fails the task, which Celery records, so nothing is dropped silently. That differs from the batch path
+  #1 fixed.
+- `test_auditlog_registration.py`: the exact DELETE/SELECT counts and the ORDER BY check across every SELECT
+  are strict pins. Declined: the pins are deliberate (#4/#6). If an ORM change breaks them, they should be
+  re-read, not loosened in advance.
