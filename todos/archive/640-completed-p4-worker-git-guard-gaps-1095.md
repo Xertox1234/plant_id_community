@@ -120,7 +120,7 @@ fixed in the round-1 repair above. These are declined:
 - **False positives that fail closed** (low): `'a$b.txt'` is read as runtime-built, and `f( )` and
   `[[ x =~ ^(a|b) ]]` are refused as parse errors. Declined: they deny, never allow.
 - **`triage_answer` is not backfilled for runs decided before this lands** (low ×2). Declined: this is already
-  recorded in the discoveries above, and no open run predates this PR except run 2026-10-12-2056, which was
-  decided with the new `decide()`.
+  recorded in the discoveries above. The only open run, 2026-10-12-2056, was decided and apply-triaged
+  (#1111) before this lands, so no run applies triage across the change.
 - `repo_main_root` spawns a PATH-resolved `git` with no timeout (low). `kimi_skipped_groups` sorts `g10`
   before `g2` (low, cosmetic). Declined: neither changes a decision.
