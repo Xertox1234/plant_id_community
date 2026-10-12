@@ -308,6 +308,24 @@ void main() {
       expect(title, startsWith('Pest inspection xxx'));
       expect(title, endsWith('…'));
     });
+
+    test('an emoji at the cut is never split (todo 593 #3)', () {
+      // 'Watering ' is 9 code points; the emoji sits at code point 198, the
+      // last one kept, and is two UTF-16 code units.
+      final name = '${'x' * 189}🌿${'y' * 10}';
+      final title = careTaskTitle('Watering', name);
+      expect(title.runes.length, careTaskTitleMaxLength);
+      expect(title, endsWith('🌿…'));
+      // No lone surrogate: every rune round-trips.
+      expect(String.fromCharCodes(title.runes), title);
+      expect(title.runes.where((r) => r >= 0xD800 && r <= 0xDFFF), isEmpty);
+    });
+
+    test('200 code points with emoji are not cut (todo 593 #3)', () {
+      final name = '🌿' * 191; // 9 + 191 = 200 code points, 391 code units
+      final title = careTaskTitle('Watering', name);
+      expect(title, 'Watering $name');
+    });
   });
 
   group('firstDueAt (todo 570 #10)', () {

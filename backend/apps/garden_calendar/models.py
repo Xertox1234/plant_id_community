@@ -1229,7 +1229,19 @@ class CareTask(models.Model):
             # instance, and a PATCH to the recurrence committed between the
             # caller's fetch and this lock must not be lost (todo 570 #15).
             # Raises CareTask.DoesNotExist if the row is gone.
+            # refresh_from_db() drops every cached relation, so the caller's
+            # select_related plant would be re-queried to build the next
+            # occurrence. Re-attach each one whose key did not change (todo
+            # 593 #4).
+            cached = [
+                (field, field.get_cached_value(self))
+                for field in self._meta.concrete_fields
+                if field.is_relation and field.is_cached(self)
+            ]
             self.refresh_from_db(from_queryset=CareTask.objects.select_for_update())
+            for field, related in cached:
+                if related is not None and getattr(self, field.attname) == related.pk:
+                    field.set_cached_value(self, related)
             if self.completed or self.skipped:
                 raise CareTask.AlreadyResolved()
             for field, value in changes.items():

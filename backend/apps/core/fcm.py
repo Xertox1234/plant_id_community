@@ -9,6 +9,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# A care sweep or forum push batch stops on a Firebase credentials error only
+# when it has had this many of them and not one successful send yet (owner
+# decision 2026-10-11, todo 593 round 3). One success proves the server's
+# credentials work, so later credentials errors are per device (a dev-build
+# token, an APNs-only fault) and the run goes on; this many with no success is
+# taken as the server's setup, where every later send would fail the same way.
+FCM_CREDENTIALS_STOP_FAILURES = 3
+
 
 def is_permanent_fcm_error(exc: Exception) -> bool:
     """Permanent FCM failures must not be retried (docs/patterns/domain/celery.md;

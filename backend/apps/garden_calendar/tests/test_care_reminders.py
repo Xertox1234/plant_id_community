@@ -738,3 +738,282 @@ def test_the_sweep_interval_constant_matches_the_beat_schedule():
     assert entry["schedule"].minute == set(
         range(0, 60, CARE_REMINDER_SWEEP_INTERVAL_MINUTES)
     )
+
+
+class CareReminderCredentialsErrorTest(TestCase):
+    """Todo 593 #1, round 3 (owner decision 2026-10-11): "Stop only when every
+    send so far in the sweep failed with a credentials error (none succeeded),
+    and keep claims on device-level failures." A credentials error leaves the
+    owner's claim standing and the token kept; the sweep stops only after
+    FCM_CREDENTIALS_STOP_FAILURES of them with no successful send, releasing
+    the untried owners who have a token. One ERROR per sweep.
+
+    A deliberate behaviour change from rounds 1-2, approved by the owner: the
+    failed owners' claims are no longer released, because a released task is
+    re-claimed oldest-first and a few bad devices would stop every sweep."""
+
+    _set_token = CareReminderSweepTest._set_token
+    _run = CareReminderSweepTest._run
+    _sent_tokens = CareReminderSweepTest._sent_tokens
+
+    def setUp(self):
+        CareReminderSweepTest.setUp(self)
+        self.bob = User.objects.create_user(username="bob", email="b@x.com")
+        self._set_token(self.bob, "bob-device")
+        self.alices = _task(self.plant, due=self.now - timedelta(minutes=10))
+        self.bobs = _task(_plant(self.bob), due=self.now - timedelta(minutes=5))
+
+    def _claimed(self, task):
+        task.refresh_from_db()
+        return task.notification_sent
+
+    def _owner(self, name, minutes, *, token=True):
+        """An owner whose one task fell due ``minutes`` ago; claims run
+        oldest-first, so a sweep tries the owners in due order."""
+        user = User.objects.create_user(username=name, email=f"{name}@x.com")
+        if token:
+            self._set_token(user, f"{name}-device")
+        return _task(_plant(user), due=self.now - timedelta(minutes=minutes))
+
+    def _errors(self, logs):
+        return [m for m in logs.output if m.startswith("ERROR:")]
+
+    def test_credentials_errors_after_a_success_do_not_stop_the_sweep(self):
+        """Alice's send works, so the server's credentials are fine: the
+        four failures after it are devices. The sweep goes on to the end
+        (Erin, after the third failure, is still tried) and every failed
+        owner's claim stands (not released)."""
+        from apps.core.fcm import FCM_CREDENTIALS_STOP_FAILURES
+        from firebase_admin import messaging
+
+        carols = self._owner("carol", 3)
+        daves = self._owner("dave", 2)
+        erins = self._owner("erin", 1)
+        calls = []
+
+        def send(message):
+            calls.append(message)
+            if len(calls) == 1:
+                return "ok"
+            raise messaging.ThirdPartyAuthError("apns cert")
+
+        with self.assertLogs("apps.garden_calendar.tasks", "ERROR") as logs:
+            fcm = self._run(send=send)
+
+        self.assertGreaterEqual(3, FCM_CREDENTIALS_STOP_FAILURES)
+        self.assertEqual(
+            self._sent_tokens(fcm),
+            [
+                "alice-device",
+                "bob-device",
+                "carol-device",
+                "dave-device",
+                "erin-device",
+            ],
+        )
+        for task in (self.alices, self.bobs, carols, daves, erins):
+            self.assertTrue(self._claimed(task))
+        self.assertEqual(
+            ForumProfile.objects.get(user=self.bob).fcm_token, "bob-device"
+        )
+        errors = self._errors(logs)
+        self.assertEqual(len(errors), 1, logs.output)
+        self.assertIn("4 owner(s)", errors[0])
+        self.assertIn("claims stand", errors[0])
+
+    def test_credentials_errors_with_no_success_stop_at_the_threshold(self):
+        """Alice, Bob and Carol fail and nothing has worked: the server's
+        setup. The sweep stops; their claims stand, Dave (untried, has a
+        token) is released for the next sweep, and Erin (untried, no token)
+        keeps her claim as the no-token branch would have."""
+        from apps.core.fcm import FCM_CREDENTIALS_STOP_FAILURES
+        from firebase_admin import messaging
+
+        self.assertEqual(FCM_CREDENTIALS_STOP_FAILURES, 3)
+        for i, exc in enumerate(
+            (
+                messaging.SenderIdMismatchError("other project"),
+                messaging.ThirdPartyAuthError("apns cert"),
+            )
+        ):
+            with self.subTest(exc=type(exc).__name__):
+                CareTask.objects.update(notification_sent=True)
+                for task in (self.alices, self.bobs):
+                    task.notification_sent = False
+                    task.save(update_fields=["notification_sent"])
+                carols = self._owner(f"carol{i}", 3)
+                erins = self._owner(f"erin{i}", 2, token=False)
+                daves = self._owner(f"dave{i}", 1)
+
+                with self.assertLogs("apps.garden_calendar.tasks", "ERROR") as logs:
+                    fcm = self._run(send=exc)
+
+                self.assertEqual(
+                    self._sent_tokens(fcm),
+                    ["alice-device", "bob-device", f"carol{i}-device"],
+                )
+                for task in (self.alices, self.bobs, carols, erins):
+                    self.assertTrue(self._claimed(task))
+                self.assertFalse(self._claimed(daves))
+                errors = self._errors(logs)
+                self.assertEqual(len(errors), 1, logs.output)
+                self.assertIn("stopping the sweep", errors[0])
+                self.assertIn("1 untried tasks released", errors[0])
+
+    def test_the_next_sweep_moves_past_the_owners_that_failed(self):
+        """Pins the stop's choice to hold the failed owners' claims: released,
+        they would be re-claimed first and stop the next sweep too. Held, the
+        next sweep reaches Dave."""
+        from firebase_admin import messaging
+
+        carols = self._owner("carol", 3)
+        daves = self._owner("dave", 1)
+
+        self._run(send=messaging.SenderIdMismatchError("other project"))
+        fcm = self._run()
+
+        self.assertEqual(self._sent_tokens(fcm), ["dave-device"])
+        for task in (self.alices, self.bobs, carols, daves):
+            self.assertTrue(self._claimed(task))
+
+    def test_a_credentials_error_on_one_owner_does_not_stop_the_sweep(self):
+        """Claims are oldest-first, so a device-level credentials error (a
+        dev-build token, an APNs-only fault) on the oldest owner must not
+        stall everyone else. Alice's claim stands, her token is kept, Bob is
+        sent, and the sweep logs one ERROR."""
+        from firebase_admin import messaging
+
+        for exc in (
+            messaging.ThirdPartyAuthError("apns cert"),
+            messaging.SenderIdMismatchError("dev build"),
+        ):
+            with self.subTest(exc=type(exc).__name__):
+                CareTask.objects.update(notification_sent=False)
+                calls = []
+
+                def send(message, exc=exc):
+                    calls.append(message)
+                    if len(calls) == 1:
+                        raise exc
+                    return "ok"
+
+                with self.assertLogs("apps.garden_calendar.tasks", "ERROR") as logs:
+                    fcm = self._run(send=send)
+
+                self.assertEqual(self._sent_tokens(fcm), ["alice-device", "bob-device"])
+                self.assertTrue(self._claimed(self.alices))
+                self.assertTrue(self._claimed(self.bobs))
+                self.assertEqual(
+                    ForumProfile.objects.get(user=self.alice).fcm_token,
+                    "alice-device",
+                )
+                errors = self._errors(logs)
+                self.assertEqual(len(errors), 1, logs.output)
+                self.assertIn("claims stand", errors[0])
+
+    def test_a_dead_token_does_not_stop_the_sweep(self):
+        from firebase_admin import messaging
+
+        calls = []
+
+        def send(message):
+            calls.append(message)
+            if len(calls) == 1:
+                raise messaging.UnregisteredError("gone")
+            return "ok"
+
+        self._run(send=send)
+
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(self._claimed(self.alices))
+        self.assertTrue(self._claimed(self.bobs))
+
+
+class CareReminderAutoretryAgeOutTest(TestCase):
+    """Todo 593 #2: an autoretried failure still warns about a task that
+    leaves the lookback before the retry's claim, and the retry window is
+    read from the task's own autoretry options."""
+
+    setUp = CareReminderSweepTest.setUp
+    _set_token = CareReminderSweepTest._set_token
+    _run = CareReminderSweepTest._run
+
+    def _warnings_after_db_error(self):
+        from django.db import OperationalError
+
+        with patch(
+            "apps.garden_calendar.tasks._push_to_owners",
+            side_effect=OperationalError("db blip"),
+        ), patch("apps.garden_calendar.tasks.logger") as log:
+            with self.assertRaises(OperationalError):
+                self._run()
+        return [
+            str(c.args[0])
+            for c in log.warning.call_args_list
+            if "will not be sent" in str(c.args[0])
+        ]
+
+    def test_a_task_at_the_edge_is_warned_even_when_autoretry_follows(self):
+        # Leaves the 24h window 30s from now; the first retry comes up to
+        # 60s later, so the retry cannot claim it.
+        _task(self.plant, due=self.now - timedelta(hours=24) + timedelta(seconds=30))
+
+        self.assertEqual(len(self._warnings_after_db_error()), 1)
+
+    def test_the_retry_window_follows_the_decorator(self):
+        from django.db import OperationalError
+
+        from ..tasks import _next_claim_within
+
+        task = send_due_care_task_reminders
+        task.push_request(retries=1)
+        try:
+            self.assertEqual(
+                _next_claim_within(task, OperationalError("x")),
+                timedelta(seconds=task.retry_backoff * 2 + 60),
+            )
+            # Not autoretried: the next beat sweep claims it.
+            self.assertEqual(
+                _next_claim_within(task, RuntimeError("x")), timedelta(minutes=15)
+            )
+            with patch.object(task, "autoretry_for", ()):
+                self.assertEqual(
+                    _next_claim_within(task, OperationalError("x")),
+                    timedelta(minutes=15),
+                )
+        finally:
+            task.pop_request()
+
+
+class ResolveKeepsCachedRelationsTest(TestCase):
+    """Todo 593 #4: the lock's refresh_from_db() dropped the caller's cached
+    plant, so building the next occurrence re-queried it."""
+
+    def setUp(self):
+        self.alice = User.objects.create_user(username="alice", email="a@x.com")
+        self.plant = _plant(self.alice)
+
+    def test_mark_complete_keeps_the_select_related_plant(self):
+        _task(
+            self.plant,
+            due=timezone.now(),
+            is_recurring=True,
+            recurrence_interval_days=7,
+        )
+        task = CareTask.objects.select_related("plant").get(plant=self.plant)
+        plant = task.plant
+
+        task.mark_complete(self.alice)
+
+        self.assertIs(task.plant, plant)
+        self.assertEqual(CareTask.objects.filter(plant=self.plant).count(), 2)
+
+    def test_a_changed_key_is_not_re_attached(self):
+        other = _plant(self.alice)
+        task = _task(self.plant, due=timezone.now())
+        task = CareTask.objects.select_related("plant").get(pk=task.pk)
+        CareTask.objects.filter(pk=task.pk).update(plant=other)
+
+        task.mark_complete(self.alice)
+
+        self.assertEqual(task.plant, other)

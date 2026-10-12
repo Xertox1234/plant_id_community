@@ -745,6 +745,115 @@ def test_send_forum_push_batch_does_not_re_enqueue_on_permanent_error(exc):
     mock_single.assert_not_called()
 
 
+# --- todo 593 #1: a credentials error stops the batch only with no success ---
+
+
+def _batch_recipients(prefix, count):
+    users = []
+    for i in range(count):
+        user = User.objects.create_user(username=f"{prefix}-{i}")
+        profile = ForumProfile.for_user(user)
+        profile.fcm_token = f"{prefix}-token-{i}"
+        profile.save()
+        users.append(user)
+    return users
+
+
+def _run_batch(users, send):
+    mock_fcm = MagicMock()
+    mock_fcm.send.side_effect = send
+    with patch(
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm), patch(
+        "apps.forum_host.tasks.send_forum_push.delay"
+    ) as single:
+        from apps.forum_host.tasks import send_forum_push_batch
+
+        send_forum_push_batch("reply_added", [u.pk for u in users], {"topic_id": "1"})
+    return mock_fcm, single
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("exc", _permanent_fcm_errors(), ids=lambda e: type(e).__name__)
+def test_a_credentials_error_on_every_send_stops_the_batch_at_the_threshold(
+    exc, caplog
+):
+    """Round 3 (owner decision 2026-10-11, a deliberate change from stopping
+    on the FIRST credentials error): "Stop only when every send so far in the
+    batch failed with a credentials error (none succeeded)". With every send
+    failing, the batch stops after FCM_CREDENTIALS_STOP_FAILURES (3) of the 5
+    and logs one ERROR naming the 2 not tried. A token-level permanent error
+    still moves on to the next recipient."""
+    import logging
+
+    from apps.core.fcm import FCM_CREDENTIALS_STOP_FAILURES
+
+    assert FCM_CREDENTIALS_STOP_FAILURES == 3
+    users = _batch_recipients(f"stop-{type(exc).__name__.lower()}", 5)
+
+    with caplog.at_level(logging.ERROR, logger="forum_host.tasks"):
+        mock_fcm, single = _run_batch(users, exc)
+
+    credentials = type(exc).__name__ in _CREDENTIALS_CLASSES
+    assert mock_fcm.send.call_count == (3 if credentials else 5)
+    single.assert_not_called()
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    if credentials:
+        assert len(errors) == 1, errors
+        assert "2 recipient(s) not tried" in errors[0]
+    else:
+        assert errors == []
+
+
+@pytest.mark.django_db
+def test_a_credentials_error_on_the_first_recipient_does_not_stop_the_batch(caplog):
+    """Todo 593 round 3: the error can be the device's (a dev-build token, an
+    APNs-only fault), so the batch goes on and every other recipient is
+    sent. One ERROR, which does not say the batch stopped."""
+    import logging
+
+    from firebase_admin import messaging
+
+    users = _batch_recipients("first-fails", 4)
+    calls = []
+
+    def send(message):
+        calls.append(message)
+        if len(calls) == 1:
+            raise messaging.ThirdPartyAuthError("apns auth")
+        return "ok"
+
+    with caplog.at_level(logging.ERROR, logger="forum_host.tasks"):
+        mock_fcm, single = _run_batch(users, send)
+
+    assert mock_fcm.send.call_count == 4
+    single.assert_not_called()
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1, errors
+    assert "1 recipient(s)" in errors[0]
+    assert "stopped" not in errors[0]
+
+
+@pytest.mark.django_db
+def test_credentials_errors_after_a_success_do_not_stop_the_batch():
+    """One send worked, so the server's credentials are fine: the failures
+    after it are devices, however many, and every recipient is tried."""
+    from firebase_admin import messaging
+
+    users = _batch_recipients("success-first", 5)
+    calls = []
+
+    def send(message):
+        calls.append(message)
+        if len(calls) == 1:
+            return "ok"
+        raise messaging.SenderIdMismatchError("dev build")
+
+    mock_fcm, _single = _run_batch(users, send)
+
+    assert mock_fcm.send.call_count == 5
+
+
 # --- todo 457 item 3: a dead device token is cleared -------------------------
 
 # SenderIdMismatchError left this set in todo 566 (owner decision
@@ -1017,10 +1126,22 @@ def test_weekly_digest_relays_the_real_command_output_with_one_prefix():
     """
     from apps.forum_host import tasks
     from django.core.cache import cache
+    from django.test import override_settings
 
-    cache.delete("wagtail_forum:digest-run:weekly")
-    with patch.object(tasks.logger, "info") as info:
-        tasks.send_forum_weekly_digest.apply()
+    # A private cache: the default one is the shared Redis in dev and sweep
+    # runs, where deleting the run lock could free a live worker's digest
+    # run (todo 593 #9).
+    with override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "todo-593-digest-relay",
+            }
+        }
+    ):
+        cache.delete("wagtail_forum:digest-run:weekly")
+        with patch.object(tasks.logger, "info") as info:
+            tasks.send_forum_weekly_digest.apply()
 
     relayed = relayed_lines(info)
     assert any("recipients=" in line for line in relayed), relayed

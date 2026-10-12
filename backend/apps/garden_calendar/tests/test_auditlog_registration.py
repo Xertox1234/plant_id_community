@@ -12,6 +12,8 @@ from auditlog.models import LogEntry
 from auditlog.registry import auditlog
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.db import models
+from django.db.models import Q
 from django.test import TestCase
 from django.utils import timezone
 
@@ -63,6 +65,25 @@ class GardenAuditlogRegistrationTest(TestCase):
             priority="medium",
             scheduled_date=timezone.now(),
         )
+
+    def test_overdue_reschedule_writes_update_logentry(self):
+        """Todo 586 #6: the bulk reschedule used QuerySet.update(), which
+        sends no save signal, so it changed scheduled_date unaudited."""
+        from datetime import timedelta
+
+        from ..services.care_schedule_service import CareScheduleService
+
+        task = self._task()
+        CareTask.objects.filter(pk=task.pk).update(
+            scheduled_date=timezone.now() - timedelta(days=10)
+        )
+
+        count = CareScheduleService.reschedule_overdue_tasks(self.user)
+
+        self.assertEqual(count, 1)
+        entries = list(_update_entries(task))
+        self.assertEqual(len(entries), 1)
+        self.assertIn("scheduled_date", entries[0].changes_dict)
 
     def test_all_five_models_are_registered(self):
         for model in (GardenBed, Plant, CareTask, CareLog, Harvest):
@@ -116,3 +137,102 @@ class GardenAuditlogRegistrationTest(TestCase):
             # Every listed field exists on the model.
             self.assertLessEqual(include, concrete, model.__name__)
             self.assertFalse(include & FREE_TEXT_FIELDS, model.__name__)
+            # Todo 586 #5: a prose field under any other name is a TextField
+            # (or a JSON blob); the name list alone would let it through.
+            for name in include:
+                field = model._meta.get_field(name)
+                self.assertNotIsInstance(
+                    field, (models.TextField, models.JSONField), f"{model}.{name}"
+                )
+
+
+class GardenAuditlogPurgeOnAccountDeletionTest(TestCase):
+    """Todo 586 (owner decision 2026-10-11): deleting an account purges every
+    LogEntry of the user's garden objects, including the DELETE rows the
+    cascade writes, and leaves other users' trails alone."""
+
+    def _garden(self, username):
+        user = User.objects.create_user(
+            username=username,
+            email=f"{username}@test.com",
+            password="testpass123",  # pragma: allowlist secret
+        )
+        bed = GardenBed.objects.create(owner=user, name=f"{username} bed")
+        plant = Plant.objects.create(
+            garden_bed=bed,
+            common_name="Tomato",
+            health_status="healthy",
+            growth_stage="seedling",
+            planted_date=timezone.now().date(),
+        )
+        task = CareTask.objects.create(
+            plant=plant,
+            created_by=user,
+            task_type="watering",
+            title="Water",
+            priority="medium",
+            scheduled_date=timezone.now(),
+        )
+        log = CareLog.objects.create(plant=plant, user=user, activity_type="watering")
+        harvest = Harvest.objects.create(
+            plant=plant, harvest_date=timezone.now().date(), quantity=1, unit="count"
+        )
+        plant.health_status = "stressed"
+        plant.save()  # an UPDATE entry too
+        return user, [bed, plant, task, log, harvest]
+
+    def _entries(self, objects):
+        match = Q()
+        for obj in objects:
+            match |= Q(
+                content_type=ContentType.objects.get_for_model(type(obj)),
+                object_pk=str(obj.pk),
+            )
+        return LogEntry.objects.filter(match)
+
+    def test_deleting_a_user_purges_their_garden_logentries(self):
+        alice, alices = self._garden("alice_purge")
+        bob, bobs = self._garden("bob_keep")
+        self.assertTrue(self._entries(alices).exists())
+        before_bob = self._entries(bobs).count()
+        self.assertGreaterEqual(before_bob, 6)  # 5 CREATE + 1 UPDATE
+
+        alice.delete()
+
+        # No CREATE, UPDATE or cascade-written DELETE row survives.
+        self.assertFalse(self._entries(alices).exists())
+        # GardenBed's object_repr carried the username. (The users app's own
+        # User entries are outside the garden purge.)
+        garden_types = [
+            ContentType.objects.get_for_model(m)
+            for m in (GardenBed, Plant, CareTask, CareLog, Harvest)
+        ]
+        self.assertFalse(
+            LogEntry.objects.filter(
+                content_type__in=garden_types, object_repr__contains="alice_purge"
+            ).exists()
+        )
+        self.assertEqual(self._entries(bobs).count(), before_bob)
+
+    def test_a_queryset_delete_purges_too(self):
+        alice, alices = self._garden("alice_qs")
+
+        User.objects.filter(pk=alice.pk).delete()
+
+        self.assertFalse(self._entries(alices).exists())
+
+    def test_deleting_a_plant_alone_keeps_its_trail(self):
+        """Only account deletion purges; an ordinary delete is audited."""
+        alice, alices = self._garden("alice_plant")
+        plant = alices[1]
+        pk = str(plant.pk)  # delete() sets plant.pk to None
+
+        plant.delete()
+
+        self.assertTrue(
+            LogEntry.objects.filter(
+                content_type=ContentType.objects.get_for_model(Plant),
+                object_pk=pk,
+                action=LogEntry.Action.DELETE,
+            ).exists()
+        )

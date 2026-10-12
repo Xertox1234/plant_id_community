@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from apps.core.fcm import (
+    FCM_CREDENTIALS_STOP_FAILURES,
     clear_dead_fcm_token,
     is_dead_fcm_token_error,
     is_fcm_credentials_error,
@@ -100,17 +101,19 @@ def _release(
     now: datetime,
     task_id: str | None,
     *,
-    warn_age_out: bool = True,
+    next_claim_within: timedelta = timedelta(
+        minutes=CARE_REMINDER_SWEEP_INTERVAL_MINUTES
+    ),
 ) -> None:
     """Un-claim tasks after a transient send failure, so the next sweep retries.
 
     A released task is re-claimed every sweep only while it is inside the
     lookback window; after that no sweep selects it again. Warn when this is
     its last chance, so a reminder that keeps failing is not dropped silently
-    (todo 457). ``warn_age_out=False`` when the task's own autoretry will
-    re-claim the tasks within a minute or two, long before the next beat
-    sweep: the warning would say "will not be sent" of a reminder that will
-    be (todo 566).
+    (todo 457). ``next_claim_within`` is when the next claim runs at the
+    latest: the next beat sweep by default, or this task's own autoretry,
+    which comes sooner (todo 566). A task that leaves the window before
+    either claims it is warned about either way (todo 593 #2).
     """
     from .models import CareTask
 
@@ -118,15 +121,13 @@ def _release(
         notification_sent=False
     )
     ages_out_before = (
-        now
-        - timedelta(hours=CARE_REMINDER_LOOKBACK_HOURS)
-        + timedelta(minutes=CARE_REMINDER_SWEEP_INTERVAL_MINUTES)
+        now - timedelta(hours=CARE_REMINDER_LOOKBACK_HOURS) + next_claim_within
     )
     for task in tasks:
-        if warn_age_out and task["scheduled_date"] < ages_out_before:
+        if task["scheduled_date"] < ages_out_before:
             logger.warning(
                 "[FCM] care reminder for task %s (user=%s) leaves the %sh "
-                "lookback before the next sweep; it will not be sent (task=%s)",
+                "lookback before the next claim; it will not be sent (task=%s)",
                 task["uuid"],
                 task["plant__owner_id"],
                 CARE_REMINDER_LOOKBACK_HOURS,
@@ -189,15 +190,12 @@ def send_due_care_task_reminders(self) -> None:
             _release(retry_later, now, task_id)
     except BaseException as exc:  # re-raised below; a worker shutdown must un-claim too
         unfinished = [t for o, ts in by_owner.items() if o not in done for t in ts]
-        # autoretry_for re-runs the task soon after an OperationalError, so
-        # the age-out warning (which assumes the next BEAT sweep) is wrong
-        # there, unless the retries are spent (todo 566).
-        autoretries = isinstance(exc, OperationalError) and (
-            self.request.retries < self.max_retries
-        )
         try:
             _release(
-                unfinished + retry_later, now, task_id, warn_age_out=not autoretries
+                unfinished + retry_later,
+                now,
+                task_id,
+                next_claim_within=_next_claim_within(self, exc),
             )
         except Exception:
             logger.exception(
@@ -218,6 +216,35 @@ def send_due_care_task_reminders(self) -> None:
     )
 
 
+def _next_claim_within(task: Any, exc: BaseException) -> timedelta:
+    """How soon the next claim runs after ``exc`` escapes ``task``.
+
+    Read from the task's own autoretry options, so a change to the decorator
+    cannot leave a hand-kept copy behind (todo 593 #2). An exception autoretry
+    re-runs, with retries left, comes back within the backoff ceiling (the
+    jittered countdown never exceeds it) plus a minute of queue latency;
+    anything else waits for the next beat sweep.
+    """
+    from celery.utils.time import get_exponential_backoff_interval
+
+    autoretry_for = tuple(getattr(task, "autoretry_for", ()))
+    backoff = getattr(task, "retry_backoff", False)
+    if (
+        autoretry_for
+        and backoff
+        and isinstance(exc, autoretry_for)
+        and task.request.retries < task.max_retries
+    ):
+        countdown = get_exponential_backoff_interval(
+            factor=int(max(1.0, float(backoff))),
+            retries=task.request.retries,
+            maximum=int(getattr(task, "retry_backoff_max", 600)),
+            full_jitter=False,
+        )
+        return timedelta(seconds=countdown + 60)
+    return timedelta(minutes=CARE_REMINDER_SWEEP_INTERVAL_MINUTES)
+
+
 def _push_to_owners(
     fcm: Any,
     by_owner: dict[int, list[dict]],
@@ -229,6 +256,10 @@ def _push_to_owners(
 
     Adds each handled owner to ``done`` and a transient failure's tasks to
     ``retry_later``, so the caller can un-claim exactly what did not go out.
+    A credentials error leaves that owner's claim standing and keeps going.
+    The sweep stops only after ``FCM_CREDENTIALS_STOP_FAILURES`` of them with
+    no successful send yet: then every untried owner with a token moves to
+    ``retry_later`` (todo 593 round 3). Either way the sweep logs one ERROR.
     """
     from django.contrib.auth import get_user_model
     from wagtail_forum.models import ForumProfile
@@ -246,6 +277,7 @@ def _push_to_owners(
     )
 
     sent = 0
+    credentials_failed: list[int] = []
     for owner_id, tasks in by_owner.items():
         token = tokens.get(owner_id)
         if not token:
@@ -269,19 +301,63 @@ def _push_to_owners(
             # Not an FCM failure: stop, and let the caller un-claim the rest.
             raise
         except Exception as exc:
+            if is_fcm_credentials_error(exc):
+                # Keep the token: clearing it would wipe a healthy device on a
+                # server misconfiguration (todo 566). The claim stands, as for
+                # a tokenless owner: the error can be the device's (a
+                # dev-build token, an APNs-only fault), and a released task is
+                # re-claimed oldest-first, so it would head every sweep.
+                done.add(owner_id)
+                credentials_failed.append(owner_id)
+                logger.warning(
+                    "[FCM] care reminder hit a Firebase credentials error "
+                    "(user=%s, task=%s): %s — token kept, claim stands",
+                    owner_id,
+                    task_id,
+                    exc,
+                )
+                if (
+                    not sent
+                    and len(credentials_failed) >= FCM_CREDENTIALS_STOP_FAILURES
+                ):
+                    # No send has worked yet: the server's setup, where every
+                    # later send fails the same way (owner decision
+                    # 2026-10-11, todo 593 round 3). Release the untried
+                    # owners who have a token; a tokenless owner's claim
+                    # stands as it would have. The failed owners' claims
+                    # stand too: released, they would be re-claimed first and
+                    # stop the next sweep again, so a few bad devices could
+                    # starve everyone until the lookback. Holding them makes
+                    # each sweep move on; a real outage costs at most this
+                    # many owners' reminders per sweep, named in the ERROR.
+                    pending = [
+                        t
+                        for o, ts in by_owner.items()
+                        if o not in done and o in tokens
+                        for t in ts
+                    ]
+                    retry_later.extend(pending)
+                    done.update(by_owner)
+                    logger.error(
+                        "[FCM] care reminders failed permanently on a Firebase "
+                        "credentials error for %s owners with no successful "
+                        "send (users=%s, task=%s): %s — stopping the sweep; "
+                        "their claims stand, %s untried tasks released for "
+                        "the next one",
+                        len(credentials_failed),
+                        credentials_failed,
+                        task_id,
+                        exc,
+                        len(pending),
+                    )
+                    return sent
+                continue
             if is_permanent_fcm_error(exc):
                 if is_dead_fcm_token_error(exc):
                     # Forget the dead device, so the next sweep does not
                     # send to it again (todo 457).
                     clear_dead_fcm_token(owner_id, token)
-                # A credentials error is the server's setup, not this device:
-                # the token is kept, and it logs at ERROR (todo 566).
-                logger.log(
-                    (
-                        logging.ERROR
-                        if is_fcm_credentials_error(exc)
-                        else logging.WARNING
-                    ),
+                logger.warning(
                     "[FCM] care reminder failed permanently (user=%s, task=%s): %s",
                     owner_id,
                     task_id,
@@ -297,4 +373,13 @@ def _push_to_owners(
                 )
                 retry_later.extend(tasks)
         done.add(owner_id)
+    if credentials_failed:
+        logger.error(
+            "[FCM] care reminders failed permanently on a Firebase credentials "
+            "error for %s owner(s) (users=%s, task=%s) — tokens kept, claims "
+            "stand",
+            len(credentials_failed),
+            credentials_failed,
+            task_id,
+        )
     return sent
