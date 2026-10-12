@@ -58,3 +58,16 @@ Filed by the closing step of the run from `state.py followups-md g7`.
 ### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-2056)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Review round 1: non-blocking findings declined (owner decision)
+
+The owner decided on 2026-10-12 that this batch's non-blocking review findings are recorded here, not filed as
+new todos. Round 1 found nothing blocking. These low findings are declined:
+
+- With `walk=ast.walk`, `carries()` walks into a lambda inside a strict comprehension iterable. So in
+  `for e in map(lambda e: e.x, items)`, a lambda parameter with the same name counts as the exception. Declined:
+  the guard errs toward flagging, and nothing on main has that shape.
+- The `test_budget_rules.py` comment names only the edge dropping below 100 B. The cost also moves when the
+  edge's digit count changes the other way, past 999 B. Declined: this is comment wording only.
+- No `approved_*` fixture pins the declined `for x in (type(e),)` shape as quiet. Declined: pinning a shape
+  that was declined is not needed.
