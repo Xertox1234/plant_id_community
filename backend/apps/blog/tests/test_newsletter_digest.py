@@ -351,16 +351,27 @@ class NewsletterSenderTests(TestCase):
     def test_a_run_without_the_lock_never_deletes_it(self):
         # Todo 569: the cache-outage path took no lock, so it has none to drop.
         # Deleting anyway could drop the lock of a run that took it meanwhile.
+        # Todo 595: the key holds this run's own token, so the token check in
+        # `finally` matches and only `owned` stops the delete. A fully mocked
+        # cache answered get() with a Mock that never equals the token, so the
+        # test passed with `owned` removed.
         self._post("fresh-post", days_ago=1)
         self._subscriber()
+        cache.set(LOCK_KEY, "this-run", 60)
 
-        with mock.patch.object(command_module, "cache") as down:
-            down.add.return_value = None
+        with (
+            mock.patch.object(
+                command_module, "uuid4", return_value=mock.Mock(hex="this-run")
+            ),
+            mock.patch.object(command_module, "cache", wraps=cache) as down,
+        ):
+            down.add.return_value = None  # the outage answer; get/delete are real
             with self.assertLogs(command_module.logger, "WARNING"):
                 out = _run()
 
         self.assertIn("sent=1", out)
         down.delete.assert_not_called()
+        self.assertEqual(cache.get(LOCK_KEY), "this-run")
 
     def test_a_run_never_deletes_a_lock_it_no_longer_holds(self):
         # Todo 569: this run's lock expired mid-run and a later run took the
@@ -502,30 +513,29 @@ class NewsletterSenderTests(TestCase):
 
     def test_the_prune_spares_a_row_re_stamped_before_its_locked_read(self):
         # The interleaving, simulated on one connection: the signup's re-stamp
-        # commits after the prune built its query and before the locked read
-        # returns the row (the moment the lock wait ends).
+        # commits while the prune's FOR UPDATE select waits on the row lock,
+        # so it lands just before that select runs. Todo 595: the re-stamp is
+        # tied to the FOR UPDATE statement itself. A prune that never locks
+        # (a plain .delete(), or an unlocked select-then-delete) never
+        # triggers it, so it deletes the stale row and fails here.
         stale = BlogNewsletter.objects.create(email="stale@example.com")
         BlogNewsletter.objects.filter(pk=stale.pk).update(
             subscribed_at=self.now - timedelta(days=30)
         )
-        real_stale_unconfirmed = newsletter_digest.stale_unconfirmed
         restamped = {}
 
-        def built_then_signup_commits(now):
-            query = real_stale_unconfirmed(now)  # lazy: not read yet
-            restamped["rows"] = BlogNewsletter.objects.filter(pk=stale.pk).update(
-                confirmation_sent_at=timezone.now()
-            )
-            return query
+        def signup_commits_during_the_lock_wait(execute, sql, params, many, context):
+            if "FOR UPDATE" in sql and "rows" not in restamped:
+                restamped["rows"] = 0  # set first: the update below re-enters
+                restamped["rows"] = BlogNewsletter.objects.filter(pk=stale.pk).update(
+                    confirmation_sent_at=timezone.now()
+                )
+            return execute(sql, params, many, context)
 
-        with mock.patch.object(
-            newsletter_digest,
-            "stale_unconfirmed",
-            side_effect=built_then_signup_commits,
-        ):
+        with connection.execute_wrapper(signup_commits_during_the_lock_wait):
             pruned = newsletter_digest.prune_stale_unconfirmed(self.now)
 
-        self.assertEqual(restamped["rows"], 1)
+        self.assertEqual(restamped.get("rows"), 1)
         self.assertEqual(pruned, 0)
         self.assertTrue(BlogNewsletter.objects.filter(pk=stale.pk).exists())
 
@@ -640,14 +650,19 @@ class NewsletterTaskTests(TestCase):
         task = tasks.send_blog_weekly_newsletter
         for prior_retries, ceiling in ((0, 60), (1, 120), (2, 240)):
             with self.subTest(retries=prior_retries):
-                with mock.patch(
-                    "django.core.management.call_command",
-                    side_effect=OperationalError("down"),
-                ), mock.patch(
-                    "celery.utils.time.random.randrange", side_effect=lambda n: n - 1
-                ) as jitter, mock.patch.object(
-                    task, "retry", side_effect=Retry("retried")
-                ) as retry:
+                with (
+                    mock.patch(
+                        "django.core.management.call_command",
+                        side_effect=OperationalError("down"),
+                    ),
+                    mock.patch(
+                        "celery.utils.time.random.randrange",
+                        side_effect=lambda n: n - 1,
+                    ) as jitter,
+                    mock.patch.object(
+                        task, "retry", side_effect=Retry("retried")
+                    ) as retry,
+                ):
                     task.push_request(retries=prior_retries)
                     try:
                         with self.assertRaises(Retry):
