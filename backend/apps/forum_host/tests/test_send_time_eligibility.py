@@ -374,6 +374,17 @@ def test_a_retry_after_a_transient_failure_is_rechecked_too(
     assert not DeliveryIntent.objects.filter(
         status=DeliveryIntent.Status.PENDING
     ).exists()
+    # The mobile-push rows (todo 624) finished at the hand-off: their retry
+    # belongs to send_forum_push, which the recheck above stopped.
     assert set(
-        DeliveryIntent.objects.values_list("status", "last_error").distinct()
+        DeliveryIntent.objects.exclude(kind=DeliveryIntent.Kind.FORUM_PUSH)
+        .values_list("status", "last_error")
+        .distinct()
     ) == {(DeliveryIntent.Status.SUPPRESSED, "content_unavailable")}
+    # ...marked handed off, not delivered, so reply coalescing never anchors
+    # its window on them (review round 1, PR #1132).
+    assert set(
+        DeliveryIntent.objects.filter(kind=DeliveryIntent.Kind.FORUM_PUSH)
+        .values_list("status", "last_error")
+        .distinct()
+    ) == {(DeliveryIntent.Status.SENT, delivery.HANDED_OFF)}

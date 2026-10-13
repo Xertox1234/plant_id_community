@@ -347,6 +347,10 @@ abstract class ForumApi {
   Future<ForumNotificationSettings> updateNotificationSettings({
     String? digestFrequency,
     Map<String, Map<String, bool>>? preferences,
+    bool? quietHoursEnabled,
+    String? quietHoursStart,
+    String? quietHoursEnd,
+    String? timeZone,
   });
 }
 
@@ -897,6 +901,10 @@ class HttpForumApi implements ForumApi {
   Future<ForumNotificationSettings> updateNotificationSettings({
     String? digestFrequency,
     Map<String, Map<String, bool>>? preferences,
+    bool? quietHoursEnabled,
+    String? quietHoursStart,
+    String? quietHoursEnd,
+    String? timeZone,
   }) async {
     // A PATCH is naturally idempotent (it sets, never adds), so no
     // Idempotency-Key, like markNotificationsRead.
@@ -905,6 +913,10 @@ class HttpForumApi implements ForumApi {
       data: {
         'digest_frequency': ?digestFrequency,
         'notification_preferences': ?preferences,
+        'quiet_hours_enabled': ?quietHoursEnabled,
+        'quiet_hours_start': ?quietHoursStart,
+        'quiet_hours_end': ?quietHoursEnd,
+        'time_zone': ?timeZone,
       },
     );
     return ForumNotificationSettings.fromJson(

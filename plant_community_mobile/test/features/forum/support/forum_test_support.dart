@@ -981,15 +981,34 @@ class FakeForumApi implements ForumApi {
   Future<ForumNotificationSettings> updateNotificationSettings({
     String? digestFrequency,
     Map<String, Map<String, bool>>? preferences,
+    bool? quietHoursEnabled,
+    String? quietHoursStart,
+    String? quietHoursEnd,
+    String? timeZone,
   }) async {
     notificationSettingsUpdates.add({
       'digest_frequency': ?digestFrequency,
       'notification_preferences': ?preferences,
+      'quiet_hours_enabled': ?quietHoursEnabled,
+      'quiet_hours_start': ?quietHoursStart,
+      'quiet_hours_end': ?quietHoursEnd,
+      'time_zone': ?timeZone,
     });
     final fail = failNotificationSettingsUpdateWith;
     if (fail != null) throw fail;
     var next = notificationSettings;
     if (digestFrequency != null) next = next.withDigest(digestFrequency);
+    final quiet = next.quietHours;
+    if (quiet != null) {
+      next = next.withQuietHours(
+        quiet.copyWith(
+          enabled: quietHoursEnabled,
+          start: quietHoursStart,
+          end: quietHoursEnd,
+          timeZone: timeZone,
+        ),
+      );
+    }
     for (final row in (preferences ?? const {}).entries) {
       for (final cell in row.value.entries) {
         next = next.withCell(row.key, cell.key, cell.value);

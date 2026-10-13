@@ -3,12 +3,14 @@
 /// matrix (todo 343). Web Settings edits the same two fields, so both clients
 /// show one set of choices (docs/notifications-policy.md).
 ///
-/// Only the cells the server sends exist: email is wired for replies alone.
-/// A cell that is missing has no delivery path and is not offered.
+/// Only the cells the server sends exist: since todo 624 email is wired for
+/// every event (off by default except replies). A cell that is missing has
+/// no delivery path and is not offered.
 class ForumNotificationSettings {
   const ForumNotificationSettings({
     required this.digestFrequency,
     required this.preferences,
+    this.quietHours,
   });
 
   /// `off` or `weekly`; null when the server sent neither (deploy skew).
@@ -18,6 +20,10 @@ class ForumNotificationSettings {
 
   /// `{verb: {channel: bool}}`, e.g. `{'reply': {'push': true, 'email': false}}`.
   final Map<String, Map<String, bool>> preferences;
+
+  /// Quiet hours (todo 624), or null when the server sent none (a backend
+  /// from before them): then they are not offered.
+  final QuietHours? quietHours;
 
   static const digestOff = 'off';
   static const digestWeekly = 'weekly';
@@ -40,6 +46,7 @@ class ForumNotificationSettings {
               ? {...entry.value, channel: value}
               : entry.value,
       },
+      quietHours: quietHours,
     );
   }
 
@@ -47,6 +54,15 @@ class ForumNotificationSettings {
     return ForumNotificationSettings(
       digestFrequency: frequency,
       preferences: preferences,
+      quietHours: quietHours,
+    );
+  }
+
+  ForumNotificationSettings withQuietHours(QuietHours value) {
+    return ForumNotificationSettings(
+      digestFrequency: digestFrequency,
+      preferences: preferences,
+      quietHours: value,
     );
   }
 
@@ -72,6 +88,60 @@ class ForumNotificationSettings {
           ? digest as String
           : null,
       preferences: matrix,
+      quietHours: QuietHours.fromJson(json),
+    );
+  }
+}
+
+/// Quiet hours (todo 624): opt-in; pushes and emails that arrive between
+/// [start] and [end] ("HH:MM", wall-clock in [timeZone]) wait until the
+/// window ends. Security email always sends; the in-app inbox is unaffected.
+class QuietHours {
+  const QuietHours({
+    required this.enabled,
+    required this.start,
+    required this.end,
+    required this.timeZone,
+  });
+
+  final bool enabled;
+  final String start;
+  final String end;
+
+  /// The IANA zone a client reported; empty means the server uses UTC.
+  final String timeZone;
+
+  /// "HH:MM" in range: '99:99' would build an invalid TimeOfDay.
+  static final _hhmm = RegExp(r'^([01]\d|2[0-3]):[0-5]\d$');
+
+  /// The zone the window is read in, as a member should see it.
+  String get shownZone => timeZone.isEmpty ? 'UTC' : timeZone;
+
+  QuietHours copyWith({
+    bool? enabled,
+    String? start,
+    String? end,
+    String? timeZone,
+  }) => QuietHours(
+    enabled: enabled ?? this.enabled,
+    start: start ?? this.start,
+    end: end ?? this.end,
+    timeZone: timeZone ?? this.timeZone,
+  );
+
+  /// Null unless the server sent the switch and two valid times.
+  static QuietHours? fromJson(Map<String, dynamic> json) {
+    final enabled = json['quiet_hours_enabled'];
+    final start = json['quiet_hours_start'];
+    final end = json['quiet_hours_end'];
+    if (enabled is! bool || start is! String || end is! String) return null;
+    if (!_hhmm.hasMatch(start) || !_hhmm.hasMatch(end)) return null;
+    final zone = json['time_zone'];
+    return QuietHours(
+      enabled: enabled,
+      start: start,
+      end: end,
+      timeZone: zone is String ? zone : '',
     );
   }
 }

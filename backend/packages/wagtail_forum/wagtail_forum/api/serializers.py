@@ -1549,6 +1549,15 @@ class MeProfileSerializer(serializers.ModelSerializer):
     avatar_id = serializers.IntegerField(
         write_only=True, required=False, allow_null=True
     )
+    # Quiet hours (todo 624): "HH:MM" wall-clock times in `time_zone`, an
+    # IANA name the client reports (blank = UTC). Opt-in.
+    quiet_hours_start = serializers.TimeField(
+        format="%H:%M", input_formats=["%H:%M", "%H:%M:%S"], required=False
+    )
+    quiet_hours_end = serializers.TimeField(
+        format="%H:%M", input_formats=["%H:%M", "%H:%M:%S"], required=False
+    )
+    time_zone = serializers.CharField(max_length=64, required=False, allow_blank=True)
 
     class Meta:
         model = ForumProfile
@@ -1570,8 +1579,42 @@ class MeProfileSerializer(serializers.ModelSerializer):
             # Per-event push/email matrix (todo 343): resolved on read,
             # partial on write.
             "notification_preferences",
+            # Quiet hours (todo 624).
+            "quiet_hours_enabled",
+            "quiet_hours_start",
+            "quiet_hours_end",
+            "time_zone",
         ]
         read_only_fields = ["title", "trust_level", "post_count"]
+
+    def validate_time_zone(self, value):
+        from ..quiet_hours import is_valid_zone
+
+        # A zone this server cannot resolve is stored blank, which the window
+        # reads as UTC (the model's rule), rather than a 400: the clients
+        # attach the device zone to every quiet-hours save, so rejecting a
+        # zone our tzdata lacks would block even turning quiet hours on.
+        value = value.strip()
+        return value if value and is_valid_zone(value) else ""
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if {"quiet_hours_start", "quiet_hours_end"} & set(attrs):
+            instance = self.instance
+            start = attrs.get(
+                "quiet_hours_start", getattr(instance, "quiet_hours_start", None)
+            )
+            end = attrs.get(
+                "quiet_hours_end", getattr(instance, "quiet_hours_end", None)
+            )
+            if start is not None and start == end:
+                # An empty window: quiet hours would show on and hold nothing.
+                raise serializers.ValidationError(
+                    {
+                        "quiet_hours_end": "Quiet hours must start and end at different times."
+                    }
+                )
+        return attrs
 
     def update(self, instance, validated_data):
         from django.db import transaction

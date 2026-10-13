@@ -139,6 +139,9 @@ class EmailType:
     # Forum related emails
     FORUM_REPLY = "forum_reply"
     FORUM_MENTION = "forum_mention"
+    # Optional important-event email (todo 624), off by default.
+    FORUM_QUOTE = "forum_quote"
+    FORUM_SOLUTION = "forum_solution"
     FORUM_DIGEST = "forum_digest"
 
     # Newsletter and content
@@ -159,6 +162,9 @@ class EmailType:
 # apps.users.email_unsubscribe.LISTS). A type with no entry carries no link.
 UNSUBSCRIBE_LISTS = {
     EmailType.FORUM_REPLY: "forum_reply",
+    EmailType.FORUM_MENTION: "forum_mention",
+    EmailType.FORUM_QUOTE: "forum_quote",
+    EmailType.FORUM_SOLUTION: "forum_solution",
     EmailType.FORUM_DIGEST: "forum_digest",
 }
 
@@ -444,6 +450,8 @@ class EmailService:
             EmailType.DISEASE_ALERT: user.plant_id_notifications,
             EmailType.FORUM_REPLY: user.forum_notifications,
             EmailType.FORUM_MENTION: user.forum_notifications,
+            EmailType.FORUM_QUOTE: user.forum_notifications,
+            EmailType.FORUM_SOLUTION: user.forum_notifications,
             EmailType.FORUM_DIGEST: user.forum_notifications,
             EmailType.IDENTIFICATION_RESULT: user.plant_id_notifications,
         }

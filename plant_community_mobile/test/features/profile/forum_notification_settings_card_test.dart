@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
@@ -14,6 +15,7 @@ Widget _wrap(
   bool emailOn = true,
   bool forumOn = true,
   ThemeData? theme,
+  Future<String?> Function()? deviceTimeZone,
 }) => ProviderScope(
   overrides: [forumApiProvider.overrideWithValue(api)],
   child: MaterialApp(
@@ -25,6 +27,7 @@ Widget _wrap(
           key: UniqueKey(),
           emailOn: emailOn,
           forumOn: forumOn,
+          deviceTimeZone: deviceTimeZone ?? () async => null,
         ),
       ),
     ),
@@ -340,5 +343,267 @@ void main() {
       dark.colorScheme.onSurfaceVariant.computeLuminance(),
       greaterThan(0.4), // light ink on the dark surface
     );
+  });
+
+  group('important-event email and quiet hours (todo 624)', () {
+    // What a todo-624 backend sends: email for every event, off by default
+    // except replies, and quiet hours off at 22:00-07:00 with no zone yet.
+    const full = ForumNotificationSettings(
+      digestFrequency: 'off',
+      preferences: {
+        'reply': {'push': true, 'email': true},
+        'mention': {'push': true, 'email': false},
+        'quote': {'push': true, 'email': false},
+        'solution': {'push': true, 'email': false},
+      },
+      quietHours: QuietHours(
+        enabled: false,
+        start: '22:00',
+        end: '07:00',
+        timeZone: '',
+      ),
+    );
+
+    test('fromJson reads quiet hours and drops a malformed window', () {
+      final quiet = ForumNotificationSettings.fromJson({
+        'quiet_hours_enabled': true,
+        'quiet_hours_start': '21:30',
+        'quiet_hours_end': '06:45',
+        'time_zone': 'America/Denver',
+      }).quietHours!;
+      expect(
+        [quiet.enabled, quiet.start, quiet.end, quiet.shownZone],
+        [true, '21:30', '06:45', 'America/Denver'],
+      );
+      expect(
+        ForumNotificationSettings.fromJson({
+          'quiet_hours_enabled': true,
+          'quiet_hours_start': '9pm',
+          'quiet_hours_end': '07:00',
+        }).quietHours,
+        isNull,
+      );
+      // A backend from before todo 624: nothing to offer.
+      expect(ForumNotificationSettings.fromJson({}).quietHours, isNull);
+      // Shaped like HH:MM but out of range: dropped, never parsed into an
+      // invalid TimeOfDay for the picker (review round 1, PR #1132).
+      for (final bad in ['99:99', '24:00', '23:60']) {
+        expect(
+          ForumNotificationSettings.fromJson({
+            'quiet_hours_enabled': true,
+            'quiet_hours_start': bad,
+            'quiet_hours_end': '07:00',
+          }).quietHours,
+          isNull,
+          reason: bad,
+        );
+      }
+    });
+
+    test('only an IANA name is reportable', () {
+      for (final zone in [
+        'America/Denver',
+        'America/Argentina/Buenos_Aires',
+        'Etc/GMT+7',
+        'UTC',
+      ]) {
+        expect(isReportableTimeZone(zone), isTrue, reason: zone);
+      }
+      for (final zone in ['MDT', 'GMT+02:00', '', 'A/${'b' * 70}']) {
+        expect(isReportableTimeZone(zone), isFalse, reason: zone);
+      }
+    });
+
+    group('the default zone lookup', () {
+      const channel = MethodChannel('flutter_timezone');
+      TestDefaultBinaryMessenger messenger() =>
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      tearDown(() => messenger().setMockMethodCallHandler(channel, null));
+
+      testWidgets("sends the platform's IANA zone with a quiet-hours save", (
+        tester,
+      ) async {
+        // The platform side of flutter_timezone, as iOS and Android answer.
+        messenger().setMockMethodCallHandler(channel, (call) async {
+          expect(call.method, 'getLocalTimezone');
+          return 'America/Denver';
+        });
+        final api = FakeForumApi()..notificationSettings = full;
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [forumApiProvider.overrideWithValue(api)],
+            child: MaterialApp(
+              home: Scaffold(
+                body: SingleChildScrollView(
+                  // No deviceTimeZone: the real reportableTimeZone runs.
+                  child: ForumNotificationSettingsCard(
+                    emailOn: true,
+                    forumOn: true,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(find.text('Until'), 200);
+
+        await tester.tap(find.text('Quiet hours'));
+        await tester.pumpAndSettle();
+
+        expect(api.notificationSettingsUpdates.last, {
+          'quiet_hours_enabled': true,
+          'time_zone': 'America/Denver',
+        });
+      });
+
+      testWidgets('reports nothing for an abbreviation or a platform error', (
+        tester,
+      ) async {
+        messenger().setMockMethodCallHandler(channel, (call) async => 'MDT');
+        expect(await reportableTimeZone(), isNull);
+        messenger().setMockMethodCallHandler(
+          channel,
+          (call) async => throw PlatformException(code: 'boom'),
+        );
+        expect(await reportableTimeZone(), isNull);
+      });
+    });
+
+    testWidgets('offers the new email cells, off, and saves one', (
+      tester,
+    ) async {
+      final api = FakeForumApi()..notificationSettings = full;
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+
+      for (final title in [
+        'Mentions: Email',
+        'Quotes of your posts: Email',
+        'Answer accepted: Email',
+      ]) {
+        expect(_switch(tester, title).value, isFalse, reason: title);
+      }
+      expect(find.textContaining('sends one email'), findsOneWidget);
+
+      await tester.tap(find.text('Mentions: Email'));
+      await tester.pumpAndSettle();
+      expect(api.notificationSettingsUpdates, [
+        {
+          'notification_preferences': {
+            'mention': {'email': true},
+          },
+        },
+      ]);
+      expect(_switch(tester, 'Mentions: Email').value, isTrue);
+    });
+
+    testWidgets('quiet hours show off, in UTC, with the times disabled', (
+      tester,
+    ) async {
+      final api = FakeForumApi()..notificationSettings = full;
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Until'), 200);
+
+      expect(_switch(tester, 'Quiet hours').value, isFalse);
+      expect(find.textContaining('Times are in UTC.'), findsOneWidget);
+      expect(
+        find.textContaining('security email always sends'),
+        findsOneWidget,
+      );
+      final from = tester.widget<ListTile>(
+        find.widgetWithText(ListTile, 'From'),
+      );
+      expect(from.enabled, isFalse);
+      expect(find.text('22:00'), findsOneWidget);
+      expect(find.text('07:00'), findsOneWidget);
+    });
+
+    testWidgets('turning them on reports an IANA zone, never an abbreviation', (
+      tester,
+    ) async {
+      final api = FakeForumApi()..notificationSettings = full;
+      await tester.pumpWidget(
+        _wrap(api, deviceTimeZone: () async => 'America/Denver'),
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Until'), 200);
+
+      await tester.tap(find.text('Quiet hours'));
+      await tester.pumpAndSettle();
+
+      expect(api.notificationSettingsUpdates.last, {
+        'quiet_hours_enabled': true,
+        'time_zone': 'America/Denver',
+      });
+      expect(_switch(tester, 'Quiet hours').value, isTrue);
+      expect(
+        find.textContaining('Times are in America/Denver.'),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<ListTile>(find.widgetWithText(ListTile, 'From')).enabled,
+        isTrue,
+      );
+
+      // A device that only knows "MDT" reports no zone at all; the server
+      // keeps the one it has.
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Until'), 200);
+      await tester.tap(find.text('Quiet hours'));
+      await tester.pumpAndSettle();
+      expect(api.notificationSettingsUpdates.last, {
+        'quiet_hours_enabled': false,
+      });
+    });
+
+    testWidgets('picking a time saves only that end of the window', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..notificationSettings = full.withQuietHours(
+          full.quietHours!.copyWith(enabled: true),
+        );
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Until'), 200);
+
+      await tester.tap(find.text('Until'));
+      await tester.pumpAndSettle();
+      // The picker opens on 07:00; accept it as 07:00 would be a no-op, so
+      // switch it to 08:00 through the input mode.
+      await tester.tap(find.byIcon(Icons.keyboard_outlined));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).first, '08');
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(api.notificationSettingsUpdates.last, {
+        'quiet_hours_end': '08:00',
+      });
+      expect(find.text('08:00'), findsOneWidget);
+    });
+
+    testWidgets('a failed quiet-hours save reverts and says so', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..notificationSettings = full
+        ..failNotificationSettingsUpdateWith = ApiException('boom');
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Until'), 200);
+
+      await tester.tap(find.text('Quiet hours'));
+      await tester.pumpAndSettle();
+
+      expect(_switch(tester, 'Quiet hours').value, isFalse);
+      expect(
+        find.textContaining('Failed to save notification settings'),
+        findsOneWidget,
+      );
+    });
   });
 }

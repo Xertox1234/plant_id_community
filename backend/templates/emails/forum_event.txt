@@ -1,0 +1,15 @@
+{% autoescape off %}{{ site_name }} - {{ notification_title }}
+
+{{ event_line }}:
+
+{{ topic_title }}
+{% if post_excerpt %}
+{{ author_name }}: {{ post_excerpt }}
+{% endif %}
+Open the post: {% firstof post_url topic_url %}
+
+---
+You get this email because you turned it on.
+Manage forum notifications: {{ preferences_url }}
+{% if unsubscribe_url %}Unsubscribe: {{ unsubscribe_url }}
+{% endif %}{% endautoescape %}
