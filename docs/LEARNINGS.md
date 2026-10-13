@@ -7360,3 +7360,13 @@ code serves. The follow-up rule counted findings, not whether they were worth a 
 (every mail path, every wrapper type) before calling it fixed. Record non-blocking findings in the todo's Work
 Log. After any edit to a file that declares a Riverpod provider, run `build_runner` and commit the `.g.dart`.
 See `docs/rules/security.md`, `docs/rules/flutter.md` and `backend/docs/patterns/architecture/services.md`.
+
+## 2026-10-13 — Correction: Riverpod's `.g.dart` hash covers the provider, not the file
+
+The entry above says 651 changed `user_profile_service.dart` "only in its exception class". That is wrong.
+The same commit added an `apiMessage:` argument inside the provider's `updateProfile`, and that is what moved
+`_$userProfileServiceHash`. A probe proved it: a new top-level `const` in the same file, or a trailing comment,
+left the hash unchanged, while one `static const` inside `class UserProfileService` changed it. The general
+rule still holds (regenerate after editing a provider), and the new `flutter-codegen` pre-commit hook
+(`scripts/check_flutter_codegen.py`) now enforces it locally. It rebuilds whenever a staged file declares a
+`part '*.g.dart'`, because rebuilding is cheaper than deciding whether an edit touched a provider.
