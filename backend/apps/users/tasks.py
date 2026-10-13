@@ -126,7 +126,7 @@ def send_lockout_email_task(self, user_id: int, intent_id: int | None = None) ->
     # by reconcile once its lease ran out, and both tasks would send.
     if intent_id is not None:
         if delivery.claim_one(intent_id=intent_id) is None:
-            return  # another worker has it, it is finished, or not yet due
+            return  # another worker holds it, or it is finished
     rows = [intent_id] if intent_id is not None else []
     user = _load_user(user_id)
     if user is None or not user.email:
