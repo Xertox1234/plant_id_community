@@ -270,6 +270,8 @@ void main() {
       apiErrorMessage(UserProfileException('Failed to update profile: boom')),
       isNull,
     );
+    // Dio's own text for a failure with no HTTP status (todo 651 round 2).
+    expect(apiErrorMessage(ApiException('Connection reset by peer')), isNull);
     expect(
       notificationErrorText(
         UserProfileException('x', statusCode: 400, apiMessage: 'Bad value.'),

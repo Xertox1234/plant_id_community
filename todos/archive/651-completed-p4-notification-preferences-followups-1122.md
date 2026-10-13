@@ -108,3 +108,22 @@ Round 1 found nothing blocking. These were fixed before round 2:
   - The digest row disappearing if a PATCH response omits `digest_frequency` (deploy skew). Hiding an unknown
     value is the point of finding 3.
   - The web merge being shallow, and an extra `httpStatusOf` case. Both are optional nits.
+
+### 2026-10-12 - Review round 2: one low fixed, the rest declined (owner decision: no new todos)
+
+Round 2 found nothing blocking.
+
+- **Fixed:** a failure with no HTTP status (Dio's `unknown` branch) is an `ApiException` with `unstructured`
+  false, so Dio's own text could still reach the snackbar. `apiErrorMessage` and `updateProfile`'s `apiMessage`
+  now also require a status code. There is a new assertion in the `apiErrorMessage` test.
+  `flutter test test/features/profile test/services/user_profile_service_test.dart`: 52 passed;
+  `flutter analyze`: clean.
+- Declined:
+  - The email-off note mentions the digest even when the digest row is hidden. It is copy only, and rare (deploy
+    skew).
+  - The dark-mode note test pins the existing `_Note` style. That is finding 7's ask: a test, not a change.
+  - The unused `_f` in `SettingsPage.test.tsx`. ESLint's `varsIgnorePattern` is `^[A-Z_]`, as in the curation
+    note above.
+  - `dart format` reflowed existing tests in `user_profile_service_test.dart`, which the pre-commit formatter
+    requires.
+  - The throttle text is a literal in both clients. They are separate apps, and each has its own test.

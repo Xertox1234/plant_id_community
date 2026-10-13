@@ -194,7 +194,7 @@ class UserProfileService extends _$UserProfileService {
         statusCode: e.statusCode,
         // Only a message one of our views wrote is fit to show a user; a
         // proxy's HTML page is not (todo 651 review).
-        apiMessage: e.unstructured ? null : e.message,
+        apiMessage: e.unstructured || e.statusCode == null ? null : e.message,
       );
     } catch (e) {
       if (kDebugMode) {
