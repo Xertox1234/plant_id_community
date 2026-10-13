@@ -16,7 +16,13 @@ from django.db import OperationalError
 from wagtail_forum.preferences import wants_channel
 
 from . import constants, pacing
-from .eligibility import REASON_PREFERENCE, client_payload, recheck
+from .eligibility import (
+    REASON_PREFERENCE,
+    REASON_READ,
+    already_read_ids,
+    client_payload,
+    recheck,
+)
 
 logger = logging.getLogger("forum_host.tasks")
 
@@ -150,7 +156,12 @@ def _forum_collapse_key(event: str) -> str:
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30, ignore_result=True)
 def send_forum_push(
-    self, event: str, recipient_user_id: int, data: dict, token: str | None = None
+    self,
+    event: str,
+    recipient_user_id: int,
+    data: dict,
+    token: str | None = None,
+    handed_off: bool = False,
 ):
     """Send one forum FCM push to every device of one account (todo 621).
 
@@ -166,6 +177,9 @@ def send_forum_push(
               account's devices and this one failed transiently, so a retry
               never re-sends to the devices that already have it. Skipped if
               the token is no longer this account's.
+        handed_off: set by ``send_forum_push_batch`` when it hands a push it
+              already started to this task's retries (todo 624): never held
+              for quiet hours, since the batch has finished its outbox row.
 
     A transient failure retries this task only when no device got the push;
     otherwise each failed device is handed to its own retry (``token=``).
@@ -221,7 +235,15 @@ def send_forum_push(
             check.suppressed[user.pk],
         )
         return
-    if _hold_single_push(event, user.pk, data, token, self.request.retries):
+    try:
+        held = _hold_single_push(event, user.pk, data, token, handed_off)
+    except OperationalError as exc:
+        # The hold could not be written. Retried, not sent: a send now would
+        # land inside the member's quiet hours (review round 2, PR #1132).
+        raise self.retry(
+            exc=exc, countdown=self.default_retry_delay * (2**self.request.retries)
+        )
+    if held:
         return
     tokens = device_tokens_for_users([recipient_user_id]).get(recipient_user_id, [])
     if token is not None:
@@ -306,15 +328,17 @@ def send_forum_push(
     )
 
 
-def _hold_single_push(event, user_id, data, token, retries) -> bool:
-    """Quiet hours for the one push sent through ``send_forum_push`` on its
-    first run: the accepted answer (todo 624). Inside the member's window it
-    becomes a held outbox row, released by reconciliation through
-    ``send_forum_push_batch`` when the window ends. A batch's hand-off and
-    every retry are not held: their delivery has already started."""
+def _hold_single_push(event, user_id, data, token, handed_off) -> bool:
+    """Quiet hours for the one push sent through ``send_forum_push``: the
+    accepted answer (todo 624). Inside the member's window it becomes a held
+    outbox row, released by reconciliation through ``send_forum_push_batch``
+    when the window ends. A batch's hand-off and a one-device retry are not
+    held: the batch owns that row, and some devices already have the push.
+    A whole-account retry is held like a first run (nobody got it yet), so a
+    retry after a failed hold write still honours quiet hours."""
     from apps.core import delivery
 
-    if event != "answer_accepted" or token is not None or retries:
+    if event != "answer_accepted" or token is not None or handed_off:
         return False
     release = pacing.quiet_release_for(user_id)
     if release is None:
@@ -334,15 +358,16 @@ def _hold_single_push(event, user_id, data, token, retries) -> bool:
     if not DeliveryIntent.objects.filter(batch_id=batch_id).exists():
         # The row is unique per (kind, event, post, recipient), so the insert
         # was a no-op: an earlier accept of this answer (or a redelivery of
-        # this task) owns it. Still open, that row is the held push. Finished
-        # (a re-accept after the first one went out), holding would drop
-        # this push: send it now instead.
+        # this task) owns it. Still pending, that row is the held push.
+        # Claimed, a batch is sending it right now; finished, a re-accept
+        # after the first one went out. Either way holding would drop this
+        # push: send it now instead.
         if not DeliveryIntent.objects.filter(
             kind=delivery.Kind.FORUM_PUSH,
             event=str(event),
             subject_key=subject_key,
             recipient_id=user_id,
-            status__in=(delivery.Status.PENDING, delivery.Status.CLAIMED),
+            status=delivery.Status.PENDING,
         ).exists():
             return False
     logger.info("[FCM] forum.%s push for user=%s held for quiet hours", event, user_id)
@@ -410,6 +435,11 @@ def send_forum_push_batch(
     fcm = get_fcm_client()
     if fcm is None:
         logger.error("[FCM] FCM client unavailable — cannot send forum push")
+        # Backed off like a transient failure (terminal at the attempt cap),
+        # not left pending for reconciliation to re-drive every interval.
+        if batch_id:
+            claimed = delivery.claim_batch(kind, batch_id, recipient_user_ids)
+            _record(delivery.mark_retry, list(claimed.values()), "fcm_unavailable")
         return
 
     # One bulk fetch instead of N: the profile row carries the recipient's
@@ -536,7 +566,12 @@ def send_forum_push_batch(
                 # ``send_data``: a fold's retry is still the folded message
                 # (its folded rows are finished as covered below).
                 if len(transient) == len(devices):
-                    send_forum_push.delay(event, user.pk, send_data)
+                    # Marked so the single task never holds it for quiet
+                    # hours; only the accepted answer is held there, so only
+                    # it carries the flag (other events keep the message
+                    # shape a worker from before it can still run).
+                    flag = {"handed_off": True} if event == "answer_accepted" else {}
+                    send_forum_push.delay(event, user.pk, send_data, **flag)
                 else:
                     for device_token in transient:
                         send_forum_push.delay(
@@ -1038,7 +1073,16 @@ def send_forum_email_batch(
             users=[user for user in users if user.pk in set(fallback)],
             overrides_by_user=overrides_by_user,
         )
+        # Read-before-send for the event itself: the reply recheck looks at
+        # REPLY bell rows, and a mentioned or quoted member has only the
+        # MENTION or QUOTE row, which they may have read already.
+        read = already_read_ids(
+            event, reply_check.post, [user.pk for user in reply_check.eligible]
+        )
         for user in reply_check.eligible:
+            if user.pk in read:
+                check.suppressed[user.pk] = REASON_READ
+                continue
             check.suppressed.pop(user.pk, None)
             check.eligible.append(user)
             via_reply.add(user.pk)
@@ -1092,9 +1136,13 @@ def send_forum_email_batch(
     topic_url = f"{site_url}{topic.get_absolute_url()}"
     service = NotificationService()
     # The accepted answer's email names who accepted it, not the post's
-    # author (the recipient): dispatch puts the acceptor in actor_name.
+    # author (the recipient): dispatch puts the acceptor in actor_name, and
+    # "Someone" stands in when there is none. The excerpt keeps its real
+    # author (the recipient's own answer), never the acceptor.
     actor_override = (
-        str(data.get("actor_name") or "") if event == "answer_accepted" else None
+        (str(data.get("actor_name") or "") or "Someone")
+        if event == "answer_accepted"
+        else None
     )
 
     for send in paced.sends:
@@ -1123,6 +1171,7 @@ def send_forum_email_batch(
                 post_excerpt=excerpt,
                 topic_url=topic_url,
                 post_url=post_url,
+                author_name=author_name,
             )
         logger.info("[EMAIL] forum.%s email to user=%s: sent=%s", event, user.pk, sent)
         pacing.finish_folds(send, bool(sent))

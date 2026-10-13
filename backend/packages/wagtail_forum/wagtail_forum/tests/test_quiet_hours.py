@@ -150,8 +150,11 @@ def test_profile_quiet_hours_are_off_by_default_and_round_trip():
 @pytest.mark.parametrize(
     "payload",
     [
-        {"time_zone": "Mars/Olympus_Mons"},
         {"quiet_hours_start": "25:00"},
+        # An empty window (start == end) would show quiet hours on and hold
+        # nothing (review round 2): 07:00 is the stored end.
+        {"quiet_hours_enabled": True, "quiet_hours_start": "07:00"},
+        {"quiet_hours_start": "06:00", "quiet_hours_end": "06:00"},
         {"quiet_hours_end": "seven"},
         {"quiet_hours_enabled": "sometimes"},
     ],
@@ -167,3 +170,42 @@ def test_bad_quiet_hours_are_a_400_and_change_nothing(payload):
     profile = ForumProfile.for_user(user)
     assert profile.quiet_hours_enabled is False
     assert profile.time_zone == ""
+
+
+@pytest.mark.django_db
+@pytest.mark.urls("wagtail_forum.tests.api.urls")
+def test_an_unknown_zone_is_stored_as_utc_and_does_not_block_the_save():
+    # The clients attach the device zone to every quiet-hours save; one this
+    # server's tzdata lacks reads as UTC rather than refusing the toggle
+    # (review round 2, PR #1132).
+    user = User.objects.create_user(username="quietunknown")
+    client = APIClient()
+    client.force_authenticate(user)
+    ForumProfile.for_user(user)
+    ForumProfile.objects.filter(user=user).update(time_zone="America/Denver")
+
+    resp = client.patch(
+        "/forum/me/profile/",
+        {"quiet_hours_enabled": True, "time_zone": "Mars/Olympus_Mons"},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.data
+    assert resp.data["time_zone"] == ""
+    profile = ForumProfile.for_user(user)
+    assert (profile.quiet_hours_enabled, profile.time_zone) == (True, "")
+
+
+@pytest.mark.django_db
+@pytest.mark.urls("wagtail_forum.tests.api.urls")
+def test_moving_one_end_away_from_the_other_is_accepted():
+    user = User.objects.create_user(username="quietmove")
+    client = APIClient()
+    client.force_authenticate(user)
+
+    resp = client.patch(
+        "/forum/me/profile/", {"quiet_hours_end": "06:00"}, format="json"
+    )
+
+    assert resp.status_code == 200, resp.data
+    assert ForumProfile.for_user(user).quiet_hours_end == T(6, 0)

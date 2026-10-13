@@ -339,3 +339,73 @@ def test_the_email_master_switch_stops_important_event_email(
     )
 
     assert _mail_to(mentioned) == []
+
+
+# --- review round 2 (PR #1132) -------------------------------------------------
+
+
+@pytest.mark.django_db
+@override_settings(**SITE)
+@pytest.mark.parametrize("acceptor", [True, False], ids=["acceptor", "no-acceptor"])
+def test_the_accepted_answer_email_credits_the_answer_to_its_author(
+    django_capture_on_commit_callbacks, acceptor
+):
+    asker = _member(f"ie-ack-asker-{acceptor}")
+    helper = _member(f"ie-ack-helper-{acceptor}", solution={"email": True})
+    topic = _topic(f"ie-ack-{acceptor}", asker)
+    answer = _reply(topic, helper, "Let the soil dry out between waterings.")
+
+    _run_email(
+        _dispatch(
+            django_capture_on_commit_callbacks,
+            "answer_accepted",
+            topic=topic,
+            post=answer,
+            actor=asker if acceptor else None,
+        )
+    )
+
+    [message] = _mail_to(helper)
+    html = message.alternatives[0][0]
+    who = asker.display_name if acceptor else "Someone"
+    # The event line names who accepted it; the excerpt is still the
+    # recipient's own answer, labelled with its real author.
+    assert f"{who} marked your reply as the answer" in message.body
+    assert f"{helper.display_name}: Let the soil dry out" in message.body
+    assert f"<strong>{helper.display_name}</strong>" in html
+    assert f"<strong>{asker.display_name}</strong>" not in html
+    # The HTML body carries a visible unsubscribe link (emails/base.html).
+    assert ">Unsubscribe</a>" in html
+
+
+@pytest.mark.django_db
+@override_settings(**SITE)
+def test_a_read_mention_stops_the_fallback_reply_email(
+    django_capture_on_commit_callbacks,
+):
+    from django.utils import timezone
+    from wagtail_forum.models import Notification, NotificationVerb
+
+    author = _member("ie-readop")
+    follower = _member("iereader")  # mention email off: the reply fallback
+    topic = _topic("ie-read", author)
+    TopicSubscription.subscribe(follower, topic)
+    post = _reply(topic, author, "@iereader see this")
+
+    calls = _dispatch(
+        django_capture_on_commit_callbacks, "reply_added", topic=topic, post=post
+    )
+    # Read in the app before the worker sends: the bell row is a MENTION.
+    assert Notification.objects.filter(
+        recipient=follower, post=post, verb=NotificationVerb.MENTION
+    ).update(read_at=timezone.now())
+    _run_email(calls)
+
+    assert _mail_to(follower) == []
+    row = DeliveryIntent.objects.get(
+        kind=DeliveryIntent.Kind.FORUM_EMAIL, recipient=follower
+    )
+    assert (row.status, row.last_error) == (
+        DeliveryIntent.Status.SUPPRESSED,
+        "already_read",
+    )

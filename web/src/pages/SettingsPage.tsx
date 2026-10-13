@@ -509,6 +509,8 @@ function deviceTimeZone(): string {
   }
 }
 
+const QUIET_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 /** One quiet-hours time. A native time input changes once per segment
  * (hours, then minutes), so the edit is a local draft and saves on blur:
  * saving on every change sent a PATCH per segment, and disabling the input
@@ -529,15 +531,25 @@ function QuietHoursTime({
   onCommit: (value: string) => void;
 }) {
   const [draft, setDraft] = useState(saved);
+  // Left (blur or Enter) while another save was in flight: sent once that
+  // save lands, rather than dropped (review round 2, PR #1132).
+  const pending = useRef(false);
   // The saved value moved (a save landed, or was reverted): show it.
   useEffect(() => setDraft(saved), [saved]);
+  const sendable = QUIET_TIME.test(draft) && draft !== saved;
+  useEffect(() => {
+    if (saving || !pending.current) return;
+    pending.current = false;
+    if (sendable) onCommit(draft);
+  }, [saving, sendable, draft, onCommit]);
   const commit = () => {
-    // Another save in flight would turn this one away: show the saved value
-    // rather than an edit that was never sent.
-    if (!saving && /^([01]\d|2[0-3]):[0-5]\d$/.test(draft) && draft !== saved) {
-      onCommit(draft);
-    } else {
+    if (!sendable) {
+      pending.current = false;
       setDraft(saved);
+    } else if (saving) {
+      pending.current = true;
+    } else {
+      onCommit(draft);
     }
   };
   return (
@@ -588,10 +600,15 @@ function QuietHoursControls({
           type="checkbox"
           role="switch"
           checked={enabled}
-          onChange={() => onSave(withZone({ quiet_hours_enabled: !enabled }))}
-          disabled={saving}
+          // aria-disabled, not disabled, while a save is in flight: a disabled
+          // control drops keyboard focus and leaves the tab order (review
+          // round 2, PR #1132).
+          onChange={() => {
+            if (!saving) onSave(withZone({ quiet_hours_enabled: !enabled }));
+          }}
+          aria-disabled={saving}
           aria-describedby="quiet-hours-detail notification-preferences-status"
-          className="h-5 w-5 accent-primary focus:ring-2 focus:ring-secondary focus:outline-none disabled:opacity-50"
+          className="h-5 w-5 accent-primary focus:ring-2 focus:ring-secondary focus:outline-none aria-disabled:opacity-50"
         />
         Quiet hours
       </label>

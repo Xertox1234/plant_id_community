@@ -345,6 +345,7 @@ class NotificationService:
         post_excerpt: str,
         topic_url: str,
         post_url: Optional[str] = None,
+        author_name: Optional[str] = None,
     ) -> bool:
         """Send the optional important-event email (todo 624): a mention, a
         quote of the member's post, or their answer accepted. Off unless the
@@ -353,7 +354,9 @@ class NotificationService:
         signed unsubscribe link turns off exactly that cell.
 
         Wording comes from ``apps/forum_host/notification_copy.py``, like the
-        reply email's. Returns False, never raises, for an event with no
+        reply email's. ``actor_name`` is who did it (for an accepted answer,
+        the acceptor) and goes in the event line; ``author_name`` labels the
+        excerpt and defaults to ``actor_name``. Returns False, never raises, for an event with no
         email arm (``send_forum_email_batch``'s retry safety relies on it).
         """
         from apps.forum_host.notification_copy import email_content
@@ -370,7 +373,7 @@ class NotificationService:
         subject, message = copy
         context = {
             "topic_title": topic_title,
-            "author_name": actor_name,
+            "author_name": actor_name if author_name is None else author_name,
             "post_excerpt": post_excerpt,
             "topic_url": topic_url,
             "post_url": post_url or topic_url,

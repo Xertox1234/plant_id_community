@@ -818,3 +818,122 @@ def test_a_long_hold_is_released_not_expired_when_it_falls_due(
     got = _to(released, member)
     assert (len(got.email), len(got.fcm), len(got.web)) == (1, 1, 1)
     assert set(_rows(member).values_list("status", flat=True)) == {Status.SENT}
+
+
+# --- review round 2 (PR #1132) -------------------------------------------------
+
+
+def _held_accept(capture):
+    """An accepted answer dispatched at NIGHT for a quiet-hours helper: the
+    helper, and the single-push call the dispatch made."""
+    helper = _member(f"qhacc{DeliveryIntent.objects.count()}", quiet=True)
+    topic, asker = _topic(f"qhacc{helper.pk}")
+    answer = _reply(topic, helper, "Cut away the mushy roots")
+    from apps.forum_host.notifications import dispatch
+
+    with freeze_time(NIGHT), _captured() as calls, capture(execute=True):
+        dispatch("answer_accepted", topic=topic, post=answer, actor=asker)
+    [(_, args, _)] = [call for call in calls if call[0] == "push_one"]
+    return helper, args
+
+
+@pytest.mark.django_db
+@override_settings(**PUSH_ON)
+def test_a_batch_hand_off_of_an_accepted_answer_is_never_held(
+    django_capture_on_commit_callbacks,
+):
+    helper, args = _held_accept(django_capture_on_commit_callbacks)
+
+    # Handed off by the batch (flagged): sent, though it is night.
+    with freeze_time(NIGHT), _channels_up() as sent:
+        tasks.send_forum_push(*args, handed_off=True)
+    assert len(_to(sent, helper).fcm) == 1
+    assert not _rows(helper, kind=Kind.FORUM_PUSH).exists()
+
+    # A first run holds it...
+    with freeze_time(NIGHT), _channels_up() as sent:
+        tasks.send_forum_push(*args)
+    assert _to(sent, helper).fcm == []
+    row = _rows(helper, kind=Kind.FORUM_PUSH).get()
+    # ...and once a batch has claimed that row (it is sending it), a hand-off
+    # from before the flag, unflagged, is sent rather than counted as held.
+    _rows(helper, kind=Kind.FORUM_PUSH).update(status=Status.CLAIMED)
+    with freeze_time(NIGHT), _channels_up() as sent:
+        tasks.send_forum_push(*args)
+    assert len(_to(sent, helper).fcm) == 1
+    assert _rows(helper, kind=Kind.FORUM_PUSH).get().pk == row.pk
+
+
+@pytest.mark.django_db
+@override_settings(**PUSH_ON)
+def test_a_failed_hold_write_retries_and_the_retry_still_holds(
+    django_capture_on_commit_callbacks,
+):
+    from django.db import OperationalError
+
+    helper, args = _held_accept(django_capture_on_commit_callbacks)
+
+    class Retried(Exception):
+        pass
+
+    with (
+        freeze_time(NIGHT),
+        _channels_up() as sent,
+        patch("apps.core.delivery.record_batch", side_effect=OperationalError("db")),
+        patch.object(tasks.send_forum_push, "retry", side_effect=Retried),
+    ):
+        with pytest.raises(Retried):
+            tasks.send_forum_push(*args)
+    assert _to(sent, helper).fcm == []
+
+    # The retry is held like a first run, not sent into the quiet hours.
+    with freeze_time(NIGHT), _channels_up() as sent:
+        tasks.send_forum_push.apply(args=args, retries=1)
+    assert _to(sent, helper).fcm == []
+    assert set(
+        _rows(helper, kind=Kind.FORUM_PUSH).values_list("last_error", flat=True)
+    ) == {delivery.HOLD_QUIET_HOURS}
+
+
+@pytest.mark.django_db
+def test_no_fcm_client_backs_the_push_rows_off_instead_of_leaving_them_due():
+    member = _member("fcmnone")
+    batch = delivery.record_batch(
+        Kind.FORUM_PUSH, "reply_added", [member.pk], {"topic_id": "1"}, subject_key=9
+    )
+    with (
+        freeze_time(NOON),
+        patch("apps.core.firebase_config.is_firebase_available", return_value=True),
+        patch("apps.core.firebase_config.get_fcm_client", return_value=None),
+    ):
+        tasks.send_forum_push_batch(
+            "reply_added", [member.pk], {"topic_id": "1"}, batch_id=batch
+        )
+    row = _rows(member, kind=Kind.FORUM_PUSH).get()
+    assert (row.status, row.last_error, row.attempts) == (
+        Status.PENDING,
+        "fcm_unavailable",
+        1,
+    )
+    assert row.next_attempt_at == NOON + delivery.retry_delay(1)
+
+
+@pytest.mark.django_db
+def test_a_counter_save_costs_no_quiet_hours_read():
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    profile = ForumProfile.for_user(_member("qhcounter"))
+    snapshot = 'SELECT "wagtail_forum_forumprofile"."quiet_hours_enabled"'
+
+    def snapshots(save):
+        with CaptureQueriesContext(connection) as queries:
+            save()
+        return [q["sql"] for q in queries if q["sql"].startswith(snapshot)]
+
+    profile.post_count += 1
+    # The pre_save snapshot reads the stored quiet-hours fields only for a
+    # save that can change them (every non-test ForumProfile save in the app
+    # names its update_fields): a counter save never pays for it.
+    assert snapshots(lambda: profile.save(update_fields=["post_count"])) == []
+    assert len(snapshots(profile.save)) == 1

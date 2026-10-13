@@ -812,6 +812,50 @@ describe('Important-event email and quiet hours (todo 624)', () => {
     ]);
   });
 
+  it('keeps the switch focused during a save and sends a time left mid-save after it', async () => {
+    const on = { ...quietProfile, quiet_hours_enabled: true, time_zone: 'America/Denver' };
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({ ...quietProfile });
+    let land: (value: ForumMyProfile) => void = () => {};
+    vi.mocked(forumService.updateMyForumProfile)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            land = resolve;
+          })
+      )
+      .mockResolvedValueOnce({ ...on, quiet_hours_end: '06:30' });
+
+    render(<NotificationPreferencesSection />);
+    const toggle = await screen.findByRole('switch', { name: 'Quiet hours' });
+    toggle.focus();
+    await userEvent.click(toggle);
+
+    // In flight: still focusable and focused, announced as unavailable, and a
+    // second click sends nothing (review round 2, PR #1132).
+    expect(toggle).toHaveAttribute('aria-disabled', 'true');
+    expect(toggle).toBeEnabled();
+    expect(toggle).toHaveFocus();
+    fireEvent.click(toggle);
+    expect(vi.mocked(forumService.updateMyForumProfile)).toHaveBeenCalledTimes(1);
+
+    // A time left while that save is in flight is kept, then sent.
+    const until = screen.getByLabelText('Until');
+    fireEvent.change(until, { target: { value: '06:30' } });
+    fireEvent.blur(until);
+    expect(until).toHaveValue('06:30');
+    expect(vi.mocked(forumService.updateMyForumProfile)).toHaveBeenCalledTimes(1);
+
+    await act(async () => land(on));
+
+    await waitFor(() =>
+      expect(vi.mocked(forumService.updateMyForumProfile).mock.calls).toStrictEqual([
+        [{ quiet_hours_enabled: true, time_zone: 'America/Denver' }],
+        [{ quiet_hours_end: '06:30', time_zone: 'America/Denver' }],
+      ])
+    );
+    await waitFor(() => expect(until).toHaveValue('06:30'));
+  });
+
   it('a time left unchanged, or out of range, saves nothing', async () => {
     const on = { ...quietProfile, quiet_hours_enabled: true, time_zone: 'America/Denver' };
     vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue(on);

@@ -1590,10 +1590,31 @@ class MeProfileSerializer(serializers.ModelSerializer):
     def validate_time_zone(self, value):
         from ..quiet_hours import is_valid_zone
 
+        # A zone this server cannot resolve is stored blank, which the window
+        # reads as UTC (the model's rule), rather than a 400: the clients
+        # attach the device zone to every quiet-hours save, so rejecting a
+        # zone our tzdata lacks would block even turning quiet hours on.
         value = value.strip()
-        if value and not is_valid_zone(value):
-            raise serializers.ValidationError("Unknown time zone.")
-        return value
+        return value if value and is_valid_zone(value) else ""
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if {"quiet_hours_start", "quiet_hours_end"} & set(attrs):
+            instance = self.instance
+            start = attrs.get(
+                "quiet_hours_start", getattr(instance, "quiet_hours_start", None)
+            )
+            end = attrs.get(
+                "quiet_hours_end", getattr(instance, "quiet_hours_end", None)
+            )
+            if start is not None and start == end:
+                # An empty window: quiet hours would show on and hold nothing.
+                raise serializers.ValidationError(
+                    {
+                        "quiet_hours_end": "Quiet hours must start and end at different times."
+                    }
+                )
+        return attrs
 
     def update(self, instance, validated_data):
         from django.db import transaction

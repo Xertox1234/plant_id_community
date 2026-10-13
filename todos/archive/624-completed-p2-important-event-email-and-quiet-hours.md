@@ -103,6 +103,28 @@ Each fix has a test; each guard fix was mutation-checked (guard broken, test see
 - declined: a Playwright E2E for quiet hours. The flow is one settings form over an endpoint covered by backend API tests and Vitest, and the E2E suite runs against a live stack this sweep does not start. Deferred to the next E2E pass on Settings.
 - declined: the dark-theme check. The controls reuse the existing token classes (`text-ink-*`, `bg-surface-2`, `border-line`) that the rest of the section already themes, and add no colours of their own.
 
+### 2026-10-13 - Review round 2: non-blocking findings (PR #1132)
+
+As in round 1, each guard fix was mutation-checked: the guard was broken, the test seen failing, and the file restored from a backup copy.
+
+- fixed: the accepted-answer email labelled the recipient's own excerpt with the acceptor's name; the acceptor stays in the event line ("Someone" when there is none) and the excerpt keeps the post's author (`test_the_accepted_answer_email_credits_the_answer_to_its_author`).
+- fixed: the mention/quote fallback reply email ignored a read MENTION/QUOTE bell row; the fallback now applies `already_read_ids` for the original event (`test_a_read_mention_stops_the_fallback_reply_email`).
+- fixed: `_hold_single_push` counted a batch's own CLAIMED row as a quiet hold and dropped the push; the batch hand-off of an accepted answer now passes `handed_off=True`, and only a PENDING row counts as held (`test_a_batch_hand_off_of_an_accepted_answer_is_never_held`).
+- fixed: an `OperationalError` writing the hold let the push escape quiet hours; it now retries the task, and holding no longer depends on `retries == 0` (`test_a_failed_hold_write_retries_and_the_retry_still_holds`).
+- fixed: with no FCM client the push rows stayed due every redrive interval; they are claimed and backed off with `mark_retry` (`fcm_unavailable`) (`test_no_fcm_client_backs_the_push_rows_off_instead_of_leaving_them_due`).
+- fixed: `validate_time_zone` 400'd a zone the server cannot resolve; it is stored blank, which reads as UTC (`test_an_unknown_zone_is_stored_as_utc_and_does_not_block_the_save`).
+- fixed: start == end was accepted and never held anything; `MeProfileSerializer.validate` rejects it, using the stored value for an end not in the payload (`test_bad_quiet_hours_are_a_400_and_change_nothing`, `test_moving_one_end_away_from_the_other_is_accepted`).
+- fixed: the web quiet-hours switch used `disabled` during a save and lost focus; it is now `aria-disabled` with a guarded `onChange`, and a time left while another save is in flight is kept and sent once that save lands (`keeps the switch focused during a save and sends a time left mid-save after it`).
+- fixed: the unsubscribe link in `forum_event.html` was already rendered by `emails/base.html`; there is now an assertion on it (`test_the_accepted_answer_email_credits_the_answer_to_its_author`).
+- fixed: `mark_held`, `release` and `claim_related` now have direct unit tests (`apps/core/tests/test_delivery_holds.py`).
+- fixed: the `pre_save` SELECT. Every non-test `ForumProfile.save` call site passes `update_fields` (grep), so only a profile PATCH pays for the read; a test now pins that a counter save runs no snapshot query (`test_a_counter_save_costs_no_quiet_hours_read`).
+- declined: concurrency of coalescing (two runs for one member and topic at the same instant, or a via-reply email next to a reply). Both runs send, never drop: coalescing is best-effort batching on top of an at-least-once outbox, and the per-member lock it would need sits on the hot send path for a rare duplicate.
+- declined: per-release fold scheduling and the full recipient list on the countdown. Reconciliation (every 5 minutes) releases an earlier due row, and a re-claimed row that is not yet due is re-evaluated and re-held, so both cost redundant work only.
+- declined: the N+1 in `_another_fold_waits`. It is one EXISTS per row held for coalescing in a run, which is bounded by that run's held members, and only runs when a fold is about to be scheduled.
+- declined: the mobile stale-state race. The time picker is modal, and a switch tap during the zone lookup reaches `_save`, whose `_saving` guard turns away a second save. No UI path changes the settings in that gap.
+- declined: a Playwright E2E, for the same reason as round 1 (deferred to the next E2E pass on Settings).
+- declined: pinning `equatable` back. `flutter_timezone` 5.1.1 requires `equatable` `>=2.1.0`, so 2.1.0 is the floor, not drift; `flutter analyze` and `flutter test test/features/profile` pass on it.
+
 ## Notes
 
 Depends in practice on 620's policy matrix landing first. Care reminders stay FCM-only (archived 410).
