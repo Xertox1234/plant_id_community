@@ -1196,6 +1196,18 @@ VAPID_CLAIMS_EMAIL = config(
     "VAPID_CLAIMS_EMAIL", default=parseaddr(DEFAULT_FROM_EMAIL)[1]
 )
 
+# Email provider feedback (todo 625). The signing secret of the Resend webhook
+# (Resend dashboard -> Webhooks, a `whsec_...` value) that posts to
+# /api/v1/email/webhooks/resend/. Empty = the webhook answers 503 and no
+# bounce or complaint is recorded. Policy: docs/operations/notification-baseline.md.
+RESEND_WEBHOOK_SECRET = config("RESEND_WEBHOOK_SECRET", default="")
+# First-party click attribution (owner decision 2026-10-12): forum email
+# content links go through a signed redirect on API_PUBLIC_URL. Off when
+# API_PUBLIC_URL is unset, or with this kill switch. Opens are never tracked.
+EMAIL_CLICK_TRACKING_ENABLED = config(
+    "EMAIL_CLICK_TRACKING_ENABLED", default=True, cast=bool
+)
+
 # Not deprecated by MAILERS (a message setting, not a connection one).
 EMAIL_USE_LOCALTIME = config("EMAIL_USE_LOCALTIME", default=False, cast=bool)
 
@@ -1398,6 +1410,11 @@ CELERY_BEAT_SCHEDULE = {
     "delivery-reconcile": {
         "task": "apps.core.tasks.reconcile_deliveries",
         "schedule": crontab(minute="*/5"),
+    },
+    # Todo 625: email click rows and provider events are kept 90 days.
+    "email-feedback-prune": {
+        "task": "apps.core.tasks.prune_email_feedback",
+        "schedule": crontab(hour=3, minute=40),
     },
 }
 

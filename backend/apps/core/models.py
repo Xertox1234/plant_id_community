@@ -26,17 +26,19 @@ class EmailNotification(models.Model):
     STATUS_FAILED = "failed"
     STATUS_BOUNCED = "bounced"
     STATUS_DELIVERED = "delivered"
-    STATUS_OPENED = "opened"
-    STATUS_CLICKED = "clicked"
+    STATUS_COMPLAINED = "complained"
 
+    # Delivered, bounced and complained are set only by the provider's own
+    # feedback (apps/core/email_feedback.py), never assumed from a send.
+    # There is no "opened" state: opens are not collected (owner decision
+    # 2026-10-12, todo 625). Clicks are EmailClick rows, not a status.
     STATUS_CHOICES = [
         (STATUS_PENDING, "Pending"),
         (STATUS_SENT, "Sent"),
         (STATUS_FAILED, "Failed"),
         (STATUS_BOUNCED, "Bounced"),
         (STATUS_DELIVERED, "Delivered"),
-        (STATUS_OPENED, "Opened"),
-        (STATUS_CLICKED, "Clicked"),
+        (STATUS_COMPLAINED, "Complained"),
     ]
 
     # Priority choices
@@ -103,8 +105,18 @@ class EmailNotification(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
-    opened_at = models.DateTimeField(null=True, blank=True)
-    clicked_at = models.DateTimeField(null=True, blank=True)
+    bounced_at = models.DateTimeField(null=True, blank=True)
+    complained_at = models.DateTimeField(null=True, blank=True)
+
+    # Correlation with the provider's feedback (todo 625). ``message_id`` is
+    # the RFC 5322 Message-ID this app set on the message; Resend echoes it as
+    # ``data.message_id``. ``provider_email_id`` is Resend's own id, stored
+    # from the first event that matched, so a later event that carries only
+    # that id still finds the row.
+    message_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    provider_email_id = models.CharField(
+        max_length=64, blank=True, default="", db_index=True
+    )
 
     # Error tracking
     error_message = models.TextField(
@@ -113,15 +125,6 @@ class EmailNotification(models.Model):
 
     retry_count = models.PositiveIntegerField(
         default=0, help_text="Number of retry attempts"
-    )
-
-    # Analytics
-    open_count = models.PositiveIntegerField(
-        default=0, help_text="Number of times email was opened"
-    )
-
-    click_count = models.PositiveIntegerField(
-        default=0, help_text="Number of times links were clicked"
     )
 
     class Meta:
@@ -149,22 +152,6 @@ class EmailNotification(models.Model):
         if error_message:
             self.error_message = error_message
         self.save(update_fields=["status", "error_message"])
-
-    def mark_opened(self):
-        """Mark email as opened."""
-        if self.status == self.STATUS_SENT:
-            self.status = self.STATUS_OPENED
-            self.opened_at = timezone.now()
-        self.open_count += 1
-        self.save(update_fields=["status", "opened_at", "open_count"])
-
-    def mark_clicked(self):
-        """Mark email as clicked."""
-        if self.status in [self.STATUS_SENT, self.STATUS_OPENED]:
-            self.status = self.STATUS_CLICKED
-            self.clicked_at = timezone.now()
-        self.click_count += 1
-        self.save(update_fields=["status", "clicked_at", "click_count"])
 
 
 class InAppNotification(models.Model):
@@ -355,3 +342,96 @@ class DeliveryIntent(models.Model):
 
     def __str__(self):
         return f"DeliveryIntent({self.kind}, {self.status}) #{self.pk}"
+
+
+class EmailSuppression(models.Model):
+    """An address the provider said not to mail again (todo 625).
+
+    Keyed by a SHA-256 of the normalized address, never the address itself:
+    the row has to outlive the account (an address that hard-bounced still
+    bounces after its account is deleted), and a hash is enough to answer
+    "is this address suppressed?". The policy is in
+    ``apps/core/email_feedback.py`` and docs/operations/notification-baseline.md:
+    a hard bounce stops all mail to the address, a complaint stops optional
+    mail only. A reason is only ever strengthened, never weakened, by a later
+    event; staff lift a suppression by deleting the row.
+    """
+
+    class Reason(models.TextChoices):
+        COMPLAINT = "complaint", "Spam complaint"
+        HARD_BOUNCE = "hard_bounce", "Hard bounce"
+
+    address_hash = models.CharField(max_length=64, unique=True)
+    reason = models.CharField(max_length=16, choices=Reason.choices)
+    # The provider event (svix id) that last set the reason.
+    source_event = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"EmailSuppression({self.reason}) #{self.pk}"
+
+
+class EmailProviderEvent(models.Model):
+    """One webhook event from the email provider, kept for replay safety.
+
+    ``svix_id`` is unique: the same event delivered twice (Svix retries until
+    it gets a 2xx) is recorded once and applied once. No address, subject or
+    bounce message text is stored; the bounce ``message`` can quote the
+    address. Deleted after ``EMAIL_FEEDBACK_RETENTION_DAYS``.
+    """
+
+    svix_id = models.CharField(max_length=64, unique=True)
+    event_type = models.CharField(max_length=40)
+    # The event's own time (top-level ``created_at``), not its arrival time.
+    occurred_at = models.DateTimeField()
+    received_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    notification = models.ForeignKey(
+        EmailNotification,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="provider_events",
+    )
+    provider_email_id = models.CharField(max_length=64, blank=True, default="")
+    bounce_type = models.CharField(max_length=32, blank=True, default="")
+    bounce_subtype = models.CharField(max_length=32, blank=True, default="")
+
+    def __str__(self):
+        return f"EmailProviderEvent({self.event_type}) #{self.pk}"
+
+
+class EmailClick(models.Model):
+    """A click on a tracked link in one email: first-party click attribution
+    (todo 625, owner decision 2026-10-12).
+
+    Written by the signed click redirect (``apps/core/api/email_feedback.py``)
+    only. One row per email and link, so a repeated click is never counted
+    twice; only a click within ``EMAIL_CLICK_ATTRIBUTION_DAYS`` of the send is
+    recorded. Deleted after ``EMAIL_FEEDBACK_RETENTION_DAYS`` and with the
+    account. No IP address or user agent is stored.
+    """
+
+    notification = models.ForeignKey(
+        EmailNotification, on_delete=models.CASCADE, related_name="clicks"
+    )
+    user = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="email_clicks",
+    )
+    # Which link: a key of EMAIL_TRACKED_LINK_KEYS, never the URL itself.
+    link = models.CharField(max_length=32)
+    clicked_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["notification", "link"], name="uniq_core_email_click"
+            )
+        ]
+
+    def __str__(self):
+        return f"EmailClick({self.link}) #{self.pk}"

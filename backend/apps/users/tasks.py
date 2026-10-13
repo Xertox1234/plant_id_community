@@ -40,6 +40,18 @@ def _load_user(user_id):
     return user
 
 
+def _address_suppressed(user) -> bool:
+    """The provider hard-bounced this address (todo 625): the mail is dropped
+    for good, never retried. Only the send is skipped; the flow that asked
+    for it (allowance, lockout, its response) already ran unchanged."""
+    from apps.core.email_feedback import is_suppressed
+
+    if is_suppressed(user.email, optional=False):
+        logger.info(f"[EMAIL] Account {user.pk}'s address is suppressed; mail dropped")
+        return True
+    return False
+
+
 def _retry_or_give_up(task, kind, user_id):
     """Retry a send that reported failure, with backoff; log the final one."""
     if task.request.retries >= task.max_retries:
@@ -84,6 +96,9 @@ def send_verification_email_task(self, user_id: int) -> None:
     rows = [intent.pk] if intent is not None else []
     if not user.email or is_email_verified(user):
         delivery.mark_suppressed(rows, "not_needed")
+        return
+    if _address_suppressed(user):
+        delivery.mark_suppressed(rows, "address_suppressed")
         return
     if deliver_verification_email(user):
         delivery.mark_sent(rows)
@@ -137,6 +152,9 @@ def send_lockout_email_task(self, user_id: int, intent_id: int | None = None) ->
         logger.info(f"[EMAIL] Lockout for account {user_id} is over; mail dropped")
         delivery.mark_suppressed(rows, "lockout_over")
         return
+    if _address_suppressed(user):
+        delivery.mark_suppressed(rows, "address_suppressed")
+        return
     if SecurityMonitor._send_lockout_notification(user.username, lockout_data):
         delivery.mark_sent(rows)
         return
@@ -159,7 +177,7 @@ def send_welcome_email_task(self, user_id: int) -> None:
     from apps.core.services.email_service import EmailService
 
     user = _load_user(user_id)
-    if user is None:
+    if user is None or _address_suppressed(user):
         return
     if not EmailService().send_welcome_email(user):
         _retry_or_give_up(self, "Welcome", user_id)
@@ -170,7 +188,7 @@ def send_provider_linked_notice_task(self, user_id: int, provider: str) -> None:
     from .account_links import deliver_provider_linked_notice
 
     user = _load_user(user_id)
-    if user is None or not user.email:
+    if user is None or not user.email or _address_suppressed(user):
         return
     if not deliver_provider_linked_notice(user, provider):
         _retry_or_give_up(self, "Sign-in link notice", user_id)

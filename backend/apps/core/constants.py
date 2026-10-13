@@ -174,3 +174,25 @@ DELIVERY_RETENTION_DAYS = 14
 # still due, so consent is rechecked and an accepted send is never repeated.
 WEEKLY_RECOVERY_MAX_RUNS = 2
 WEEKLY_RECOVERY_DELAY_SECONDS = 30 * 60
+
+# ============================================================================
+# Email provider feedback and click attribution (todo 625,
+# apps/core/email_feedback.py; policy: docs/operations/notification-baseline.md)
+# ============================================================================
+# Svix (Resend's webhook signer) refuses a timestamp more than five minutes
+# from now: an old, captured request cannot be replayed once its id is pruned.
+EMAIL_WEBHOOK_TOLERANCE_SECONDS = 5 * 60
+# A Resend event is a few KB. Anything far larger is refused before parsing.
+EMAIL_WEBHOOK_MAX_BODY_BYTES = 256 * 1024
+# The longest svix-id accepted: the width of EmailProviderEvent.svix_id.
+SVIX_ID_MAX_LENGTH = 64
+# A click is attributed to its email only this long after the send. A later
+# click still redirects; it is just not counted.
+EMAIL_CLICK_ATTRIBUTION_DAYS = 7
+# Click rows and provider events are deleted after this long (owner decision
+# 2026-10-12). Clicks also go with the account (EmailClick.user CASCADE).
+EMAIL_FEEDBACK_RETENTION_DAYS = 90
+# The context keys whose links are wrapped in a signed click redirect: the
+# content links of the forum notification emails. Never an unsubscribe,
+# preferences or account-security link.
+EMAIL_TRACKED_LINK_KEYS = ("post_url", "topic_url")

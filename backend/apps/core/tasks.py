@@ -29,3 +29,21 @@ def reconcile_deliveries() -> None:
             "interrupted=%(interrupted)s pruned=%(pruned)s",
             totals,
         )
+
+
+@shared_task(
+    autoretry_for=(OperationalError,),
+    retry_backoff=60,
+    max_retries=2,
+    ignore_result=True,
+)
+def prune_email_feedback() -> None:
+    """Beat entry (settings.CELERY_BEAT_SCHEDULE): delete email click rows
+    and provider events older than EMAIL_FEEDBACK_RETENTION_DAYS (todo 625)."""
+    from .email_feedback import prune
+
+    totals = prune()
+    if any(totals.values()):
+        logger.info(
+            "[EMAIL] feedback prune: clicks=%(clicks)s events=%(events)s", totals
+        )
