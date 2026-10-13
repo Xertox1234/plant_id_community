@@ -19,6 +19,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from apps.core.email_feedback import OPTIONAL_MAIL_HEADER, SUPPRESSED
 from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
@@ -141,8 +142,10 @@ def render(
     )
 
 
-def send(subscriber: BlogNewsletter, posts: list[DigestPost]) -> bool:
-    """Send one newsletter. A send failure is logged and returns False.
+def send(subscriber: BlogNewsletter, posts: list[DigestPost]) -> bool | str:
+    """Send one newsletter. A send failure is logged and returns False; a
+    send the mail backend's suppression backstop dropped returns
+    ``email_feedback.SUPPRESSED`` (todo 625).
     Raises only the worker's soft time limit, which stops the run rather
     than failing this send, and a Warning (the pytest deprecation gate,
     todo 454)."""
@@ -157,7 +160,10 @@ def send(subscriber: BlogNewsletter, posts: list[DigestPost]) -> bool:
             body=text,
             from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
             to=[subscriber.email],
-            headers=newsletter.unsubscribe_headers(subscriber, token),
+            headers={
+                **newsletter.unsubscribe_headers(subscriber, token),
+                OPTIONAL_MAIL_HEADER: "1",
+            },
         )
         message.attach_alternative(html_body, "text/html")
     except (SoftTimeLimitExceeded, Warning):
@@ -174,12 +180,18 @@ def send(subscriber: BlogNewsletter, posts: list[DigestPost]) -> bool:
         )
         return False
     try:
-        message.send()
+        sent_count = message.send()
     except (SoftTimeLimitExceeded, Warning):
         raise
     except Exception:
         logger.exception("[EMAIL] newsletter failed for subscriber=%s", subscriber.pk)
         return False
+    if not sent_count:
+        logger.info(
+            "[EMAIL] newsletter not sent to subscriber=%s: the address is suppressed",
+            subscriber.pk,
+        )
+        return SUPPRESSED
     logger.info(
         "[EMAIL] newsletter sent to subscriber=%s posts=%s", subscriber.pk, len(posts)
     )

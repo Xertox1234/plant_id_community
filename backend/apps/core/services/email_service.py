@@ -370,7 +370,14 @@ class EmailService:
                     f"[EMAIL] Email {email_type} to {log_safe_email(recipient_email)} "
                     "reached 0 recipients — not marking as sent"
                 )
-                self.last_outcome = EmailOutcome.PERMANENT
+                if recipient_email:
+                    # A real address that reached nobody: the mail backend's
+                    # suppression backstop dropped it (suppressed after the
+                    # check above). Terminal, and recorded as such (todo 625).
+                    self.last_outcome = EmailOutcome.SUPPRESSED
+                    self.last_suppression_reason = SUPPRESSED_ADDRESS
+                else:
+                    self.last_outcome = EmailOutcome.PERMANENT
                 return False
 
             # Track email sending

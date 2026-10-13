@@ -26,6 +26,7 @@ from django.utils import timezone
 
 from ...conf import get_setting
 from ...digest import (
+    DIGEST_SUPPRESSED,
     build_digest,
     digest_recipients,
     is_due,
@@ -130,12 +131,20 @@ class Command(BaseCommand):
         self.stdout.write(
             f"[EMAIL] digest frequency={frequency} window_days={window_days} "
             f"recipients={totals['recipients']} due={totals['due']} "
-            f"empty={totals['empty']} {label}={totals['sent']} failed={totals['failed']}"
+            f"empty={totals['empty']} {label}={totals['sent']} failed={totals['failed']} "
+            f"suppressed={totals['suppressed']}"
             + (" (dry run — nothing sent, nothing written)" if dry_run else "")
         )
 
     def _run(self, frequency, dry_run, window_days, now):
-        totals = {"recipients": 0, "due": 0, "empty": 0, "sent": 0, "failed": 0}
+        totals = {
+            "recipients": 0,
+            "due": 0,
+            "empty": 0,
+            "sent": 0,
+            "failed": 0,
+            "suppressed": 0,
+        }
         for profile in digest_recipients(frequency).iterator(chunk_size=200):
             totals["recipients"] += 1
             if not is_due(profile, now, window_days):
@@ -168,14 +177,19 @@ class Command(BaseCommand):
             sent = self._send_one(profile, digest, now, frequency)
             if sent is None:
                 continue  # another run claimed them, or they opted out
-            if sent:
+            if sent == DIGEST_SUPPRESSED:
+                # Not a failure: nothing to recover, the address is on the
+                # host's suppression list (todo 625).
+                totals["suppressed"] += 1
+            elif sent:
                 totals["sent"] += 1
             else:
                 totals["failed"] += 1
         return totals
 
-    def _send_one(self, profile, digest, now, frequency) -> bool | None:
-        """True sent, False failed, None not ours to send any more."""
+    def _send_one(self, profile, digest, now, frequency) -> bool | str | None:
+        """True sent, False failed, DIGEST_SUPPRESSED dropped by the host's
+        suppression backstop, None not ours to send any more."""
         # Claim the member before sending, on the marker we read: belt to the
         # run lock's braces. A second run racing on the row cannot also
         # match: its UPDATE waits on our row lock, then finds the marker
@@ -238,8 +252,11 @@ class Command(BaseCommand):
             digest.user.email = email
             # A strict bool (todo 585): a falsy non-bool from a send is a
             # failure, never a silent "neither sent nor failed".
-            sent = bool(send_digest(digest))
-            if not sent:
+            result = send_digest(digest)
+            sent = DIGEST_SUPPRESSED if result == DIGEST_SUPPRESSED else bool(result)
+            if sent is not True:
+                # Suppressed as well as failed: no stamp, so the member is
+                # not recorded as sent a digest that never went out.
                 # Nothing went out: undo the claim so the member stays due.
                 transaction.set_rollback(True)
         return sent

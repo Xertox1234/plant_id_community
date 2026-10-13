@@ -10,7 +10,7 @@ import logging
 import time
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 from apps.core.ratelimit import get_trusted_client_ip
 from apps.core.utils.pii_safe_logging import (
@@ -294,7 +294,7 @@ class SecurityMonitor:
     @classmethod
     def _send_lockout_notification(
         cls, username: str, lockout_data: Dict[str, Any]
-    ) -> Optional[bool]:
+    ) -> Optional[Union[bool, str]]:
         """
         Send email notification about account lockout.
 
@@ -307,7 +307,9 @@ class SecurityMonitor:
 
         Returns:
             True when sent, False when the send failed (worth a retry),
-            None when there is nobody to send to.
+            None when there is nobody to send to, and
+            ``email_feedback.SUPPRESSED`` when the mail backend dropped a
+            suppressed address (terminal, never retried).
         """
         try:
             # Get user email
@@ -342,12 +344,22 @@ If you forgot your password, you can reset it after the lockout period expires.
 This is an automated security message from Houseplant MD.
             """.strip()
 
-            send_mail(
+            sent_count = send_mail(
                 subject=LOCKOUT_EMAIL_SUBJECT,
                 message=message,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[user.email],
             )
+            if not sent_count:
+                from .email_feedback import SUPPRESSED
+
+                # The mail backend's suppression backstop dropped the address
+                # (hard-bounced after the task's own check, todo 625).
+                logger.info(
+                    f"{LOG_PREFIX_LOCKOUT} Lockout notification not sent: "
+                    "the address is suppressed"
+                )
+                return SUPPRESSED
 
             logger.info(
                 f"{LOG_PREFIX_LOCKOUT} Lockout notification sent: "

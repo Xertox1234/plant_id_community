@@ -155,7 +155,13 @@ def send_lockout_email_task(self, user_id: int, intent_id: int | None = None) ->
     if _address_suppressed(user):
         delivery.mark_suppressed(rows, "address_suppressed")
         return
-    if SecurityMonitor._send_lockout_notification(user.username, lockout_data):
+    from apps.core.email_feedback import SUPPRESSED
+
+    result = SecurityMonitor._send_lockout_notification(user.username, lockout_data)
+    if result == SUPPRESSED:
+        delivery.mark_suppressed(rows, "address_suppressed")
+        return
+    if result:
         delivery.mark_sent(rows)
         return
     if self.request.retries >= self.max_retries:

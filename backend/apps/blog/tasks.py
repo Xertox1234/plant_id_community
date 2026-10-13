@@ -45,6 +45,7 @@ def send_newsletter_confirmation(
     from .newsletter import (
         CONFIRMATION_FAILED,
         CONFIRMATION_SENT,
+        CONFIRMATION_SUPPRESSED,
         request_confirmation_outcome,
     )
 
@@ -56,6 +57,8 @@ def send_newsletter_confirmation(
         if intent_id is not None:
             if outcome == CONFIRMATION_SENT:
                 delivery.mark_sent([intent_id])
+            elif outcome == CONFIRMATION_SUPPRESSED:
+                delivery.mark_suppressed([intent_id], "address_suppressed")
             else:
                 delivery.mark_suppressed([intent_id], "not_needed")
         return

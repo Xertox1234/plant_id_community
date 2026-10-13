@@ -60,8 +60,15 @@ Events acted on: `email.delivered`, `email.bounced`, `email.complained`,
   anyone who holds a list of addresses can hash it and test it against the table. It
   is deliberately not keyed (an HMAC on `SECRET_KEY`), because rotating that key would
   silently lift every suppression. A later event can only strengthen it
-  (complaint to hard bounce), never weaken it. Staff lift one by deleting its
-  `EmailSuppression` row. An account that changes its address is not affected.
+  (complaint to hard bounce), never weaken it. A suppression does not expire.
+  An account that changes its address is not affected.
+- **Lifting a suppression.** Do this when a member reports that mail stopped and
+  the address works again (the mailbox was full, a typo has been fixed at the
+  provider). In Django admin (`/admin/`, not the Wagtail `/cms/`), open **Core ›
+  Email suppressions**. Search for the full address: the search box hashes what you
+  type, because rows hold only the hash. Then delete the row. The next send goes out.
+  If the address really is dead, Resend reports a fresh permanent bounce and the row
+  comes back. Rows cannot be added or edited by hand.
 - **Where it applies.** `EmailService.send_email` and `send_transactional_email`
   check before sending and report `EmailOutcome.SUPPRESSED`, a terminal outcome the
   forum outbox does not retry and records as `address_suppressed`, not
@@ -69,21 +76,30 @@ Events acted on: `email.delivered`, `email.bounced`, `email.complained`,
   their outbox row `suppressed` / `address_suppressed` and do not retry. The SMTP
   backend (`ConfiguredSMTPBackend`) also removes suppressed recipients from every
   message, which covers the paths that never ask. That backstop treats a message
-  that carries `List-Unsubscribe` as optional mail, because that header is on exactly
-  the optional families. Where the backstop drops every recipient, `send()` returns
-  0: `send_email` and `send_transactional_email` report that as not sent. The forum
-  digest and the blog newsletter and confirmation do not read that count yet. They
-  log the send and keep their claim, so a suppressed member is skipped until the next
-  run and is not retried. Their logs can therefore say "sent" for a message the
-  backstop dropped.
+  as optional mail when it carries `List-Unsubscribe` or the explicit
+  `X-Optional-Mail` marker. The forum digest and the blog newsletter set that marker
+  themselves, so a digest whose unsubscribe hook failed is still optional. Where the
+  backstop drops every recipient, `send()` returns 0, and every send path reports
+  that as suppressed, not as sent:
+  - `send_email` and `send_transactional_email` report `SUPPRESSED` /
+    `address_suppressed`.
+  - The lockout task marks its row `address_suppressed`.
+  - The newsletter confirmation gives its stamp back and records
+    `address_suppressed`.
+  - The forum digest and the newsletter keep no claim, so the member stays due. They
+    count the member as `suppressed=N` in the run summary, not as `failed=N`, so the
+    weekly recovery run (which reads only `failed=`) is not triggered.
 - **Fails open.** If the suppression lookup hits a database error, the message is
   sent: Resend still drops a suppressed address, and account mail is not lost during
   an outage.
-- **Account-security controls are unchanged.** Suppression only stops the send.
-  The verification allowance is still charged, the address stays unverified, a
-  lockout is still enforced, tokens are still issued, and every anti-enumeration
-  response is the same. On the `send_email`, `send_transactional_email` and
-  account-task paths, a suppressed send is never recorded as sent.
+- **Account-security controls are unchanged; their mail is not.** Suppression only
+  stops the send. The verification allowance is still charged, the address stays
+  unverified, a lockout is still enforced, tokens are still issued, and every
+  anti-enumeration response is the same. A suppressed send is never recorded as
+  sent. But a **hard bounce blocks password reset, verification, sign-in notices and
+  lockout mail to that address** until staff lift the suppression (above). A member
+  whose address hard-bounced cannot recover the account by email alone. A complaint
+  never blocks account mail.
 
 ## Click attribution and opens
 

@@ -58,6 +58,7 @@ from django.utils.dateparse import parse_datetime
 
 from .constants import (
     EMAIL_CLICK_ATTRIBUTION_DAYS,
+    EMAIL_FEEDBACK_PRUNE_BATCH,
     EMAIL_FEEDBACK_RETENTION_DAYS,
     EMAIL_WEBHOOK_TOLERANCE_SECONDS,
 )
@@ -203,12 +204,26 @@ def is_suppressed(address: str, *, optional: bool) -> bool:
     return reason_blocks(reason, optional=optional)
 
 
+# Set by the bulk optional-mail send sites (the forum digest, the blog
+# newsletter), so the backstop classifies them as optional even when their
+# unsubscribe hook failed and the message carries no List-Unsubscribe. The
+# wagtail_forum package writes the same literal (it cannot import this).
+OPTIONAL_MAIL_HEADER = "X-Optional-Mail"
+
+# What a direct send path returns when the backstop dropped its only
+# recipient (``message.send()`` answered 0): neither sent nor failed, so the
+# caller neither stamps it sent nor counts it as a failure to recover.
+SUPPRESSED = "suppressed"
+
+
 def has_list_unsubscribe(message) -> bool:
-    """Optional mail is exactly the mail that carries List-Unsubscribe: the
-    forum notification types, the forum digest and the blog newsletter.
-    Account mail never does. The mail backend classifies by this."""
+    """Whether ``message`` is optional mail: it carries List-Unsubscribe (the
+    forum notification types, the forum digest and the blog newsletter), or
+    the explicit ``OPTIONAL_MAIL_HEADER`` marker. Account mail carries
+    neither. The mail backend classifies by this."""
     headers = getattr(message, "extra_headers", None) or {}
-    return any(str(name).lower() == "list-unsubscribe" for name in headers)
+    names = {str(name).lower() for name in headers}
+    return "list-unsubscribe" in names or OPTIONAL_MAIL_HEADER.lower() in names
 
 
 def filter_suppressed_messages(messages):
@@ -543,10 +558,24 @@ def _record_click(notification_uuid: str, link: str, *, now=None) -> bool:
 
 
 def prune(now=None) -> dict[str, int]:
-    """Delete click rows and provider events older than the retention."""
+    """Delete click rows and provider events older than the retention, in
+    batches of ``EMAIL_FEEDBACK_PRUNE_BATCH``."""
     from .models import EmailClick, EmailProviderEvent
 
     cutoff = (now or timezone.now()) - timedelta(days=EMAIL_FEEDBACK_RETENTION_DAYS)
-    clicks, _ = EmailClick.objects.filter(clicked_at__lt=cutoff).delete()
-    events, _ = EmailProviderEvent.objects.filter(received_at__lt=cutoff).delete()
-    return {"clicks": clicks, "events": events}
+    return {
+        "clicks": _delete_in_batches(EmailClick.objects.filter(clicked_at__lt=cutoff)),
+        "events": _delete_in_batches(
+            EmailProviderEvent.objects.filter(received_at__lt=cutoff)
+        ),
+    }
+
+
+def _delete_in_batches(queryset) -> int:
+    deleted = 0
+    while True:
+        pks = list(queryset.values_list("pk", flat=True)[:EMAIL_FEEDBACK_PRUNE_BATCH])
+        if not pks:
+            return deleted
+        count, _ = queryset.model.objects.filter(pk__in=pks).delete()
+        deleted += count

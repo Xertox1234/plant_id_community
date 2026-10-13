@@ -55,6 +55,9 @@ WEBHOOK = "/api/v1/email/webhooks/resend/"
 STALE_SIGNATURE = "v1," + base64.b64encode(b"not-this-one").decode()
 # Not base64 after the prefix: a misconfiguration, never "accept".
 MALFORMED_SECRET = "whsec_" + "not base64!"  # pragma: allowlist secret
+# Another well-formed fake secret: 24 "y" bytes, base64.
+_OTHER_KEY = base64.b64encode(b"y" * 24).decode()
+OTHER_SECRET = "whsec_" + _OTHER_KEY  # pragma: allowlist secret
 SITE = "https://web.example"
 API = "https://api.example"
 Reason = EmailSuppression.Reason
@@ -164,10 +167,7 @@ class TestWebhookAuthentication:
 
     @override_settings(RESEND_WEBHOOK_SECRET=SECRET)
     def test_a_wrong_secret_is_refused(self):
-        other = (
-            "whsec_" + base64.b64encode(b"y" * 24).decode()
-        )  # pragma: allowlist secret
-        response = _post(_event(EVENT_DELIVERED), secret=other)
+        response = _post(_event(EVENT_DELIVERED), secret=OTHER_SECRET)
         assert response.status_code == 401
         assert not EmailProviderEvent.objects.exists()
 
@@ -948,8 +948,7 @@ class TestWebhookBodyLimit:
         ):
             response = _post(
                 _event(EVENT_DELIVERED),
-                secret="whsec_"  # pragma: allowlist secret
-                + base64.b64encode(b"y" * 24).decode(),
+                secret=OTHER_SECRET,
             )
         assert response.status_code == 401
         # Any anonymous caller reaches this line: INFO, never WARNING.

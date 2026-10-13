@@ -101,6 +101,27 @@ Each guard fix was mutation-checked: the guard was broken, the test seen failing
 - declined: HMAC instead of plain SHA-256 for `address_hash`. Keying it on `SECRET_KEY` would silently lift every suppression when that key rotates. The residual linkability (anyone holding an address list can test it) is now stated in the baseline doc.
 - declined: GET-prefetch click noise. It is inherent to a redirect, and "Known noise" in the baseline doc already says to treat the click rate as an upper bound. HEAD never counts, and a scanner heuristic would need request details that the design deliberately does not store.
 
+### 2026-10-13 - Review round 2: non-blocking findings (PR #1133)
+
+Each guard fix was mutation-checked as in round 1 (15 mutants, all killed); new tests live in `apps/core/tests/test_email_suppression_paths.py` unless named otherwise.
+
+- fixed: the forum digest, the newsletter and the newsletter confirmation recorded "sent" when the backstop dropped the mail (round 1 had declined this). Each now returns a distinct `SUPPRESSED` result.
+  - The digests keep no claim, so the member stays due, and count `suppressed=N`. The weekly recovery parser reads only `failed=`, so suppressed members never trigger a recovery run.
+  - The confirmation gives its stamp back and records `address_suppressed`.
+  - Tests: `test_a_suppressed_digest_is_not_stamped_or_counted_as_failed`, `test_a_suppressed_newsletter_is_not_stamped_or_counted_as_failed`, `test_a_suppressed_confirmation_gives_its_stamp_back_and_is_not_retried`.
+- fixed: in `send_email`, a 0 send count for a real address is `SUPPRESSED`/`address_suppressed`; a blank address stays `PERMANENT` (`test_send_email_reports_a_backstop_drop_as_an_address_suppression`).
+- fixed: `_send_lockout_notification` ignored the 0 that `send_mail` returns; it reports `SUPPRESSED`, and the task marks the row `address_suppressed` (`test_a_lockout_notice_the_backstop_drops_is_recorded_suppressed`).
+- fixed: `email_click` returned a 406 for `Accept: text/html`; a content negotiation that never refuses means every Accept header gets the 302 (`test_the_click_redirect_answers_any_accept_header`).
+- fixed: there was no way to lift a suppression. `EmailSuppression` is in Django admin: the search box takes the address and looks up its hash, and rows can be viewed and deleted only (`test_staff_find_a_suppression_by_its_address_and_can_only_delete_it`). The lift procedure is in `docs/operations/notification-baseline.md`. Stated plainly there and here: a hard bounce DOES block password reset, verification, sign-in notices and lockout mail to that address until staff lift it. "Unchanged" covers the security controls (allowance, lockout, tokens, anti-enumeration responses), not the delivery of their mail.
+- fixed: optional mail was classified only by List-Unsubscribe; the forum digest and the newsletter also set an explicit `X-Optional-Mail` marker, so a digest whose unsubscribe hook failed is still optional (`test_the_digest_and_newsletter_carry_the_optional_mail_marker`, and the digest test above with the hook off).
+- fixed: the rollout test now does a raw previous-release INSERT that names the old columns and omits `message_id`/`provider_email_id`, and asserts both default to `''` (`test_a_previous_release_insert_gets_the_new_column_defaults`).
+- fixed: `prune` deletes in batches of `EMAIL_FEEDBACK_PRUNE_BATCH` (`test_the_prune_deletes_in_batches`).
+- fixed: the `_request.read` call now has a comment explaining why it is used and naming the body-limit tests as the canary for an upgrade.
+- declined: HMAC for `address_hash`, again for the round-1 reason. Keying it on `SECRET_KEY` would silently lift every suppression on key rotation. The residual linkability is stated in the baseline doc, and rows are kept indefinitely on purpose, because a dead address stays dead after its account is deleted.
+- declined: GET-prefetch click noise. "Known noise" in the baseline doc already says to treat the click rate as an upper bound. A scanner heuristic would need user agents or IPs, which the design deliberately does not store.
+- declined: a concurrent index build. `core_emailnotification` is not on the hot-table list, and the two indexes are on columns added empty in the same migration, so the build covers only the table's existing rows. Its prod row count was not measured for this review: if that table turns out large, the drop-columns follow-up can build these two indexes concurrently in a non-atomic migration.
+- follow-up: drop the four open/click columns that `core.0009` kept for the rollout, in a later migration once this has deployed.
+
 ## Notes
 
 Production checks and live messages require explicit owner approval; never read production unasked. No tracking pixels or third-party analytics without a recorded privacy decision.

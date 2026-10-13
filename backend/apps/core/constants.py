@@ -192,6 +192,9 @@ EMAIL_CLICK_ATTRIBUTION_DAYS = 7
 # Click rows and provider events are deleted after this long (owner decision
 # 2026-10-12). Clicks also go with the account (EmailClick.user CASCADE).
 EMAIL_FEEDBACK_RETENTION_DAYS = 90
+# Rows deleted per DELETE by the feedback prune, so a first run on a large
+# table, or one after a long beat outage, never holds one long lock.
+EMAIL_FEEDBACK_PRUNE_BATCH = 5000
 # The context keys whose links are wrapped in a signed click redirect: the
 # content links of the forum notification emails. Never an unsubscribe,
 # preferences or account-security link.

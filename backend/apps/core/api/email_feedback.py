@@ -28,6 +28,7 @@ from rest_framework.decorators import (
     parser_classes,
     permission_classes,
 )
+from rest_framework.negotiation import BaseContentNegotiation
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -67,7 +68,10 @@ def resend_webhook(request: Request) -> Response:
         return Response({"error": "too_large"}, status=413)
     # At most one byte past the cap, whatever the header said: a request
     # with no Content-Length (chunked, under ASGI) is never read whole into
-    # memory before the signature check.
+    # memory before the signature check. ``_request`` is DRF's documented
+    # handle on the Django HttpRequest, whose ``read(n)`` is the stream API;
+    # ``request.body`` would read it all. The body-limit tests are the
+    # canary for a change in either.
     body = request._request.read(EMAIL_WEBHOOK_MAX_BODY_BYTES + 1)
     if len(body) > EMAIL_WEBHOOK_MAX_BODY_BYTES:
         return Response({"error": "too_large"}, status=413)
@@ -100,6 +104,23 @@ def resend_webhook(request: Request) -> Response:
     return Response({"status": email_feedback.ingest(msg_id, event)})
 
 
+class _NeverRefuse(BaseContentNegotiation):
+    """The click redirect answers every Accept header with its 302: DRF's
+    default negotiation would refuse ``Accept: text/html`` (no */*) with a
+    406, and the reader's link would break (review round 2, PR #1133)."""
+
+    def select_parser(self, request, parsers):
+        return parsers[0] if parsers else None
+
+    def select_renderer(self, request, renderers, format_suffix=None):
+        return renderers[0], renderers[0].media_type
+
+
+def _never_refuse(func):
+    func.content_negotiation_class = _NeverRefuse
+    return func
+
+
 @extend_schema(
     summary="Email link redirect",
     request=None,
@@ -117,6 +138,7 @@ def resend_webhook(request: Request) -> Response:
 @api_view(["GET", "HEAD"])
 @authentication_classes([])
 @permission_classes([permissions.AllowAny])
+@_never_refuse
 def email_click(request: Request, token: str) -> HttpResponseRedirect:
     """Count a click on an email link, then redirect to it. A HEAD request
     (a link checker) redirects without counting."""
