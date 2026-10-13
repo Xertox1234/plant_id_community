@@ -7333,3 +7333,30 @@ contract, the deploy state and the source of a date sit outside that frame.
 merged migration, assume it has run in prod. Before correcting a date, find the event that fixes it, such as
 the PR's `createdAt`. Before trusting or dismissing a CodeQL logging alert, read its source: a name containing
 `KEY`, `SECRET` or `PASSWORD` is enough to taint a log line. See `docs/rules/api.md` and `docs/rules/database.md`.
+
+## 2026-10-13 — Hand fixes that regressed, a sweep that filed as many todos as it closed, and a stale generated file (runs 2056, 2358, 0121)
+
+**What happened.** Three more sweep runs closed every remaining P4: 640–647 and 649 (#1114–#1121), 452 with
+local shims (#1125), and 651, which a peer session filed mid-batch (#1127).
+
+- **Hand fixes after a review round regressed twice.** 640's round-1 repair closed a zsh glob-qualifier hole,
+  but it made the worker git guard refuse ordinary array assignments (`local l=(a)`, `do files+=(x)`) for every
+  guarded agent. A new module constant had also shadowed an existing `DECLARERS`. 649's round-1 hand fix
+  redacted render errors in `send_email` and the newsletter confirmation, missed the digest, and dropped the
+  SMTP traceback for real send failures. Round 2 caught both. 651's first version showed a generic line for
+  every mobile master-switch failure, because the error the screen received was a wrapper the helper never
+  matched.
+- **Follow-up todos bred follow-up todos.** Filing each PR's non-blocking review findings as a new P4 made the
+  2026-10-12 runs close 38 P4s while filing 20, and a peer session filed 651 while this batch was finishing.
+  The owner made "decline in the Work Log, file only P0–P2" the rule (CLAUDE.md, completing-todos).
+- **A `@riverpod` provider file was edited without `build_runner`.** 651 changed `user_profile_service.dart`
+  only in its exception class, yet the provider's `.g.dart` hash changed and mobile CI's "Ensure generated
+  code is committed" step failed. `docs/rules/flutter.md` already said so; it was not applied.
+
+**Root cause.** A hand fix is judged against the finding in front of it, not the other call shapes the same
+code serves. The follow-up rule counted findings, not whether they were worth a todo.
+
+**General rule.** Give every hand fix a test that fails without it, and look for the finding's other instances
+(every mail path, every wrapper type) before calling it fixed. Record non-blocking findings in the todo's Work
+Log. After any edit to a file that declares a Riverpod provider, run `build_runner` and commit the `.g.dart`.
+See `docs/rules/security.md`, `docs/rules/flutter.md` and `backend/docs/patterns/architecture/services.md`.

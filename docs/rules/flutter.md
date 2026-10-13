@@ -271,3 +271,11 @@ Compact checklist auto-injected before edits. Long-form:
   across a real rebuild. A factory counter only shows whether the element was
   ever created, which is the right check for "never built" (`expect(builds, 0)`)
   (todo 520, PR #948; `docs/patterns/riverpod.md`).
+- **Show an API error message only when one of our views wrote it.** An
+  `ApiException.message` is fit for the UI only when `unstructured` is false (a
+  proxy or WAF HTML page sets it true) and `statusCode` is set (Dio's own
+  failures have none, and their text is Dio's). Never interpolate `$e`. A service
+  that re-wraps the error (`UserProfileException`) must carry that safe message
+  forward as its own field, or every failure collapses to a generic line and the
+  user loses the server's reason (`apiErrorMessage` in
+  `lib/features/profile/forum_notification_settings_card.dart`, todo 651, PR #1127).

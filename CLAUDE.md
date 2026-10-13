@@ -80,8 +80,11 @@ Short discipline rules the harness doesn't already enforce mechanically.
 **Review loop budget.** Interactive review→fix→review cycles (bundled
 `/code-review`, the orchestrators) get two rounds, not open-ended: round 1 is a
 full review with fixes for BLOCKING findings only; round 2 verifies those
-specific fixes. Anything non-blocking that surfaces in either round becomes a
-follow-up todo file instead of a third round — Review Doc Tracking (below)
+specific fixes. Anything non-blocking that surfaces in either round is recorded
+in the todo's Work Log, fixed by hand with a test or declined with a reason,
+instead of a third round. File a follow-up todo only for a P0–P2 finding: filing
+every PR's lows as new P4s made sweeps create almost as many todos as they
+closed (owner decision 2026-10-12; `docs/LEARNINGS.md` 2026-10-13). Review Doc Tracking (below)
 is a different, narrower convention for `docs/reviews/*.md` findings
 specifically, not for interactive review rounds. `kimi-review`'s commit-time
 gate is separate and unaffected — this budget is for the human-in-the-loop
