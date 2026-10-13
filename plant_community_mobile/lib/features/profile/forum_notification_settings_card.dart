@@ -14,9 +14,14 @@ const notificationThrottledText =
 
 /// An API error's own message, which our views write for users, or null.
 /// Never the exception's `toString()`, which can carry a request URL or a
-/// Dio dump (todo 651).
+/// Dio dump (todo 651), and never an unstructured body such as a proxy's
+/// HTML page. A master-switch save fails as a UserProfileException, which
+/// carries the same message (todo 651 review).
 String? apiErrorMessage(Object error) => switch (error) {
-  ApiException(:final message) when message.isNotEmpty => message,
+  ApiException(:final message, unstructured: false) when message.isNotEmpty =>
+    message,
+  UserProfileException(:final apiMessage?) when apiMessage.isNotEmpty =>
+    apiMessage,
   _ => null,
 };
 

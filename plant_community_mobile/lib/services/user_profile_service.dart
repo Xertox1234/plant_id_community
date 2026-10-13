@@ -192,6 +192,9 @@ class UserProfileService extends _$UserProfileService {
       throw UserProfileException(
         'Failed to update profile: ${e.message}',
         statusCode: e.statusCode,
+        // Only a message one of our views wrote is fit to show a user; a
+        // proxy's HTML page is not (todo 651 review).
+        apiMessage: e.unstructured ? null : e.message,
       );
     } catch (e) {
       if (kDebugMode) {
@@ -303,7 +306,11 @@ class UserProfileException implements Exception {
   /// by it (todo 651).
   final int? statusCode;
 
-  UserProfileException(this.message, {this.statusCode});
+  /// The API's own message, fit to show a user, when the failure came from one
+  /// of our views; null otherwise (todo 651 review).
+  final String? apiMessage;
+
+  UserProfileException(this.message, {this.statusCode, this.apiMessage});
 
   @override
   String toString() => 'UserProfileException: $message';

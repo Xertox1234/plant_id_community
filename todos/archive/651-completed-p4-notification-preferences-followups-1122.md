@@ -85,3 +85,26 @@ Filed by the closing step of the run from `state.py followups-md g1`.
 ### 2026-10-12 - Completed by the todo sweep (run 2026-10-13-0121)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Review round 1: findings fixed by hand, the rest declined (owner decision: no new todos)
+
+Round 1 found nothing blocking. These were fixed before round 2:
+
+- **Every non-429 master-switch failure lost its reason** (medium, a regression from finding 2). The master
+  switches fail as a `UserProfileException`, which `apiErrorMessage` never matched, so a 400 showed only "Failed
+  to update preferences.". `UserProfileException` now carries `apiMessage`, set only from a structured
+  `ApiException` in `updateProfile`, and `apiErrorMessage` returns it.
+- **Unstructured bodies could still reach the UI** (low ×2). A proxy or WAF HTML page arrives as an
+  `ApiException` with `unstructured: true`. `apiErrorMessage` and `updateProfile` now drop it, so only a message
+  one of our views wrote is shown.
+- **The unknown-digest test was vacuous** (low). It never tapped anything. It now taps a cell and asserts the
+  save sends no `digest_frequency`.
+- Tests: a new `apiErrorMessage` unit test in the card test, and a new `updateProfile` test in
+  `user_profile_service_test.dart`. The service test fails when the unstructured check is removed (mutation
+  check). `flutter test test/features/profile test/services/user_profile_service_test.dart`: 52 passed;
+  `flutter analyze`: clean.
+- Declined:
+  - Moving the error helpers out of the card widget file. It is structure only, with no behaviour change.
+  - The digest row disappearing if a PATCH response omits `digest_frequency` (deploy skew). Hiding an unknown
+    value is the point of finding 3.
+  - The web merge being shallow, and an extra `httpStatusOf` case. Both are optional nits.

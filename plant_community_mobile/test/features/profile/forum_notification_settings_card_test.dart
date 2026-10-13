@@ -5,6 +5,7 @@ import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/profile/forum_notification_settings_card.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
+import 'package:plant_community_mobile/services/user_profile_service.dart';
 
 import '../forum/support/forum_test_support.dart';
 
@@ -229,7 +230,53 @@ void main() {
 
     expect(find.text(_digest), findsNothing);
     expect(_switch(tester, _replyEmail).value, isTrue); // the rest still shows
-    expect(api.notificationSettingsUpdates, isEmpty);
+
+    // A cell save never sends a guessed digest (todo 651 review).
+    await tester.tap(find.text(_replyEmail));
+    await tester.pumpAndSettle();
+    expect(api.notificationSettingsUpdates, hasLength(1));
+    expect(
+      api.notificationSettingsUpdates.single.containsKey('digest_frequency'),
+      isFalse,
+    );
+  });
+
+  test('only a message our views wrote reaches the user (todo 651 review)', () {
+    expect(
+      apiErrorMessage(ApiException('Bad value.', statusCode: 400)),
+      'Bad value.',
+    );
+    expect(
+      apiErrorMessage(
+        ApiException(
+          '<html>Gateway</html>',
+          statusCode: 403,
+          unstructured: true,
+        ),
+      ),
+      isNull,
+    );
+    expect(
+      apiErrorMessage(
+        UserProfileException(
+          'Failed to update profile: Bad value.',
+          statusCode: 400,
+          apiMessage: 'Bad value.',
+        ),
+      ),
+      'Bad value.',
+    );
+    expect(
+      apiErrorMessage(UserProfileException('Failed to update profile: boom')),
+      isNull,
+    );
+    expect(
+      notificationErrorText(
+        UserProfileException('x', statusCode: 400, apiMessage: 'Bad value.'),
+        action: 'Failed to update preferences',
+      ),
+      'Failed to update preferences: Bad value.',
+    );
   });
 
   testWidgets('a 429 save rolls back and says try again later (todo 651)', (
