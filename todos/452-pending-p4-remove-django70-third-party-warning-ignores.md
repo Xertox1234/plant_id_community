@@ -5,10 +5,9 @@ issue_id: "452"
 tags: [django, testing, dependencies]
 dependencies: []
 source_review: "todos/364-pending-p3-mailers-migration-and-warning-gate.md"
-triage: blocked-external
-triaged: 2026-09-28
-blocked_on: "Upstream django-taggit and Wagtail releases that stop calling quote_name_unless_alias()/get_connection()."
-owner_decision: "Owner: wait for upstream django-taggit and Wagtail releases (2026-09-28)"
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Unblocked by owner: land it with local shims instead of waiting for upstream. Remove both ignore: lines from backend/pytest.ini; add a narrow, version-guarded compat shim for django-taggit's ExtraJoinRestriction.as_sql (no quote_name_unless_alias) and route Wagtail's admin mail sending through the MAILERS connection instead of get_connection(); each shim with a test, and a test that fails loudly when an upgraded taggit/wagtail no longer needs it (2026-10-12)"
 ---
 
 # Remove the two third-party RemovedInDjango70Warning ignores from pytest.ini
