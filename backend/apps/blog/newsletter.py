@@ -172,6 +172,12 @@ def unsubscribe_headers(subscriber: BlogNewsletter, token: str | None = None) ->
     return {"List-Unsubscribe": f"<{unsubscribe_url(subscriber, token)}>"}
 
 
+# request_confirmation_outcome() results (todo 619).
+CONFIRMATION_SENT = "sent"
+CONFIRMATION_SKIPPED = "skipped"  # already subscribed, or sent too recently
+CONFIRMATION_FAILED = "failed"  # nothing went out; the stamp is given back
+
+
 def request_confirmation(email: str) -> bool:
     """Mail a confirmation link to `email` unless that is pointless or too soon.
 
@@ -181,17 +187,23 @@ def request_confirmation(email: str) -> bool:
     its previous stamp back, so a retry is not throttled by an email that
     never arrived.
     """
+    return request_confirmation_outcome(email) == CONFIRMATION_SENT
+
+
+def request_confirmation_outcome(email: str) -> str:
+    """``request_confirmation``, telling a skip from a failure (todo 619): the
+    task retries a failure and never a skip."""
     email = normalize_email(email)
     now = timezone.now()
     with transaction.atomic():
         subscriber = _lock_or_create(email)
         if subscriber.is_subscribed:
-            return False
+            return CONFIRMATION_SKIPPED
         previous = subscriber.confirmation_sent_at
         if previous and now - previous < timedelta(
             seconds=NEWSLETTER_CONFIRMATION_RESEND_SECONDS
         ):
-            return False
+            return CONFIRMATION_SKIPPED
         subscriber.confirmation_sent_at = now
         subscriber.save(update_fields=["confirmation_sent_at"])
 
@@ -202,9 +214,29 @@ def request_confirmation(email: str) -> bool:
         _release_confirmation_stamp(subscriber, now, previous)
         raise
     if sent:
-        return True
+        return CONFIRMATION_SENT
     _release_confirmation_stamp(subscriber, now, previous)
-    return False
+    return CONFIRMATION_FAILED
+
+
+def record_confirmation_intent(email: str) -> None:
+    """A durable intent for a confirmation whose enqueue failed (todo 619).
+
+    The signup view enqueues the task after its response is decided; when
+    the broker refuses, this writes the subscriber row (as the task would
+    have) and a pending outbox row naming it by pk, never by address, so
+    reconciliation sends the confirmation once the broker is back, without
+    the reader asking again.
+    """
+    from apps.core import delivery
+
+    with transaction.atomic():
+        subscriber = _lock_or_create(normalize_email(email))
+        if subscriber.is_subscribed:
+            return
+        delivery.record_one(
+            delivery.Kind.NEWSLETTER_CONFIRMATION, subject_key=str(subscriber.pk)
+        )
 
 
 def _lock_or_create(email: str) -> BlogNewsletter:

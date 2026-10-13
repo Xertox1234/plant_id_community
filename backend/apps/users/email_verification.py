@@ -139,7 +139,17 @@ def send_verification_email(user) -> bool:
     so concurrent resends cannot overshoot the cap; a window that has passed
     restarts at this mail. The mail itself is sent by a Celery task after the
     transaction commits, so SMTP latency never lands on the request (item 11).
+
+    The slot and a durable outbox row are written in one transaction (todo
+    619). If the broker then refuses the task, reconciliation re-drives the
+    row and the mail still goes out, without the user asking again and
+    without charging another slot: recovery belongs to the request that paid
+    for it. A slot is never refunded, because a refused enqueue is not proof
+    that nothing was queued. Requests that pile up while the broker is down
+    share one pending row, so they recover as one mail.
     """
+    from apps.core import delivery
+
     if not user.email or is_email_verified(user):
         return False
     User = get_user_model()
@@ -147,20 +157,23 @@ def send_verification_email(user) -> bool:
     new_window = Q(verification_window_started_at__isnull=True) | Q(
         verification_window_started_at__lt=_window_opened_before(now)
     )
-    claimed = (
-        User.objects.filter(pk=user.pk)
-        .filter(new_window | Q(verification_emails_sent__lt=VERIFICATION_EMAIL_CAP))
-        .update(
-            verification_emails_sent=Case(
-                When(new_window, then=Value(1)),
-                default=F("verification_emails_sent") + 1,
-            ),
-            verification_window_started_at=Case(
-                When(new_window, then=Value(now)),
-                default=F("verification_window_started_at"),
-            ),
+    with transaction.atomic():
+        claimed = (
+            User.objects.filter(pk=user.pk)
+            .filter(new_window | Q(verification_emails_sent__lt=VERIFICATION_EMAIL_CAP))
+            .update(
+                verification_emails_sent=Case(
+                    When(new_window, then=Value(1)),
+                    default=F("verification_emails_sent") + 1,
+                ),
+                verification_window_started_at=Case(
+                    When(new_window, then=Value(now)),
+                    default=F("verification_window_started_at"),
+                ),
+            )
         )
-    )
+        if claimed:
+            delivery.record_one(delivery.Kind.VERIFICATION_EMAIL, recipient_id=user.pk)
     if not claimed:
         logger.warning(
             f"[AUTH] Verification mail cap reached for {log_safe_user_context(user)}"

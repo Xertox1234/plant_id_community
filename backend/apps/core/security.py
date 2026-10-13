@@ -8,7 +8,8 @@ response utilities to help maintain application security.
 import json
 import logging
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 from typing import Any, Dict, Optional, Tuple
 
 from apps.core.ratelimit import get_trusted_client_ip
@@ -232,9 +233,10 @@ class SecurityMonitor:
             f"ip_count={len(lockout_data['ip_addresses'])}"
         )
 
-        # Send email notification
+        # Queue the email notification (todo 619): the lockout is already
+        # enforced above, and the login response never waits on SMTP.
         if LOCKOUT_EMAIL_ENABLED:
-            cls._send_lockout_notification(username, lockout_data)
+            cls._queue_lockout_notification(username)
 
         # Trigger security alert
         cls._trigger_security_alert(
@@ -254,24 +256,74 @@ class SecurityMonitor:
         )
 
     @classmethod
+    def _queue_lockout_notification(cls, username: str) -> None:
+        """Hand the lockout email to Celery (``send_lockout_email_task``).
+
+        Never raises and never sends inline: a broker failure is logged by
+        exception type and recorded as an outbox row, which reconciliation
+        re-drives once the broker is back (todo 619). The task reads the
+        lockout details from the cache, so neither the broker nor the outbox
+        holds the client IPs.
+        """
+        from apps.core import delivery
+        from apps.users.tasks import send_lockout_email_task
+
+        user = User.objects.filter(username=username).only("pk", "email").first()
+        if user is None or not user.email:
+            if user is None:
+                logger.warning(
+                    f"{LOG_PREFIX_LOCKOUT} Cannot send lockout email: "
+                    f"user not found: {log_safe_username(username)}"
+                )
+            return
+        try:
+            send_lockout_email_task.delay(user.pk)
+        except Exception as e:
+            logger.error(
+                f"{LOG_PREFIX_LOCKOUT} Could not queue the lockout email: "
+                f"username={log_safe_username(username)}, error={type(e).__name__}"
+            )
+            try:
+                delivery.record_one(delivery.Kind.LOCKOUT_EMAIL, recipient_id=user.pk)
+            except Exception as record_error:
+                logger.error(
+                    f"{LOG_PREFIX_LOCKOUT} Could not record the lockout email "
+                    f"either: error={type(record_error).__name__}"
+                )
+
+    @classmethod
     def _send_lockout_notification(
         cls, username: str, lockout_data: Dict[str, Any]
-    ) -> None:
+    ) -> Optional[bool]:
         """
         Send email notification about account lockout.
+
+        Called by ``apps.users.tasks.send_lockout_email_task`` (todo 619),
+        never on the login request.
 
         Args:
             username: Username of locked account
             lockout_data: Lockout details
+
+        Returns:
+            True when sent, False when the send failed (worth a retry),
+            None when there is nobody to send to.
         """
         try:
             # Get user email
             user = User.objects.get(username=username)
             if not user.email:
-                return
+                return None
 
-            # Calculate unlock time
-            unlock_time = timezone.now() + timedelta(seconds=ACCOUNT_LOCKOUT_DURATION)
+            # Calculate unlock time from the lock itself: the mail is sent
+            # by a worker, possibly a retry, some time after the lock.
+            locked_at = lockout_data.get("locked_at")
+            locked_time = (
+                datetime.fromtimestamp(locked_at, tz=dt_timezone.utc)
+                if isinstance(locked_at, (int, float))
+                else timezone.now()
+            )
+            unlock_time = locked_time + timedelta(seconds=ACCOUNT_LOCKOUT_DURATION)
 
             # Email content
             message = f"""
@@ -280,7 +332,7 @@ Your account has been temporarily locked due to multiple failed login attempts.
 Account: {username}
 Failed attempts: {lockout_data['attempts_count']}
 IP addresses: {', '.join(lockout_data['ip_addresses'])}
-Locked at: {timezone.now().strftime('%Y-%m-%d %H:%M:%S UTC')}
+Locked at: {locked_time.strftime('%Y-%m-%d %H:%M:%S UTC')}
 Unlocks at: {unlock_time.strftime('%Y-%m-%d %H:%M:%S UTC')}
 
 If you did not attempt to log in, please contact support immediately as your account may be under attack.
@@ -302,12 +354,14 @@ This is an automated security message from Houseplant MD.
                 f"username={log_safe_username(username)}, "
                 f"email={user.email[:2]}***@{user.email.split('@')[1] if '@' in user.email else '?'}"
             )
+            return True
 
         except User.DoesNotExist:
             logger.warning(
                 f"{LOG_PREFIX_LOCKOUT} Cannot send lockout email: "
                 f"user not found: {log_safe_username(username)}"
             )
+            return None
         except Warning:
             # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
             # and Warning subclasses Exception: never log it as a failed send
@@ -318,6 +372,7 @@ This is an automated security message from Houseplant MD.
                 f"{LOG_PREFIX_LOCKOUT} Failed to send lockout email: "
                 f"username={log_safe_username(username)}, error={type(e).__name__}"
             )
+            return False
 
     @classmethod
     def _clear_failed_attempts(cls, username: str) -> None:

@@ -8,6 +8,7 @@ and template rendering capabilities.
 import html
 import logging
 import re
+import smtplib
 from typing import Any, Dict, List, Optional, Union
 
 from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_context
@@ -92,6 +93,43 @@ def html_to_text(html_content: str) -> str:
     return _BLANK_LINES.sub("\n\n", "\n".join(lines)).strip() + "\n"
 
 
+class EmailOutcome:
+    """Why ``EmailService.send_email`` returned what it did (todo 619).
+
+    A bool cannot tell an opt-out from a dead SMTP connection, and a caller
+    that retries must: an opt-out retried is a privacy bug, a transport
+    failure dropped is a lost message. ``send_email`` records one of these on
+    ``EmailService.last_outcome`` every time it returns.
+    """
+
+    SENT = "sent"
+    # Preferences said no. Never retried.
+    SUPPRESSED = "suppressed"
+    # Retrying cannot help: a template that does not render, no deliverable
+    # recipient, a 5xx SMTP rejection.
+    PERMANENT = "permanent"
+    # Worth another attempt: connection, timeout, a 4xx SMTP reply.
+    TRANSIENT = "transient"
+
+
+def classify_send_error(exc: BaseException) -> str:
+    """PERMANENT only when this message or its recipient was refused with a
+    5xx: every recipient refused with one, or a 5xx reply to the message
+    data. TRANSIENT for anything else: a connection or timeout error, a 4xx
+    reply, a disconnect, and a 5xx about the session rather than the
+    message (auth 535/530, sender refused, HELO). Those are relay credential
+    or config faults: during such an outage every queued row would
+    otherwise be failed for good, so they wait out the outbox backoff."""
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        codes = [code for code, _msg in exc.recipients.values()]
+        if codes and all(int(code) >= 500 for code in codes):
+            return EmailOutcome.PERMANENT
+        return EmailOutcome.TRANSIENT
+    if isinstance(exc, smtplib.SMTPDataError) and exc.smtp_code >= 500:
+        return EmailOutcome.PERMANENT
+    return EmailOutcome.TRANSIENT
+
+
 class EmailType:
     """Email type constants for categorization and preferences."""
 
@@ -136,6 +174,8 @@ class EmailService:
             settings, "DEFAULT_FROM_EMAIL", "noreply@plantcommunity.com"
         )
         self.site_name = getattr(settings, "SITE_NAME", "Houseplant MD")
+        # The EmailOutcome of the last send_email call (todo 619).
+        self.last_outcome: Optional[str] = None
 
     def send_email(
         self,
@@ -166,8 +206,10 @@ class EmailService:
             respect_preferences: Whether to check user preferences
 
         Returns:
-            bool: True if email was sent successfully
+            bool: True if email was sent successfully. Why it was not is on
+            ``self.last_outcome`` (an ``EmailOutcome``).
         """
+        self.last_outcome = None
         # Normalize recipient
         if isinstance(recipient, User):
             user = recipient
@@ -188,6 +230,7 @@ class EmailService:
             logger.info(
                 f"[EMAIL] Email {email_type} skipped for {log_safe_email(recipient_email)} due to user preferences"
             )
+            self.last_outcome = EmailOutcome.SUPPRESSED
             return False
 
         # Prepare context
@@ -208,6 +251,7 @@ class EmailService:
             logger.error(
                 f"[EMAIL] Email template not found: {template_name}.html - {e}"
             )
+            self.last_outcome = EmailOutcome.PERMANENT
             return False
         except Exception as e:
             # The type only: a template error can quote a context value, such
@@ -216,6 +260,7 @@ class EmailService:
                 f"[EMAIL] Failed to render email template {template_name}.html: "
                 f"{type(e).__name__}"
             )
+            self.last_outcome = EmailOutcome.PERMANENT
             return False
 
         try:
@@ -266,6 +311,7 @@ class EmailService:
                     f"[EMAIL] Email {email_type} to {log_safe_email(recipient_email)} "
                     "reached 0 recipients — not marking as sent"
                 )
+                self.last_outcome = EmailOutcome.PERMANENT
                 return False
 
             # Track email sending
@@ -281,6 +327,7 @@ class EmailService:
             logger.info(
                 f"[EMAIL] Email {email_type} sent successfully to {log_safe_email(recipient_email)}"
             )
+            self.last_outcome = EmailOutcome.SENT
             return True
 
         except Warning:
@@ -290,13 +337,19 @@ class EmailService:
             raise
         except ConnectionError as e:
             logger.error(
-                f"[EMAIL] Email connection failed for {email_type} to {log_safe_email(recipient_email)}: {e}"
+                f"[EMAIL] Email connection failed for {email_type} to "
+                f"{log_safe_email(recipient_email)}: {type(e).__name__}"
             )
+            self.last_outcome = EmailOutcome.TRANSIENT
             return False
         except Exception as e:
             logger.error(
-                f"[EMAIL] Failed to send email {email_type} to {log_safe_email(recipient_email)}: {e}"
+                # The type only: an SMTP refusal's text quotes the raw
+                # recipient address (todo 619).
+                f"[EMAIL] Failed to send email {email_type} to "
+                f"{log_safe_email(recipient_email)}: {type(e).__name__}"
             )
+            self.last_outcome = classify_send_error(e)
             return False
 
     def send_bulk_email(

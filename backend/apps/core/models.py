@@ -269,3 +269,84 @@ class PushDevice(models.Model):
 
     def __str__(self):
         return f"PushDevice({self.platform or 'unknown'}) for user {self.user_id}"
+
+
+class DeliveryIntent(models.Model):
+    """One external delivery that must not be lost: the outbox (todo 619).
+
+    Written in the same transaction as the event that causes it (a forum
+    reply, a verification request), so it exists exactly when the event
+    does, whatever happens to the broker afterwards. A worker claims the row
+    before sending and records the outcome after; reconciliation
+    (``apps.core.tasks.reconcile_deliveries``) re-drives a row whose enqueue
+    was lost, whose transient failure is due for another attempt, or whose
+    worker died mid-send. See ``apps/core/delivery.py`` for the contract.
+
+    ``payload`` holds ids and display fields only. Never a message body, a
+    token, a signed link or an email address: the row outlives the send.
+    """
+
+    class Kind(models.TextChoices):
+        FORUM_EMAIL = "forum_email", "Forum email"
+        FORUM_WEB_PUSH = "forum_web_push", "Forum browser push"
+        VERIFICATION_EMAIL = "verification_email", "Verification email"
+        NEWSLETTER_CONFIRMATION = (
+            "newsletter_confirmation",
+            "Newsletter confirmation",
+        )
+        LOCKOUT_EMAIL = "lockout_email", "Account lockout email"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        CLAIMED = "claimed", "Claimed"
+        SENT = "sent", "Sent"
+        SUPPRESSED = "suppressed", "Suppressed"
+        FAILED = "failed", "Failed"
+
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    event = models.CharField(max_length=64, blank=True, default="")
+    recipient = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+    # What the delivery is about: a forum post pk, a newsletter subscriber pk.
+    subject_key = models.CharField(max_length=64, blank=True, default="")
+    batch_id = models.UUIDField(null=True, blank=True, db_index=True)
+    payload = models.JSONField(default=dict, blank=True)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.PENDING
+    )
+    attempts = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    claim_token = models.UUIDField(null=True, blank=True, db_index=True)
+    # An exception class name or a suppression reason, never its message.
+    last_error = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["status", "next_attempt_at"], name="core_delivery_due_idx"
+            ),
+            models.Index(
+                fields=["kind", "recipient", "status"],
+                name="core_delivery_recipient_idx",
+            ),
+        ]
+        constraints = [
+            # One forum delivery per channel, event, post and recipient: a
+            # duplicate dispatch inserts nothing (ON CONFLICT DO NOTHING).
+            models.UniqueConstraint(
+                fields=["kind", "event", "subject_key", "recipient"],
+                condition=models.Q(kind__in=["forum_email", "forum_web_push"]),
+                name="uniq_core_forum_delivery",
+            ),
+        ]
+
+    def __str__(self):
+        return f"DeliveryIntent({self.kind}, {self.status}) #{self.pk}"

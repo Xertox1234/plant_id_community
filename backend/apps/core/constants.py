@@ -143,3 +143,34 @@ PUSH_DEVICE_RATE_LIMIT = "30/h"
 PUSH_DEVICE_TOKEN_MAX_LENGTH = 255
 PUSH_DEVICE_INSTALLATION_ID_MAX_LENGTH = 64
 PUSH_DEVICE_PLATFORMS = ("ios", "android")
+
+# ============================================================================
+# Delivery outbox (todo 619, apps/core/delivery.py)
+# ============================================================================
+# A row written with the event waits this long before reconciliation may
+# re-drive it: the normal path (an on_commit enqueue) gets there first.
+DELIVERY_GRACE_SECONDS = 5 * 60
+# A claimed row whose worker has not reported back after this long is taken
+# to be interrupted and re-driven (the at-least-once window). Well above the
+# per-task hard time limit (CELERY_TASK_TIME_LIMIT, 120 s).
+DELIVERY_CLAIM_LEASE_SECONDS = 15 * 60
+# Attempts per delivery, counted at each claim. The last failure is terminal.
+DELIVERY_MAX_ATTEMPTS = 5
+# Transient-failure backoff: 2, 4, 8, 16 minutes after attempts 1-4.
+DELIVERY_RETRY_BASE_SECONDS = 2 * 60
+# A delivery still undelivered this long after its event is dropped: a stale
+# reply email or push is worth less than none.
+DELIVERY_MAX_AGE_SECONDS = 24 * 60 * 60
+# After re-driving a row, reconciliation leaves it alone this long so a
+# re-driven task still waiting in the queue is not enqueued again.
+DELIVERY_REDRIVE_INTERVAL_SECONDS = 10 * 60
+# Rows re-driven per reconciliation run, oldest due first.
+DELIVERY_RECONCILE_BATCH = 200
+# Finished rows (sent, suppressed, failed) are deleted after this long.
+DELIVERY_RETENTION_DAYS = 14
+# Weekly mail (forum digest, blog newsletter) recovery runs: when a run
+# reports failed sends, the same command runs again after 30 and then 60
+# more minutes, at most this many times. Each run re-claims every member
+# still due, so consent is rechecked and an accepted send is never repeated.
+WEEKLY_RECOVERY_MAX_RUNS = 2
+WEEKLY_RECOVERY_DELAY_SECONDS = 30 * 60
