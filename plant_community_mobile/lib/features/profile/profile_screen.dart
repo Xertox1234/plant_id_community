@@ -9,6 +9,7 @@ import '../../models/user_profile.dart';
 import '../../services/user_profile_service.dart';
 import '../../services/auth_service.dart';
 import '../../shared/widgets/canopy_surfaces.dart';
+import 'forum_notification_settings_card.dart';
 
 /// User profile screen displaying user information and settings
 ///
@@ -486,10 +487,15 @@ class _SettingsSection extends ConsumerWidget {
           ),
           const Divider(),
 
-          // Email Notifications
+          // Account-wide master switches, shared with web Settings (todo
+          // 620, docs/notifications-policy.md). They sit above the forum
+          // card below and never rewrite it.
           SwitchListTile(
-            title: const Text('Email Notifications'),
-            subtitle: const Text('Receive email updates'),
+            title: const Text('Email notifications'),
+            subtitle: const Text(
+              'Off stops every optional email, the forum digest included. '
+              'Security email always sends.',
+            ),
             value: profile.emailNotifications,
             onChanged: (value) => _applyPreference(
               context,
@@ -499,10 +505,12 @@ class _SettingsSection extends ConsumerWidget {
             secondary: const Icon(LucideIcons.mail),
           ),
 
-          // Plant ID Notifications
+          // Inert: nothing in production sends an identification update
+          // yet, so the label promises nothing (owner decision 2026-10-12,
+          // todo 620: relabel, no "Plant ID" branding).
           SwitchListTile(
-            title: const Text('Plant ID Notifications'),
-            subtitle: const Text('Get notified about plant identifications'),
+            title: const Text('Plant identification updates'),
+            subtitle: const Text('Coming soon. Nothing is sent yet.'),
             value: profile.plantIdNotifications,
             onChanged: (value) => _applyPreference(
               context,
@@ -512,10 +520,12 @@ class _SettingsSection extends ConsumerWidget {
             secondary: const Icon(LucideIcons.leaf),
           ),
 
-          // Forum Notifications
           SwitchListTile(
-            title: const Text('Forum Notifications'),
-            subtitle: const Text('Get notified about forum activity'),
+            title: const Text('Forum notifications'),
+            subtitle: const Text(
+              'Off stops all forum push and forum email. Your forum inbox '
+              'still shows everything.',
+            ),
             value: profile.forumNotifications,
             onChanged: (value) => _applyPreference(
               context,
@@ -523,6 +533,14 @@ class _SettingsSection extends ConsumerWidget {
               () => notifier.updateProfile(forumNotifications: value),
             ),
             secondary: const Icon(LucideIcons.messagesSquare),
+          ),
+
+          const Divider(),
+
+          // Digest + per-event matrix, the same fields web Settings edits.
+          ForumNotificationSettingsCard(
+            emailOn: profile.emailNotifications,
+            forumOn: profile.forumNotifications,
           ),
 
           const Divider(),

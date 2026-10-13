@@ -1049,6 +1049,11 @@ WAGTAILFORUM_SPAM_BACKEND = config(
 # The weekly digest's signed unsubscribe link + List-Unsubscribe headers
 # (todo 416): the package asks the host to mint them.
 WAGTAILFORUM_DIGEST_UNSUBSCRIBE = "apps.users.email_unsubscribe.digest_unsubscribe"
+# The account-wide master switches gate the digest too (todo 620): either
+# User.email_notifications or User.forum_notifications off means no digest.
+WAGTAILFORUM_DIGEST_RECIPIENT_FILTER = (
+    "apps.users.notification_policy.digest_recipient_filter"
+)
 # This API's own public origin (e.g. https://api.houseplant-md.com). SITE_URL
 # is the WEB app's. Set, every list email carries an RFC 8058 one-click
 # List-Unsubscribe URL on this origin plus List-Unsubscribe-Post; unset, the

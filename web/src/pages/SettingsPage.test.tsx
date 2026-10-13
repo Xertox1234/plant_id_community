@@ -5,11 +5,14 @@ import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import { ThemeProvider } from '../contexts/ThemeContext';
 import SettingsPage, {
+  AccountNotificationSwitchesSection,
   EmailDigestSection,
   NotificationPreferencesSection,
   MyForumImagesSection,
 } from './SettingsPage';
 import * as forumService from '../services/forumService';
+import * as profileService from '../services/profileService';
+import type { UserProfile } from '../types/auth';
 import type {
   ForumMyProfile,
   NotificationChannel,
@@ -18,6 +21,22 @@ import type {
 } from '../types/forum';
 
 vi.mock('../services/forumService');
+vi.mock('../services/profileService');
+
+// GET /auth/user/ as the account-wide switches section reads it (todo 620).
+const accountProfile: UserProfile = {
+  id: 1,
+  username: 'jane',
+  email: 'jane@example.com',
+  first_name: 'Jane',
+  last_name: 'Doe',
+  display_name: 'Jane Doe',
+  bio: '',
+  location: '',
+  website: '',
+  email_notifications: true,
+  forum_notifications: true,
+};
 
 // MyForumImagesSection (todo 374) renders on the settings page, so EVERY
 // whole-page test now hits listMyForumImages. `mockReset: true` wipes values
@@ -28,6 +47,9 @@ beforeEach(() => {
     items: [],
     meta: { count: 0, next: null, previous: null },
   });
+  // The account-wide switches section (todo 620) also renders on every
+  // whole-page test.
+  vi.mocked(profileService.fetchProfile).mockResolvedValue({ ...accountProfile });
 });
 
 // The resolved matrix as the API sends it (todo 343): ONLY the cells with a
@@ -98,6 +120,7 @@ const renderPageSettled = async () => {
   expect(await screen.findByLabelText('Frequency')).toHaveValue('off');
   expect(await screen.findByRole('checkbox', { name: 'Push for Mentions' })).toBeInTheDocument();
   expect(await screen.findByTestId('forum-images-empty')).toBeInTheDocument();
+  expect(await screen.findByRole('switch', { name: /^Email notifications/ })).toBeChecked();
 };
 
 describe('SettingsPage theme controls', () => {
@@ -914,5 +937,105 @@ describe('MyForumImagesSection (todo 374)', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Load more/i }));
     expect(await screen.findByText('nope')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^Delete photo/ })).toHaveLength(1);
+  });
+});
+
+describe('AccountNotificationSwitchesSection (todo 620)', () => {
+  const emailSwitch = () => screen.findByRole('switch', { name: /^Email notifications/ });
+  const forumSwitch = () => screen.findByRole('switch', { name: /^Forum notifications/ });
+
+  it('shows both master switches as stored, with what "off" does', async () => {
+    vi.mocked(profileService.fetchProfile).mockResolvedValue({
+      ...accountProfile,
+      forum_notifications: false,
+    });
+
+    render(<AccountNotificationSwitchesSection />);
+
+    expect(await emailSwitch()).toBeChecked();
+    expect(await forumSwitch()).not.toBeChecked();
+    expect(screen.getByText(/the weekly digest included/)).toBeInTheDocument();
+    expect(screen.getByText(/Security email .* always sends/)).toBeInTheDocument();
+    // A master switch off explains why the choices below may not deliver.
+    expect(screen.getByText(/some of the choices below will not be delivered/)).toBeInTheDocument();
+  });
+
+  it('saves only the toggled field and announces "Saved"', async () => {
+    vi.mocked(profileService.updateProfile).mockResolvedValue({
+      ...accountProfile,
+      email_notifications: false,
+    });
+    const { container } = render(<AccountNotificationSwitchesSection />);
+    const region = container.querySelector('#account-switches-status');
+    expect(region).not.toBeNull();
+
+    await userEvent.click(await emailSwitch());
+
+    await waitFor(() =>
+      expect(profileService.updateProfile).toHaveBeenCalledWith({ email_notifications: false })
+    );
+    await waitFor(() => expect(region).toHaveTextContent('Saved'));
+    expect(container.querySelector('#account-switches-status')).toBe(region);
+    expect(await emailSwitch()).not.toBeChecked();
+    expect(await emailSwitch()).toBeEnabled();
+    expect(await emailSwitch()).toHaveFocus();
+  });
+
+  it('reverts to the last saved value and shows the error when the save fails', async () => {
+    vi.mocked(profileService.updateProfile).mockRejectedValue(new Error('Server unavailable'));
+
+    render(<AccountNotificationSwitchesSection />);
+    await userEvent.click(await forumSwitch());
+
+    expect(await screen.findByText('Server unavailable')).toBeInTheDocument();
+    expect(await forumSwitch()).toBeChecked(); // back to the stored value
+    expect(await forumSwitch()).toBeEnabled();
+  });
+
+  it('shows the persisted value after a reload, whichever client changed it', async () => {
+    // Saved off here, then the page is reloaded: the server's state wins.
+    vi.mocked(profileService.updateProfile).mockResolvedValue({
+      ...accountProfile,
+      forum_notifications: false,
+    });
+    const first = render(<AccountNotificationSwitchesSection />);
+    await userEvent.click(await forumSwitch());
+    await waitFor(() => expect(profileService.updateProfile).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    vi.mocked(profileService.fetchProfile).mockResolvedValue({
+      ...accountProfile,
+      forum_notifications: false,
+    });
+    const second = render(<AccountNotificationSwitchesSection />);
+    expect(await forumSwitch()).not.toBeChecked();
+    second.unmount();
+
+    // Mobile turned it back on meanwhile; the next load shows that.
+    vi.mocked(profileService.fetchProfile).mockResolvedValue({ ...accountProfile });
+    render(<AccountNotificationSwitchesSection />);
+    expect(await forumSwitch()).toBeChecked();
+  });
+
+  it('a backend without the fields is a load problem with Retry, not a guessed switch', async () => {
+    const { email_notifications: _e, forum_notifications: _f, ...legacy } = accountProfile;
+    vi.mocked(profileService.fetchProfile).mockResolvedValueOnce(legacy);
+
+    render(<AccountNotificationSwitchesSection />);
+
+    expect(await screen.findByText('Account switches are not available yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('switch')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await emailSwitch()).toBeChecked();
+  });
+
+  it('a failed load offers Retry', async () => {
+    vi.mocked(profileService.fetchProfile).mockRejectedValueOnce(new Error('Offline'));
+
+    render(<AccountNotificationSwitchesSection />);
+
+    expect(await screen.findByText('Offline')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await forumSwitch()).toBeChecked();
   });
 });

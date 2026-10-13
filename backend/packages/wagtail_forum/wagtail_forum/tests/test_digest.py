@@ -1274,3 +1274,64 @@ def test_an_account_change_between_the_claim_and_the_read_gives_the_claim_back(
     assert "sent=0 failed=0" in out.getvalue()
     profile.refresh_from_db()
     assert profile.last_digest_sent_at is None  # the claim was given back
+
+
+def only_accounts_named_ok():
+    """A host DIGEST_RECIPIENT_FILTER for the tests below (todo 620)."""
+    from django.db.models import Q
+
+    return Q(username__startswith="dg-ok")
+
+
+_FILTER = "wagtail_forum.tests.test_digest.only_accounts_named_ok"
+
+
+@pytest.mark.django_db
+@override_settings(WAGTAILFORUM_DIGEST_RECIPIENT_FILTER=_FILTER)
+def test_digest_recipients_apply_the_host_recipient_filter():
+    """Todo 620: the host's account-wide policy (a master email switch) holds
+    back an opted-in member the package alone would mail."""
+    from wagtail_forum.digest import digest_recipients
+
+    kept = _opt_in(User.objects.create_user(username="dg-ok-1", email="a@x.test"))
+    _opt_in(User.objects.create_user(username="dg-held", email="b@x.test"))
+
+    assert list(digest_recipients(DigestFrequency.WEEKLY)) == [kept]
+
+
+@pytest.mark.django_db
+@override_settings(WAGTAILFORUM_DIGEST_RECIPIENT_FILTER=None)
+def test_digest_recipients_without_a_host_filter_keep_every_opted_in_account():
+    from wagtail_forum.digest import digest_recipients
+
+    a = _opt_in(User.objects.create_user(username="dg-ok-2", email="a@x.test"))
+    b = _opt_in(User.objects.create_user(username="dg-free", email="b@x.test"))
+
+    assert list(digest_recipients(DigestFrequency.WEEKLY)) == [a, b]
+
+
+@pytest.mark.django_db
+@override_settings(
+    SITE_URL="https://forum.example",
+    WAGTAILFORUM_DIGEST_UNSUBSCRIBE=None,
+    WAGTAILFORUM_DIGEST_RECIPIENT_FILTER=_FILTER,
+)
+def test_a_member_the_host_filter_drops_mid_run_is_not_claimed_or_mailed(
+    monkeypatch,
+):
+    """Todo 620: the claim rechecks the host filter too, so a member who
+    switches email off after the chunk was read is not mailed."""
+    member = User.objects.create_user(username="dg-ok-late", email="late@x.test")
+    profile = _opt_in(member)
+    sent = _patches_with_a_mid_run_change(
+        monkeypatch,
+        lambda user: User.objects.filter(pk=user.pk).update(username="dg-now-off"),
+    )
+
+    out = StringIO()
+    call_command("send_forum_digest", frequency="weekly", stdout=out)
+
+    assert sent == []
+    assert "sent=0 failed=0" in out.getvalue()
+    profile.refresh_from_db()
+    assert profile.last_digest_sent_at is None

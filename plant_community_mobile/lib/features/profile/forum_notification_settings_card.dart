@@ -1,0 +1,222 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../forum/models/models.dart';
+import '../forum/services/forum_api.dart';
+
+/// The forum digest and per-event push/email choices (todo 620), the same
+/// fields web Settings edits through the same endpoint, so the two clients
+/// always show one set of choices (docs/notifications-policy.md).
+///
+/// The account-wide switches above it ([emailOn], [forumOn]) are master
+/// switches: off holds these choices back without rewriting them, and this
+/// card says so instead of showing switches that would not deliver.
+class ForumNotificationSettingsCard extends ConsumerStatefulWidget {
+  const ForumNotificationSettingsCard({
+    super.key,
+    required this.emailOn,
+    required this.forumOn,
+  });
+
+  final bool emailOn;
+  final bool forumOn;
+
+  @override
+  ConsumerState<ForumNotificationSettingsCard> createState() =>
+      _ForumNotificationSettingsCardState();
+}
+
+/// Row labels, in display order; they match web Settings.
+const forumNotificationVerbLabels = <String, String>{
+  'reply': 'Replies to topics you follow',
+  'mention': 'Mentions',
+  'quote': 'Quotes of your posts',
+  'solution': 'Answer accepted',
+};
+
+const forumNotificationChannelLabels = <String, String>{
+  'push': 'Push',
+  'email': 'Email',
+};
+
+class _ForumNotificationSettingsCardState
+    extends ConsumerState<ForumNotificationSettingsCard> {
+  ForumNotificationSettings? _settings;
+  Object? _loadError;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  void _retry() {
+    setState(() {
+      _loadError = null;
+      _settings = null;
+    });
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final settings = await ref
+          .read(forumApiProvider)
+          .fetchNotificationSettings();
+      if (mounted) setState(() => _settings = settings);
+    } catch (e) {
+      if (mounted) setState(() => _loadError = e);
+    }
+  }
+
+  /// Optimistic: show [optimistic] while the PATCH is in flight, then the
+  /// server's answer; on failure, the last SAVED settings and a snackbar.
+  Future<void> _save(
+    ForumNotificationSettings optimistic,
+    Future<ForumNotificationSettings> Function(ForumApi api) send,
+  ) async {
+    final previous = _settings;
+    if (_saving || previous == null) return;
+    setState(() {
+      _saving = true;
+      _settings = optimistic;
+    });
+    try {
+      final saved = await send(ref.read(forumApiProvider));
+      if (mounted) setState(() => _settings = saved);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _settings = previous);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save notification settings: $e'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _setDigest(bool on) {
+    final settings = _settings;
+    if (settings == null) return;
+    final frequency = on
+        ? ForumNotificationSettings.digestWeekly
+        : ForumNotificationSettings.digestOff;
+    _save(
+      settings.withDigest(frequency),
+      (api) => api.updateNotificationSettings(digestFrequency: frequency),
+    );
+  }
+
+  void _setCell(String verb, String channel, bool value) {
+    final settings = _settings;
+    if (settings == null) return;
+    _save(
+      settings.withCell(verb, channel, value),
+      (api) => api.updateNotificationSettings(
+        preferences: {
+          verb: {channel: value},
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final settings = _settings;
+    final children = <Widget>[
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Text(
+          'Forum notifications by event',
+          style: theme.textTheme.titleSmall,
+        ),
+      ),
+      if (!widget.forumOn)
+        _Note(
+          'Forum notifications are off, so none of these are sent. '
+          'They are kept as you set them.',
+        )
+      else if (!widget.emailOn)
+        _Note(
+          'Email notifications are off, so the digest and email choices '
+          'are not sent. They are kept as you set them.',
+        ),
+    ];
+
+    if (settings == null) {
+      final error = _loadError;
+      children.add(
+        error == null
+            ? const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Loading notification settings…'),
+              )
+            : ListTile(
+                title: const Text('Could not load notification settings'),
+                subtitle: Text('$error'),
+                trailing: TextButton(
+                  onPressed: _retry,
+                  child: const Text('Retry'),
+                ),
+              ),
+      );
+    } else {
+      children.add(
+        SwitchListTile(
+          title: const Text('Weekly forum digest'),
+          subtitle: const Text(
+            'An email of new replies on topics you follow and active topics',
+          ),
+          value: settings.digestOn,
+          onChanged: _saving ? null : _setDigest,
+        ),
+      );
+      for (final verb in forumNotificationVerbLabels.entries) {
+        for (final channel in forumNotificationChannelLabels.entries) {
+          final value = settings.cell(verb.key, channel.key);
+          // No such cell: the channel has no delivery path for this event.
+          if (value == null) continue;
+          children.add(
+            SwitchListTile(
+              title: Text('${verb.value}: ${channel.value}'),
+              value: value,
+              onChanged: _saving
+                  ? null
+                  : (on) => _setCell(verb.key, channel.key, on),
+            ),
+          );
+        }
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
+    );
+  }
+}
+
+class _Note extends StatelessWidget {
+  const _Note(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Text(
+        text,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}

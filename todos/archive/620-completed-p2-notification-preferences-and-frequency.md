@@ -1,0 +1,130 @@
+---
+status: completed
+priority: p2
+issue_id: "620"
+tags: [backend, web, mobile, notifications, preferences, product]
+dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Owner: policy matrix + web/mobile parity only; important-event email and quiet hours/coalescing re-pointed to todo 624 (2026-10-12). Owner: keep User.email_notifications/forum_notifications as master switches shown on web AND mobile; off = no optional email (digest included) / no forum push; security mail exempt; per-event matrix applies beneath; no data migration (2026-10-12). Owner: relabel the inert Plant ID switch, not remove or build a trigger; 'Plant ID' is no longer the app's name (it is Houseplant MD), so the label must not use 'Plant ID' branding — describe it as plant identification updates, coming soon (2026-10-12)"
+---
+
+# Make notification choices consistent and reduce avoidable noise
+
+## Problem
+
+Mobile's broad switches and web's event/channel matrix control different fields, so an enabled choice can still be suppressed and a broadly worded email opt-out does not stop every optional email. Users also lack quiet-hour/frequency controls, while important mentions or accepted answers have no immediate email channel.
+
+## Findings
+
+Source: Devin's read-only email/notification audit and backlog comparison, 2026-10-12; source inspection, not a production user study.
+
+- `plant_community_mobile/lib/features/profile/profile_screen.dart:489-525` edits `User.email_notifications`, `plant_id_notifications` and `forum_notifications`. `web/src/pages/SettingsPage.tsx:91-230,234-507` edits `ForumProfile.digest_frequency` and `notification_preferences`; it does not expose the same broad flags.
+- `backend/apps/core/services/email_service.py:287-322` consults broad flags, but `backend/packages/wagtail_forum/wagtail_forum/digest.py:117-124` selects by digest opt-in and account state without those flags. Newsletter consent is independently stored in BlogNewsletter. A single ambiguous "Email Notifications" label does not explain these differences.
+- `backend/apps/users/email_unsubscribe.py:7-11` and archived todo 408 explicitly note that the web UI cannot re-enable the broad email flag. Archived 343 delivered the web matrix, not mobile parity.
+- `backend/apps/forum_host/notifications.py:212-225,264-301` excludes mentioned/quoted members from reply-email recipients. `backend/packages/wagtail_forum/wagtail_forum/preferences.py:33-38` provides email only for replies, leaving important-event email unavailable even to members without push.
+- The audited forum dispatch/task paths send per-reply external notifications without quiet hours or recipient/topic coalescing. Digests are a separate opt-in, not an automatic replacement for immediate email.
+- `backend/apps/core/services/notification_service.py:326-354` has an identification-result helper, but the audit reference search found only its definition and a test call, not a production caller. Mobile's Plant ID Notifications switch should not imply a verified delivery feature without tracing the live path.
+
+## Recommended Action
+
+1. Agree and record a channel/event policy: required security mail versus optional activity email, independent newsletter consent, digest cadence and legacy master-switch precedence. Preserve existing opt-outs; do not silently subscribe users during migration.
+2. Expose consistent effective settings in web and mobile, including digest/per-event choices and an explanation when a master flag or OS permission prevents delivery. Either retire legacy flags safely or expose their real effect in both clients.
+3. Make reply/mention/quote/accepted-answer email an explicit product decision. Recommended: optional important-event email with deduplication so a mentioned subscriber receives one appropriate message, not duplicate messages or an accidental loss of the enabled reply channel.
+4. Define quiet hours, timezone handling, frequency/coalescing and read-before-send suppression. Keep security mail exempt and the persistent in-app inbox available. Choose concrete defaults with the owner before rollout.
+5. Trace Plant ID notification triggers; implement a justified live path or remove/relabel the inert switch with owner approval. Do not build a new channel merely because a legacy helper exists.
+
+## Technical Details
+
+Relevant models: `backend/apps/users/models.py:182-199`, ForumProfile, and BlogNewsletter. Frontends: SettingsPage, mobile profile/settings screens and `plant_community_mobile/lib/services/user_profile_service.dart`.
+
+Read `web/docs/patterns/react-typescript.md`, `web/docs/patterns/testing.md`, and `plant_community_mobile/docs/patterns/riverpod.md`. Existing signed unsubscribe links must keep working. Todo 430 only removes the orphaned subscription model; it does not solve this preference hierarchy. Mobile device permission/registration diagnostics belong to todo 621.
+
+## Acceptance Criteria
+
+- [x] A recorded policy matrix defines effective opt-in for every live email/push event, security-mail exceptions, newsletter independence and legacy flag precedence; owner decisions on new channels/frequency defaults are recorded before implementation.
+- [x] Web and mobile show and update the same effective forum email/push and digest choices. Tests cover mobile-off/web-on and web-off/mobile-on sequences, failed saves, and persisted state after reload.
+- [x] Tests prove broad opt-outs, digest/newsletter choices and signed unsubscribe actions follow the documented policy; any migration preserves prior opt-outs and requires no manual user repair.
+- [ ] Mention/quote/accepted-answer email and mentioned-subscriber behavior are explicitly decided; approved channels are implemented and tested for missing push registration, deduplication and unsubscribe. Any declined channel has a dated reason, not an untracked deferral. → todo 624 (re-pointed 2026-10-12)
+- [ ] Approved quiet-hour/frequency behavior is implemented and tested across timezones/DST, rapid replies, read-before-send, preference changes while waiting, and security-mail exemptions. Any declined option has a dated owner decision. → todo 624 (re-pointed 2026-10-12)
+- [x] Plant ID notification switch behavior is backed by a live trigger test or is removed/relabelled under a recorded decision; a test-only sender is not evidence of a shipped feature.
+- [x] Relevant backend preference/unsubscribe tests, web settings tests and type-check, and mobile preference tests/analyze pass.
+
+## Work Log
+
+### 2026-10-12 - Created from read-only audit
+
+- Grouped cross-platform settings, optional important-event email and notification-fatigue improvements into one user-policy initiative.
+- Archived 343/408 were checked: related mechanisms shipped, but no active todo covers this consistency work. No product defaults or application code changed during filing.
+
+### 2026-10-12 - Triage split (run 2026-10-12-1616)
+
+- Owner decision at triage: policy matrix + web/mobile parity ship here; important-event email (AC4) and quiet hours/coalescing (AC5) re-pointed to [todo 624](624-pending-p2-important-event-email-and-quiet-hours.md). Plant ID switch: relabel.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-1700)
+
+- Recorded the channel/event policy in `docs/notifications-policy.md`: switch precedence (security mail exempt, then `email_notifications`, `forum_notifications`, the per-event matrix and digest cadence), the effective opt-in for every live email/push event, newsletter independence, unsubscribe scope and the dated owner decisions.
+- The forum digest now honours both master switches: new package setting `WAGTAILFORUM_DIGEST_RECIPIENT_FILTER`, applied when the run selects recipients and again at the per-member claim; the host points it at `apps/users/notification_policy.py`. No data migration; stored choices are never rewritten.
+- Web Settings gains an "Account-wide switches" section (email / forum master switches via `/auth/user/update/`), with what "off" does and a note when a switch holds the choices below back.
+- Mobile Profile gains the digest and per-event push/email choices (`forum/me/profile/`, `ForumNotificationSettingsCard`); the master switches say what they do, and the inert Plant ID switch is relabelled "Plant identification updates, coming soon" with no "Plant ID" branding.
+- Tests: `apps/users/tests/test_notification_policy.py` (cross-client sequences on both endpoints, master opt-outs, security exemption, digest, newsletter), package digest filter tests, web `SettingsPage.test.tsx`, mobile card and profile screen tests.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-1700)
+
+- AC 1: `cat docs/notifications-policy.md` — evidence `.sweep-evidence/g1/620-ac0.txt` (not committed), last lines:
+
+  ```text
+    Houseplant MD); it describes plant identification updates, coming soon.
+  - Implementation reading (todo 620): `forum_notifications` off also stops
+    forum email, the digest included. That was already true of reply email
+    (`EmailService` maps `FORUM_REPLY` and `FORUM_DIGEST` to it); the digest
+    now matches.
+  ```
+
+- AC 2: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 1 -- venv/bin/python -m pytest apps/users/tests/test_notification_policy.py -k 'round_trip or mobile_off or never_rewrites' -v --create-db -p no:cacheprovider && cd ../web && npx vitest run src/pages/SettingsPage.test.tsx && cd ../plant_community_mobile && flutter test test/features/profile/forum_notification_settings_card_test.dart test/features/profile/profile_screen_test.dart` — evidence `.sweep-evidence/g1/620-ac1.txt` (not committed), last lines:
+
+  ```text
+  00:00 +9: plant_community_mobile/test/features/profile/profile_screen_test.dart: the pencil opens the edit-profile screen (todo 455)
+  00:00 +10: plant_community_mobile/test/features/profile/profile_screen_test.dart: the pencil opens the edit-profile screen (todo 455)
+  00:00 +11: plant_community_mobile/test/features/profile/forum_notification_settings_card_test.dart: says when a master switch holds these choices back
+  00:00 +12: plant_community_mobile/test/features/profile/profile_screen_test.dart: notification switches say what they do (todo 620)
+  00:00 +13: All tests passed!
+  ```
+
+- AC 3: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 1 -- venv/bin/python -m pytest apps/users/tests/test_notification_policy.py apps/users/tests/test_email_unsubscribe.py packages/wagtail_forum/wagtail_forum/tests/test_digest.py apps/forum_host/tests/test_notification_preferences.py -v --create-db -p no:cacheprovider` — evidence `.sweep-evidence/g1/620-ac2.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================= 107 passed, 3 warnings in 21.54s =======================
+  ```
+
+- AC 6: `grep -rn "Plant identification updates\|Coming soon. Nothing is sent yet.\|Plant ID" plant_community_mobile/lib/features/profile/profile_screen.dart docs/notifications-policy.md && grep -rn "send_identification_result_notification" backend/apps && cd plant_community_mobile && flutter test test/features/profile/profile_screen_test.dart` — evidence `.sweep-evidence/g1/620-ac5.txt` (not committed), last lines:
+
+  ```text
+  00:00 +1: renders profile data without crashing
+  00:00 +2: signed out it offers sign-in instead of a failed fetch
+  00:00 +3: the pencil opens the edit-profile screen (todo 455)
+  00:00 +4: notification switches say what they do (todo 620)
+  00:00 +5: All tests passed!
+  ```
+
+- AC 7: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 1 -- venv/bin/python -m pytest apps/users apps/forum_host/tests/test_notification_preferences.py apps/forum_host/tests/test_tasks.py packages/wagtail_forum/wagtail_forum/tests/test_digest.py packages/wagtail_forum/wagtail_forum/tests/test_docs.py apps/core/tests -q --create-db -p no:cacheprovider && cd ../web && npx vitest run src/pages/SettingsPage.test.tsx src/services/profileService.test.ts src/pages/ProfilePage.test.tsx && npm run type-check && cd ../plant_community_mobile && flutter test test/features/profile test/services/user_profile_service_test.dart && flutter analyze` — evidence `.sweep-evidence/g1/620-ac6.txt` (not committed), last lines:
+
+  ```text
+  Got dependencies!
+  141 packages have newer versions incompatible with dependency constraints.
+  Try `flutter pub outdated` for more information.
+  Analyzing plant_community_mobile...
+  No issues found! (ran in 2.1s)
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-1700)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+## Notes
+
+P2 because the controls can misrepresent actual delivery. New notification channels and quiet hours are product choices, not claims of existing incidents. Care reminders stay FCM-only and retain the 24-hour lookback unless the owner separately revisits archived 410's decisions. No inferred owner decision has been added to frontmatter.
