@@ -46,7 +46,7 @@ Events acted on: `email.delivered`, `email.bounced`, `email.complained`,
 ## Suppression policy
 
 | Provider says | Effect |
-|---|---|
+| --- | --- |
 | `email.bounced` with `bounce.type = Permanent` | The address gets **no mail** at all |
 | `email.suppressed` (on Resend's own suppression list) | Same as a permanent bounce |
 | `email.complained` (marked as spam) | The address gets **no optional mail**. Account mail still goes |
@@ -56,24 +56,34 @@ Events acted on: `email.delivered`, `email.bounced`, `email.complained`,
   newsletter. **Account mail** means verification, password reset and sign-in
   notices, account lockout and newsletter confirmation.
 - A suppression is keyed by a SHA-256 of the normalized address, so it outlives the
-  account without keeping the address. A later event can only strengthen it
+  account without keeping the address. That hash is a pseudonym, not anonymity:
+  anyone who holds a list of addresses can hash it and test it against the table. It
+  is deliberately not keyed (an HMAC on `SECRET_KEY`), because rotating that key would
+  silently lift every suppression. A later event can only strengthen it
   (complaint to hard bounce), never weaken it. Staff lift one by deleting its
   `EmailSuppression` row. An account that changes its address is not affected.
 - **Where it applies.** `EmailService.send_email` and `send_transactional_email`
   check before sending and report `EmailOutcome.SUPPRESSED`, a terminal outcome the
-  forum outbox does not retry. The account-mail tasks (`apps/users/tasks.py`) mark
+  forum outbox does not retry and records as `address_suppressed`, not
+  `preference_off`. The account-mail tasks (`apps/users/tasks.py`) mark
   their outbox row `suppressed` / `address_suppressed` and do not retry. The SMTP
   backend (`ConfiguredSMTPBackend`) also removes suppressed recipients from every
   message, which covers the paths that never ask. That backstop treats a message
   that carries `List-Unsubscribe` as optional mail, because that header is on exactly
-  the optional families.
+  the optional families. Where the backstop drops every recipient, `send()` returns
+  0: `send_email` and `send_transactional_email` report that as not sent. The forum
+  digest and the blog newsletter and confirmation do not read that count yet. They
+  log the send and keep their claim, so a suppressed member is skipped until the next
+  run and is not retried. Their logs can therefore say "sent" for a message the
+  backstop dropped.
 - **Fails open.** If the suppression lookup hits a database error, the message is
   sent: Resend still drops a suppressed address, and account mail is not lost during
   an outage.
 - **Account-security controls are unchanged.** Suppression only stops the send.
   The verification allowance is still charged, the address stays unverified, a
   lockout is still enforced, tokens are still issued, and every anti-enumeration
-  response is the same. A suppressed send is never recorded as sent.
+  response is the same. On the `send_email`, `send_transactional_email` and
+  account-task paths, a suppressed send is never recorded as sent.
 
 ## Click attribution and opens
 
@@ -84,7 +94,11 @@ account.
 - **Opens are not collected.** The unused `track_opens` parameter, the
   `opened_at`/`open_count` fields, the `opened` status and `mark_opened` were removed
   (migration `core.0009`). The unused `clicked_at`/`click_count`/`mark_clicked`
-  moved to `EmailClick`.
+  moved to `EmailClick`. The model has dropped the four fields, but `core.0009` keeps
+  their columns, with a database default of 0 on the two counters, so a worker still
+  running the previous release can insert during the rollout. A follow-up migration
+  drops the columns. Any row that was left `opened` or `clicked` goes back to
+  `sent`.
 - **Links tracked.** Only the forum notification emails' content links
   (`post_url`, `topic_url`; `EMAIL_TRACKED_LINK_KEYS`), in both the HTML and text
   parts. Never an unsubscribe link, the List-Unsubscribe header, the settings link

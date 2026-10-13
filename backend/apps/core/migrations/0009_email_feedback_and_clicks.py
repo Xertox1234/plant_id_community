@@ -6,6 +6,13 @@ from django.conf import settings
 from django.db import migrations, models
 
 
+def _untrack_opened_and_clicked(apps, schema_editor):
+    EmailNotification = apps.get_model("core", "EmailNotification")
+    EmailNotification.objects.filter(status__in=["opened", "clicked"]).update(
+        status="sent"
+    )
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -45,21 +52,40 @@ class Migration(migrations.Migration):
                 ("updated_at", models.DateTimeField(auto_now=True)),
             ],
         ),
-        migrations.RemoveField(
-            model_name="emailnotification",
-            name="click_count",
-        ),
-        migrations.RemoveField(
-            model_name="emailnotification",
-            name="clicked_at",
-        ),
-        migrations.RemoveField(
-            model_name="emailnotification",
-            name="open_count",
-        ),
-        migrations.RemoveField(
-            model_name="emailnotification",
-            name="opened_at",
+        # Deploy-safe removal of the open/click fields (review round 1, PR
+        # #1133): the model forgets them now, but the columns stay, so a
+        # worker still running the previous release (which writes all four)
+        # keeps inserting during the rollout. The two NOT NULL counters get a
+        # database default of 0, so this release's inserts, which no longer
+        # name them, succeed too. A follow-up migration drops the columns
+        # once no previous-release worker can be running.
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.AlterField(
+                    model_name="emailnotification",
+                    name="open_count",
+                    field=models.PositiveIntegerField(default=0, db_default=0),
+                ),
+                migrations.AlterField(
+                    model_name="emailnotification",
+                    name="click_count",
+                    field=models.PositiveIntegerField(default=0, db_default=0),
+                ),
+            ],
+            state_operations=[
+                migrations.RemoveField(
+                    model_name="emailnotification", name="click_count"
+                ),
+                migrations.RemoveField(
+                    model_name="emailnotification", name="clicked_at"
+                ),
+                migrations.RemoveField(
+                    model_name="emailnotification", name="open_count"
+                ),
+                migrations.RemoveField(
+                    model_name="emailnotification", name="opened_at"
+                ),
+            ],
         ),
         migrations.AddField(
             model_name="emailnotification",
@@ -74,17 +100,25 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="emailnotification",
             name="message_id",
+            # db_default: a previous-release worker inserts without this
+            # column during the rollout.
             field=models.CharField(
-                blank=True, db_index=True, default="", max_length=255
+                blank=True, db_default="", db_index=True, default="", max_length=255
             ),
         ),
         migrations.AddField(
             model_name="emailnotification",
             name="provider_email_id",
+            # db_default: a previous-release worker inserts without this
+            # column during the rollout.
             field=models.CharField(
-                blank=True, db_index=True, default="", max_length=64
+                blank=True, db_default="", db_index=True, default="", max_length=64
             ),
         ),
+        # Opens and clicks are no longer statuses: a row the old pixel or
+        # click tracking moved to "opened" or "clicked" had been sent, and
+        # nothing says it was delivered, so it goes back to "sent".
+        migrations.RunPython(_untrack_opened_and_clicked, migrations.RunPython.noop),
         migrations.AlterField(
             model_name="emailnotification",
             name="status",

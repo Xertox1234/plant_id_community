@@ -116,6 +116,12 @@ class EmailOutcome:
     TRANSIENT = "transient"
 
 
+# ``EmailService.last_suppression_reason``: why a send was SUPPRESSED, in the
+# outbox's own words (``DeliveryIntent.last_error``).
+SUPPRESSED_PREFERENCE = "preference_off"
+SUPPRESSED_ADDRESS = "address_suppressed"
+
+
 def classify_send_error(exc: BaseException) -> str:
     """PERMANENT only when this message or its recipient was refused with a
     5xx: every recipient refused with one, or a 5xx reply to the message
@@ -197,6 +203,9 @@ class EmailService:
         self.site_name = getattr(settings, "SITE_NAME", "Houseplant MD")
         # The EmailOutcome of the last send_email call (todo 619).
         self.last_outcome: Optional[str] = None
+        # Why it was SUPPRESSED, for an outbox to record (todo 625):
+        # SUPPRESSED_PREFERENCE or SUPPRESSED_ADDRESS, else None.
+        self.last_suppression_reason: Optional[str] = None
 
     def send_email(
         self,
@@ -234,6 +243,7 @@ class EmailService:
             ``self.last_outcome`` (an ``EmailOutcome``).
         """
         self.last_outcome = None
+        self.last_suppression_reason = None
         # Normalize recipient
         if isinstance(recipient, User):
             user = recipient
@@ -255,6 +265,7 @@ class EmailService:
                 f"[EMAIL] Email {email_type} skipped for {log_safe_email(recipient_email)} due to user preferences"
             )
             self.last_outcome = EmailOutcome.SUPPRESSED
+            self.last_suppression_reason = SUPPRESSED_PREFERENCE
             return False
 
         # The provider reported this address as undeliverable, or its owner
@@ -267,6 +278,7 @@ class EmailService:
                 "not sent: the address is suppressed"
             )
             self.last_outcome = EmailOutcome.SUPPRESSED
+            self.last_suppression_reason = SUPPRESSED_ADDRESS
             return False
 
         # The row's uuid exists before the send: it names the click redirects
@@ -550,7 +562,9 @@ class EmailService:
         """The RFC 5322 Message-ID for a tracked email, on the sender's own
         domain, so Resend's ``data.message_id`` names the row (todo 625)."""
         sender = parseaddr(from_email or self.from_email)[1]
-        domain = sender.rpartition("@")[2] or "localhost"
+        # Lowercased: the feedback lookup compares a normalized id
+        # (``email_feedback.normalize_message_id``).
+        domain = sender.rpartition("@")[2].lower() or "localhost"
         return f"<hpmd.{notification_uuid.hex}@{domain}>"
 
     def _track_email_sent(
@@ -614,25 +628,39 @@ class EmailService:
         # Account mail: only a hard bounce holds it back (todo 625). The
         # caller's flow (tokens, allowance, its response) is unchanged.
         self.last_outcome = None
+        self.last_suppression_reason = None
         if email_feedback.is_suppressed(recipient_email, optional=False):
             logger.info(
                 f"[EMAIL] Transactional email to {log_safe_email(recipient_email)} "
                 "not sent: the address is suppressed"
             )
             self.last_outcome = EmailOutcome.SUPPRESSED
+            self.last_suppression_reason = SUPPRESSED_ADDRESS
             return False
 
         try:
-            send_mail(
+            sent_count = send_mail(
                 subject=subject,
                 message=message,
                 from_email=self.from_email,
                 recipient_list=[recipient_email],
                 html_message=html_message,
             )
+            if not sent_count:
+                # The mail backend's suppression backstop dropped the only
+                # recipient (an address suppressed after the check above),
+                # or there was no address: not a send (todo 625).
+                logger.warning(
+                    f"[EMAIL] Transactional email to {log_safe_email(recipient_email)} "
+                    "reached 0 recipients — not marking as sent"
+                )
+                self.last_outcome = EmailOutcome.SUPPRESSED
+                self.last_suppression_reason = SUPPRESSED_ADDRESS
+                return False
             logger.info(
                 f"[EMAIL] Transactional email sent to {log_safe_email(recipient_email)}"
             )
+            self.last_outcome = EmailOutcome.SENT
             return True
         except Warning:
             # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)

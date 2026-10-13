@@ -163,16 +163,20 @@ def address_hash(address: str) -> str:
 
 
 def blocked_reasons(addresses: Iterable[str]) -> dict[str, str]:
-    """{address: reason} for each suppressed address in ``addresses``."""
+    """{address hash: reason} for each suppressed address in ``addresses``.
+    Keyed by hash, not by spelling: every spelling of one address ("Bob
+    <b@x>", "B@X") must find the same row, so callers look up
+    ``address_hash(address)``."""
     from .models import EmailSuppression
 
-    by_hash = {address_hash(a): a for a in addresses if a}
-    if not by_hash:
+    hashes = {address_hash(a) for a in addresses if a}
+    if not hashes:
         return {}
-    rows = EmailSuppression.objects.filter(address_hash__in=by_hash).values_list(
-        "address_hash", "reason"
+    return dict(
+        EmailSuppression.objects.filter(address_hash__in=hashes).values_list(
+            "address_hash", "reason"
+        )
     )
-    return {by_hash[h]: reason for h, reason in rows}
 
 
 def reason_blocks(reason: Optional[str], *, optional: bool) -> bool:
@@ -192,7 +196,7 @@ def is_suppressed(address: str, *, optional: bool) -> bool:
     if not address:
         return False
     try:
-        reason = blocked_reasons([address]).get(address)
+        reason = blocked_reasons([address]).get(address_hash(address))
     except DatabaseError as exc:
         logger.warning(f"[EMAIL] suppression lookup failed: {type(exc).__name__}")
         return False
@@ -231,12 +235,23 @@ def filter_suppressed_messages(messages):
             return [
                 a
                 for a in addresses
-                if not reason_blocks(reasons.get(a), optional=optional)
+                if not (
+                    a and reason_blocks(reasons.get(address_hash(a)), optional=optional)
+                )
             ]
 
         to, cc, bcc = keep(message.to), keep(message.cc), keep(message.bcc)
-        dropped = len(message.recipients()) - len(to) - len(cc) - len(bcc)
-        if dropped:
+        # Counted from what keep() removed, never from recipients(), which
+        # leaves out blank entries keep() passes through.
+        dropped = sum(
+            len(before) - len(after)
+            for before, after in (
+                (message.to, to),
+                (message.cc, cc),
+                (message.bcc, bcc),
+            )
+        )
+        if dropped > 0:
             logger.info(
                 f"[EMAIL] {dropped} suppressed recipient(s) removed from a message"
             )
@@ -332,11 +347,23 @@ def parse_event(payload) -> ParsedEvent:
     )
 
 
+def normalize_message_id(value: str) -> str:
+    """A Message-ID's comparable form: no surrounding whitespace or angle
+    brackets, lowercased. A provider may report it bare ("hpmd.x@domain") or
+    in another case; the stored one is ``<hpmd.x@domain>``."""
+    return (value or "").strip().strip("<>").strip().lower()
+
+
 def _find_notification(event: ParsedEvent):
     from .models import EmailNotification
 
-    if event.message_id:
-        row = EmailNotification.objects.filter(message_id=event.message_id).first()
+    bare = normalize_message_id(event.message_id)
+    if bare:
+        # Stored lowercased in its header form (EmailService._message_id), so
+        # both spellings are exact, indexed lookups.
+        row = EmailNotification.objects.filter(
+            message_id__in=[f"<{bare}>", bare]
+        ).first()
         if row is not None:
             return row
     if event.email_id:
@@ -482,7 +509,17 @@ def read_click_token(token: str) -> Optional[dict]:
 def record_click(notification_uuid: str, link: str, *, now=None) -> bool:
     """Count one click. True only for the first click on this email's
     ``link`` inside ``EMAIL_CLICK_ATTRIBUTION_DAYS`` of the send: a repeat,
-    a late click and a click on an unknown email are not counted."""
+    a late click and a click on an unknown email are not counted. Never
+    raises a database error: counting is best-effort and the reader's link
+    must always work, so an outage costs the count, never the redirect."""
+    try:
+        return _record_click(notification_uuid, link, now=now)
+    except DatabaseError as exc:
+        logger.warning(f"[EMAIL] click not recorded: {type(exc).__name__}")
+        return False
+
+
+def _record_click(notification_uuid: str, link: str, *, now=None) -> bool:
     from .models import EmailClick, EmailNotification
 
     now = now or timezone.now()

@@ -802,3 +802,231 @@ def test_opens_are_not_collected():
     assert "opened" not in dict(EmailNotification.STATUS_CHOICES)
     assert not hasattr(EmailNotification, "mark_opened")
     assert not hasattr(EmailNotification, "mark_clicked")
+
+
+# ---------------------------------------------------------------------------
+# Review round 1 (PR #1133)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("webhook_on", "no_click_tracking")
+class TestReviewRoundOne:
+    def _send(self):
+        assert EmailService().send_email(
+            email_type=EmailType.COMMUNITY_UPDATE,
+            recipient="reader@example.com",
+            subject="Hello",
+            template_name="generic_notification",
+            context={"notification_title": "Hello", "notification_message": "Hi"},
+        )
+        return (
+            EmailNotification.objects.get(),
+            mail.outbox[-1].extra_headers["Message-ID"],
+        )
+
+    @pytest.mark.parametrize(
+        "spell",
+        [
+            lambda mid: mid.strip("<>"),
+            lambda mid: f"  {mid.upper()} ",
+            lambda mid: mid.strip("<>").upper(),
+        ],
+        ids=["bracketless", "upper-spaced", "bare-upper"],
+    )
+    def test_a_message_id_is_matched_in_any_spelling(self, spell):
+        row, message_id = self._send()
+        _post(_event(EVENT_DELIVERED, message_id=spell(message_id), email_id="re-9"))
+        row.refresh_from_db()
+        assert (row.status, row.provider_email_id) == ("delivered", "re-9")
+
+    def test_the_stored_message_id_is_lowercased(self, settings):
+        settings.DEFAULT_FROM_EMAIL = "Houseplant MD <News@Example.COM>"
+        row, message_id = self._send()
+        assert message_id == row.message_id
+        assert message_id.endswith("@example.com>")
+
+    def test_every_spelling_of_a_suppressed_address_is_blocked(self, backstop):
+        _suppress("Bob@Example.com", Reason.HARD_BOUNCE)
+        message = EmailMessage(
+            "s",
+            "b",
+            "from@example.com",
+            ["bob@example.com", "Bob <BOB@example.com>", "fine@example.com"],
+        )
+        assert message.send() == 1
+        [sent] = mail.outbox
+        assert sent.to == ["fine@example.com"]
+        assert email_feedback.is_suppressed("Bob <BOB@EXAMPLE.COM>", optional=False)
+
+    def test_the_removed_count_ignores_blank_entries(self, backstop):
+        _suppress("gone@example.com", Reason.HARD_BOUNCE)
+        gone = EmailMessage("s", "b", "f@example.com", ["gone@example.com"])
+        clean = EmailMessage("s", "b", "f@example.com", ["", "fine@example.com"])
+        with patch.object(email_feedback.logger, "info") as info:
+            assert email_feedback.filter_suppressed_messages([gone, clean]) == [clean]
+        # One line, for the one address removed: never "-1" for the blank.
+        assert [c.args[0] for c in info.call_args_list] == [
+            "[EMAIL] 1 suppressed recipient(s) removed from a message"
+        ]
+
+    def test_a_transactional_send_the_backstop_drops_is_not_a_send(self, backstop):
+        # Suppressed after the service's own check: the backend drops it.
+        _suppress("late@example.com", Reason.HARD_BOUNCE)
+        service = EmailService()
+        with patch.object(email_feedback, "is_suppressed", return_value=False):
+            sent = service.send_transactional_email(
+                recipient="late@example.com", subject="s", message="m"
+            )
+        assert sent is False
+        assert (service.last_outcome, service.last_suppression_reason) == (
+            EmailOutcome.SUPPRESSED,
+            "address_suppressed",
+        )
+        assert mail.outbox == []
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("click_tracking")
+def test_a_database_error_while_counting_a_click_still_redirects():
+    from django.db import OperationalError
+
+    row = _notification()
+    url = email_feedback.click_url(row.uuid, "post_url", f"{SITE}/forum/t")
+    with patch.object(
+        EmailClick.objects, "create", side_effect=OperationalError("db down")
+    ):
+        response = APIClient().get(url.removeprefix(API))
+    assert (response.status_code, response["Location"]) == (302, f"{SITE}/forum/t")
+    assert not EmailClick.objects.exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("webhook_on")
+class TestWebhookBodyLimit:
+    def _raw(self, body, **extra):
+        return APIClient().generic(
+            "POST", WEBHOOK, body, content_type="application/json", **extra
+        )
+
+    def test_an_oversized_content_length_is_refused(self):
+        from apps.core.constants import EMAIL_WEBHOOK_MAX_BODY_BYTES
+        from django.http import HttpRequest
+
+        body = b"x" * (EMAIL_WEBHOOK_MAX_BODY_BYTES + 1)
+        with patch.object(HttpRequest, "read", wraps=None) as read:
+            response = self._raw(body)
+        assert response.status_code == 413
+        # Refused on the header alone: the body is never read.
+        read.assert_not_called()
+        assert not EmailProviderEvent.objects.exists()
+
+    def test_a_non_numeric_content_length_is_refused(self):
+        response = self._raw(b"{}", CONTENT_LENGTH="12abc")
+        assert response.status_code == 413
+        assert not EmailProviderEvent.objects.exists()
+
+    def test_a_body_with_no_length_is_read_only_up_to_the_cap(self):
+        """No Content-Length (chunked, under ASGI): the read stops one byte
+        past the cap, and that is refused before any parsing."""
+        from apps.core.constants import EMAIL_WEBHOOK_MAX_BODY_BYTES
+        from django.http import HttpRequest
+
+        oversized = b"x" * (EMAIL_WEBHOOK_MAX_BODY_BYTES + 1)
+        with patch.object(HttpRequest, "read", return_value=oversized) as read:
+            response = self._raw(b"", CONTENT_LENGTH="")
+        assert response.status_code == 413
+        read.assert_called_once_with(EMAIL_WEBHOOK_MAX_BODY_BYTES + 1)
+        assert not EmailProviderEvent.objects.exists()
+
+    def test_a_refused_signature_is_logged_below_warning(self):
+        from apps.core.api import email_feedback as api
+
+        with (
+            patch.object(api.logger, "warning") as warning,
+            patch.object(api.logger, "info") as info,
+        ):
+            response = _post(
+                _event(EVENT_DELIVERED),
+                secret="whsec_"  # pragma: allowlist secret
+                + base64.b64encode(b"y" * 24).decode(),
+            )
+        assert response.status_code == 401
+        # Any anonymous caller reaches this line: INFO, never WARNING.
+        warning.assert_not_called()
+        assert any("webhook refused" in c.args[0] for c in info.call_args_list)
+
+
+@pytest.mark.django_db
+def test_the_forum_outbox_records_a_provider_suppression_as_such(settings):
+    from apps.core import delivery
+    from apps.forum_host.tasks import send_forum_email_batch
+    from apps.forum_host.tests.test_reply_email_links import _reply
+
+    settings.SITE_URL = SITE
+    settings.API_PUBLIC_URL = ""
+    owner, _board, _topic, post = _reply("supx")
+    _suppress(owner.email, Reason.HARD_BOUNCE)
+    batch = delivery.record_batch(
+        DeliveryIntent.Kind.FORUM_EMAIL,
+        "reply_added",
+        [owner.pk],
+        {"post_id": str(post.pk)},
+        subject_key=post.pk,
+    )
+
+    send_forum_email_batch(
+        "reply_added", [owner.pk], {"post_id": str(post.pk)}, batch_id=batch
+    )
+
+    assert mail.outbox == []
+    row = DeliveryIntent.objects.get(recipient=owner)
+    assert (row.status, row.last_error) == (
+        DeliveryIntent.Status.SUPPRESSED,
+        "address_suppressed",
+    )
+
+
+@pytest.mark.django_db
+def test_the_open_and_click_columns_stay_for_a_previous_release_worker():
+    """Migration 0009 drops the fields from the model, not the columns: a
+    previous-release worker that still inserts them succeeds, and this
+    release's inserts, which omit them, get the database default."""
+    from django.db import connection
+
+    row = _notification()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT open_count, click_count, opened_at, clicked_at "
+            "FROM core_emailnotification WHERE id = %s",
+            [row.pk],
+        )
+        assert cursor.fetchone() == (0, 0, None, None)
+        cursor.execute(
+            "UPDATE core_emailnotification SET open_count = 2, click_count = 1 "
+            "WHERE id = %s",
+            [row.pk],
+        )
+
+
+@pytest.mark.django_db
+def test_rows_left_opened_or_clicked_go_back_to_sent():
+    import importlib
+
+    from django.apps import apps as registry
+
+    migration = importlib.import_module(
+        "apps.core.migrations.0009_email_feedback_and_clicks"
+    )
+    opened, clicked, delivered = (_notification() for _ in range(3))
+    EmailNotification.objects.filter(pk=opened.pk).update(status="opened")
+    EmailNotification.objects.filter(pk=clicked.pk).update(status="clicked")
+    EmailNotification.objects.filter(pk=delivered.pk).update(status="delivered")
+
+    migration._untrack_opened_and_clicked(registry, None)
+
+    assert dict(EmailNotification.objects.values_list("pk", "status")) == {
+        opened.pk: "sent",
+        clicked.pk: "sent",
+        delivered.pk: "delivered",
+    }

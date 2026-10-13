@@ -84,6 +84,23 @@ Split from todo 623 at triage (run 2026-10-12-1616, owner decision 2026-10-12): 
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-10-13 - Review round 1: non-blocking findings (PR #1133)
+
+Each guard fix was mutation-checked: the guard was broken, the test seen failing, and the file restored from a backup copy (13 mutants, all killed).
+
+- fixed: a `DatabaseError` in `record_click` turned the click redirect into a 500; the count is best-effort, the type is logged, and the 302 always goes out (`test_a_database_error_while_counting_a_click_still_redirects`).
+- fixed: Message-ID correlation needed a byte-exact match; `normalize_message_id` strips whitespace and angle brackets and lowercases, the stored id is lowercased in its header form, and the lookup tries both forms (`test_a_message_id_is_matched_in_any_spelling`, `test_the_stored_message_id_is_lowercased`).
+- fixed: `blocked_reasons` kept one spelling per address, so another spelling or case escaped the backstop; it returns `{hash: reason}`, and every caller looks up `address_hash(address)` (`test_every_spelling_of_a_suppressed_address_is_blocked`).
+- fixed: the forum outbox recorded a provider suppression as `preference_off`; `EmailService.last_suppression_reason` names it, and the outbox records `address_suppressed` (`test_the_forum_outbox_records_a_provider_suppression_as_such`).
+- fixed: `send_transactional_email` ignored the 0 that `send_mail` returns when the backstop drops the recipient; it now reports `SUPPRESSED`/`address_suppressed` and returns False (`test_a_transactional_send_the_backstop_drops_is_not_a_send`).
+- fixed: the removed-recipient count could go negative on a blank address; it counts what `keep()` removed and logs only a positive count (`test_the_removed_count_ignores_blank_entries`).
+- fixed: the 413 guard had no test, and a body with no Content-Length was read whole; the view reads at most `EMAIL_WEBHOOK_MAX_BODY_BYTES + 1` bytes (`test_an_oversized_content_length_is_refused`, `test_a_non_numeric_content_length_is_refused`, `test_a_body_with_no_length_is_read_only_up_to_the_cap`).
+- fixed: dropping the NOT NULL open/click columns in the deploy that stops writing them would break previous-release workers. `core.0009` now removes the four fields from the model state only. The columns stay, the two counters get `db_default=0`, and `message_id` and `provider_email_id` get `db_default=""` so old-worker inserts succeed. A data step moves `opened`/`clicked` rows back to `sent` (`test_the_open_and_click_columns_stay_for_a_previous_release_worker`, `test_rows_left_opened_or_clicked_go_back_to_sent`). Dropping the columns needs a follow-up todo, to be filed once this has deployed.
+- fixed: anonymous badly signed webhook requests logged at WARNING; they now log at INFO, so they cannot flood alerting (`test_a_refused_signature_is_logged_below_warning`).
+- declined (doc narrowed): the forum digest and the blog newsletter and confirmation ignore `send()`'s 0. Returning False there would count a suppressed member as a failed send, and the weekly recovery runs re-try failures until their cap. So the fix touches the recovery semantics of three send paths and is not small. `docs/operations/notification-baseline.md` now confines "never recorded as sent" to the `send_email`, `send_transactional_email` and account-task paths, and says what the digests do.
+- declined: HMAC instead of plain SHA-256 for `address_hash`. Keying it on `SECRET_KEY` would silently lift every suppression when that key rotates. The residual linkability (anyone holding an address list can test it) is now stated in the baseline doc.
+- declined: GET-prefetch click noise. It is inherent to a redirect, and "Known noise" in the baseline doc already says to treat the click rate as an upper bound. HEAD never counts, and a scanner heuristic would need request details that the design deliberately does not store.
+
 ## Notes
 
 Production checks and live messages require explicit owner approval; never read production unasked. No tracking pixels or third-party analytics without a recorded privacy decision.

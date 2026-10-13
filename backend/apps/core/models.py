@@ -113,9 +113,13 @@ class EmailNotification(models.Model):
     # ``data.message_id``. ``provider_email_id`` is Resend's own id, stored
     # from the first event that matched, so a later event that carries only
     # that id still finds the row.
-    message_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    # ``db_default`` as well: a previous-release worker inserts rows without
+    # these columns during a rollout (migration 0009).
+    message_id = models.CharField(
+        max_length=255, blank=True, default="", db_default="", db_index=True
+    )
     provider_email_id = models.CharField(
-        max_length=64, blank=True, default="", db_index=True
+        max_length=64, blank=True, default="", db_default="", db_index=True
     )
 
     # Error tracking

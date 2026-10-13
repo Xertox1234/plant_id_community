@@ -65,7 +65,10 @@ def resend_webhook(request: Request) -> Response:
     length = request.META.get("CONTENT_LENGTH") or "0"
     if not length.isdigit() or int(length) > EMAIL_WEBHOOK_MAX_BODY_BYTES:
         return Response({"error": "too_large"}, status=413)
-    body = request.body
+    # At most one byte past the cap, whatever the header said: a request
+    # with no Content-Length (chunked, under ASGI) is never read whole into
+    # memory before the signature check.
+    body = request._request.read(EMAIL_WEBHOOK_MAX_BODY_BYTES + 1)
     if len(body) > EMAIL_WEBHOOK_MAX_BODY_BYTES:
         return Response({"error": "too_large"}, status=413)
     msg_id = request.headers.get("svix-id", "")
@@ -80,7 +83,10 @@ def resend_webhook(request: Request) -> Response:
             body=body,
         )
     except email_feedback.WebhookSignatureError as exc:
-        logger.warning(f"[SECURITY] Resend webhook refused: {exc}")
+        # INFO, not WARNING: any anonymous caller can reach this line, so at
+        # WARNING it would let anyone fill the alerting logs (todo 625
+        # review). A real outage shows as missing events in the baseline.
+        logger.info(f"[SECURITY] Resend webhook refused: {exc}")
         return Response({"error": "invalid_signature"}, status=401)
     except ValueError:
         logger.error("[EMAIL] RESEND_WEBHOOK_SECRET is malformed; webhook disabled")
