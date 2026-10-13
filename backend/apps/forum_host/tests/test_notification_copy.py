@@ -115,9 +115,10 @@ def test_an_event_with_email_copy_but_no_push_copy_stays_tray_silent(monkeypatch
 
 
 def test_email_content_is_none_for_an_event_with_no_email_arm():
-    # Mention delivery runs entirely through the package's own notification
-    # path; there is no live mention email, so the table must not imply one.
-    assert email_content("mention", "Topic", "Alice") is None
+    # Mentions gained an optional email arm in todo 624; moderation_decided
+    # is the event left with neither copy, so the table must not imply one.
+    assert email_content("moderation_decided", "Topic", "Alice") is None
+    assert email_content("mention", "Topic", "Alice") is not None
     assert push_content("mention", "Topic", "Alice") is not None
 
 
@@ -213,7 +214,7 @@ def test_every_template_in_the_table_formats():
             if template is None:
                 continue
             try:
-                template.format(topic_title="T", actor="A")
+                template.format(topic_title="T", actor="A", count=2)
             except (KeyError, IndexError, ValueError) as exc:
                 raise AssertionError(
                     f"{event}.{field} is not a renderable template: {exc!r}"

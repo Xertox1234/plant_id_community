@@ -68,8 +68,10 @@ def dispatch(event, **kwargs):
         ever fire for a publish that later rolls back. The email (todo 253
         slice 2, H1) reuses NotificationService.send_forum_reply_notification,
         gated by each recipient's forum_notifications preference inside that
-        service, and is sent only to "reply" recipients — a mention notifies
-        via bell + push only, no email this slice.
+        service. Mentioned and quoted members also get an email batch of
+        their own (todo 624): the optional, off-by-default important-event
+        email, merged with the reply email so a mentioned subscriber gets
+        one message, never two.
 
     moderation_decided
         Notifies the post's author of their content's moderation outcome.
@@ -122,6 +124,21 @@ def dispatch(event, **kwargs):
             _build_payload(post),
             subject_key=getattr(post, "id", ""),
         )
+
+    def _record_events(post, *groups):
+        """The mobile-push rows for each (event, users, name) group, and the
+        email rows for the mentioned and quoted ones (todo 624): every
+        channel a hold or a fold can touch is in the outbox."""
+        out = {}
+        for event_name, users, name in groups:
+            out[f"{name}_push"] = _record(
+                delivery.Kind.FORUM_PUSH, event_name, users, post
+            )
+            if name in ("mention", "quote"):
+                out[f"{name}_email"] = _record(
+                    delivery.Kind.FORUM_EMAIL, event_name, users, post
+                )
+        return out
 
     def _enqueue_web_push(event_name, pks, payload, batch_id=None):
         # Browser push beside FCM (todo 413): its own task, so FCM retries
@@ -176,21 +193,44 @@ def dispatch(event, **kwargs):
         kept = {u.pk for u in _drop_blocked_pairs([u for u, _ in pairs], actor)}
         return [(u, q) for u, q in pairs if u.pk in kept]
 
-    def _enqueue_quote_push_for(users, payload, web_batch=None):
+    def _batch_kwargs(batch_id):
+        return {"batch_id": batch_id} if batch_id else {}
+
+    def _enqueue_email_for(event_name, users, payload, batch_id=None):
+        # The optional important-event email (todo 624): enqueued for every
+        # mentioned/quoted member; the task sends only to those who turned
+        # that email on, or who follow the topic and want reply email (one
+        # merged email, never two).
+        pks = [user.pk for user in users]
+        if not pks:
+            return
+        try:
+            send_forum_email_batch.delay(
+                event_name, pks, payload, **_batch_kwargs(batch_id)
+            )
+        except Exception:
+            # The outbox rows stay pending for reconciliation (todo 619).
+            logger.exception(
+                "[CELERY] forum_host: failed to enqueue %s email batch", event_name
+            )
+
+    def _enqueue_quote_push_for(users, payload, web_batch=None, batch=None):
         # Same shape as the mention push: batch task, event "quote" (copy in
-        # notification_copy.py), no email arm.
+        # notification_copy.py).
         from wagtail_forum.models import NotificationVerb
 
         pks = [user.pk for user in users]
         if not pks:
             return
         try:
-            send_forum_push_batch.delay(NotificationVerb.QUOTE, pks, payload)
+            send_forum_push_batch.delay(
+                NotificationVerb.QUOTE, pks, payload, **_batch_kwargs(batch)
+            )
         except Exception:
             logger.exception("[CELERY] forum_host: failed to enqueue quote push batch")
         _enqueue_web_push(NotificationVerb.QUOTE, pks, payload, web_batch)
 
-    def _enqueue_mention_push_for(mentioned, payload, web_batch=None):
+    def _enqueue_mention_push_for(mentioned, payload, web_batch=None, batch=None):
         from wagtail_forum.models import NotificationVerb
 
         mentioned_pks = [user.pk for user in mentioned]
@@ -199,7 +239,10 @@ def dispatch(event, **kwargs):
         try:
             # One batched enqueue for all mentioned recipients (todo 268).
             send_forum_push_batch.delay(
-                NotificationVerb.MENTION, mentioned_pks, payload
+                NotificationVerb.MENTION,
+                mentioned_pks,
+                payload,
+                **_batch_kwargs(batch),
             )
         except Exception:
             logger.exception(
@@ -224,7 +267,12 @@ def dispatch(event, **kwargs):
             reply_recipient_pks = [user.pk for user in reply_recipients]
             if reply_recipient_pks:
                 try:
-                    send_forum_push_batch.delay(event, reply_recipient_pks, payload)
+                    send_forum_push_batch.delay(
+                        event,
+                        reply_recipient_pks,
+                        payload,
+                        **_batch_kwargs(batches.get("reply_push")),
+                    )
                 except Exception:
                     logger.exception(
                         "[CELERY] forum_host: failed to enqueue reply push batch"
@@ -234,15 +282,36 @@ def dispatch(event, **kwargs):
                 _enqueue_web_push(
                     event, reply_recipient_pks, payload, batches.get("reply_web")
                 )
-            _enqueue_mention_push_for(mentioned, payload, batches.get("mention_web"))
+            _enqueue_mention_push_for(
+                mentioned,
+                payload,
+                batches.get("mention_web"),
+                batches.get("mention_push"),
+            )
             _enqueue_quote_push_for(
-                [user for user, _ in quoted], payload, batches.get("quote_web")
+                [user for user, _ in quoted],
+                payload,
+                batches.get("quote_web"),
+                batches.get("quote_push"),
             )
 
         def _enqueue_email():
-            # Mentioned users get bell + push only, not email, this slice
-            # (todo 253 slice 4 scope decision) — reply_recipients only. One
-            # batched enqueue for the whole recipient list (todo 268).
+            # One batched enqueue for the reply recipients (todo 268), and
+            # one each for the mentioned and quoted members (todo 624: their
+            # optional email, merged with the reply email they may also
+            # want, so a mentioned subscriber gets ONE email).
+            _enqueue_email_for(
+                NotificationVerb.MENTION,
+                mentioned,
+                payload,
+                batches.get("mention_email"),
+            )
+            _enqueue_email_for(
+                NotificationVerb.QUOTE,
+                [user for user, _ in quoted],
+                payload,
+                batches.get("quote_email"),
+            )
             reply_recipient_pks = [user.pk for user in reply_recipients]
             if reply_recipient_pks:
                 try:
@@ -364,6 +433,12 @@ def dispatch(event, **kwargs):
                     )
                 quoted_users = [user for user, _ in quoted]
                 batches = {
+                    **_record_events(
+                        post,
+                        (event, reply_recipients, "reply"),
+                        (NotificationVerb.MENTION, mentioned, "mention"),
+                        (NotificationVerb.QUOTE, quoted_users, "quote"),
+                    ),
                     "reply_email": _record(
                         delivery.Kind.FORUM_EMAIL, event, reply_recipients, post
                     ),
@@ -454,6 +529,7 @@ def dispatch(event, **kwargs):
             "actor_id": str(actor.pk) if actor is not None else "",
         }
         web_batch = None
+        email_batch = None
 
         def _enqueue_push():
             try:
@@ -465,6 +541,8 @@ def dispatch(event, **kwargs):
                     recipient.pk,
                 )
             _enqueue_web_push(event, [recipient.pk], payload, web_batch)
+            # The optional accepted-answer email (todo 624, off by default).
+            _enqueue_email_for(event, [recipient], payload, email_batch)
 
         try:
             # Same nested-atomic/except-outside shape as reply_added: this runs
@@ -482,8 +560,8 @@ def dispatch(event, **kwargs):
                     post=post,
                 )
             if actor is None or recipient.pk != actor.pk:
-                if web_push_on:
-                    with transaction.atomic():
+                with transaction.atomic():
+                    if web_push_on:
                         web_batch = delivery.record_batch(
                             delivery.Kind.FORUM_WEB_PUSH,
                             event,
@@ -491,6 +569,13 @@ def dispatch(event, **kwargs):
                             payload,
                             subject_key=getattr(post, "id", ""),
                         )
+                    email_batch = delivery.record_batch(
+                        delivery.Kind.FORUM_EMAIL,
+                        event,
+                        [recipient.pk],
+                        payload,
+                        subject_key=getattr(post, "id", ""),
+                    )
                 # Registered inside the try, after the write succeeded, so a
                 # failed persist cannot still deliver a push (docs/rules/forum.md).
                 transaction.on_commit(_enqueue_push)
@@ -512,7 +597,18 @@ def dispatch(event, **kwargs):
         payload = _build_payload(post)
 
         def _enqueue_mention_push():
-            _enqueue_mention_push_for(mentioned, payload, batches.get("mention_web"))
+            _enqueue_mention_push_for(
+                mentioned,
+                payload,
+                batches.get("mention_web"),
+                batches.get("mention_push"),
+            )
+            _enqueue_email_for(
+                NotificationVerb.MENTION,
+                mentioned,
+                payload,
+                batches.get("mention_email"),
+            )
 
         try:
             # Same nested-atomic/except-outside shape as reply_added above —
@@ -582,6 +678,11 @@ def dispatch(event, **kwargs):
                         quoted_post=quoted_post,
                     )
                 batches = {
+                    **_record_events(
+                        post,
+                        (NotificationVerb.MENTION, mentioned, "mention"),
+                        (NotificationVerb.QUOTE, [user for user, _ in quoted], "quote"),
+                    ),
                     "mention_web": _record(
                         delivery.Kind.FORUM_WEB_PUSH,
                         NotificationVerb.MENTION,
@@ -595,12 +696,23 @@ def dispatch(event, **kwargs):
                         post,
                     ),
                 }
-            transaction.on_commit(_enqueue_mention_push)
-            transaction.on_commit(
-                lambda: _enqueue_quote_push_for(
-                    [user for user, _ in quoted], payload, batches.get("quote_web")
+
+            def _enqueue_quotes():
+                _enqueue_quote_push_for(
+                    [user for user, _ in quoted],
+                    payload,
+                    batches.get("quote_web"),
+                    batches.get("quote_push"),
                 )
-            )
+                _enqueue_email_for(
+                    NotificationVerb.QUOTE,
+                    [user for user, _ in quoted],
+                    payload,
+                    batches.get("quote_email"),
+                )
+
+            transaction.on_commit(_enqueue_mention_push)
+            transaction.on_commit(_enqueue_quotes)
         except Exception:
             logger.exception(
                 "[ERROR] forum_host: failed to process topic_created topic=%s",

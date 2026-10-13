@@ -1549,6 +1549,15 @@ class MeProfileSerializer(serializers.ModelSerializer):
     avatar_id = serializers.IntegerField(
         write_only=True, required=False, allow_null=True
     )
+    # Quiet hours (todo 624): "HH:MM" wall-clock times in `time_zone`, an
+    # IANA name the client reports (blank = UTC). Opt-in.
+    quiet_hours_start = serializers.TimeField(
+        format="%H:%M", input_formats=["%H:%M", "%H:%M:%S"], required=False
+    )
+    quiet_hours_end = serializers.TimeField(
+        format="%H:%M", input_formats=["%H:%M", "%H:%M:%S"], required=False
+    )
+    time_zone = serializers.CharField(max_length=64, required=False, allow_blank=True)
 
     class Meta:
         model = ForumProfile
@@ -1570,8 +1579,21 @@ class MeProfileSerializer(serializers.ModelSerializer):
             # Per-event push/email matrix (todo 343): resolved on read,
             # partial on write.
             "notification_preferences",
+            # Quiet hours (todo 624).
+            "quiet_hours_enabled",
+            "quiet_hours_start",
+            "quiet_hours_end",
+            "time_zone",
         ]
         read_only_fields = ["title", "trust_level", "post_count"]
+
+    def validate_time_zone(self, value):
+        from ..quiet_hours import is_valid_zone
+
+        value = value.strip()
+        if value and not is_valid_zone(value):
+            raise serializers.ValidationError("Unknown time zone.")
+        return value
 
     def update(self, instance, validated_data):
         from django.db import transaction

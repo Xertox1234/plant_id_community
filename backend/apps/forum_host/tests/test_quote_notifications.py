@@ -92,7 +92,12 @@ def test_quoting_a_post_notifies_its_author_with_quote_not_reply(
         for c in mock_push.call_args_list
         if c.args[0] == "reply_added"
     )
-    assert all(quoted_author.pk not in c.args[1] for c in mock_email.call_args_list)
+    # Their own (optional) quote email batch is separate (todo 624).
+    assert all(
+        quoted_author.pk not in c.args[1]
+        for c in mock_email.call_args_list
+        if c.args[0] == "reply_added"
+    )
 
 
 @pytest.mark.django_db

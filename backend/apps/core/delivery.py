@@ -31,6 +31,10 @@ Contract
   back to ``pending`` with exponential backoff, and makes it terminal at
   ``DELIVERY_MAX_ATTEMPTS``. A sent row is never claimed again, so a retry
   or re-drive sends only to the recipients that did not get it.
+- **Hold.** ``mark_held`` puts a claimed row back to ``pending`` until a
+  release time without spending an attempt: a quiet-hours or coalescing hold
+  (todo 624) is not a failure. Reconciliation re-drives it once due, and
+  never expires a row whose hold has not ended yet.
 - **Reconcile.** ``reconcile()`` (beat, ``apps.core.tasks``) expires rows
   older than ``DELIVERY_MAX_AGE_SECONDS``, re-drives due ``pending`` rows
   and ``claimed`` rows whose lease ran out (the worker died) through each
@@ -60,6 +64,7 @@ from datetime import timedelta
 
 from django.db import transaction
 from django.db.models import Case, F, Q, Value, When
+from django.db.models.functions import Greatest
 from django.utils import timezone
 from django.utils.module_loading import import_string
 
@@ -75,10 +80,16 @@ Status = DeliveryIntent.Status
 REDRIVERS = {
     Kind.FORUM_EMAIL: "apps.forum_host.tasks.redrive_forum_deliveries",
     Kind.FORUM_WEB_PUSH: "apps.forum_host.tasks.redrive_forum_deliveries",
+    Kind.FORUM_PUSH: "apps.forum_host.tasks.redrive_forum_deliveries",
     Kind.VERIFICATION_EMAIL: "apps.users.tasks.redrive_verification_emails",
     Kind.NEWSLETTER_CONFIRMATION: "apps.blog.tasks.redrive_newsletter_confirmations",
     Kind.LOCKOUT_EMAIL: "apps.users.tasks.redrive_lockout_emails",
 }
+
+# A held row's ``last_error`` (todo 624): why it is waiting, not a failure.
+HOLD_QUIET_HOURS = "quiet_hours"
+HOLD_COALESCING = "coalescing"
+HOLDS = (HOLD_QUIET_HOURS, HOLD_COALESCING)
 
 _OPEN = (Status.PENDING, Status.CLAIMED)
 _FINISHED = (Status.SENT, Status.SUPPRESSED, Status.FAILED)
@@ -99,14 +110,20 @@ def _due(now) -> Q:
 # --- record --------------------------------------------------------------------
 
 
-def record_batch(kind, event, recipient_ids, payload, *, subject_key) -> str | None:
+def record_batch(
+    kind, event, recipient_ids, payload, *, subject_key, due_at=None, reason=""
+) -> str | None:
     """One pending row per recipient, in the caller's transaction. Returns
-    the batch id to pass to the task, or None when there is no recipient."""
+    the batch id to pass to the task, or None when there is no recipient.
+
+    ``due_at`` is when reconciliation may first re-drive the rows (default:
+    after ``DELIVERY_GRACE_SECONDS``); a held delivery passes its release
+    time, with ``reason`` naming the hold."""
     ids = list(dict.fromkeys(int(pk) for pk in recipient_ids))
     if not ids:
         return None
     batch_id = uuid.uuid4()
-    due = timezone.now() + timedelta(seconds=constants.DELIVERY_GRACE_SECONDS)
+    due = due_at or timezone.now() + timedelta(seconds=constants.DELIVERY_GRACE_SECONDS)
     DeliveryIntent.objects.bulk_create(
         [
             DeliveryIntent(
@@ -117,6 +134,7 @@ def record_batch(kind, event, recipient_ids, payload, *, subject_key) -> str | N
                 batch_id=batch_id,
                 payload=dict(payload),
                 next_attempt_at=due,
+                last_error=str(reason)[:64],
             )
             for pk in ids
         ],
@@ -214,6 +232,28 @@ def claim_one(kind=None, *, intent_id=None, recipient_id=None) -> DeliveryIntent
     return DeliveryIntent.objects.filter(claim_token=token).first()
 
 
+def claim_related(kind, event, recipient_id, topic_id, *, exclude) -> dict[int, str]:
+    """Claim the other open rows of ``kind`` and ``event`` for one recipient
+    on one topic (a coalescing fold, todo 624): {row pk: subject key}.
+    Ignores ``next_attempt_at``, like every claim: a row still waiting out
+    its own window is folded into this send rather than sent after it."""
+    now = timezone.now()
+    queryset = DeliveryIntent.objects.filter(
+        kind=kind,
+        event=str(event),
+        recipient_id=recipient_id,
+        payload__topic_id=str(topic_id),
+    ).exclude(pk__in=list(exclude))
+    token = _claim(queryset, now)
+    if token is None:
+        return {}
+    return dict(
+        DeliveryIntent.objects.filter(claim_token=token).values_list(
+            "pk", "subject_key"
+        )
+    )
+
+
 def has_any(kind, recipient_id) -> bool:
     """Whether ``recipient_id`` has any row of ``kind``: a task that finds
     nothing to claim tells "another worker has it, or it went out" (rows
@@ -228,8 +268,14 @@ def _finish(pks, status, reason=""):
     pks = list(pks)
     if not pks:
         return 0
+    # ``updated_at`` explicitly: a queryset update skips auto_now, and the
+    # finish time is what reply coalescing measures its window from (todo
+    # 624) and what retention prunes by.
     return DeliveryIntent.objects.filter(pk__in=pks).update(
-        status=status, last_error=str(reason)[:64], claim_token=None
+        status=status,
+        last_error=str(reason)[:64],
+        claim_token=None,
+        updated_at=timezone.now(),
     )
 
 
@@ -249,6 +295,35 @@ def mark_suppressed_by_reason(rows_by_reason: dict) -> None:
 
 def mark_failed(pks, error="failed") -> int:
     return _finish(pks, Status.FAILED, error)
+
+
+def mark_held(pks, release_at, reason=HOLD_QUIET_HOURS) -> int:
+    """Hold claimed rows until ``release_at`` (todo 624): back to pending,
+    due then, and the claim's attempt handed back, since a hold is not a
+    failed attempt. Reconciliation re-drives them once due."""
+    pks = list(pks)
+    if not pks:
+        return 0
+    return DeliveryIntent.objects.filter(pk__in=pks).update(
+        status=Status.PENDING,
+        next_attempt_at=release_at,
+        last_error=str(reason)[:64],
+        claim_token=None,
+        attempts=Greatest(F("attempts") - 1, Value(0)),
+    )
+
+
+def release(pks) -> int:
+    """Hand claimed rows back untouched: pending, due as before, the
+    claim's attempt returned. For a fold whose send did not go out."""
+    pks = list(pks)
+    if not pks:
+        return 0
+    return DeliveryIntent.objects.filter(pk__in=pks).update(
+        status=Status.PENDING,
+        claim_token=None,
+        attempts=Greatest(F("attempts") - 1, Value(0)),
+    )
 
 
 def retry_delay(attempts: int) -> timedelta:
@@ -303,10 +378,16 @@ def reconcile() -> dict[str, int]:
     totals = {"expired": 0, "interrupted": 0, "redriven": 0, "pruned": 0}
     lease_cut = now - timedelta(seconds=constants.DELIVERY_CLAIM_LEASE_SECONDS)
 
-    totals["expired"] = DeliveryIntent.objects.filter(
-        status__in=_OPEN,
-        created_at__lt=now - timedelta(seconds=constants.DELIVERY_MAX_AGE_SECONDS),
-    ).update(status=Status.FAILED, last_error="expired", claim_token=None)
+    # A row still inside its hold is not stale: its member asked for it
+    # later (todo 624). It expires like any other once the hold has ended.
+    totals["expired"] = (
+        DeliveryIntent.objects.filter(
+            status__in=_OPEN,
+            created_at__lt=now - timedelta(seconds=constants.DELIVERY_MAX_AGE_SECONDS),
+        )
+        .exclude(status=Status.PENDING, last_error__in=HOLDS, next_attempt_at__gt=now)
+        .update(status=Status.FAILED, last_error="expired", claim_token=None)
+    )
     totals["interrupted"] = DeliveryIntent.objects.filter(
         status=Status.CLAIMED,
         claimed_at__lt=lease_cut,

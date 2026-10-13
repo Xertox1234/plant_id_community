@@ -1,5 +1,5 @@
 // web/src/pages/SettingsPage.test.tsx
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, act, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AxiosError, type InternalAxiosRequestConfig } from 'axios';
@@ -700,6 +700,130 @@ describe('NotificationPreferencesSection (todo 343)', () => {
       expect(screen.queryByText('Notification preferences are not available yet.')).toBeNull();
     }
   );
+});
+
+describe('Important-event email and quiet hours (todo 624)', () => {
+  // The matrix a todo-624 backend sends: email exists for every event, and
+  // is off by default for mentions, quotes and accepted answers.
+  const fullMatrix: NotificationPreferences = {
+    reply: { push: true, email: true },
+    mention: { push: true, email: false },
+    quote: { push: true, email: false },
+    solution: { push: true, email: false },
+  };
+  const quietProfile: ForumMyProfile = {
+    ...profileBase,
+    notification_preferences: fullMatrix,
+    quiet_hours_enabled: false,
+    quiet_hours_start: '22:00',
+    quiet_hours_end: '07:00',
+    time_zone: '',
+  };
+
+  beforeEach(() => {
+    vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(
+      () =>
+        ({
+          resolvedOptions: () => ({ timeZone: 'America/Denver' }),
+        }) as unknown as Intl.DateTimeFormat
+    );
+  });
+  afterEach(() => {
+    vi.mocked(Intl.DateTimeFormat).mockRestore();
+  });
+
+  it('offers mention, quote and accepted-answer email, off, and saves one cell', async () => {
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({ ...quietProfile });
+    vi.mocked(forumService.updateMyForumProfile).mockResolvedValue({
+      ...quietProfile,
+      notification_preferences: { ...fullMatrix, mention: { push: true, email: true } },
+    });
+
+    render(<NotificationPreferencesSection />);
+
+    const mentionEmail = await screen.findByRole('checkbox', { name: 'Email for Mentions' });
+    expect(mentionEmail).not.toBeChecked();
+    expect(
+      screen.getByRole('checkbox', { name: 'Email for Quotes of your posts' })
+    ).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Email for Answer accepted' })).not.toBeChecked();
+    expect(screen.getAllByRole('checkbox')).toHaveLength(8);
+    expect(screen.queryByText('—')).toBeNull();
+    expect(
+      screen.getByText(/a mention in a topic you follow sends one email/i)
+    ).toBeInTheDocument();
+
+    await userEvent.click(mentionEmail);
+
+    expect(vi.mocked(forumService.updateMyForumProfile).mock.calls).toStrictEqual([
+      [{ notification_preferences: { mention: { email: true } } }],
+    ]);
+    await waitFor(() => expect(mentionEmail).toBeChecked());
+  });
+
+  it('shows quiet hours off, with the zone in effect, and the times disabled', async () => {
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({ ...quietProfile });
+
+    render(<NotificationPreferencesSection />);
+
+    const toggle = await screen.findByRole('switch', { name: 'Quiet hours' });
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByLabelText('From')).toHaveValue('22:00');
+    expect(screen.getByLabelText('Until')).toHaveValue('07:00');
+    expect(screen.getByLabelText('From')).toBeDisabled();
+    // No zone stored yet: the server uses UTC, and the page says so.
+    expect(screen.getByText(/Times are in UTC\./)).toBeInTheDocument();
+    expect(screen.getByText(/security email always sends/i)).toBeInTheDocument();
+  });
+
+  it('turning quiet hours on reports this device zone, then edits a time', async () => {
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({ ...quietProfile });
+    const on = { ...quietProfile, quiet_hours_enabled: true, time_zone: 'America/Denver' };
+    vi.mocked(forumService.updateMyForumProfile)
+      .mockResolvedValueOnce(on)
+      .mockResolvedValueOnce({ ...on, quiet_hours_start: '21:30' });
+
+    render(<NotificationPreferencesSection />);
+    await userEvent.click(await screen.findByRole('switch', { name: 'Quiet hours' }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Times are in America\/Denver\./)).toBeInTheDocument()
+    );
+    expect(screen.getByRole('switch', { name: 'Quiet hours' })).toBeChecked();
+    const from = screen.getByLabelText('From');
+    expect(from).toBeEnabled();
+
+    fireEvent.change(from, { target: { value: '21:30' } });
+
+    await waitFor(() => expect(from).toHaveValue('21:30'));
+    expect(vi.mocked(forumService.updateMyForumProfile).mock.calls).toStrictEqual([
+      [{ quiet_hours_enabled: true, time_zone: 'America/Denver' }],
+      [{ quiet_hours_start: '21:30', time_zone: 'America/Denver' }],
+    ]);
+  });
+
+  it('reverts quiet hours and shows the error when the save fails', async () => {
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({ ...quietProfile });
+    vi.mocked(forumService.updateMyForumProfile).mockRejectedValue(new Error('Request failed'));
+
+    const { container } = render(<NotificationPreferencesSection />);
+    const toggle = await screen.findByRole('switch', { name: 'Quiet hours' });
+    await userEvent.click(toggle);
+
+    const region = container.querySelector('#notification-preferences-status');
+    await waitFor(() => expect(region).toHaveTextContent('Request failed'));
+    expect(toggle).not.toBeChecked();
+    expect(toggle).toBeEnabled();
+  });
+
+  it('offers no quiet hours to a backend that predates them', async () => {
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({ ...myProfile });
+
+    render(<NotificationPreferencesSection />);
+    await screen.findByRole('checkbox', { name: 'Push for Mentions' });
+
+    expect(screen.queryByRole('switch', { name: 'Quiet hours' })).toBeNull();
+  });
 });
 
 describe('SettingsPage composes the profile-backed sections', () => {

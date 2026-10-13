@@ -289,6 +289,9 @@ class DeliveryIntent(models.Model):
     class Kind(models.TextChoices):
         FORUM_EMAIL = "forum_email", "Forum email"
         FORUM_WEB_PUSH = "forum_web_push", "Forum browser push"
+        # Mobile push (FCM), recorded since todo 624 so a quiet-hours or
+        # coalescing hold survives a worker restart.
+        FORUM_PUSH = "forum_push", "Forum mobile push"
         VERIFICATION_EMAIL = "verification_email", "Verification email"
         NEWSLETTER_CONFIRMATION = (
             "newsletter_confirmation",
@@ -343,7 +346,9 @@ class DeliveryIntent(models.Model):
             # duplicate dispatch inserts nothing (ON CONFLICT DO NOTHING).
             models.UniqueConstraint(
                 fields=["kind", "event", "subject_key", "recipient"],
-                condition=models.Q(kind__in=["forum_email", "forum_web_push"]),
+                condition=models.Q(
+                    kind__in=["forum_email", "forum_web_push", "forum_push"]
+                ),
                 name="uniq_core_forum_delivery",
             ),
         ]

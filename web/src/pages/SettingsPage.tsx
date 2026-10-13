@@ -41,6 +41,7 @@ import type {
   MutedUser,
   DigestFrequency,
   ForumMyProfile,
+  ForumMyProfilePatch,
   NotificationChannel,
   NotificationPreferences,
   NotificationVerb,
@@ -456,8 +457,8 @@ function notificationMatrix(profile: ForumMyProfile | null): NotificationPrefere
 }
 
 /** One cell of the matrix — `undefined` when the backend sent no such cell,
- * i.e. the channel has no delivery path for that event (email exists for
- * `reply` alone today; a PATCH for a missing cell is a 400). The KEYS of the
+ * i.e. the channel has no delivery path for that event (every event has
+ * both since todo 624; a PATCH for a missing cell is a 400). The KEYS of the
  * object, not `NOTIFICATION_VERBS`, decide what exists, so a missing row or a
  * non-boolean value reads as "not available" too rather than throwing. */
 function notificationCell(
@@ -489,6 +490,99 @@ function withNotificationPreference(
       [verb]: { ...matrix[verb], [channel]: value },
     },
   };
+}
+
+type QuietHoursPatch = Pick<
+  ForumMyProfilePatch,
+  'quiet_hours_enabled' | 'quiet_hours_start' | 'quiet_hours_end' | 'time_zone'
+>;
+
+/** This device's IANA time zone, or "" when the browser cannot say. Quiet
+ * hours are wall-clock times in the zone the client reports (owner decision
+ * 2026-10-12, todo 624); the server falls back to UTC for "". */
+function deviceTimeZone(): string {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return typeof zone === 'string' ? zone : '';
+  } catch {
+    return '';
+  }
+}
+
+/** Quiet hours (todo 624): an opt-in window during which pushes and emails
+ * wait until it ends. Rendered inside the notification section, which owns
+ * the profile and the one in-flight save. */
+function QuietHoursControls({
+  profile,
+  saving,
+  onSave,
+}: {
+  profile: ForumMyProfile;
+  saving: boolean;
+  onSave: (patch: QuietHoursPatch) => void;
+}) {
+  // A backend from before todo 624 sends none of these: offer nothing.
+  if (typeof profile.quiet_hours_enabled !== 'boolean') return null;
+  const enabled = profile.quiet_hours_enabled;
+  const start = profile.quiet_hours_start ?? '22:00';
+  const end = profile.quiet_hours_end ?? '07:00';
+  const zone = deviceTimeZone();
+  const shownZone = profile.time_zone || 'UTC';
+  // Every save reports this device's zone, so the window follows the member.
+  const withZone = (patch: QuietHoursPatch): QuietHoursPatch =>
+    zone ? { ...patch, time_zone: zone } : patch;
+  const onTime =
+    (field: 'quiet_hours_start' | 'quiet_hours_end') => (event: ChangeEvent<HTMLInputElement>) => {
+      const value = event.target.value;
+      if (/^\d{2}:\d{2}$/.test(value) && value !== profile[field]) {
+        onSave(withZone({ [field]: value }));
+      }
+    };
+
+  return (
+    <div className="mt-4 border-t border-line pt-3">
+      <label className="flex min-h-11 items-center gap-3 text-sm font-medium text-ink-2">
+        <input
+          type="checkbox"
+          role="switch"
+          checked={enabled}
+          onChange={() => onSave(withZone({ quiet_hours_enabled: !enabled }))}
+          disabled={saving}
+          aria-describedby="quiet-hours-detail notification-preferences-status"
+          className="h-5 w-5 accent-primary focus:ring-2 focus:ring-secondary focus:outline-none disabled:opacity-50"
+        />
+        Quiet hours
+      </label>
+      <p id="quiet-hours-detail" className="mt-1 text-sm text-ink-3">
+        Pushes and emails that arrive in this window wait until it ends. Your inbox on the site
+        still shows everything, and security email always sends. Times are in {shownZone}.
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <label htmlFor="quiet-hours-start" className="text-sm text-ink-2">
+          From
+        </label>
+        <input
+          id="quiet-hours-start"
+          type="time"
+          value={start}
+          onChange={onTime('quiet_hours_start')}
+          disabled={saving || !enabled}
+          className="min-h-11 rounded-sm border border-line bg-surface-2/60 px-3 py-2 text-ink focus:ring-2 focus:ring-secondary focus:outline-none disabled:opacity-50"
+        />
+        <label htmlFor="quiet-hours-end" className="text-sm text-ink-2">
+          Until
+        </label>
+        <input
+          id="quiet-hours-end"
+          type="time"
+          value={end}
+          onChange={onTime('quiet_hours_end')}
+          disabled={saving || !enabled}
+          className="min-h-11 rounded-sm border border-line bg-surface-2/60 px-3 py-2 text-ink focus:ring-2 focus:ring-secondary focus:outline-none disabled:opacity-50"
+        />
+      </div>
+    </div>
+  );
 }
 
 export function NotificationPreferencesSection() {
@@ -592,6 +686,32 @@ export function NotificationPreferencesSection() {
     }
   };
 
+  // Quiet hours (todo 624): same optimistic save-and-revert shape as a cell.
+  const handleQuietHours = async (patch: QuietHoursPatch) => {
+    if (saving || !profile) return;
+    const previous = profile;
+    setNotice(null);
+    setSaving(true);
+    setProfile((cur) => cur && { ...cur, ...patch });
+    try {
+      setProfile(await updateMyForumProfile(patch));
+      setNotice({ text: 'Saved', tone: 'saved' });
+    } catch (err) {
+      logger.error('Error updating quiet hours', {
+        component: 'SettingsPage',
+        error: err,
+        context: { fields: Object.keys(patch) },
+      });
+      setProfile(previous);
+      setNotice({
+        text: err instanceof Error ? err.message : 'Failed to save quiet hours',
+        tone: 'error',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const matrix = notificationMatrix(profile);
   // A loaded profile with no renderable matrix is a load failure from this
   // section's point of view (deploy skew — see notificationMatrix): the same
@@ -686,6 +806,14 @@ export function NotificationPreferencesSection() {
               ))}
             </tbody>
           </table>
+          <p className="mt-2 text-sm text-ink-3">
+            Email for mentions, quotes and accepted answers is off until you turn it on. A mention
+            in a topic you follow sends one email: the mention email if it is on, otherwise the
+            reply email.
+          </p>
+          {profile && (
+            <QuietHoursControls profile={profile} saving={saving} onSave={handleQuietHours} />
+          )}
         </div>
       )}
       {/* Save outcome — ALWAYS mounted, only the text swaps; `sr-only` while

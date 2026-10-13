@@ -72,6 +72,39 @@ def forum_reply():
     return _one(n)
 
 
+def forum_event():
+    """The optional mention email (todo 624); quote and accepted-answer
+    email share its template."""
+    n = len(mail.outbox)
+    topic = f"{SITE}/forum/1-general/2-yellow-leaves"
+    assert NotificationService().send_forum_event_notification(
+        user=_user("mentioned"),
+        event="mention",
+        topic_title="Yellow leaves",
+        actor_name="Fern",
+        post_excerpt="@mentioned what do you think?",
+        topic_url=topic,
+        post_url=f"{topic}#post-4",
+    )
+    return _one(n)
+
+
+def forum_reply_coalesced():
+    """Several replies folded into one email (todo 624)."""
+    n = len(mail.outbox)
+    topic = f"{SITE}/forum/1-general/2-yellow-leaves"
+    assert NotificationService().send_forum_reply_notification(
+        user=_user("busyfollower"),
+        topic_title="Yellow leaves",
+        reply_author="Fern",
+        reply_excerpt="The newest of three.",
+        topic_url=topic,
+        post_url=f"{topic}#post-9",
+        count=3,
+    )
+    return _one(n)
+
+
 def newsletter_confirm():
     n = len(mail.outbox)
     assert newsletter.request_confirmation("reader@example.com")
@@ -137,6 +170,8 @@ def password_reset():
 FAMILIES = {
     "welcome": welcome,
     "forum_reply": forum_reply,
+    "forum_reply_coalesced": forum_reply_coalesced,
+    "forum_event": forum_event,
     "newsletter_confirm": newsletter_confirm,
     "newsletter_digest": newsletter_issue,
     "forum_digest": forum_digest,
@@ -283,6 +318,23 @@ def test_optional_mail_keeps_its_unsubscribe_link_and_headers():
     assert f"{SITE}/settings" in reply.body
     assert "Unsubscribe from this digest" in _html(digest)
     assert f"{SITE}/newsletter/unsubscribe?token=" in issue.body
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL=SITE, API_PUBLIC_URL=API)
+def test_important_event_and_coalesced_mail_read_as_what_they_are():
+    event = forum_event()
+    coalesced = forum_reply_coalesced()
+
+    assert event.subject == "You were mentioned in: Yellow leaves"
+    assert "Fern mentioned you" in event.body
+    assert "because you turned it on" in event.body
+    assert event.extra_headers["List-Unsubscribe-Post"] == (
+        "List-Unsubscribe=One-Click"
+    )
+    assert coalesced.subject == "3 new replies in: Yellow leaves"
+    for part in (coalesced.body, _html(coalesced)):
+        assert "3 new replies" in part and "The newest of three." in part
 
 
 @pytest.mark.django_db

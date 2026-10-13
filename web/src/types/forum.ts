@@ -594,6 +594,14 @@ export interface ForumMyProfile {
    * backend that does not send the field yet, and the settings page must
    * degrade to "not available" rather than crash on it. */
   notification_preferences?: NotificationPreferences;
+  /** Quiet hours (todo 624): opt-in; pushes and emails inside the window
+   * wait until it ends. Optional for the same deploy-skew reason. */
+  quiet_hours_enabled?: boolean;
+  /** "HH:MM" wall-clock times in `time_zone`. */
+  quiet_hours_start?: string;
+  quiet_hours_end?: string;
+  /** IANA zone the client reported; "" means UTC. */
+  time_zone?: string;
 }
 
 /** PATCH me/profile/ body. Editable from the web: the digest cadence
@@ -603,6 +611,10 @@ export interface ForumMyProfile {
 export interface ForumMyProfilePatch {
   digest_frequency?: DigestFrequency;
   notification_preferences?: NotificationPreferencesPatch;
+  quiet_hours_enabled?: boolean;
+  quiet_hours_start?: string;
+  quiet_hours_end?: string;
+  time_zone?: string;
 }
 
 /** The minimal board identity carried on a topic-shaped API row. */

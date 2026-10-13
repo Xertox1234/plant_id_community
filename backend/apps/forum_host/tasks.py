@@ -15,8 +15,8 @@ from celery import shared_task
 from django.db import OperationalError
 from wagtail_forum.preferences import wants_channel
 
-from . import constants
-from .eligibility import client_payload, recheck
+from . import constants, pacing
+from .eligibility import REASON_PREFERENCE, client_payload, recheck
 
 logger = logging.getLogger("forum_host.tasks")
 
@@ -137,8 +137,10 @@ def _notification_content(event: str, data: dict) -> tuple[str, str] | None:
     if len(topic_title) > PUSH_TITLE_TOPIC_MAX_CHARS:
         topic_title = topic_title[: PUSH_TITLE_TOPIC_MAX_CHARS - 1] + "…"
     actor = str(data.get("actor_name") or "").strip() or "Someone"
+    # A coalesced reply (todo 624) carries how many replies it folds.
+    count = int(data["count"]) if str(data.get("count") or "").isdigit() else 1
 
-    return push_content(event, topic_title, actor)
+    return push_content(event, topic_title, actor, count)
 
 
 def _forum_collapse_key(event: str) -> str:
@@ -218,6 +220,8 @@ def send_forum_push(
             recipient_user_id,
             check.suppressed[user.pk],
         )
+        return
+    if _hold_single_push(event, user.pk, data, token, self.request.retries):
         return
     tokens = device_tokens_for_users([recipient_user_id]).get(recipient_user_id, [])
     if token is not None:
@@ -302,6 +306,32 @@ def send_forum_push(
     )
 
 
+def _hold_single_push(event, user_id, data, token, retries) -> bool:
+    """Quiet hours for the one push sent through ``send_forum_push`` on its
+    first run: the accepted answer (todo 624). Inside the member's window it
+    becomes a held outbox row, released by reconciliation through
+    ``send_forum_push_batch`` when the window ends. A batch's hand-off and
+    every retry are not held: their delivery has already started."""
+    from apps.core import delivery
+
+    if event != "answer_accepted" or token is not None or retries:
+        return False
+    release = pacing.quiet_release_for(user_id)
+    if release is None:
+        return False
+    delivery.record_batch(
+        delivery.Kind.FORUM_PUSH,
+        event,
+        [user_id],
+        data,
+        subject_key=data.get("post_id", ""),
+        due_at=release,
+        reason=delivery.HOLD_QUIET_HOURS,
+    )
+    logger.info("[FCM] forum.%s push for user=%s held for quiet hours", event, user_id)
+    return True
+
+
 @shared_task(
     autoretry_for=(OperationalError,),
     # The BACKOFF FACTOR (30s/60s/120s jittered ceiling), not a bool — True
@@ -312,7 +342,11 @@ def send_forum_push(
     ignore_result=True,  # side-effect only; every call site is a bare .delay()
 )
 def send_forum_push_batch(
-    event: str, recipient_user_ids: list[int], data: dict, requeued: bool = False
+    event: str,
+    recipient_user_ids: list[int],
+    data: dict,
+    requeued: bool = False,
+    batch_id: str | None = None,
 ):
     """Fan out one forum FCM push to many recipients from a SINGLE enqueue (todo 268).
 
@@ -336,16 +370,24 @@ def send_forum_push_batch(
         data: FCM data payload (values coerced to str).
         requeued: True on the one follow-up batch a credentials stop enqueues
             (todo 606); that batch never re-enqueues again.
+        batch_id: the outbox rows ``dispatch`` wrote (todo 624), or None. With
+            it, only the recipients this run claims are sent to, quiet hours
+            and reply coalescing hold what they should (``pacing``), and each
+            recipient's outcome is recorded. A transient failure is still
+            handed to ``send_forum_push`` and its retries; that row is done.
     """
+    from apps.core import delivery
     from apps.core.firebase_config import get_fcm_client, is_firebase_available
     from apps.core.push_devices import device_tokens_for_users
     from wagtail_forum.models import ForumProfile
 
+    kind = delivery.Kind.FORUM_PUSH
     if not recipient_user_ids:
         return
 
     if not is_firebase_available():
         logger.debug("[FCM] Firebase not configured — skipping forum push (%s)", event)
+        _finish_unclaimed_batch(kind, batch_id, recipient_user_ids, "channel_off")
         return
 
     fcm = get_fcm_client()
@@ -384,9 +426,27 @@ def send_forum_push_batch(
             return False
         return bool(tokens_by_user.get(profile.user_id))
 
-    str_data = {k: str(v) for k, v in client_payload(data).items()}
-    str_data["event"] = event
-    content = _notification_content(event, data)
+    claimed = None
+    if batch_id:
+        # After every up-front read, as in the browser-push task.
+        claimed = delivery.claim_batch(kind, batch_id, recipient_user_ids)
+        by_user = {p.user_id: p for p in profiles}
+        suppressed: dict = {}
+        for pk, row in claimed.items():
+            profile = by_user.get(pk)
+            reason = ineligible.get(pk) if profile is not None else "no_destination"
+            if reason is None and not wants_push(profile):
+                reason = "no_destination"
+            if reason is not None:
+                suppressed.setdefault(reason, []).append(row)
+        _record(delivery.mark_suppressed_by_reason, suppressed)
+    paced = pacing.pace(
+        kind, event, data, claimed, [p.user for p in profiles if wants_push(p)]
+    )
+    pacing.apply_holds(paced)
+    pacing.schedule_fold(
+        send_forum_push_batch, event, data, batch_id, paced, recipient_user_ids
+    )
 
     sent = 0
     credentials_failed: list[int] = []
@@ -395,10 +455,13 @@ def send_forum_push_batch(
     # would have sent to, so the count is not inflated by opted-out, muted or
     # tokenless profiles (todo 606).
     untried: list[int] | None = None
-    for index, profile in enumerate(profiles):
-        user = profile.user
-        if not wants_push(profile):
-            continue
+    outcomes: dict = {"sent": [], "failed": [], "credentials": []}
+    for index, send in enumerate(paced.sends):
+        user = send.user
+        send_data = pacing.folded_data(data, send)
+        str_data = {k: str(v) for k, v in client_payload(send_data).items()}
+        str_data["event"] = event
+        content = _notification_content(event, send_data)
         devices = tokens_by_user[user.pk]
         user_sent = 0
         user_credentials_failed = False
@@ -467,6 +530,17 @@ def send_forum_push_batch(
                     type(exc).__name__,
                     len(transient),
                 )
+        # The outbox outcome (todo 624): a push on any device, or a hand-off
+        # to send_forum_push's retries, finishes the row.
+        delivered = bool(user_sent or transient)
+        if send.row is not None:
+            if delivered:
+                outcomes["sent"].append(send.row)
+            elif user_credentials_failed:
+                outcomes["credentials"].append(send.row)
+            else:
+                outcomes["failed"].append(send.row)
+        pacing.finish_folds(send, delivered)
         if user_credentials_failed and not user_sent:
             # Counted per recipient, at the recipient boundary: stop only
             # when this many have failed and no send has worked yet, which is
@@ -476,8 +550,17 @@ def send_forum_push_batch(
                 not sent
                 and len(credentials_failed) >= core_fcm.FCM_CREDENTIALS_STOP_FAILURES
             ):
-                untried = [p.user_id for p in profiles[index + 1 :] if wants_push(p)]
+                untried = [later.user.pk for later in paced.sends[index + 1 :]]
+                untried_rows = [
+                    later.row for later in paced.sends[index + 1 :] if later.row
+                ]
+                # Handed back for the follow-up batch below or, failing
+                # that, reconciliation.
+                _record(delivery.release, untried_rows)
                 break
+    _record(delivery.mark_sent, outcomes["sent"])
+    _record(delivery.mark_failed, outcomes["failed"], "permanent")
+    _record(delivery.mark_failed, outcomes["credentials"], "fcm_credentials")
     stop_note = ""
     if untried is not None:
         stop_note = (
@@ -495,9 +578,12 @@ def send_forum_push_batch(
             # fail the task before the ERROR below names the stop, and the
             # recipients it drops are counted there.
             try:
+                requeue_kwargs: dict = {"requeued": True}
+                if batch_id:
+                    requeue_kwargs["batch_id"] = batch_id
                 send_forum_push_batch.apply_async(
                     args=(event, untried, data),
-                    kwargs={"requeued": True},
+                    kwargs=requeue_kwargs,
                     countdown=constants.FORUM_PUSH_REQUEUE_DELAY,
                 )
             except Exception as exc:
@@ -525,6 +611,12 @@ def send_forum_push_batch(
             last_credentials_exc,
             stop_note,
         )
+
+
+# The forum events with an email arm (todo 624 adds all but replies).
+FORUM_EMAIL_EVENTS = frozenset({"reply_added", "mention", "quote", "answer_accepted"})
+# The events whose recipient falls back to the reply email (one merged email).
+REPLY_FALLBACK_EVENTS = frozenset({"mention", "quote"})
 
 
 def _web_topic_path(topic_id: str | int | None, post_id: str | int | None) -> str:
@@ -594,11 +686,9 @@ def send_forum_web_push_batch(
     if not web_push_enabled():
         _finish_unclaimed_batch(kind, batch_id, recipient_user_ids, "channel_off")
         return
-    content = _notification_content(event, data)
-    if content is None:
+    if _notification_content(event, data) is None:
         _finish_unclaimed_batch(kind, batch_id, recipient_user_ids, "no_tray_copy")
         return
-    title, body = content
 
     # A recipient with no ForumProfile row (e.g. a mentioned member who never
     # posted) has default preferences, so it wants the push: default a missing
@@ -641,10 +731,29 @@ def send_forum_web_push_batch(
             if reason is not None:
                 suppressed.setdefault(reason, []).append(row)
         _record(delivery.mark_suppressed_by_reason, suppressed)
+    # Quiet hours and reply coalescing (todo 624): a held recipient is not
+    # sent to now; a fold's message covers its later replies.
+    browsers = {s.user_id for s in subscriptions}
+    with_browser_users = [user for user in check.eligible if user.pk in browsers]
+    paced = pacing.pace(kind, event, data, claimed, with_browser_users)
+    pacing.apply_holds(paced)
+    pacing.schedule_fold(
+        send_forum_web_push_batch, event, data, batch_id, paced, recipient_user_ids
+    )
+    sends = {send.user.pk: send for send in paced.sends}
+    subscriptions = [s for s in subscriptions if s.user_id in sends]
     if not subscriptions:
         return
-    url = _web_topic_path(data.get("topic_id"), data.get("post_id"))
-    tag = f"forum-{event}-{data.get('post_id') or data.get('topic_id') or ''}"
+    rendered: dict = {}
+    for pk, send in sends.items():
+        send_data = pacing.folded_data(data, send)
+        title, body = _notification_content(event, send_data)
+        url = _web_topic_path(send_data.get("topic_id"), send_data.get("post_id"))
+        tag = (
+            f"forum-{event}-"
+            f"{send_data.get('post_id') or send_data.get('topic_id') or ''}"
+        )
+        rendered[pk] = (title, body, url, tag)
 
     # One session for the whole batch, so every send to a push service reuses
     # its pooled TLS connection, with redirects off (todo 456 items 3 and 6).
@@ -654,6 +763,7 @@ def send_forum_web_push_batch(
     transient_users: set[int] = set()
     with web_push_session() as session:
         for subscription in subscriptions:
+            title, body, url, tag = rendered[subscription.user_id]
             if NotificationService.send_web_push_notification(
                 subscription,
                 title=title,
@@ -682,6 +792,8 @@ def send_forum_web_push_batch(
                 "[WEB_PUSH] Could not record last_used for %d sent subscription(s)",
                 len(sent),
             )
+    for pk, send in sends.items():
+        pacing.finish_folds(send, pk in delivered_users)
     if claimed is not None:
         attempted = {s.user_id for s in subscriptions}
         retry = transient_users - delivered_users
@@ -737,9 +849,18 @@ def redrive_forum_deliveries(rows) -> None:
     tasks = {
         delivery.Kind.FORUM_EMAIL: send_forum_email_batch,
         delivery.Kind.FORUM_WEB_PUSH: send_forum_web_push_batch,
+        delivery.Kind.FORUM_PUSH: send_forum_push_batch,
     }
     groups: dict = {}
-    for row in rows:
+    folding: set = set()
+    for row in sorted(rows, key=lambda row: (row.created_at, row.pk)):
+        if row.event in pacing.COALESCED_EVENTS:
+            # One coalesced reply per member, topic and channel (todo 624):
+            # the oldest folds the rest, which stay pending for it.
+            key = (row.kind, row.recipient_id, str(row.payload.get("topic_id")))
+            if key in folding:
+                continue
+            folding.add(key)
         groups.setdefault((row.kind, str(row.batch_id), row.event), []).append(row)
     for (kind, batch_id, event), group in groups.items():
         tasks[kind].delay(
@@ -793,9 +914,19 @@ def send_forum_email_batch(
     is finished, never retried. Without ``batch_id`` (a message from before
     the outbox) nothing is recorded and a failed send is only logged.
 
+    Important-event email (todo 624, owner decision 2026-10-12): mentions,
+    quotes and accepted answers have an optional email too, off by default.
+    A mentioned or quoted subscriber gets ONE email: the mention (or quote)
+    email when that cell is on, else the reply email when they follow the
+    topic and want reply email, else none. Each email's unsubscribe link
+    turns off the cell that let it through.
+
+    Quiet hours and reply coalescing (todo 624, ``pacing``) hold a claimed
+    recipient's row instead of sending; a coalesced reply email covers every
+    later reply on the topic still waiting for that member.
+
     Args:
-        event: only "reply_added" is wired (todo 253 slice 2, H1); mention/
-               moderation/digest are later slices.
+        event: "reply_added", "mention", "quote" or "answer_accepted".
         recipient_user_ids: pks of the Users to email.
         data: the shared payload dict — carries "post_id" (str). The reply Post
               is fetched here (once for the batch) so push's data stays minimal
@@ -806,7 +937,7 @@ def send_forum_email_batch(
     from apps.core.services.email_service import EmailOutcome
 
     kind = delivery.Kind.FORUM_EMAIL
-    if event != "reply_added":
+    if event not in FORUM_EMAIL_EVENTS:
         logger.debug(
             "[EMAIL] forum email skipped — event=%s not implemented yet", event
         )
@@ -861,6 +992,24 @@ def send_forum_email_batch(
         users=users,
         overrides_by_user=overrides_by_user,
     )
+    # One merged email (todo 624): a mentioned or quoted member whose email
+    # cell for this event is off still gets the reply email they asked for,
+    # if they follow the topic (the reply recheck checks that).
+    via_reply: set[int] = set()
+    fallback = [pk for pk, why in check.suppressed.items() if why == REASON_PREFERENCE]
+    if event in REPLY_FALLBACK_EVENTS and fallback:
+        reply_check = recheck(
+            "reply_added",
+            fallback,
+            data,
+            "email",
+            users=[user for user in users if user.pk in set(fallback)],
+            overrides_by_user=overrides_by_user,
+        )
+        for user in reply_check.eligible:
+            check.suppressed.pop(user.pk, None)
+            check.eligible.append(user)
+            via_reply.add(user.pk)
     for pk, reason in check.suppressed.items():
         if reason == "no_destination":
             # A clear skip log at this layer for a user with no email on
@@ -894,6 +1043,12 @@ def send_forum_email_batch(
                 suppressed.setdefault(reason, []).append(row)
         _record(delivery.mark_suppressed_by_reason, suppressed)
 
+    paced = pacing.pace(kind, event, data, claimed, check.eligible)
+    pacing.apply_holds(paced)
+    pacing.schedule_fold(
+        send_forum_email_batch, event, data, batch_id, paced, recipient_user_ids
+    )
+
     topic = post.topic
     # The web app's thread route, at the reply's own anchor (ThreadDetailPage
     # renders id="post-<id>", as _web_topic_path links for push). The bare
@@ -903,27 +1058,45 @@ def send_forum_email_batch(
     # AttributeError a retry cannot fix (todo 639; email_service guards alike).
     site_url = (getattr(settings, "SITE_URL", "") or "").rstrip("/")
     topic_url = f"{site_url}{topic.get_absolute_url()}"
-    post_url = f"{topic_url}#post-{post.pk}"
-    author_name = post.author.display_name if post.author else "[deleted]"
-    excerpt = plain_text_excerpt(post.body, FORUM_EMAIL_EXCERPT_MAX_CHARS)
     service = NotificationService()
+    # The accepted answer's email names who accepted it, not the post's
+    # author (the recipient): dispatch puts the acceptor in actor_name.
+    actor_override = (
+        str(data.get("actor_name") or "") if event == "answer_accepted" else None
+    )
 
-    for user in check.eligible:
-        if claimed is not None and user.pk not in claimed:
-            continue
+    for send in paced.sends:
+        user = send.user
+        shown = send.latest or post
+        post_url = f"{topic_url}#post-{shown.pk}"
+        author_name = shown.author.display_name if shown.author else "[deleted]"
+        excerpt = plain_text_excerpt(shown.body, FORUM_EMAIL_EXCERPT_MAX_CHARS)
         service.email_service.last_outcome = None
-        sent = service.send_forum_reply_notification(
-            user=user,
-            topic_title=topic.title,
-            reply_author=author_name,
-            reply_excerpt=excerpt,
-            topic_url=topic_url,
-            post_url=post_url,
-        )
+        if event == "reply_added" or user.pk in via_reply:
+            sent = service.send_forum_reply_notification(
+                user=user,
+                topic_title=topic.title,
+                reply_author=author_name,
+                reply_excerpt=excerpt,
+                topic_url=topic_url,
+                post_url=post_url,
+                count=send.count,
+            )
+        else:
+            sent = service.send_forum_event_notification(
+                user=user,
+                event=event,
+                topic_title=topic.title,
+                actor_name=actor_override or author_name,
+                post_excerpt=excerpt,
+                topic_url=topic_url,
+                post_url=post_url,
+            )
         logger.info("[EMAIL] forum.%s email to user=%s: sent=%s", event, user.pk, sent)
-        if claimed is None:
+        pacing.finish_folds(send, bool(sent))
+        if send.row is None:
             continue
-        row = [claimed[user.pk]]
+        row = [send.row]
         if sent:
             _record(delivery.mark_sent, row)
             continue

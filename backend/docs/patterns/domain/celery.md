@@ -172,14 +172,23 @@ deliveries that must not be lost now go through `apps/core/delivery.py`
 - **At-least-once.** No provider idempotency key is available, so a worker
   killed between provider acceptance and the outcome write re-sends that one
   message after the lease. Browser push records outcomes in bulk after its
-  loop (a browser collapses a repeat with the same `tag`). FCM is not in the
-  outbox: it keeps its per-device retry and credentials stop (todos 593,
-  606, 621) and gets only the send-time recheck.
+  loop (a browser collapses a repeat with the same `tag`). FCM has outbox
+  rows since todo 624 (`Kind.FORUM_PUSH`) so a hold survives a restart; it
+  keeps its per-device retry and credentials stop (todos 593, 606, 621), and
+  a hand-off to `send_forum_push` finishes its row.
+- **Holds, not countdowns** (todo 624). A delivery that must wait (quiet
+  hours, reply coalescing; `apps/forum_host/pacing.py`) is put back to
+  `pending` with `mark_held(rows, release_at, reason)`, which does not spend
+  an attempt; reconciliation releases it once due and never expires a row
+  still inside its hold. Never hold with a Celery `eta`/`countdown` longer
+  than the Redis broker's visibility timeout (1 hour by default): an unacked
+  message older than that is redelivered, a duplicate send. The 10-minute
+  coalescing countdown is far inside it, and the outbox is its backstop.
 - **Weekly mail** (digest, newsletter) is not in the outbox: each run's
   per-member claim is already the record. A run that reports `failed=N`
   enqueues at most `WEEKLY_RECOVERY_MAX_RUNS` recovery runs of the same
   command (`schedule_weekly_recovery`), which re-claim with consent rechecked.
 
 Tests: `apps/forum_host/tests/test_send_time_eligibility.py`,
-`test_delivery_outbox.py`, `apps/users/tests/test_mail_recovery.py`,
+`test_delivery_outbox.py`, `test_quiet_hours_and_coalescing.py`, `apps/users/tests/test_mail_recovery.py`,
 `apps/blog/tests/test_newsletter_recovery.py`.

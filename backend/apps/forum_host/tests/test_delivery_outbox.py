@@ -137,10 +137,12 @@ def test_dispatch_writes_one_row_per_recipient_and_channel(
     email, web = _dispatch_reply(django_capture_on_commit_callbacks, topic, post)
 
     rows = DeliveryIntent.objects.all()
-    assert rows.count() == 4
+    # Mobile push has rows too since todo 624 (quiet hours and coalescing
+    # hold it in the outbox).
+    assert rows.count() == 6
     assert {(r.kind, r.recipient_id) for r in rows} == {
         (kind, m.pk)
-        for kind in (Kind.FORUM_EMAIL, Kind.FORUM_WEB_PUSH)
+        for kind in (Kind.FORUM_EMAIL, Kind.FORUM_WEB_PUSH, Kind.FORUM_PUSH)
         for m in members
     }
     assert all(
@@ -186,7 +188,9 @@ def test_a_lost_enqueue_is_sent_by_reconciliation_without_another_request(
 
     _make_due()
     totals, email_calls, web_calls = _reconcile()
-    assert totals["redriven"] == 4
+    # 2 email + 2 browser + 2 mobile push (todo 624: the mocked push task
+    # never claimed its rows, so they are re-driven too).
+    assert totals["redriven"] == 6
     [email_call] = email_calls
     with patch(
         "apps.users.services.NotificationService.send_web_push_notification",

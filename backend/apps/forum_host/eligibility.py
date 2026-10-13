@@ -18,7 +18,8 @@ Recipient state always: the account exists and is active, ``forum_notifications`
 is on, the per-event preference for the channel is on, and for email the
 master ``email_notifications`` toggle is on and an address is on file.
 
-Content, block/mute and subscription checks run when the payload carries
+Content, block/mute, subscription and read-before-send checks (todo 624:
+the member already read the post in the app) run when the payload carries
 ``actor_id``. ``dispatch`` always writes that key (an empty string when the
 event has no actor), so every message it enqueues is fully rechecked. A
 payload without it is a message enqueued before this check existed, or a
@@ -45,9 +46,51 @@ REASON_NO_DESTINATION = "no_destination"
 REASON_CONTENT = "content_unavailable"
 REASON_BLOCKED = "blocked_or_muted"
 REASON_UNSUBSCRIBED = "unsubscribed"
+# The member already read the post in the app (todo 624, owner decision
+# 2026-10-12): the external send would only repeat what they have seen.
+REASON_READ = "already_read"
 
 # The events whose actor is the post's author when the payload names none.
 _AUTHOR_IS_ACTOR = frozenset({"reply_added", "mention", "quote"})
+# The events about someone else's new post: reading the topic past the post
+# reads it. An accepted answer is about the recipient's OWN post, which they
+# have always "read", so only its own bell row being read counts there.
+_NEW_POST_EVENTS = _AUTHOR_IS_ACTOR
+
+
+def already_read_ids(event: str, post, recipient_ids) -> set[int]:
+    """Recipients who have already seen ``post`` in the app: its bell row for
+    this event is read, or (for a new post) their read marker for the topic,
+    or their account-wide watermark, is at or past it. Three queries."""
+    from wagtail_forum.models import ForumProfile, Notification, TopicRead
+    from wagtail_forum.preferences import EVENT_VERBS
+
+    ids = list(recipient_ids)
+    if post is None or not ids:
+        return set()
+    read = set()
+    verb = EVENT_VERBS.get(str(event))
+    if verb is not None:
+        read |= set(
+            Notification.objects.filter(
+                recipient_id__in=ids, post_id=post.pk, verb=verb
+            )
+            .exclude(read_at=None)
+            .values_list("recipient_id", flat=True)
+        )
+    published = getattr(post, "first_published_at", None)
+    if event in _NEW_POST_EVENTS and published is not None:
+        read |= set(
+            TopicRead.objects.filter(
+                topic_id=post.topic_id, user_id__in=ids, last_read_at__gte=published
+            ).values_list("user_id", flat=True)
+        )
+        read |= set(
+            ForumProfile.objects.filter(
+                user_id__in=ids, read_watermark_at__gte=published
+            ).values_list("user_id", flat=True)
+        )
+    return read
 
 
 @dataclass
@@ -155,6 +198,7 @@ def recheck(
     content_gone = False
     blocked: set[int] = set()
     unsubscribed: set[int] = set()
+    read: set[int] = set()
     post = None
     if full:
         post_id = _int_or_none(data.get("post_id"))
@@ -174,6 +218,8 @@ def recheck(
                 ).values_list("user_id", flat=True)
             )
             unsubscribed = set(by_pk) - subscribed
+        if not content_gone and post is not None:
+            read = already_read_ids(event, post, by_pk)
 
     for pk in ids:
         user = by_pk.get(pk)
@@ -196,6 +242,8 @@ def recheck(
             reason = REASON_BLOCKED
         elif pk in unsubscribed:
             reason = REASON_UNSUBSCRIBED
+        elif pk in read:
+            reason = REASON_READ
         if reason is None:
             result.eligible.append(user)
         else:

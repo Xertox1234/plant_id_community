@@ -28,7 +28,8 @@ table. Converging it means serving the label from the API, not duplicating
 this table in TypeScript — out of scope here, and noted in that file.
 
 Placeholders are `str.format` fields, filled by the caller:
-``{topic_title}`` and ``{actor}``.
+``{topic_title}``, ``{actor}`` and, for a coalesced reply (todo 624),
+``{count}``.
 """
 
 from dataclasses import dataclass
@@ -69,31 +70,44 @@ FORUM_NOTIFICATION_COPY: dict[str, ForumEventCopy] = {
         push_title='Your answer was accepted in "{topic_title}"',
         push_title_without_topic="Your answer was accepted",
         push_body="{actor} marked your reply as the answer",
-        # No email arm: this is a positive, low-urgency event and the bell +
-        # push already carry it. Adding a subject/body here would not send one
-        # anyway — the answer_accepted branch in notifications.py enqueues no
-        # email task (see this module's "whitelist is a feature" note).
+        # Optional email, off by default (todo 624, owner decision
+        # 2026-10-12): send_forum_email_batch sends it.
+        email_subject="Your answer was accepted in: {topic_title}",
+        email_body="{actor} marked your reply as the answer",
     ),
     "quote": ForumEventCopy(
         push_title='Your post was quoted in "{topic_title}"',
         push_title_without_topic="Your post was quoted on the forum",
         push_body="{actor} quoted your post",
-        # No email arm, like mention (todo 342): bell + push carry it.
+        email_subject="Your post was quoted in: {topic_title}",
+        email_body="{actor} quoted your post",
     ),
     "mention": ForumEventCopy(
         push_title='You were mentioned in "{topic_title}"',
         push_title_without_topic="You were mentioned on the forum",
         push_body="{actor} mentioned you",
-        # No email arm on purpose. Mention delivery runs entirely through the
-        # package's own notification path; the email method that once carried
-        # mention copy had zero call sites and was deleted with this change
-        # (todo 287). Adding an email arm here would not wire one up — it
-        # needs a caller.
+        email_subject="You were mentioned in: {topic_title}",
+        email_body="{actor} mentioned you",
+    ),
+    # Several replies on one topic folded into one message (todo 624). Not
+    # an event of its own: ``reply_added`` renders it when count > 1.
+    "replies_coalesced": ForumEventCopy(
+        push_title='{count} new replies in "{topic_title}"',
+        push_title_without_topic="{count} new forum replies",
+        push_body="Latest from {actor}",
+        email_subject="{count} new replies in: {topic_title}",
+        email_body="{count} new replies on a topic you're following",
     ),
 }
 
 
-def push_content(event: str, topic_title: str, actor: str) -> tuple[str, str] | None:
+def _copy_key(event: str, count: int) -> str:
+    return "replies_coalesced" if event == "reply_added" and count > 1 else event
+
+
+def push_content(
+    event: str, topic_title: str, actor: str, count: int = 1
+) -> tuple[str, str] | None:
     """Render the FCM tray ``(title, body)`` for *event*, or ``None`` if silent.
 
     ``topic_title`` is expected pre-truncated by the caller (the cap is a push
@@ -102,20 +116,23 @@ def push_content(event: str, topic_title: str, actor: str) -> tuple[str, str] | 
     copy = FORUM_NOTIFICATION_COPY.get(event)
     if copy is None or copy.push_title is None or copy.push_body is None:
         return None
+    copy = FORUM_NOTIFICATION_COPY[_copy_key(event, count)]
+    fields = {"topic_title": topic_title, "actor": actor, "count": count}
     if topic_title:
-        title = copy.push_title.format(topic_title=topic_title, actor=actor)
+        title = copy.push_title.format(**fields)
     else:
-        title = copy.push_title_without_topic or ""
-    return title, copy.push_body.format(topic_title=topic_title, actor=actor)
+        title = (copy.push_title_without_topic or "").format(**fields)
+    return title, copy.push_body.format(**fields)
 
 
-def email_content(event: str, topic_title: str, actor: str) -> tuple[str, str] | None:
+def email_content(
+    event: str, topic_title: str, actor: str, count: int = 1
+) -> tuple[str, str] | None:
     """Render the email ``(subject, body)`` for *event*, or ``None`` if the
-    event has no email arm."""
+    event has no email arm. ``count`` > 1 renders a coalesced reply."""
     copy = FORUM_NOTIFICATION_COPY.get(event)
     if copy is None or copy.email_subject is None or copy.email_body is None:
         return None
-    return (
-        copy.email_subject.format(topic_title=topic_title, actor=actor),
-        copy.email_body.format(topic_title=topic_title, actor=actor),
-    )
+    copy = FORUM_NOTIFICATION_COPY[_copy_key(event, count)]
+    fields = {"topic_title": topic_title, "actor": actor, "count": count}
+    return copy.email_subject.format(**fields), copy.email_body.format(**fields)

@@ -1,8 +1,10 @@
 # Notification policy
 
 Who gets which email and push, and which switch decides. Written for todo 620
-(2026-10-12). The owner decisions it rests on are recorded in that todo's
-`owner_decision`; they are quoted under [Decisions](#decisions) below.
+(2026-10-12) and extended by todo 624 (important-event email, quiet hours,
+coalescing, read-before-send). The owner decisions it rests on are recorded
+in those todos' `owner_decision`; they are quoted under
+[Decisions](#decisions) below.
 
 ## The switches, in precedence order
 
@@ -16,6 +18,7 @@ never turn back on what a higher one turned off.
 | 2 | `forum_notifications`: the forum master switch | `User` | web Settings "Account-wide switches"; mobile Profile "Forum notifications" |
 | 3 | Per-event matrix: push / email per forum event | `ForumProfile.notification_preferences` (sparse overrides) | web Settings "Notifications" grid; mobile Profile "Forum notifications by event" |
 | 4 | Digest cadence (`off` / `weekly`) | `ForumProfile.digest_frequency` | web Settings "Email digest"; mobile Profile "Weekly forum digest" |
+| 5 | Quiet hours (opt-in window; holds, never drops) | `ForumProfile.quiet_hours_*`, `time_zone` | web Settings "Notifications"; mobile Profile "Quiet hours" |
 | - | Blog newsletter | `BlogNewsletter` (by address, double opt-in) | the newsletter sign-up and its own unsubscribe link |
 | - | Care reminders | `User.care_reminder_notifications` | mobile care settings |
 
@@ -35,15 +38,70 @@ needs an address on file.
 | Reply on a followed topic | email | `email_notifications` AND `forum_notifications` AND matrix `reply.email` | `send_forum_email_batch` then `EmailService` |
 | Reply on a followed topic | push (mobile FCM and web push) | `forum_notifications` AND matrix `reply.push` | `send_forum_push_batch`, `send_forum_web_push_batch` |
 | Mention | push | `forum_notifications` AND matrix `mention.push` | same push tasks |
+| Mention | email (off by default) | `email_notifications` AND `forum_notifications` AND matrix `mention.email` | `send_forum_email_batch` (todo 624) |
 | Quote of your post | push | `forum_notifications` AND matrix `quote.push` | same push tasks |
+| Quote of your post | email (off by default) | `email_notifications` AND `forum_notifications` AND matrix `quote.email` | `send_forum_email_batch` (todo 624) |
 | Your answer accepted | push | `forum_notifications` AND matrix `solution.push` | `send_forum_push` |
+| Your answer accepted | email (off by default) | `email_notifications` AND `forum_notifications` AND matrix `solution.email` | `send_forum_email_batch` (todo 624) |
 | Moderation decision | push (tray-silent client sync) | `forum_notifications` | `send_forum_push`; not a matrix cell, it has no in-app row |
 | Weekly forum digest | email | `email_notifications` AND `forum_notifications` AND `digest_frequency = weekly` | `send_forum_digest` with `WAGTAILFORUM_DIGEST_RECIPIENT_FILTER` (`apps/users/notification_policy.py`) |
 | Blog newsletter | email | a confirmed, active `BlogNewsletter` row for the address | `send_blog_newsletter`; independent of every switch above |
 | Plant care reminder | push | `care_reminder_notifications` | `apps/garden_calendar/tasks.py` (todo 410) |
 
-There is no email for mentions, quotes or accepted answers today. Whether to
-add one, and quiet hours or coalescing, are todo 624.
+Every forum row except the digest, the moderation sync and care reminders
+is also subject to quiet hours, coalescing (replies only) and read-before-send
+below. None of them touches security mail or the in-app inbox.
+
+### Important-event email (todo 624)
+
+- Mention, quote and accepted-answer email are optional and **off by
+  default**: no member is subscribed to new mail they did not ask for. Each
+  is its own matrix cell, on web and mobile.
+- **One merged email.** A mentioned (or quoted) member is never in the reply
+  email batch for that post. They get the mention (or quote) email when that
+  cell is on; otherwise, if they follow the topic and want reply email, the
+  reply email; otherwise none. Never two.
+- **Unsubscribe follows the gate.** Each email's signed link turns off the
+  cell that let it through: `forum_mention`, `forum_quote`,
+  `forum_solution`, or `forum_reply` for the merged reply email.
+- Email does not depend on push: a member with no registered device still
+  gets the email they turned on.
+
+### Quiet hours (todo 624)
+
+- Opt-in (`quiet_hours_enabled`, off by default). Default window 22:00-07:00.
+- The window is wall-clock time in the IANA zone the client reports
+  (`time_zone`). Web reports the browser's zone on every quiet-hours save.
+  Mobile reports one only when the platform gives an IANA name; otherwise it
+  sends none and the stored zone (or UTC) stays. Both clients show the zone in
+  effect. Blank or unknown means UTC. The window follows daylight saving.
+- A push or email that would arrive inside the window is **held** in the
+  delivery outbox (`apps/core/delivery.py`, `mark_held`) and released when the
+  window ends, by reconciliation (every 5 minutes). On release the task
+  rechecks everything, so a preference changed overnight is honoured. Turning
+  quiet hours off, or moving the window, reschedules what is held.
+- Exempt: security mail (verification, password reset, security alerts,
+  lockout), which never goes through the forum tasks, and the in-app inbox.
+  The tray-silent moderation sync is not held.
+
+### Coalescing (todo 624)
+
+Owner decision: same-topic replies within 10 minutes reach a member as one
+email and one push. Implementation reading (2026-10-12): the first reply goes
+out at once. A reply arriving while the member's last message about that
+topic on that channel is younger than 10 minutes is held until 10 minutes
+after that message, then goes out as **one** message folding every reply
+still waiting ("3 new replies in ...", showing the newest). A steady stream
+is at most one message per 10 minutes per member, topic and channel; a quiet
+topic gets no added latency. Mentions, quotes and accepted answers are never
+folded.
+
+### Read-before-send (todo 624)
+
+Nothing goes out externally for a post the member already read in the app:
+its bell row is read, or their read marker for the topic (or their
+account-wide watermark) is at or past it. Checked on every attempt,
+including when a held delivery is released.
 
 ### What each master switch means
 
@@ -65,6 +123,9 @@ A link in an email turns off one list and nothing else (todo 408):
 |------|-----------|-------------------|
 | `forum_reply` | matrix `reply.email` | the Settings grid (web or mobile) |
 | `forum_digest` | `digest_frequency` (to `off`) | the digest selector (web or mobile) |
+| `forum_mention` | matrix `mention.email` | the Settings grid (web or mobile) |
+| `forum_quote` | matrix `quote.email` | the Settings grid (web or mobile) |
+| `forum_solution` | matrix `solution.email` | the Settings grid (web or mobile) |
 
 A link never touches a master switch. With `email_notifications` off no list's
 email is sent, whatever the list itself says.
@@ -94,6 +155,16 @@ Web does not show it.
 - 2026-10-12, owner: relabel the inert Plant ID switch, do not remove it or
   build a trigger. The label must not use "Plant ID" branding (the app is
   Houseplant MD); it describes plant identification updates, coming soon.
+- 2026-10-12, owner (todo 624): approve optional mention/quote/accepted-answer
+  email, off by default (no silent opt-in); a mentioned subscriber gets one
+  merged email.
+- 2026-10-12, owner (todo 624): quiet hours are opt-in, default window
+  22:00-07:00 in the client-reported IANA timezone (UTC if unknown); held
+  pushes/emails release at window end; security mail exempt.
+- 2026-10-12, owner (todo 624): coalesce same-topic replies within a 10-minute
+  window into one email/push, and skip the external send if the user already
+  read the post in-app. Implementation reading: leading message plus one
+  folded message per window (see [Coalescing](#coalescing-todo-624)).
 - Implementation reading (todo 620): `forum_notifications` off also stops
   forum email, the digest included. That was already true of reply email
   (`EmailService` maps `FORUM_REPLY` and `FORUM_DIGEST` to it); the digest

@@ -52,14 +52,29 @@ class ForumNotificationSettingsCard extends ConsumerStatefulWidget {
     super.key,
     required this.emailOn,
     required this.forumOn,
+    this.deviceTimeZone = reportableTimeZone,
   });
 
   final bool emailOn;
   final bool forumOn;
 
+  /// This device's IANA zone to report with a quiet-hours save, or null.
+  /// Injectable for tests.
+  final String? Function() deviceTimeZone;
+
   @override
   ConsumerState<ForumNotificationSettingsCard> createState() =>
       _ForumNotificationSettingsCardState();
+}
+
+/// This device's IANA time zone, or null when the platform gives only an
+/// abbreviation ("MDT"), which the server cannot resolve. Quiet hours are
+/// wall-clock times in the zone a client reports (owner decision 2026-10-12,
+/// todo 624); with none reported the server keeps the zone web Settings sent,
+/// or UTC, and this card says which.
+String? reportableTimeZone() {
+  final name = DateTime.now().timeZoneName;
+  return name.contains('/') ? name : null;
 }
 
 /// Row labels, in display order; they match web Settings.
@@ -165,6 +180,69 @@ class _ForumNotificationSettingsCardState
     );
   }
 
+  void _setQuietHours(QuietHours next) {
+    final settings = _settings;
+    final current = settings?.quietHours;
+    if (settings == null || current == null) return;
+    final zone = widget.deviceTimeZone();
+    _save(
+      settings.withQuietHours(next.copyWith(timeZone: zone)),
+      (api) => api.updateNotificationSettings(
+        quietHoursEnabled: next.enabled != current.enabled
+            ? next.enabled
+            : null,
+        quietHoursStart: next.start != current.start ? next.start : null,
+        quietHoursEnd: next.end != current.end ? next.end : null,
+        timeZone: zone,
+      ),
+    );
+  }
+
+  Future<void> _pickTime(QuietHours quiet, {required bool start}) async {
+    final parts = (start ? quiet.start : quiet.end).split(':');
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: int.parse(parts[0]),
+        minute: int.parse(parts[1]),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    final value =
+        '${picked.hour.toString().padLeft(2, '0')}:'
+        '${picked.minute.toString().padLeft(2, '0')}';
+    _setQuietHours(
+      start ? quiet.copyWith(start: value) : quiet.copyWith(end: value),
+    );
+  }
+
+  List<Widget> _quietHoursTiles(QuietHours quiet) => [
+    SwitchListTile(
+      title: const Text('Quiet hours'),
+      subtitle: Text(
+        'Pushes and emails that arrive in this window wait until it ends. '
+        'The inbox still shows everything, and security email always '
+        'sends. Times are in ${quiet.shownZone}.',
+      ),
+      value: quiet.enabled,
+      onChanged: _saving
+          ? null
+          : (on) => _setQuietHours(quiet.copyWith(enabled: on)),
+    ),
+    ListTile(
+      title: const Text('From'),
+      trailing: Text(quiet.start),
+      enabled: quiet.enabled && !_saving,
+      onTap: () => _pickTime(quiet, start: true),
+    ),
+    ListTile(
+      title: const Text('Until'),
+      trailing: Text(quiet.end),
+      enabled: quiet.enabled && !_saving,
+      onTap: () => _pickTime(quiet, start: false),
+    ),
+  ];
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -238,6 +316,17 @@ class _ForumNotificationSettingsCardState
           );
         }
       }
+      if (settings.cell('mention', 'email') != null) {
+        children.add(
+          _Note(
+            'Email for mentions, quotes and accepted answers is off until you '
+            'turn it on. A mention in a topic you follow sends one email: the '
+            'mention email if it is on, otherwise the reply email.',
+          ),
+        );
+      }
+      final quiet = settings.quietHours;
+      if (quiet != null) children.addAll(_quietHoursTiles(quiet));
     }
 
     return Column(

@@ -622,6 +622,13 @@ NOTIFICATION_BATCH_RETRY_DELAY = 30
 # again, so a real project-wide outage cannot loop.
 FORUM_PUSH_REQUEUE_DELAY = 300
 
+# Reply coalescing (todo 624, owner decision 2026-10-12): replies on one
+# topic within this window reach a member as ONE email and ONE push. A reply
+# notification waits out the window from its own reply, then folds every
+# later reply on that topic still waiting for the same member into its send
+# ("3 new replies"). Mentions, quotes and accepted answers are not delayed.
+REPLY_COALESCE_SECONDS = 10 * 60
+
 # Grounded-generation prompt. TWO untrusted slots, both fenced: the QUESTION is
 # user input, and the PASSAGES are user-authored forum text and blog copy that
 # can carry injection attempts at greater length. The ingestion/dosing refusal

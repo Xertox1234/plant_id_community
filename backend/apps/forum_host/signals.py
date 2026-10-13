@@ -2,9 +2,10 @@ import logging
 
 from apps.blog.models import BlogPostPage
 from django.db import transaction
-from django.db.models.signals import post_delete
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from wagtail.signals import page_published, page_unpublished
+from wagtail_forum.models import ForumProfile
 from wagtail_forum.signals import (
     moderation_decided,
     reply_added,
@@ -39,6 +40,29 @@ def _on_solution_marked(sender, topic, post, actor, **kwargs):
     # the package signal is named for the ACTION, the host event for what the
     # recipient is told.
     notifications.dispatch("answer_accepted", topic=topic, post=post, actor=actor)
+
+
+@receiver(post_save, sender=ForumProfile)
+def _on_forum_profile_saved(sender, instance, update_fields=None, **kwargs):
+    """A quiet-hours change reschedules the member's held deliveries (todo
+    624). Never raises into the save: a failure leaves them due at the old
+    window's end, where the release rechecks quiet hours anyway."""
+    from django.db import DatabaseError
+
+    from .pacing import QUIET_FIELDS, reschedule_quiet_holds
+
+    if update_fields is not None and not (set(update_fields) & QUIET_FIELDS):
+        return
+    try:
+        # A savepoint: a failed UPDATE must not poison the caller's
+        # transaction (the profile save may run inside one).
+        with transaction.atomic():
+            reschedule_quiet_holds(instance)
+    except DatabaseError as exc:
+        logger.error(
+            "[DELIVERY] could not reschedule quiet-hours holds: %s",
+            type(exc).__name__,
+        )
 
 
 # --------------------------------------------------------------------------- #
