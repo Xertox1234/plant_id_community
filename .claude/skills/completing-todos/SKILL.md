@@ -319,11 +319,14 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    - For each group, `state.py followups-md $RUN G --out $SCRATCH/followups-G.md` writes its Findings: each
      item with its severity, the cap's dropped count, and the refuted lines under their own heading so the
      owner can re-judge them.
-   - One follow-up todo file per PR with follow-ups or `refuted` lines (a group with only refuted lines gets
-     no curation but still gets one, from `followups-md`): next free id, `p4`, the PR number and that Findings text, all
-     committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR. A group still held or
-     blocked is an owner hand-off in the wrap-up, not a p4 follow-up. Its dismissed criticals are already on
-     the PR and in its block reason.
+   - **No p4 follow-up todos** (owner decision 2026-10-12). After each review round, append a dated
+     `Review round N: non-blocking findings …` section to the archived todo's Work Log in the PR worktree:
+     each finding either fixed by hand (with a test, and a mutation check when the fix is a guard) or declined
+     with a one-line reason. Commit it, `annotate … tree_id`, `ensure-worktree`, push. A finding that is a
+     regression the PR itself introduced is fixed, not declined. File a new todo only for a P0–P2 finding, and
+     then skip the curation steps above for every other group. Filing every PR's lows as p4s made the 2026-10-12
+     sweeps close 38 P4s while filing 20 new ones. A group still held or blocked is an owner hand-off in the
+     wrap-up. Its dismissed criticals are already on the PR and in its block reason.
 5. `residue` (todo 480): an agent of the review changed the PR worktree, so the reviewers did not all read what
    ships, and a round-1 repair's `git add -A` would have committed it. `review-args` records a baseline per
    round (HEAD, plus every path `git add -A` would take, with its content hash). The workflow checks it before
@@ -452,7 +455,8 @@ findings the refuters dismissed (per PR), deferred groups (`--limit`), and the f
 2. **External verification leaves evidence in the file:** the date and the observed result, quoted.
    "Verified" alone is not evidence.
 3. **No destructive recovery.** Never reset, force-push, delete or `git checkout --` to recover. Stop and report.
-4. **Two review rounds.** Round 2 never repairs; non-blocking findings become follow-up todos.
+4. **Two review rounds.** Round 2 never repairs; non-blocking findings go in the todo's Work Log, fixed or
+   declined, and only a P0–P2 finding becomes a new todo (owner decision 2026-10-12).
 5. **One committer.** Workflows never commit, push or call `gh`; `guard-todo-worker-git.sh` enforces it for
    workers and verifiers. `guard-todo-worker-edit.sh` keeps a worker's edits inside a worktree (todo 541).
 6. **Never read production.** A todo needing prod data is `blocked-prod` and an owner hand-off.
