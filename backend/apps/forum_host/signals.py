@@ -2,7 +2,7 @@ import logging
 
 from apps.blog.models import BlogPostPage
 from django.db import transaction
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from wagtail.signals import page_published, page_unpublished
 from wagtail_forum.models import ForumProfile
@@ -42,16 +42,48 @@ def _on_solution_marked(sender, topic, post, actor, **kwargs):
     notifications.dispatch("answer_accepted", topic=topic, post=post, actor=actor)
 
 
+def _quiet_values(profile) -> tuple:
+    from .pacing import QUIET_FIELDS
+
+    return tuple(getattr(profile, name) for name in sorted(QUIET_FIELDS))
+
+
+@receiver(pre_save, sender=ForumProfile)
+def _snapshot_quiet_hours(sender, instance, update_fields=None, raw=False, **kwargs):
+    """The stored quiet-hours fields before this save, so the post_save
+    receiver below runs its UPDATE only when one of them changed (most
+    profile saves are counters and watermarks). One indexed read, and none
+    for a create or a save naming no quiet-hours field."""
+    from .pacing import QUIET_FIELDS
+
+    instance._quiet_hours_before = None
+    if raw or instance.pk is None:
+        return
+    if update_fields is not None and not (set(update_fields) & QUIET_FIELDS):
+        return
+    stored = (
+        ForumProfile.objects.filter(pk=instance.pk)
+        .values_list(*sorted(QUIET_FIELDS))
+        .first()
+    )
+    instance._quiet_hours_before = stored
+
+
 @receiver(post_save, sender=ForumProfile)
-def _on_forum_profile_saved(sender, instance, update_fields=None, **kwargs):
+def _on_forum_profile_saved(
+    sender, instance, created=False, update_fields=None, raw=False, **kwargs
+):
     """A quiet-hours change reschedules the member's held deliveries (todo
     624). Never raises into the save: a failure leaves them due at the old
     window's end, where the release rechecks quiet hours anyway."""
     from django.db import DatabaseError
 
-    from .pacing import QUIET_FIELDS, reschedule_quiet_holds
+    from .pacing import reschedule_quiet_holds
 
-    if update_fields is not None and not (set(update_fields) & QUIET_FIELDS):
+    before = getattr(instance, "_quiet_hours_before", None)
+    instance._quiet_hours_before = None
+    # A new profile has nothing held; an unchanged window moves nothing.
+    if created or raw or before is None or tuple(before) == _quiet_values(instance):
         return
     try:
         # A savepoint: a failed UPDATE must not poison the caller's

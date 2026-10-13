@@ -509,6 +509,53 @@ function deviceTimeZone(): string {
   }
 }
 
+/** One quiet-hours time. A native time input changes once per segment
+ * (hours, then minutes), so the edit is a local draft and saves on blur:
+ * saving on every change sent a PATCH per segment, and disabling the input
+ * during that save dropped focus mid-edit (review round 1, PR #1132). The
+ * field stays enabled while a save is in flight; only quiet hours being off
+ * disables it. */
+function QuietHoursTime({
+  id,
+  saved,
+  enabled,
+  saving,
+  onCommit,
+}: {
+  id: string;
+  saved: string;
+  enabled: boolean;
+  saving: boolean;
+  onCommit: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(saved);
+  // The saved value moved (a save landed, or was reverted): show it.
+  useEffect(() => setDraft(saved), [saved]);
+  const commit = () => {
+    // Another save in flight would turn this one away: show the saved value
+    // rather than an edit that was never sent.
+    if (!saving && /^([01]\d|2[0-3]):[0-5]\d$/.test(draft) && draft !== saved) {
+      onCommit(draft);
+    } else {
+      setDraft(saved);
+    }
+  };
+  return (
+    <input
+      id={id}
+      type="time"
+      value={draft}
+      onChange={(event: ChangeEvent<HTMLInputElement>) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') commit();
+      }}
+      disabled={!enabled}
+      className="min-h-11 rounded-sm border border-line bg-surface-2/60 px-3 py-2 text-ink focus:ring-2 focus:ring-secondary focus:outline-none disabled:opacity-50"
+    />
+  );
+}
+
 /** Quiet hours (todo 624): an opt-in window during which pushes and emails
  * wait until it ends. Rendered inside the notification section, which owns
  * the profile and the one in-flight save. */
@@ -531,13 +578,8 @@ function QuietHoursControls({
   // Every save reports this device's zone, so the window follows the member.
   const withZone = (patch: QuietHoursPatch): QuietHoursPatch =>
     zone ? { ...patch, time_zone: zone } : patch;
-  const onTime =
-    (field: 'quiet_hours_start' | 'quiet_hours_end') => (event: ChangeEvent<HTMLInputElement>) => {
-      const value = event.target.value;
-      if (/^\d{2}:\d{2}$/.test(value) && value !== profile[field]) {
-        onSave(withZone({ [field]: value }));
-      }
-    };
+  const onTime = (field: 'quiet_hours_start' | 'quiet_hours_end') => (value: string) =>
+    onSave(withZone({ [field]: value }));
 
   return (
     <div className="mt-4 border-t border-line pt-3">
@@ -561,24 +603,22 @@ function QuietHoursControls({
         <label htmlFor="quiet-hours-start" className="text-sm text-ink-2">
           From
         </label>
-        <input
+        <QuietHoursTime
           id="quiet-hours-start"
-          type="time"
-          value={start}
-          onChange={onTime('quiet_hours_start')}
-          disabled={saving || !enabled}
-          className="min-h-11 rounded-sm border border-line bg-surface-2/60 px-3 py-2 text-ink focus:ring-2 focus:ring-secondary focus:outline-none disabled:opacity-50"
+          saved={start}
+          enabled={enabled}
+          saving={saving}
+          onCommit={onTime('quiet_hours_start')}
         />
         <label htmlFor="quiet-hours-end" className="text-sm text-ink-2">
           Until
         </label>
-        <input
+        <QuietHoursTime
           id="quiet-hours-end"
-          type="time"
-          value={end}
-          onChange={onTime('quiet_hours_end')}
-          disabled={saving || !enabled}
-          className="min-h-11 rounded-sm border border-line bg-surface-2/60 px-3 py-2 text-ink focus:ring-2 focus:ring-secondary focus:outline-none disabled:opacity-50"
+          saved={end}
+          enabled={enabled}
+          saving={saving}
+          onCommit={onTime('quiet_hours_end')}
         />
       </div>
     </div>

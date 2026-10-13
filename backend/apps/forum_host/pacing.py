@@ -132,14 +132,18 @@ def pace(kind, event, data, claimed, users, *, now=None) -> Paced:
     # younger than the window: one query for the whole batch.
     last_sent: dict = {}
     if coalesce and mine:
-        for pk, at in DeliveryIntent.objects.filter(
-            kind=kind,
-            event=str(event),
-            recipient_id__in=[user.pk for user in mine],
-            payload__topic_id=topic_id,
-            status=delivery.Status.SENT,
-            updated_at__gt=now - window,
-        ).values_list("recipient_id", "updated_at"):
+        for pk, at in (
+            DeliveryIntent.objects.filter(
+                kind=kind,
+                event=str(event),
+                recipient_id__in=[user.pk for user in mine],
+                payload__topic_id=topic_id,
+                status=delivery.Status.SENT,
+                updated_at__gt=now - window,
+            )
+            .exclude(last_error=delivery.HANDED_OFF)
+            .values_list("recipient_id", "updated_at")
+        ):
             last_sent[pk] = max(at, last_sent.get(pk, at))
     for user in mine:
         row = claimed[user.pk]
@@ -158,17 +162,19 @@ def pace(kind, event, data, claimed, users, *, now=None) -> Paced:
             paced.sends.append(Send(user, row, folded))
             continue
         paced.sends.append(Send(user, row))
-    _count_folds(paced.sends)
+    _count_folds(paced.sends, data.get("post_id"))
     return paced
 
 
-def _count_folds(sends) -> None:
+def _count_folds(sends, dispatched_id=None) -> None:
     """Set each fold's ``count`` and ``latest`` from the folded posts that
     are still visible, unread by that member and not by someone they
-    blocked or muted. A constant number of queries per distinct author."""
-    from wagtail_forum.models import ForumProfile, TopicRead
+    blocked or muted. ``latest`` stays None when the dispatched post
+    (``dispatched_id``) is newer than every folded one. A constant number of
+    queries per distinct author."""
+    from wagtail_forum.models import ForumProfile, Post, TopicRead
 
-    from .eligibility import blocked_recipient_ids, visible_post
+    from .eligibility import blocked_recipient_ids, visible_posts
 
     folding = [send for send in sends if send.folded]
     if not folding:
@@ -176,9 +182,15 @@ def _count_folds(sends) -> None:
     post_ids = {
         int(pk) for send in folding for pk in send.folded.values() if str(pk).isdigit()
     }
-    # The same visibility predicate as the recheck; folds are rare and
-    # small, so one lookup per folded post.
-    visible = {pk: post for pk in post_ids if (post := visible_post(pk)) is not None}
+    # The same visibility predicate as the recheck, in one query.
+    visible = visible_posts(post_ids)
+    dispatched_at = None
+    if str(dispatched_id or "").isdigit():
+        dispatched_at = (
+            Post.objects.filter(pk=int(dispatched_id))
+            .values_list("first_published_at", flat=True)
+            .first()
+        )
     user_ids = [send.user.pk for send in folding]
     topic_ids = {post.topic_id for post in visible.values()}
     marks: dict = defaultdict(lambda: None)
@@ -214,9 +226,17 @@ def _count_folds(sends) -> None:
             worth.append(post)
         send.count = 1 + len(worth)
         if worth:
-            send.latest = max(
+            newest = max(
                 worth, key=lambda post: (post.first_published_at or timezone.now())
             )
+            # The dispatched post can be the newer one: a reply arriving after
+            # the window folds the older replies still held for it.
+            if (
+                dispatched_at is None
+                or newest.first_published_at is None
+                or newest.first_published_at > dispatched_at
+            ):
+                send.latest = newest
 
 
 def apply_holds(paced: Paced) -> None:
@@ -322,8 +342,11 @@ def finish_folds(send: Send, delivered: bool) -> None:
 def folded_data(data: dict, send: Send) -> dict:
     """The payload for ``send``: the dispatched one, or for a fold the newest
     reply's post and author and the reply count."""
-    if send.count <= 1 or send.latest is None:
+    if send.count <= 1:
         return data
+    if send.latest is None:
+        # The dispatched post is the newest: its own post and author.
+        return {**data, "count": str(send.count)}
     author = getattr(send.latest, "author", None)
     return {
         **data,

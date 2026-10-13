@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 
 import '../../services/api_service.dart';
 import '../../services/user_profile_service.dart';
@@ -59,23 +60,37 @@ class ForumNotificationSettingsCard extends ConsumerStatefulWidget {
   final bool forumOn;
 
   /// This device's IANA zone to report with a quiet-hours save, or null.
-  /// Injectable for tests.
-  final String? Function() deviceTimeZone;
+  /// Injectable for tests; the default asks the platform.
+  final Future<String?> Function() deviceTimeZone;
 
   @override
   ConsumerState<ForumNotificationSettingsCard> createState() =>
       _ForumNotificationSettingsCardState();
 }
 
-/// This device's IANA time zone, or null when the platform gives only an
-/// abbreviation ("MDT"), which the server cannot resolve. Quiet hours are
-/// wall-clock times in the zone a client reports (owner decision 2026-10-12,
-/// todo 624); with none reported the server keeps the zone web Settings sent,
-/// or UTC, and this card says which.
-String? reportableTimeZone() {
-  final name = DateTime.now().timeZoneName;
-  return name.contains('/') ? name : null;
+/// This device's IANA time zone ("America/Denver"), from the platform
+/// (owner decision 2026-10-13: `flutter_timezone`), or null when it cannot
+/// say. Dart's own `DateTime.timeZoneName` is an abbreviation ("MDT") the
+/// server cannot resolve. Quiet hours are wall-clock times in the zone a
+/// client reports (owner decision 2026-10-12, todo 624); with none reported
+/// the server keeps the zone web Settings sent, or UTC, and this card says
+/// which.
+Future<String?> reportableTimeZone() async {
+  try {
+    final zone = (await FlutterTimezone.getLocalTimezone()).identifier;
+    return isReportableTimeZone(zone) ? zone : null;
+  } catch (_) {
+    // No plugin (a test, an unsupported platform) or a platform error.
+    return null;
+  }
 }
+
+/// An IANA "Area/City" name (or UTC) that fits the server's 64-character
+/// field; never an abbreviation or a "GMT+02:00" offset.
+bool isReportableTimeZone(String zone) =>
+    zone.length <= 64 &&
+    (zone == 'UTC' ||
+        RegExp(r'^[A-Za-z_]+(/[A-Za-z0-9_+\-]+)+$').hasMatch(zone));
 
 /// Row labels, in display order; they match web Settings.
 const forumNotificationVerbLabels = <String, String>{
@@ -95,6 +110,9 @@ class _ForumNotificationSettingsCardState
   ForumNotificationSettings? _settings;
   Object? _loadError;
   bool _saving = false;
+
+  /// The device zone, looked up once per card.
+  late final Future<String?> _deviceZone = widget.deviceTimeZone();
 
   @override
   void initState() {
@@ -180,11 +198,12 @@ class _ForumNotificationSettingsCardState
     );
   }
 
-  void _setQuietHours(QuietHours next) {
+  Future<void> _setQuietHours(QuietHours next) async {
+    final zone = await _deviceZone;
+    if (!mounted) return;
     final settings = _settings;
     final current = settings?.quietHours;
     if (settings == null || current == null) return;
-    final zone = widget.deviceTimeZone();
     _save(
       settings.withQuietHours(next.copyWith(timeZone: zone)),
       (api) => api.updateNotificationSettings(
@@ -200,12 +219,16 @@ class _ForumNotificationSettingsCardState
 
   Future<void> _pickTime(QuietHours quiet, {required bool start}) async {
     final parts = (start ? quiet.start : quiet.end).split(':');
+    // The model only keeps in-range "HH:MM"; this is the belt to that
+    // brace, so a bad value opens the picker on the default, never throws.
+    final hour = int.tryParse(parts.first);
+    final minute = parts.length == 2 ? int.tryParse(parts[1]) : null;
+    final valid = hour != null && minute != null && hour < 24 && minute < 60;
     final picked = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay(
-        hour: int.parse(parts[0]),
-        minute: int.parse(parts[1]),
-      ),
+      initialTime: valid
+          ? TimeOfDay(hour: hour, minute: minute)
+          : TimeOfDay(hour: start ? 22 : 7, minute: 0),
     );
     if (picked == null || !mounted) return;
     final value =

@@ -279,8 +279,14 @@ def _finish(pks, status, reason=""):
     )
 
 
-def mark_sent(pks) -> int:
-    return _finish(pks, Status.SENT)
+# A sent row whose message was handed to another task's retries rather than
+# accepted by the provider (forum push, todo 624): finished, but not proof of
+# delivery, so reply coalescing does not measure its window from it.
+HANDED_OFF = "handed_off"
+
+
+def mark_sent(pks, reason="") -> int:
+    return _finish(pks, Status.SENT, reason)
 
 
 def mark_suppressed(pks, reason="ineligible") -> int:
@@ -379,13 +385,22 @@ def reconcile() -> dict[str, int]:
     lease_cut = now - timedelta(seconds=constants.DELIVERY_CLAIM_LEASE_SECONDS)
 
     # A row still inside its hold is not stale: its member asked for it
-    # later (todo 624). It expires like any other once the hold has ended.
+    # later (todo 624). Nor is one whose hold has only just ended: this pass
+    # re-drives it below, so a hold that ran close to the max age is still
+    # released rather than expired the moment it is due. The re-drive clears
+    # the hold reason, so a released row that is never picked up expires
+    # like any other on a later pass.
+    hold_grace = now - timedelta(seconds=constants.DELIVERY_REDRIVE_INTERVAL_SECONDS)
     totals["expired"] = (
         DeliveryIntent.objects.filter(
             status__in=_OPEN,
             created_at__lt=now - timedelta(seconds=constants.DELIVERY_MAX_AGE_SECONDS),
         )
-        .exclude(status=Status.PENDING, last_error__in=HOLDS, next_attempt_at__gt=now)
+        .exclude(
+            status=Status.PENDING,
+            last_error__in=HOLDS,
+            next_attempt_at__gt=hold_grace,
+        )
         .update(status=Status.FAILED, last_error="expired", claim_token=None)
     )
     totals["interrupted"] = DeliveryIntent.objects.filter(
@@ -406,6 +421,12 @@ def reconcile() -> dict[str, int]:
                 claim_token=None,
                 next_attempt_at=now
                 + timedelta(seconds=constants.DELIVERY_REDRIVE_INTERVAL_SECONDS),
+                # A released hold is no longer one (the task re-holds it if
+                # it must wait again).
+                last_error=Case(
+                    When(last_error__in=HOLDS, then=Value("")),
+                    default=F("last_error"),
+                ),
             )
     by_kind = defaultdict(list)
     for row in rows:

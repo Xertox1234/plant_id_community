@@ -381,3 +381,10 @@ def test_a_retry_after_a_transient_failure_is_rechecked_too(
         .values_list("status", "last_error")
         .distinct()
     ) == {(DeliveryIntent.Status.SUPPRESSED, "content_unavailable")}
+    # ...marked handed off, not delivered, so reply coalescing never anchors
+    # its window on them (review round 1, PR #1132).
+    assert set(
+        DeliveryIntent.objects.filter(kind=DeliveryIntent.Kind.FORUM_PUSH)
+        .values_list("status", "last_error")
+        .distinct()
+    ) == {(DeliveryIntent.Status.SENT, delivery.HANDED_OFF)}

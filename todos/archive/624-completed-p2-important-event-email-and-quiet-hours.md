@@ -82,6 +82,27 @@ Split from todo 620 at triage (run 2026-10-12-1616, owner decision 2026-10-12): 
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-10-13 - Review round 1: non-blocking findings (PR #1132)
+
+Each fix has a test; each guard fix was mutation-checked (guard broken, test seen failing, file restored from a backup copy).
+
+- fixed: `_hold_single_push` reported a push held when the unique outbox row made `record_batch` insert nothing, so a re-accepted answer during quiet hours was lost; it now holds only when a row was inserted or an open one already holds it, and otherwise sends now (`test_a_re_accepted_answer_is_not_dropped_by_quiet_hours`). This also settles the redelivery-idempotency finding: a redelivered task finds the open row and inserts nothing.
+- fixed: a fold's `latest` ignored the dispatched post and could name and link the older reply; `_count_folds` now compares with the dispatched post and `folded_data` keeps the count when the dispatched post is newest (`test_a_fold_shows_the_dispatched_reply_when_it_is_the_newest`).
+- fixed: the transient hand-off to `send_forum_push` passed `data`, not the folded `send_data` (`test_a_folded_push_handed_off_on_a_transient_failure_keeps_the_fold`).
+- fixed: a credentials stop left the rows the untried sends had folded claimed; they are released with the untried rows (`test_a_credentials_stop_releases_the_rows_an_untried_send_folded`).
+- fixed: the `ForumProfile` `post_save` receiver ran its UPDATE on every save; a `pre_save` snapshot now gates it on a quiet-hours field actually changing, and creates are skipped (`test_a_profile_save_that_leaves_quiet_hours_alone_reschedules_nothing`).
+- fixed: a handed-off `forum_push` row was marked sent as if delivered; it is now sent with `last_error` `handed_off` (`delivery.HANDED_OFF`), which the coalescing `last_sent` query excludes (`test_a_folded_push_handed_off_on_a_transient_failure_keeps_the_fold`, plus the restored `FORUM_PUSH` assertion in `test_a_retry_after_a_transient_failure_is_rechecked_too`).
+- fixed: a hold that ran close to `DELIVERY_MAX_AGE_SECONDS` expired in the same reconcile pass that would release it; held rows keep their exemption for one redrive interval past the release, and the re-drive clears the hold reason so a released row that is never picked up still expires (`test_a_long_hold_is_released_not_expired_when_it_falls_due`).
+- fixed: mobile reported no zone, because `DateTime.timeZoneName` is an abbreviation; per the owner decision of 2026-10-13 it now reads the IANA zone through `flutter_timezone` 5.1.1 (`reportableTimeZone`, injectable `deviceTimeZone`), accepting only an Area/City name or UTC (`sends the platform's IANA zone with a quiet-hours save`, `only an IANA name is reportable`, `reports nothing for an abbreviation or a platform error`). `flutter pub add` also moved the transitive `equatable` from 2.0.8 to 2.1.0.
+- fixed: the web time inputs saved on every change and disabled themselves mid-save, which dropped focus; each is now a local draft saved on blur or Enter, enabled while a save is in flight (`turning quiet hours on reports this device zone, then edits a time`, `a time left unchanged, or out of range, saves nothing`).
+- fixed: mobile `int.parse` accepted '99:99'; the model keeps only in-range `HH:MM` and the picker falls back to the default time (`fromJson reads quiet hours and drops a malformed window`).
+- fixed: the `REPLY_COALESCE_SECONDS` comment now describes what `pacing.py` does: the first reply is sent at once, and later ones are held to the last send + the window.
+- fixed: the unwired-cell 400 branch is tested again through a patched `NOTIFICATION_MATRIX` with a push-only verb (`test_a_cell_the_matrix_does_not_wire_is_a_400`).
+- fixed: `_count_folds` looked up each folded post on its own; `eligibility.visible_posts` fetches them in one query with the same predicate (covered by the fold tests above).
+- declined: per-release fold scheduling. The batch countdown fires at the latest release, and reconciliation (every 5 minutes) releases any earlier due row, so an earlier member waits at most one beat. The race between two countdowns is already guarded by `_another_fold_waits`, and claims stop a row being sent twice.
+- declined: a Playwright E2E for quiet hours. The flow is one settings form over an endpoint covered by backend API tests and Vitest, and the E2E suite runs against a live stack this sweep does not start. Deferred to the next E2E pass on Settings.
+- declined: the dark-theme check. The controls reuse the existing token classes (`text-ink-*`, `bg-surface-2`, `border-line`) that the rest of the section already themes, and add no colours of their own.
+
 ## Notes
 
 Depends in practice on 620's policy matrix landing first. Care reminders stay FCM-only (archived 410).

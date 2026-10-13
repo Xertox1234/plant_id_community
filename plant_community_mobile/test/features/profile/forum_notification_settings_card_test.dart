@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
@@ -14,7 +15,7 @@ Widget _wrap(
   bool emailOn = true,
   bool forumOn = true,
   ThemeData? theme,
-  String? Function()? deviceTimeZone,
+  Future<String?> Function()? deviceTimeZone,
 }) => ProviderScope(
   overrides: [forumApiProvider.overrideWithValue(api)],
   child: MaterialApp(
@@ -26,7 +27,7 @@ Widget _wrap(
           key: UniqueKey(),
           emailOn: emailOn,
           forumOn: forumOn,
-          deviceTimeZone: deviceTimeZone ?? () => null,
+          deviceTimeZone: deviceTimeZone ?? () async => null,
         ),
       ),
     ),
@@ -384,6 +385,89 @@ void main() {
       );
       // A backend from before todo 624: nothing to offer.
       expect(ForumNotificationSettings.fromJson({}).quietHours, isNull);
+      // Shaped like HH:MM but out of range: dropped, never parsed into an
+      // invalid TimeOfDay for the picker (review round 1, PR #1132).
+      for (final bad in ['99:99', '24:00', '23:60']) {
+        expect(
+          ForumNotificationSettings.fromJson({
+            'quiet_hours_enabled': true,
+            'quiet_hours_start': bad,
+            'quiet_hours_end': '07:00',
+          }).quietHours,
+          isNull,
+          reason: bad,
+        );
+      }
+    });
+
+    test('only an IANA name is reportable', () {
+      for (final zone in [
+        'America/Denver',
+        'America/Argentina/Buenos_Aires',
+        'Etc/GMT+7',
+        'UTC',
+      ]) {
+        expect(isReportableTimeZone(zone), isTrue, reason: zone);
+      }
+      for (final zone in ['MDT', 'GMT+02:00', '', 'A/${'b' * 70}']) {
+        expect(isReportableTimeZone(zone), isFalse, reason: zone);
+      }
+    });
+
+    group('the default zone lookup', () {
+      const channel = MethodChannel('flutter_timezone');
+      TestDefaultBinaryMessenger messenger() =>
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      tearDown(() => messenger().setMockMethodCallHandler(channel, null));
+
+      testWidgets("sends the platform's IANA zone with a quiet-hours save", (
+        tester,
+      ) async {
+        // The platform side of flutter_timezone, as iOS and Android answer.
+        messenger().setMockMethodCallHandler(channel, (call) async {
+          expect(call.method, 'getLocalTimezone');
+          return 'America/Denver';
+        });
+        final api = FakeForumApi()..notificationSettings = full;
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [forumApiProvider.overrideWithValue(api)],
+            child: MaterialApp(
+              home: Scaffold(
+                body: SingleChildScrollView(
+                  // No deviceTimeZone: the real reportableTimeZone runs.
+                  child: ForumNotificationSettingsCard(
+                    emailOn: true,
+                    forumOn: true,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(find.text('Until'), 200);
+
+        await tester.tap(find.text('Quiet hours'));
+        await tester.pumpAndSettle();
+
+        expect(api.notificationSettingsUpdates.last, {
+          'quiet_hours_enabled': true,
+          'time_zone': 'America/Denver',
+        });
+      });
+
+      testWidgets('reports nothing for an abbreviation or a platform error', (
+        tester,
+      ) async {
+        messenger().setMockMethodCallHandler(channel, (call) async => 'MDT');
+        expect(await reportableTimeZone(), isNull);
+        messenger().setMockMethodCallHandler(
+          channel,
+          (call) async => throw PlatformException(code: 'boom'),
+        );
+        expect(await reportableTimeZone(), isNull);
+      });
     });
 
     testWidgets('offers the new email cells, off, and saves one', (
@@ -441,7 +525,7 @@ void main() {
     ) async {
       final api = FakeForumApi()..notificationSettings = full;
       await tester.pumpWidget(
-        _wrap(api, deviceTimeZone: () => 'America/Denver'),
+        _wrap(api, deviceTimeZone: () async => 'America/Denver'),
       );
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(find.text('Until'), 200);

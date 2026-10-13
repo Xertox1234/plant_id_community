@@ -133,6 +133,26 @@ def visible_post(post_id):
     )
 
 
+def visible_posts(post_ids) -> dict:
+    """{post pk: post} for the posts in ``post_ids`` that ``visible_post``
+    would return, in one query."""
+    from wagtail_forum.api.views import _visible_boards
+    from wagtail_forum.models import Post
+
+    ids = [int(pk) for pk in post_ids]
+    if not ids:
+        return {}
+    return {
+        post.pk: post
+        for post in Post.objects.filter(
+            pk__in=ids,
+            live=True,
+            topic__live=True,
+            topic__board__in=_visible_boards(),
+        ).select_related("topic__board", "author")
+    }
+
+
 def blocked_recipient_ids(actor_id, recipient_ids) -> set[int]:
     """Recipients who may not hear from ``actor_id``: a block either way, or
     the recipient muted the actor (one direction). The same rule as

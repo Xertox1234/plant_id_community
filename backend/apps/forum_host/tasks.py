@@ -319,15 +319,32 @@ def _hold_single_push(event, user_id, data, token, retries) -> bool:
     release = pacing.quiet_release_for(user_id)
     if release is None:
         return False
-    delivery.record_batch(
+    from apps.core.models import DeliveryIntent
+
+    subject_key = str(data.get("post_id", ""))
+    batch_id = delivery.record_batch(
         delivery.Kind.FORUM_PUSH,
         event,
         [user_id],
         data,
-        subject_key=data.get("post_id", ""),
+        subject_key=subject_key,
         due_at=release,
         reason=delivery.HOLD_QUIET_HOURS,
     )
+    if not DeliveryIntent.objects.filter(batch_id=batch_id).exists():
+        # The row is unique per (kind, event, post, recipient), so the insert
+        # was a no-op: an earlier accept of this answer (or a redelivery of
+        # this task) owns it. Still open, that row is the held push. Finished
+        # (a re-accept after the first one went out), holding would drop
+        # this push: send it now instead.
+        if not DeliveryIntent.objects.filter(
+            kind=delivery.Kind.FORUM_PUSH,
+            event=str(event),
+            subject_key=subject_key,
+            recipient_id=user_id,
+            status__in=(delivery.Status.PENDING, delivery.Status.CLAIMED),
+        ).exists():
+            return False
     logger.info("[FCM] forum.%s push for user=%s held for quiet hours", event, user_id)
     return True
 
@@ -455,7 +472,7 @@ def send_forum_push_batch(
     # would have sent to, so the count is not inflated by opted-out, muted or
     # tokenless profiles (todo 606).
     untried: list[int] | None = None
-    outcomes: dict = {"sent": [], "failed": [], "credentials": []}
+    outcomes: dict = {"sent": [], "handed_off": [], "failed": [], "credentials": []}
     for index, send in enumerate(paced.sends):
         user = send.user
         send_data = pacing.folded_data(data, send)
@@ -516,11 +533,15 @@ def send_forum_push_batch(
             # credentials ERROR below is logged. Only the exception's type is
             # logged: a broker message can carry its host or URL (#2).
             try:
+                # ``send_data``: a fold's retry is still the folded message
+                # (its folded rows are finished as covered below).
                 if len(transient) == len(devices):
-                    send_forum_push.delay(event, user.pk, data)
+                    send_forum_push.delay(event, user.pk, send_data)
                 else:
                     for device_token in transient:
-                        send_forum_push.delay(event, user.pk, data, token=device_token)
+                        send_forum_push.delay(
+                            event, user.pk, send_data, token=device_token
+                        )
             except Exception as exc:
                 logger.error(
                     "[FCM] forum.%s re-enqueue single failed (user=%s): %s — "
@@ -534,8 +555,13 @@ def send_forum_push_batch(
         # to send_forum_push's retries, finishes the row.
         delivered = bool(user_sent or transient)
         if send.row is not None:
-            if delivered:
+            if user_sent:
                 outcomes["sent"].append(send.row)
+            elif delivered:
+                # Handed off, not yet delivered: finished here (the single
+                # task owns the retries) but marked so reply coalescing does
+                # not anchor its window on a push that may never arrive.
+                outcomes["handed_off"].append(send.row)
             elif user_credentials_failed:
                 outcomes["credentials"].append(send.row)
             else:
@@ -554,11 +580,17 @@ def send_forum_push_batch(
                 untried_rows = [
                     later.row for later in paced.sends[index + 1 :] if later.row
                 ]
+                # With the rows each untried send had claimed for its fold,
+                # so the follow-up batch can fold them again.
+                untried_rows += [
+                    pk for later in paced.sends[index + 1 :] for pk in later.folded
+                ]
                 # Handed back for the follow-up batch below or, failing
                 # that, reconciliation.
                 _record(delivery.release, untried_rows)
                 break
     _record(delivery.mark_sent, outcomes["sent"])
+    _record(delivery.mark_sent, outcomes["handed_off"], delivery.HANDED_OFF)
     _record(delivery.mark_failed, outcomes["failed"], "permanent")
     _record(delivery.mark_failed, outcomes["credentials"], "fcm_credentials")
     stop_note = ""

@@ -111,6 +111,27 @@ def test_unknown_verb_channel_or_non_boolean_is_a_400(payload, fragment):
 
 
 @pytest.mark.django_db
+def test_a_cell_the_matrix_does_not_wire_is_a_400():
+    # Every verb has an email cell since todo 624, so the unwired-cell branch
+    # is reached through a matrix with a push-only verb (review round 1).
+    from unittest.mock import patch
+
+    from wagtail_forum import preferences
+
+    user, client = _client("unwired")
+    with patch.dict(preferences.NOTIFICATION_MATRIX, {"mention": ("push",)}):
+        resp = client.patch(
+            "/forum/me/profile/",
+            {"notification_preferences": {"mention": {"email": True}}},
+            format="json",
+        )
+
+    assert resp.status_code == 400
+    assert "Email is not available for mention" in str(resp.data)
+    assert ForumProfile.for_user(user).notification_preferences == {}
+
+
+@pytest.mark.django_db
 def test_a_host_default_change_reaches_every_untouched_cell():
     user, client = _client("hostdefault")
     client.patch(

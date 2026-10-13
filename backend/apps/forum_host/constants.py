@@ -623,10 +623,12 @@ NOTIFICATION_BATCH_RETRY_DELAY = 30
 FORUM_PUSH_REQUEUE_DELAY = 300
 
 # Reply coalescing (todo 624, owner decision 2026-10-12): replies on one
-# topic within this window reach a member as ONE email and ONE push. A reply
-# notification waits out the window from its own reply, then folds every
-# later reply on that topic still waiting for the same member into its send
-# ("3 new replies"). Mentions, quotes and accepted answers are not delayed.
+# topic within this window reach a member as ONE email and ONE push. The
+# first reply goes out at once; a later one that arrives while the member's
+# last message about that topic on that channel is younger than this window
+# is held until that message's time + the window, then goes out folding
+# every reply still waiting ("3 new replies"), as pacing.py describes.
+# Mentions, quotes and accepted answers are not delayed.
 REPLY_COALESCE_SECONDS = 10 * 60
 
 # Grounded-generation prompt. TWO untrusted slots, both fenced: the QUESTION is

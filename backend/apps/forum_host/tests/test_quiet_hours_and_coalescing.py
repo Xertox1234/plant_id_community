@@ -590,3 +590,231 @@ def test_a_read_bell_row_stops_the_send(django_capture_on_commit_callbacks):
     )
     got = _to(_run(calls), member)
     assert (got.email, got.fcm, got.web) == ([], [], [])
+
+
+# --- review round 1 (PR #1132) -------------------------------------------------
+
+
+@pytest.mark.django_db
+@override_settings(**PUSH_ON)
+def test_a_re_accepted_answer_is_not_dropped_by_quiet_hours(
+    django_capture_on_commit_callbacks,
+):
+    helper = _member("qhreaccept", quiet=True)
+    topic, asker = _topic("qhreaccept")
+    answer = _reply(topic, helper, "Cut away the mushy roots")
+
+    def accept(at):
+        with freeze_time(at):
+            return _dispatch_and_run(
+                django_capture_on_commit_callbacks,
+                "answer_accepted",
+                topic=topic,
+                post=answer,
+                actor=asker,
+            )
+
+    accept(NIGHT)
+    # Accepted again while the first push is still held: still one held push.
+    again = accept(NIGHT + datetime.timedelta(hours=1))
+    assert _to(again, helper).fcm == []
+    assert _rows(helper, kind=Kind.FORUM_PUSH).count() == 1
+    with freeze_time(DAWN + datetime.timedelta(minutes=1)):
+        released = _reconcile_and_run()
+    assert len(_to(released, helper).fcm) == 1
+
+    # The next night it is accepted again. The finished row from the first
+    # accept blocks a second held row, so the push goes out rather than
+    # being reported held and lost.
+    next_night = accept(NIGHT + datetime.timedelta(days=1))
+    assert len(_to(next_night, helper).fcm) == 1
+
+
+@pytest.mark.django_db
+@override_settings(**PUSH_ON)
+def test_a_fold_shows_the_dispatched_reply_when_it_is_the_newest(
+    django_capture_on_commit_callbacks,
+):
+    # Joined before the replies: a new account's read watermark is its
+    # join time, which would mark an older published reply read.
+    with freeze_time(NOON - datetime.timedelta(days=1)):
+        member = _member("cofoldnew")
+        topic, author = _topic("cofoldnew", member)
+
+    def reply(at, text):
+        with freeze_time(at):
+            post = _reply(topic, author, text, published=at)
+            return post, _dispatch_and_run(
+                django_capture_on_commit_callbacks,
+                "reply_added",
+                topic=topic,
+                post=post,
+            )
+
+    reply(NOON, "First")
+    reply(NOON + datetime.timedelta(minutes=2), "Second, held")
+    mail.outbox.clear()
+    # After the window, before the held reply's countdown runs: this reply's
+    # run folds the older held one, and must show itself, not the older one.
+    newest, sent = reply(
+        NOON + datetime.timedelta(minutes=10, seconds=30), "Third, the newest"
+    )
+    got = _to(sent, member)
+    assert (len(got.email), len(got.fcm), len(got.web)) == (1, 1, 1)
+    assert got.email[0].subject == "2 new replies in: Root rot"
+    assert "Third, the newest" in got.email[0].body
+    assert "Second, held" not in got.email[0].body
+    assert got.fcm[0][1]["post_id"] == str(newest.pk)
+    assert got.fcm[0][2][0] == '2 new replies in "Root rot"'
+    assert got.web[0][1] == '2 new replies in "Root rot"'
+
+
+@pytest.mark.django_db
+@override_settings(**PUSH_ON)
+def test_a_folded_push_handed_off_on_a_transient_failure_keeps_the_fold(
+    django_capture_on_commit_callbacks,
+):
+    # Joined before the replies: a new account's read watermark is its
+    # join time, which would mark an older published reply read.
+    with freeze_time(NOON - datetime.timedelta(days=1)):
+        member = _member("cohandoff")
+        topic, author = _topic("cohandoff", member)
+
+    def reply(at, text):
+        with freeze_time(at):
+            post = _reply(topic, author, text, published=at)
+            return post, _dispatch_and_run(
+                django_capture_on_commit_callbacks,
+                "reply_added",
+                topic=topic,
+                post=post,
+            )
+
+    reply(NOON, "First")
+    _, second = reply(NOON + datetime.timedelta(minutes=2), "Second")
+    newest, _ = reply(NOON + datetime.timedelta(minutes=4), "Third")
+    push_fold = [call for call in second.later if call[0] == "send_forum_push_batch"]
+    with (
+        freeze_time(NOON + datetime.timedelta(minutes=10, seconds=30)),
+        _channels_up(),
+        _captured() as handed,
+        patch("apps.core.fcm.send_fcm_message", side_effect=ConnectionError("down")),
+    ):
+        for _, args, kwargs in push_fold:
+            tasks.send_forum_push_batch(*args, **kwargs)
+    [(name, args, _)] = handed
+    assert name == "push_one"
+    assert (args[2]["count"], args[2]["post_id"]) == ("2", str(newest.pk))
+    push_rows = _rows(member, kind=Kind.FORUM_PUSH)
+    assert set(push_rows.values_list("status", "last_error")) == {
+        (Status.SENT, ""),  # the first reply
+        (Status.SENT, delivery.HANDED_OFF),  # the fold's own row
+        (Status.SUPPRESSED, "coalesced"),  # the row it folded
+    }
+
+    # A push only handed off is not proof the member got one, so the next
+    # reply measures its window from the first reply alone: outside it, sent.
+    mail.outbox.clear()
+    _, fourth = reply(NOON + datetime.timedelta(minutes=10, seconds=45), "Fourth")
+    assert len(_to(fourth, member).fcm) == 1
+
+
+@pytest.mark.django_db
+@override_settings(**PUSH_ON)
+def test_a_credentials_stop_releases_the_rows_an_untried_send_folded(
+    django_capture_on_commit_callbacks,
+):
+    from firebase_admin import messaging
+
+    members = [_member(f"cocreds{i}") for i in range(4)]
+    topic, author = _topic("cocreds", *members)
+    older = _reply(topic, author, "Older, still open")
+    post = _reply(topic, author, "Newer")
+    payload = {"topic_id": str(topic.pk), "post_id": str(post.pk)}
+    # An older reply's push row for every member, open and foldable.
+    delivery.record_batch(
+        Kind.FORUM_PUSH,
+        "reply_added",
+        [m.pk for m in members],
+        {**payload, "post_id": str(older.pk)},
+        subject_key=older.pk,
+    )
+    batch = delivery.record_batch(
+        Kind.FORUM_PUSH,
+        "reply_added",
+        [m.pk for m in members],
+        payload,
+        subject_key=post.pk,
+    )
+
+    with (
+        _channels_up(),
+        _captured() as requeued,
+        patch(
+            "apps.core.fcm.send_fcm_message",
+            side_effect=messaging.ThirdPartyAuthError("apns auth"),
+        ),
+    ):
+        tasks.send_forum_push_batch(
+            "reply_added", [m.pk for m in members], payload, batch_id=batch
+        )
+    # Three credentials failures stop the batch; the fourth member is untried.
+    assert [name for name, _, _ in requeued] == ["send_forum_push_batch"]
+    untried = DeliveryIntent.objects.filter(
+        batch_id=batch, status=Status.PENDING
+    ).values_list("recipient_id", flat=True)
+    assert len(untried) == 1
+    # Every row a send had claimed for its fold is open and unclaimed again,
+    # the untried send's included, so the follow-up batch can fold it.
+    assert set(
+        DeliveryIntent.objects.filter(subject_key=str(older.pk)).values_list(
+            "status", "claim_token"
+        )
+    ) == {(Status.PENDING, None)}
+
+
+@pytest.mark.django_db
+def test_a_profile_save_that_leaves_quiet_hours_alone_reschedules_nothing():
+    member = _member("qhsignal", quiet=True)
+    profile = ForumProfile.for_user(member)
+    with patch("apps.forum_host.pacing.reschedule_quiet_holds") as reschedule:
+        profile.post_count = (profile.post_count or 0) + 1
+        profile.save()
+        profile.save(update_fields=["quiet_hours_enabled"])  # same value
+        reschedule.assert_not_called()
+        profile.quiet_hours_start = datetime.time(21, 0)
+        profile.save()
+        assert reschedule.call_count == 1
+        profile.time_zone = "Europe/Paris"
+        profile.save(update_fields=["time_zone"])
+        assert reschedule.call_count == 2
+
+
+@pytest.mark.django_db
+@override_settings(**PUSH_ON)
+def test_a_long_hold_is_released_not_expired_when_it_falls_due(
+    django_capture_on_commit_callbacks,
+):
+    from apps.core import constants as core_constants
+
+    member = _member("qhlong", quiet=True)
+    topic, author = _topic("qhlong", member)
+    with freeze_time(NIGHT):
+        _dispatch_and_run(
+            django_capture_on_commit_callbacks,
+            "reply_added",
+            topic=topic,
+            post=_reply(topic, author, "Hello"),
+        )
+    # The hold ran right up to the max age (a long window, or coalescing then
+    # quiet hours): at DAWN the rows are both due and past the age.
+    too_old = DAWN - datetime.timedelta(
+        seconds=core_constants.DELIVERY_MAX_AGE_SECONDS + 60
+    )
+    _rows(member).update(created_at=too_old)
+
+    with freeze_time(DAWN + datetime.timedelta(minutes=1)):
+        released = _reconcile_and_run()
+    got = _to(released, member)
+    assert (len(got.email), len(got.fcm), len(got.web)) == (1, 1, 1)
+    assert set(_rows(member).values_list("status", flat=True)) == {Status.SENT}

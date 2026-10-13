@@ -111,7 +111,8 @@ class QuietHours {
   /// The IANA zone a client reported; empty means the server uses UTC.
   final String timeZone;
 
-  static final _hhmm = RegExp(r'^\d{2}:\d{2}$');
+  /// "HH:MM" in range: '99:99' would build an invalid TimeOfDay.
+  static final _hhmm = RegExp(r'^([01]\d|2[0-3]):[0-5]\d$');
 
   /// The zone the window is read in, as a member should see it.
   String get shownZone => timeZone.isEmpty ? 'UTC' : timeZone;

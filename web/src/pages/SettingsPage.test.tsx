@@ -793,13 +793,38 @@ describe('Important-event email and quiet hours (todo 624)', () => {
     const from = screen.getByLabelText('From');
     expect(from).toBeEnabled();
 
+    // A native time input changes once per segment: the hour, then the
+    // minutes. Nothing saves until the field is left, and it keeps focus and
+    // stays enabled throughout (review round 1, PR #1132).
+    from.focus();
+    fireEvent.change(from, { target: { value: '21:00' } });
     fireEvent.change(from, { target: { value: '21:30' } });
+    expect(from).toHaveFocus();
+    expect(from).toBeEnabled();
+    expect(vi.mocked(forumService.updateMyForumProfile)).toHaveBeenCalledTimes(1);
+
+    fireEvent.blur(from);
 
     await waitFor(() => expect(from).toHaveValue('21:30'));
     expect(vi.mocked(forumService.updateMyForumProfile).mock.calls).toStrictEqual([
       [{ quiet_hours_enabled: true, time_zone: 'America/Denver' }],
       [{ quiet_hours_start: '21:30', time_zone: 'America/Denver' }],
     ]);
+  });
+
+  it('a time left unchanged, or out of range, saves nothing', async () => {
+    const on = { ...quietProfile, quiet_hours_enabled: true, time_zone: 'America/Denver' };
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue(on);
+
+    render(<NotificationPreferencesSection />);
+    const until = await screen.findByLabelText('Until');
+    fireEvent.change(until, { target: { value: '07:00' } });
+    fireEvent.blur(until);
+    fireEvent.change(until, { target: { value: '' } });
+    fireEvent.blur(until);
+
+    expect(until).toHaveValue('07:00');
+    expect(vi.mocked(forumService.updateMyForumProfile)).not.toHaveBeenCalled();
   });
 
   it('reverts quiet hours and shows the error when the save fails', async () => {
