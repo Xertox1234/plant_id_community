@@ -15,7 +15,7 @@ so this module patches each call site narrowly instead of exempting it:
   real credentials, ``fail_silently=True`` or an unknown option) still goes
   to Django's ``get_connection()``, so the gate keeps failing loudly on it.
 
-Each shim is version-guarded three ways: Django below 7.0, the package at or
+Each shim is version-guarded three ways: Django 6.1 or later, the package at or
 below the newest version known to need it, and the package's own source still
 calling the deprecated API. When a guard is false, the shim is not applied.
 ``apps/core/tests/test_django70_compat.py`` fails when an upgrade makes a shim
@@ -52,8 +52,11 @@ _applied: dict[str, bool] = {"taggit": False, "wagtail": False}
 
 def _django_needs_shims() -> bool:
     # From 6.1 the deprecated quote_name_unless_alias() only delegates to
-    # quote_name(), which is what makes the taggit shim's SQL identical.
-    return (6, 1) <= django.VERSION[:2] < (7, 0)
+    # quote_name(), which is what makes the taggit shim's SQL identical. No
+    # upper bound: on 7.0 the upstream calls fail outright, quote_name() and
+    # mailers.default still exist, and the source probes switch each shim off
+    # once upstream stops calling the removed API (todo 452 review).
+    return django.VERSION[:2] >= (6, 1)
 
 
 def _source(obj) -> str:

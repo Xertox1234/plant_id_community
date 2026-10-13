@@ -210,13 +210,14 @@ def test_the_wagtail_probe_matches_only_a_bare_call():
     assert not probe.search("connection = my_get_connection()")
 
 
-def test_the_shims_apply_only_from_django_6_1_up_to_7_0(monkeypatch):
+def test_the_shims_apply_from_django_6_1_on(monkeypatch):
     """Todo 452 review: before 6.1 quote_name_unless_alias() left aliases
-    unquoted, so the taggit shim would change the SQL there."""
+    unquoted, so the taggit shim would change the SQL there. On 7.0 the
+    upstream calls fail outright, so the shims must stay on."""
     for version, expected in (
         ((6, 0, 3), False),
         ((6, 1, 1), True),
-        ((7, 0, 0), False),
+        ((7, 0, 0), True),
     ):
         monkeypatch.setattr(django70_compat.django, "VERSION", version + ("final", 0))
         assert django70_compat._django_needs_shims() is expected, version

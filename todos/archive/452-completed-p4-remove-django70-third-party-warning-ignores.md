@@ -102,3 +102,23 @@ Round 1 found nothing blocking. These were fixed before round 2:
 
 Tests: `test_django70_compat.py` plus the forum tag and topic-approval tests pass (83 passed). `apps/core/tests`,
 `apps/forum_host` and `apps/blog/tests` pass (1202 passed, 7 skipped).
+
+### 2026-10-12 - Review round 2: the 7.0 upper bound dropped, the rest declined (owner decision: no new todos)
+
+Round 2 found nothing blocking.
+
+- **Fixed:** the shims turned themselves off on Django 7.0. That is where taggit 6.1.0's `quote_name_unless_alias()`
+  and Wagtail's `get_connection()` stop existing, so it is exactly where the shims matter. The "still needs its
+  shim" tests would then have told the 7.0 bump "upstream fixed, delete the shim". `_django_needs_shims()` is now
+  `VERSION >= (6, 1)`. `quote_name()` and `mailers.default` both exist on 7.0, and the source probes switch each
+  shim off once upstream stops calling the removed API. The version test asserts 7.0 → on.
+- Declined:
+  - **A shared `mailers.default`** (raised by 3 reviewers). In Django 6.1, `MailersHandler.default` is a
+    property that returns `self[alias]`, which is `create_connection(alias)`: a new connection on every access,
+    the same as the deprecated `get_connection()`. Nothing is shared.
+  - **Source probing at every boot.** It is one file read per process, and it is what lets a fixed upstream
+    switch its shim off.
+  - **The idempotency test could capture the originals more tightly.** It is a test-strength nit, and the
+    `current is shim` guard already short-circuits a second install.
+
+Tests: `test_django70_compat.py` plus the forum tag and topic-approval tests pass (83 passed).
