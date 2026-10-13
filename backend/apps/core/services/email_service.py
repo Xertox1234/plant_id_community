@@ -113,16 +113,19 @@ class EmailOutcome:
 
 
 def classify_send_error(exc: BaseException) -> str:
-    """PERMANENT for an SMTP 5xx reply (every recipient refused with one, or
-    a 5xx response), TRANSIENT for anything else: a connection or timeout
-    error, a 4xx reply, a disconnect."""
+    """PERMANENT only when this message or its recipient was refused with a
+    5xx: every recipient refused with one, or a 5xx reply to the message
+    data. TRANSIENT for anything else: a connection or timeout error, a 4xx
+    reply, a disconnect, and a 5xx about the session rather than the
+    message (auth 535/530, sender refused, HELO). Those are relay credential
+    or config faults: during such an outage every queued row would
+    otherwise be failed for good, so they wait out the outbox backoff."""
     if isinstance(exc, smtplib.SMTPRecipientsRefused):
         codes = [code for code, _msg in exc.recipients.values()]
         if codes and all(int(code) >= 500 for code in codes):
             return EmailOutcome.PERMANENT
         return EmailOutcome.TRANSIENT
-    code = getattr(exc, "smtp_code", None)
-    if isinstance(code, int) and code >= 500:
+    if isinstance(exc, smtplib.SMTPDataError) and exc.smtp_code >= 500:
         return EmailOutcome.PERMANENT
     return EmailOutcome.TRANSIENT
 

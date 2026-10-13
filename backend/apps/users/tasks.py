@@ -121,9 +121,12 @@ def send_lockout_email_task(self, user_id: int, intent_id: int | None = None) ->
     from apps.core.security import SecurityMonitor
     from django.core.cache import cache
 
-    if intent_id is not None and self.request.retries == 0:
+    # Claimed on every attempt, and put back to pending before each retry
+    # (below): a row left CLAIMED across a retry countdown would be re-driven
+    # by reconcile once its lease ran out, and both tasks would send.
+    if intent_id is not None:
         if delivery.claim_one(intent_id=intent_id) is None:
-            return  # another worker has it, or it is finished
+            return  # another worker has it, it is finished, or not yet due
     rows = [intent_id] if intent_id is not None else []
     user = _load_user(user_id)
     if user is None or not user.email:
@@ -139,6 +142,8 @@ def send_lockout_email_task(self, user_id: int, intent_id: int | None = None) ->
         return
     if self.request.retries >= self.max_retries:
         delivery.mark_failed(rows, "send_failed")
+    else:
+        delivery.mark_retry(rows, "send_failed")
     _retry_or_give_up(self, "Lockout", user_id)
 
 

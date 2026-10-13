@@ -246,3 +246,41 @@ class LockoutMailIsQueuedTest(TestCase):
         tasks.send_lockout_email_task.apply(args=(self.user.pk,))
 
         self.assertEqual(mail.outbox, [])
+
+    def test_a_late_retry_after_a_redrive_does_not_send_again(self):
+        """PR #1128 review: a row left CLAIMED across a retry countdown is
+        re-driven by reconcile once its lease runs out, and then the late
+        retry sent too. Now a failed attempt puts the row back to pending,
+        and every attempt (retries included) must claim it first."""
+        from celery.exceptions import Retry
+
+        with patch.object(
+            tasks.send_lockout_email_task, "delay", side_effect=BROKER_DOWN
+        ):
+            self._lock()
+        intent = DeliveryIntent.objects.get(kind=Kind.LOCKOUT_EMAIL)
+        task = tasks.send_lockout_email_task
+        kwargs = {"intent_id": intent.pk}
+
+        # First attempt fails; its retry is scheduled, not run.
+        with (
+            patch(
+                "apps.core.security.send_mail",
+                side_effect=smtplib.SMTPServerDisconnected("dropped"),
+            ),
+            patch.object(task, "retry", side_effect=Retry()),
+        ):
+            task.apply(args=(self.user.pk,), kwargs=kwargs)
+        intent.refresh_from_db()
+        self.assertEqual((intent.status, intent.claim_token), (Status.PENDING, None))
+
+        # Reconcile re-drives it and the mail goes out.
+        _make_due()
+        delivery.reconcile()
+        self.assertEqual(len(mail.outbox), 1)
+
+        # The late retry finds the row finished and sends nothing.
+        task.apply(args=(self.user.pk,), kwargs=kwargs, retries=1)
+        self.assertEqual(len(mail.outbox), 1)
+        intent.refresh_from_db()
+        self.assertEqual(intent.status, Status.SENT)
