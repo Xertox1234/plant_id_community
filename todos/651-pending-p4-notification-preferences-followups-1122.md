@@ -4,6 +4,9 @@ priority: p4
 issue_id: "651"
 tags: [notifications, preferences, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Finding 5: keep the shared 30/h profile_updates throttle; on a 429 the web and mobile master-switch toggles roll back and show a friendly 'too many changes, try again in a few minutes' message, with tests. Fix the other findings where cheap; record any declined finding in the Work Log with a reason; file no new todos (2026-10-12)"
 ---
 
 # Follow-ups from PR #1122 (todo 620, notification preferences)
