@@ -222,7 +222,7 @@ def test_the_digest_honours_both_master_switches(monkeypatch):
     _weekly("dg-both-on")
     _weekly("dg-email-off", email_notifications=False)
     _weekly("dg-forum-off", forum_notifications=False)
-    sent = []
+    sent: list[str] = []
     _one_topic_digest(monkeypatch, sent)
 
     out = StringIO()
@@ -240,7 +240,7 @@ def test_the_digest_honours_both_master_switches(monkeypatch):
 @override_settings(SITE_URL="https://forum.example")
 def test_turning_the_master_switch_back_on_restores_the_digest(monkeypatch):
     user = _weekly("dg-returning", email_notifications=False)
-    sent = []
+    sent: list[str] = []
     _one_topic_digest(monkeypatch, sent)
     call_command("send_forum_digest", frequency="weekly", stdout=StringIO())
     assert sent == []

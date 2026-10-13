@@ -1405,6 +1405,9 @@ void main() {
             userProfileServiceProvider.overrideWith(
               () => FakeUserProfileService(username: 'tester'),
             ),
+            // ProfileScreen also mounts the forum notification settings card
+            // (todo 620), which fetches /forum/me/profile/ in initState.
+            forumApiProvider.overrideWithValue(FakeForumApi()),
           ],
         );
         addTearDown(container.dispose);
