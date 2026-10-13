@@ -126,9 +126,31 @@ def newsletter_subscribe(request: Request) -> Response:
     serializer = NewsletterSubscribeSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     transaction.on_commit(
-        partial(send_newsletter_confirmation.delay, serializer.validated_data["email"])
+        partial(_enqueue_confirmation, serializer.validated_data["email"])
     )
     return Response({"detail": SUBSCRIBE_DETAIL}, status=status.HTTP_202_ACCEPTED)
+
+
+def _enqueue_confirmation(email: str) -> None:
+    """Queue the confirmation task. A broker failure must neither turn the
+    202 into a 500 nor lose the request (todo 619): the address gets a
+    durable outbox row that reconciliation re-drives once the broker is
+    back. Only exception types are logged, never the address."""
+    try:
+        send_newsletter_confirmation.delay(email)
+    except Exception as exc:
+        logger.error(
+            "[EMAIL] could not queue a newsletter confirmation: %s; "
+            "recording it for reconciliation",
+            type(exc).__name__,
+        )
+        try:
+            newsletter.record_confirmation_intent(email)
+        except Exception as record_exc:
+            logger.error(
+                "[EMAIL] could not record the newsletter confirmation either: %s",
+                type(record_exc).__name__,
+            )
 
 
 # POST only: mail scanners fetch every GET link, and a GET that confirmed

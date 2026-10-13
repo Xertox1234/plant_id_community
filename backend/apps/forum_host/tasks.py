@@ -16,6 +16,7 @@ from django.db import OperationalError
 from wagtail_forum.preferences import wants_channel
 
 from . import constants
+from .eligibility import client_payload, recheck
 
 logger = logging.getLogger("forum_host.tasks")
 
@@ -37,7 +38,7 @@ DIGEST_CONTINUATION_DELAY = 60
     time_limit=DIGEST_TIME_LIMIT,
     ignore_result=True,
 )
-def send_forum_weekly_digest(self):
+def send_forum_weekly_digest(self, recovery: int = 0):
     """Celery beat entry (settings.CELERY_BEAT_SCHEDULE) for the package's
     `send_forum_digest` command (todo 340). The package owns content and
     sending; this is only the host's scheduling wire.
@@ -51,9 +52,15 @@ def send_forum_weekly_digest(self):
     safe for the same reason. The lock's TTL is the package setting
     WAGTAILFORUM_DIGEST_RUN_LOCK_SECONDS, whose default (35 min) is
     DIGEST_TIME_LIMIT plus 5 minutes; change both together (todo 548).
+
+    A run that reports failed sends enqueues a bounded recovery run
+    (``recovery`` counts them, todo 619): the failed members are still due,
+    and the command's claim rechecks their consent and never repeats an
+    accepted send (``apps.core.delivery.schedule_weekly_recovery``).
     """
     from io import StringIO
 
+    from apps.core.delivery import schedule_weekly_recovery
     from celery.exceptions import SoftTimeLimitExceeded
     from django.core.management import call_command
 
@@ -67,7 +74,11 @@ def send_forum_weekly_digest(self):
             "re-enqueuing to finish the members still due",
             self.request.id,
         )
-        send_forum_weekly_digest.apply_async(countdown=DIGEST_CONTINUATION_DELAY)
+        # A continuation keeps its run's recovery count (todo 619).
+        extra = {"kwargs": {"recovery": recovery}} if recovery else {}
+        send_forum_weekly_digest.apply_async(
+            countdown=DIGEST_CONTINUATION_DELAY, **extra
+        )
         return
     finally:
         for line in out.getvalue().splitlines():
@@ -77,6 +88,9 @@ def send_forum_weekly_digest(self):
                 # here would log "[EMAIL] [EMAIL] ..." (todo 392).
                 # log-prefix: exempt (relayed command output, already prefixed)
                 logger.info("%s (task=%s)", line, self.request.id)
+    schedule_weekly_recovery(
+        send_forum_weekly_digest, out.getvalue(), recovery, "forum weekly digest"
+    )
 
 
 def _permanent_failure_level(exc: Exception) -> int:
@@ -188,6 +202,23 @@ def send_forum_push(
             event,
         )
         return
+    # Send-time recheck (todo 619), on the first run and on every retry: the
+    # account, the content and the actor may have changed since enqueue.
+    check = recheck(
+        event,
+        [user.pk],
+        data,
+        "push",
+        users=[user],
+        overrides_by_user={user.pk: profile.notification_preferences},
+    )
+    if check.suppressed:
+        logger.debug(
+            "[FCM] forum push skipped — user %s no longer eligible (%s)",
+            recipient_user_id,
+            check.suppressed[user.pk],
+        )
+        return
     tokens = device_tokens_for_users([recipient_user_id]).get(recipient_user_id, [])
     if token is not None:
         tokens = [t for t in tokens if t == token]
@@ -202,8 +233,9 @@ def send_forum_push(
         logger.error("[FCM] FCM client unavailable — cannot send forum push")
         return
 
-    # Coerce all values to strings — FCM data payloads must be str:str.
-    str_data = {k: str(v) for k, v in data.items()}
+    # Coerce all values to strings — FCM data payloads must be str:str. The
+    # host's recheck keys stay on the server (todo 619).
+    str_data = {k: str(v) for k, v in client_payload(data).items()}
     str_data["event"] = event
 
     content = _notification_content(event, data)
@@ -333,17 +365,26 @@ def send_forum_push_batch(
         .order_by("user_id")
     )
     tokens_by_user = device_tokens_for_users(p.user_id for p in profiles)
+    # Send-time recheck (todo 619): forum_notifications, the per-event push
+    # preference (todo 343), an active account, and for a dispatched payload
+    # the content's visibility and blocks/mutes against its actor. Checked
+    # here, where the profile rows are already in hand, in a constant number
+    # of queries.
+    ineligible = recheck(
+        event,
+        [p.user_id for p in profiles],
+        data,
+        "push",
+        users=[p.user for p in profiles],
+        overrides_by_user={p.user_id: p.notification_preferences for p in profiles},
+    ).suppressed
 
     def wants_push(profile) -> bool:
-        if getattr(profile.user, "forum_notifications", True) is not True:
-            return False
-        # Per-event preference (todo 343) — checked here, where the profile
-        # row is already in hand, rather than in the enqueueing request.
-        if not wants_channel(profile.notification_preferences, event, "push"):
+        if profile.user_id in ineligible:
             return False
         return bool(tokens_by_user.get(profile.user_id))
 
-    str_data = {k: str(v) for k, v in data.items()}
+    str_data = {k: str(v) for k, v in client_payload(data).items()}
     str_data["event"] = event
     content = _notification_content(event, data)
 
@@ -507,22 +548,36 @@ def _web_topic_path(topic_id: str | int | None, post_id: str | int | None) -> st
     max_retries=constants.NOTIFICATION_BATCH_MAX_RETRIES,
     ignore_result=True,  # side-effect only; every call site is a bare .delay()
 )
-def send_forum_web_push_batch(event: str, recipient_user_ids: list[int], data: dict):
+def send_forum_web_push_batch(
+    event: str,
+    recipient_user_ids: list[int],
+    data: dict,
+    batch_id: str | None = None,
+):
     """Browser (Web Push) delivery of a forum event (todo 413).
 
     Its own task, enqueued beside the FCM push, so FCM's retries and its
     batch-to-single hand-off can never resend a browser notification. Same
-    gates as FCM: ``forum_notifications`` and the per-event "push" preference.
-    Only events with tray copy are shown; a data-only event (e.g.
-    moderation_decided) has nothing to render. A failed send is logged and
-    not retried, and a gone subscription (404/410) is deactivated by
-    NotificationService. autoretry covers only the up-front fetch, which runs
-    before any send.
+    gates as FCM: ``forum_notifications`` and the per-event "push" preference,
+    plus the send-time recheck (todo 619). Only events with tray copy are
+    shown; a data-only event (e.g. moderation_decided) has nothing to render.
+    A gone subscription (404/410) is deactivated by NotificationService.
+    autoretry covers only the up-front fetch, which runs before any send.
+
+    ``batch_id`` names the outbox rows ``dispatch`` wrote (todo 619). With
+    it, only the recipients this run claims are sent to, and each one's
+    outcome is recorded: a recipient that got the notification on at least
+    one browser is done; one whose every browser failed transiently is
+    retried by reconciliation with backoff; one with no browser left, or
+    whose browsers all refused it for good, is finished. Without it (a
+    message from before the outbox) nothing is recorded and a failed send
+    is only logged, as before.
 
     Sends stay sequential in this one task (owner decision 2026-10-11, todo
     456): one shared session and one bulk ``last_used`` UPDATE, no chunked
     subtasks or thread pool until a topic's fan-out proves it needs them.
     """
+    from apps.core import delivery
     from apps.users.models import PushSubscription
     from apps.users.services import (
         NotificationService,
@@ -533,10 +588,15 @@ def send_forum_web_push_batch(event: str, recipient_user_ids: list[int], data: d
     from django.utils import timezone
     from wagtail_forum.models import ForumProfile
 
-    if not recipient_user_ids or not web_push_enabled():
+    kind = delivery.Kind.FORUM_WEB_PUSH
+    if not recipient_user_ids:
+        return
+    if not web_push_enabled():
+        _finish_unclaimed_batch(kind, batch_id, recipient_user_ids, "channel_off")
         return
     content = _notification_content(event, data)
     if content is None:
+        _finish_unclaimed_batch(kind, batch_id, recipient_user_ids, "no_tray_copy")
         return
     title, body = content
 
@@ -548,19 +608,39 @@ def send_forum_web_push_batch(event: str, recipient_user_ids: list[int], data: d
             "user_id", "notification_preferences"
         )
     )
-    wanted = [
-        user.pk
-        for user in get_user_model().objects.filter(pk__in=recipient_user_ids)
-        if getattr(user, "forum_notifications", True) is True
-        and wants_channel(overrides_by_user.get(user.pk), event, "push")
-    ]
-    if not wanted:
-        return
-    subscriptions = list(
-        PushSubscription.objects.filter(
-            user_id__in=wanted, is_active=True
-        ).select_related("user")
+    check = recheck(
+        event,
+        recipient_user_ids,
+        data,
+        "push",
+        users=list(get_user_model().objects.filter(pk__in=recipient_user_ids)),
+        overrides_by_user=overrides_by_user,
     )
+    wanted = [user.pk for user in check.eligible]
+    subscriptions = (
+        list(
+            PushSubscription.objects.filter(
+                user_id__in=wanted, is_active=True
+            ).select_related("user")
+        )
+        if wanted
+        else []
+    )
+    # Claimed last, after every up-front read, so the OperationalError
+    # autoretry can never find this run's own claim in its way.
+    claimed = None
+    if batch_id:
+        claimed = delivery.claim_batch(kind, batch_id, recipient_user_ids)
+        subscriptions = [s for s in subscriptions if s.user_id in claimed]
+        with_browser = {s.user_id for s in subscriptions}
+        suppressed = {}
+        for pk, row in claimed.items():
+            reason = check.suppressed.get(pk)
+            if reason is None and pk not in with_browser:
+                reason = "no_destination"
+            if reason is not None:
+                suppressed.setdefault(reason, []).append(row)
+        _record(delivery.mark_suppressed_by_reason, suppressed)
     if not subscriptions:
         return
     url = _web_topic_path(data.get("topic_id"), data.get("post_id"))
@@ -570,6 +650,8 @@ def send_forum_web_push_batch(event: str, recipient_user_ids: list[int], data: d
     # its pooled TLS connection, with redirects off (todo 456 items 3 and 6).
     # last_used is written once for every row sent, not once per send.
     sent = []
+    delivered_users: set[int] = set()
+    transient_users: set[int] = set()
     with web_push_session() as session:
         for subscription in subscriptions:
             if NotificationService.send_web_push_notification(
@@ -584,6 +666,10 @@ def send_forum_web_push_batch(event: str, recipient_user_ids: list[int], data: d
                 mark_used=False,
             ):
                 sent.append(subscription.pk)
+                delivered_users.add(subscription.user_id)
+            elif subscription.is_active:
+                # Still active, so not a 404/410: worth another attempt.
+                transient_users.add(subscription.user_id)
     if sent:
         # Never let this bookkeeping raise: an OperationalError here would
         # autoretry the task and send every notification again.
@@ -596,6 +682,72 @@ def send_forum_web_push_batch(event: str, recipient_user_ids: list[int], data: d
                 "[WEB_PUSH] Could not record last_used for %d sent subscription(s)",
                 len(sent),
             )
+    if claimed is not None:
+        attempted = {s.user_id for s in subscriptions}
+        retry = transient_users - delivered_users
+        _record(delivery.mark_sent, [claimed[pk] for pk in delivered_users])
+        _record(delivery.mark_retry, [claimed[pk] for pk in retry], "web_push_failed")
+        _record(
+            delivery.mark_failed,
+            [claimed[pk] for pk in attempted - delivered_users - retry],
+            "subscription_gone",
+        )
+        if retry:
+            logger.warning(
+                "[WEB_PUSH] forum.%s: %d recipient(s) failed on every browser; "
+                "retrying with backoff",
+                event,
+                len(retry),
+            )
+
+
+def _record(mark, *args):
+    """Run one outbox bookkeeping write without letting it raise into a task
+    that has already sent (todo 619): an OperationalError here would trigger
+    the task's autoretry. A row left claimed is re-driven after its lease,
+    the documented at-least-once window."""
+    if not args[0]:
+        return
+    try:
+        mark(*args)
+    except OperationalError as exc:
+        logger.error(
+            "[DELIVERY] could not record a delivery outcome: %s", type(exc).__name__
+        )
+
+
+def _finish_unclaimed_batch(kind, batch_id, recipient_ids, reason):
+    """A batch whose channel cannot run at all is finished, not left pending
+    for reconciliation to re-drive until it expires."""
+    from apps.core import delivery
+
+    if not batch_id:
+        return
+    claimed = delivery.claim_batch(kind, batch_id, recipient_ids)
+    _record(delivery.mark_suppressed, list(claimed.values()), reason)
+
+
+def redrive_forum_deliveries(rows) -> None:
+    """Reconciliation's redriver for forum email and browser push (todo 619):
+    re-enqueue each batch's due recipients to the task that owns the
+    channel, with the same batch id, so the task claims, rechecks and sends
+    exactly as it would have the first time."""
+    from apps.core import delivery
+
+    tasks = {
+        delivery.Kind.FORUM_EMAIL: send_forum_email_batch,
+        delivery.Kind.FORUM_WEB_PUSH: send_forum_web_push_batch,
+    }
+    groups: dict = {}
+    for row in rows:
+        groups.setdefault((row.kind, str(row.batch_id), row.event), []).append(row)
+    for (kind, batch_id, event), group in groups.items():
+        tasks[kind].delay(
+            event,
+            [row.recipient_id for row in group],
+            group[0].payload,
+            batch_id=batch_id,
+        )
 
 
 @shared_task(
@@ -604,7 +756,12 @@ def send_forum_web_push_batch(event: str, recipient_user_ids: list[int], data: d
     max_retries=constants.NOTIFICATION_BATCH_MAX_RETRIES,
     ignore_result=True,  # side-effect only; every call site is a bare .delay()
 )
-def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict):
+def send_forum_email_batch(
+    event: str,
+    recipient_user_ids: list[int],
+    data: dict,
+    batch_id: str | None = None,
+):
     """Send forum reply-notification emails to many recipients from a SINGLE
     enqueue (todo 268), replacing the per-recipient send_forum_email fan-out.
 
@@ -619,8 +776,22 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
     This ordering is load-bearing: email has no collapse-key dedup, so
     autoretry_for=(OperationalError,) must be able to fire ONLY before any
     email is sent, or a transient-DB retry would double-email everyone. All
-    OperationalError-raising DB access happens in the up-front fetch; the send
-    loop does none.
+    OperationalError-raising DB access happens in the up-front fetch and the
+    claim; the send loop's only DB access is the per-recipient outcome write,
+    which is guarded (``_record``) and never raises.
+
+    Send-time recheck (todo 619): every run, first or retried, drops a
+    recipient who is no longer eligible (``eligibility.recheck``: inactive,
+    opted out, no address, and for a dispatched payload a hidden post, a
+    block/mute against its author, or an unfollowed topic).
+
+    Outbox (todo 619): with ``batch_id`` (the rows ``dispatch`` wrote), only
+    the recipients this run claims are emailed, one outcome is recorded per
+    recipient right after its send, and a transient SMTP failure goes back
+    to the outbox with backoff for reconciliation to re-drive — to that
+    recipient alone. An opt-out, a missing address or a permanent rejection
+    is finished, never retried. Without ``batch_id`` (a message from before
+    the outbox) nothing is recorded and a failed send is only logged.
 
     Args:
         event: only "reply_added" is wired (todo 253 slice 2, H1); mention/
@@ -629,11 +800,17 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
         data: the shared payload dict — carries "post_id" (str). The reply Post
               is fetched here (once for the batch) so push's data stays minimal
               and the email reflects the post at send time.
+        batch_id: the outbox batch to claim from, or None.
     """
+    from apps.core import delivery
+    from apps.core.services.email_service import EmailOutcome
+
+    kind = delivery.Kind.FORUM_EMAIL
     if event != "reply_added":
         logger.debug(
             "[EMAIL] forum email skipped — event=%s not implemented yet", event
         )
+        _finish_unclaimed_batch(kind, batch_id, recipient_user_ids, "no_email_arm")
         return
 
     if not recipient_user_ids:
@@ -657,9 +834,11 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
             "[EMAIL] forum email skipped — invalid post_id in payload: %r",
             data.get("post_id"),
         )
+        _finish_unclaimed_batch(kind, batch_id, recipient_user_ids, "content_missing")
         return
     except Post.DoesNotExist:
         logger.warning("[EMAIL] forum email skipped — post %s not found", post_id)
+        _finish_unclaimed_batch(kind, batch_id, recipient_user_ids, "content_missing")
         return
 
     # Materialize up front so a transient OperationalError can only fire here,
@@ -674,6 +853,46 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
             "user_id", "notification_preferences"
         )
     )
+    check = recheck(
+        event,
+        [user.pk for user in users],
+        data,
+        "email",
+        users=users,
+        overrides_by_user=overrides_by_user,
+    )
+    for pk, reason in check.suppressed.items():
+        if reason == "no_destination":
+            # A clear skip log at this layer for a user with no email on
+            # file. (Belt-and-suspenders: since todo 267,
+            # EmailService.send_email() also returns False rather than a
+            # phantom True for a 0-recipient send.)
+            logger.warning(
+                "[EMAIL] forum email skipped — user %s has no email on file", pk
+            )
+        else:
+            logger.debug(
+                "[EMAIL] forum email skipped — user %s not eligible for %s (%s)",
+                pk,
+                event,
+                reason,
+            )
+
+    claimed = None
+    if batch_id:
+        # After every up-front read: the autoretry above can never meet
+        # this run's own claim. Recipients someone else holds, or that
+        # already have it, are not ours to send.
+        claimed = delivery.claim_batch(kind, batch_id, recipient_user_ids)
+        eligible_pks = {user.pk for user in check.eligible}
+        suppressed = {}
+        for pk, row in claimed.items():
+            reason = check.suppressed.get(pk)
+            if reason is None and pk not in eligible_pks:
+                reason = "recipient_missing"
+            if reason is not None:
+                suppressed.setdefault(reason, []).append(row)
+        _record(delivery.mark_suppressed_by_reason, suppressed)
 
     topic = post.topic
     # The web app's thread route, at the reply's own anchor (ThreadDetailPage
@@ -689,24 +908,10 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
     excerpt = plain_text_excerpt(post.body, FORUM_EMAIL_EXCERPT_MAX_CHARS)
     service = NotificationService()
 
-    for user in users:
-        if not user.email:
-            # Skip explicitly so a user with no email on file gets a clear skip
-            # log here. (Belt-and-suspenders: since todo 267,
-            # EmailService.send_email() also returns False rather than a phantom
-            # True for a 0-recipient send — this guard just keeps the skip reason
-            # legible at this layer.)
-            logger.warning(
-                "[EMAIL] forum email skipped — user %s has no email on file", user.pk
-            )
+    for user in check.eligible:
+        if claimed is not None and user.pk not in claimed:
             continue
-        if not wants_channel(overrides_by_user.get(user.pk), event, "email"):
-            logger.debug(
-                "[EMAIL] forum email skipped — user %s opted out of email for %s",
-                user.pk,
-                event,
-            )
-            continue
+        service.email_service.last_outcome = None
         sent = service.send_forum_reply_notification(
             user=user,
             topic_title=topic.title,
@@ -716,6 +921,20 @@ def send_forum_email_batch(event: str, recipient_user_ids: list[int], data: dict
             post_url=post_url,
         )
         logger.info("[EMAIL] forum.%s email to user=%s: sent=%s", event, user.pk, sent)
+        if claimed is None:
+            continue
+        row = [claimed[user.pk]]
+        if sent:
+            _record(delivery.mark_sent, row)
+            continue
+        # A False that is not a transport failure is never retried.
+        outcome = service.email_service.last_outcome or EmailOutcome.TRANSIENT
+        if outcome == EmailOutcome.SUPPRESSED:
+            _record(delivery.mark_suppressed, row, "preference_off")
+        elif outcome == EmailOutcome.PERMANENT:
+            _record(delivery.mark_failed, row, "permanent")
+        else:
+            _record(delivery.mark_retry, row, "smtp_transient")
 
 
 @shared_task(

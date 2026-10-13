@@ -134,3 +134,52 @@ send; and `test_tasks.py` pins the beat entry's `task` to the registered
 task's `.name`, because beat only logs a typo'd name. `bin/test-start.sh`
 needs bash ≥ 5.1 (`wait -n` pid list) — run it in Docker on macOS:
 `docker run --rm -v "$PWD/bin:/w" -w /w bash:5.2 bash test-start.sh`.
+
+## Delivery outbox: send-time recheck, claims, reconciliation (todo 619)
+
+A `.delay()` after commit is not durable, and a send helper that returns
+`False` cannot tell an opt-out from a dead SMTP connection. External
+deliveries that must not be lost now go through `apps/core/delivery.py`
+(model `core.DeliveryIntent`):
+
+- **Record with the event.** `dispatch()` writes one `pending` row per
+  recipient for forum email and browser push in the same savepoint as the
+  bell rows; `send_verification_email` writes one with the allowance claim.
+  A newsletter signup or a lockout writes one only when the broker refuses
+  the task. The task is still enqueued on commit; its `batch_id=` kwarg names
+  the rows. Payloads hold ids and display fields, never bodies, signed links,
+  tokens or addresses.
+- **Claim before send, outcome after.** One conditional `UPDATE` claims
+  (`pending`, or `claimed` past `DELIVERY_CLAIM_LEASE_SECONDS`), so a
+  duplicate enqueue or a racing re-drive finds nothing to send. Claim
+  *after* the task's up-front reads, or its `OperationalError` autoretry
+  meets its own claim. Outcome writes inside a send loop go through a guard
+  that never raises (`forum_host.tasks._record`), for the same reason.
+- **Classify, then decide.** `EmailService.last_outcome` (`EmailOutcome`:
+  sent / suppressed / permanent / transient) and a browser subscription's
+  `is_active` after a failed send separate retryable failures from opt-outs,
+  5xx rejections and gone subscriptions. Only transient failures go back to
+  `pending` with backoff (`DELIVERY_RETRY_BASE_SECONDS`, doubling), terminal
+  at `DELIVERY_MAX_ATTEMPTS`; rows older than `DELIVERY_MAX_AGE_SECONDS` expire.
+- **Recheck on every attempt.** `apps/forum_host/eligibility.py::recheck`
+  runs in all four forum send tasks, first run and retries alike: active
+  account, preferences, address, and (for payloads carrying `actor_id`, which
+  `dispatch` always writes) post visibility, blocks/mutes against the actor
+  and the topic subscription. `actor_id` never reaches a device or browser.
+- **Reconcile** (`reconcile_deliveries`, beat every 5 min) re-drives due
+  rows through each kind's redriver, which re-enqueues the owning task. It
+  never charges a verification allowance.
+- **At-least-once.** No provider idempotency key is available, so a worker
+  killed between provider acceptance and the outcome write re-sends that one
+  message after the lease. Browser push records outcomes in bulk after its
+  loop (a browser collapses a repeat with the same `tag`). FCM is not in the
+  outbox: it keeps its per-device retry and credentials stop (todos 593,
+  606, 621) and gets only the send-time recheck.
+- **Weekly mail** (digest, newsletter) is not in the outbox: each run's
+  per-member claim is already the record. A run that reports `failed=N`
+  enqueues at most `WEEKLY_RECOVERY_MAX_RUNS` recovery runs of the same
+  command (`schedule_weekly_recovery`), which re-claim with consent rechecked.
+
+Tests: `apps/forum_host/tests/test_send_time_eligibility.py`,
+`test_delivery_outbox.py`, `apps/users/tests/test_mail_recovery.py`,
+`apps/blog/tests/test_newsletter_recovery.py`.

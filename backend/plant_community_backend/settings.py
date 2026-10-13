@@ -1392,6 +1392,13 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.garden_calendar.tasks.send_due_care_task_reminders",
         "schedule": crontab(minute="*/15"),
     },
+    # Todo 619: the delivery outbox. Re-drives forum email/browser-push and
+    # account-mail deliveries whose enqueue was lost, whose transient failure
+    # is due again, or whose worker died (apps/core/delivery.py).
+    "delivery-reconcile": {
+        "task": "apps.core.tasks.reconcile_deliveries",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 
 # Security settings - Apply to both development and production (Issue #014)

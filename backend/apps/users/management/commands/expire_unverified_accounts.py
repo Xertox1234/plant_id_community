@@ -70,6 +70,9 @@ SIGNUP_ROWS = {
     "account.EmailAddress": 1,
     "users.UserPlantCollection": 1,
 }
+# Delivery bookkeeping, not the user's data (todo 619): the outbox rows a
+# verification mail or a resend leaves behind. They cascade with the account.
+NOT_USER_DATA = {"core.DeliveryIntent"}
 
 
 def _candidates(now):
@@ -118,6 +121,8 @@ def _extra_data(user):
             if model._meta.auto_created:
                 continue
             label = model._meta.label
+            if label in NOT_USER_DATA:
+                continue
             rows = model._base_manager.filter(**{field.field.name: user})
             if rows.count() > SIGNUP_ROWS.get(label, 0):
                 return label
