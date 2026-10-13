@@ -23,6 +23,11 @@ Compact checklist auto-injected before edits. Long-form:
   (`_$xHash`), so *any* edit (even deleting an unrelated method) makes it stale. CI's
   "Ensure generated code is committed" gate (`build_runner` + `git diff
   --exit-code`) blocks the merge; local `flutter analyze`/`test` will NOT catch it.
+  The `flutter-codegen` pre-commit hook (`scripts/check_flutter_codegen.py`) now
+  runs the same build when a staged file declares a `part '*.g.dart'`, fails a
+  stale commit and leaves the regenerated file to stage. The hash covers the
+  provider's own source only, so an edit outside every provider in the same
+  file regenerates nothing.
 - **Firebase-emulator integration tests** (`integration_test/`): adopt the
   native `[DEFAULT]` app — `Firebase.initializeApp()` with NO options (passing
   options throws `[core/duplicate-app]`) and run the emulator with the same
