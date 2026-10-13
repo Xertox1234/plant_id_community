@@ -11,7 +11,9 @@ stale file; only mobile CI's "Ensure generated code is committed" step
 
 It is cheaper to rebuild than to decide whether an edit touched a provider, so
 the hook rebuilds whenever such a file is staged; an edit outside every
-provider regenerates nothing and passes.
+provider regenerates nothing and passes. pre-commit never passes a deleted file
+to a hook, so deleting a provider is left to CI, which reports the orphaned
+generated file.
 
 This hook runs the same ``build_runner`` CI runs, but only when a staged file
 under ``plant_community_mobile/lib`` declares a ``part '....g.dart';``, so an
@@ -31,8 +33,11 @@ import subprocess
 import sys
 
 MOBILE = "plant_community_mobile"
-# A source whose generated half build_runner writes: `part 'foo.g.dart';`.
-PART_G_DART = re.compile(r"""^\s*part\s+['"][^'"]+\.g\.dart['"]\s*;""", re.MULTILINE)
+# A source whose generated half build_runner writes: `part 'foo.g.dart';` or
+# `part 'foo.freezed.dart';`.
+PART_G_DART = re.compile(
+    r"""^\s*part\s+['"][^'"]+\.(g|freezed)\.dart['"]\s*;""", re.MULTILINE
+)
 GENERATED = re.compile(r"\.(g|freezed)\.dart$")
 BUILD = ["dart", "run", "build_runner", "build", "--delete-conflicting-outputs"]
 

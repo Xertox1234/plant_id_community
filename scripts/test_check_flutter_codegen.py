@@ -86,9 +86,12 @@ class CodegenSourcesTests(unittest.TestCase):
             plain = repo.write(f"{cfc.MOBILE}/lib/b.dart", PLAIN)
             generated = repo.write(f"{cfc.MOBILE}/lib/a.g.dart", "part of 'a.dart';\n")
             dq = repo.write(f"{cfc.MOBILE}/lib/c.dart", 'part "c.g.dart";\n')
+            freezed = repo.write(f"{cfc.MOBILE}/lib/d.dart", "part 'd.freezed.dart';\n")
             self.assertEqual(
-                cfc.codegen_sources([provider, plain, generated, dq, "README.md"], repo.root),
-                [provider, dq],
+                cfc.codegen_sources(
+                    [provider, plain, generated, dq, freezed, "README.md"], repo.root
+                ),
+                [provider, dq, freezed],
             )
 
     def test_a_part_in_a_comment_line_is_not_matched_mid_line(self):
