@@ -185,3 +185,38 @@ def test_wagtail_workflow_notification_emails_send_through_the_mailer(
     assert ok is True
     assert [m.to for m in mail.outbox] == [["moderator452@example.com"]]
     assert not [r for r in caplog.records if r.name == "wagtail.admin"]
+
+
+def test_unreadable_source_skips_the_shim_instead_of_failing_startup(monkeypatch):
+    """Todo 452 review: a bytecode-only install has no source, and
+    inspect.getsource raises. The probe answers "not needed" and startup goes
+    on."""
+
+    def no_source(obj):
+        raise OSError("could not get source code")
+
+    monkeypatch.setattr(django70_compat.inspect, "getsource", no_source)
+    assert django70_compat.taggit_source_needs_shim(object()) is False
+    assert django70_compat.wagtail_source_needs_shim(object()) is False
+
+
+def test_the_wagtail_probe_matches_only_a_bare_call():
+    """Todo 452 review: mailers.get_connection( or my_get_connection( is not
+    the deprecated call, so a fixed upstream would not keep the shim."""
+    probe = django70_compat.WAGTAIL_DEPRECATED_CALL
+    assert probe.search("    connection = get_connection()")
+    assert probe.search("x = get_connection(fail_silently=True)")
+    assert not probe.search("connection = mail.mailers.get_connection()")
+    assert not probe.search("connection = my_get_connection()")
+
+
+def test_the_shims_apply_only_from_django_6_1_up_to_7_0(monkeypatch):
+    """Todo 452 review: before 6.1 quote_name_unless_alias() left aliases
+    unquoted, so the taggit shim would change the SQL there."""
+    for version, expected in (
+        ((6, 0, 3), False),
+        ((6, 1, 1), True),
+        ((7, 0, 0), False),
+    ):
+        monkeypatch.setattr(django70_compat.django, "VERSION", version + ("final", 0))
+        assert django70_compat._django_needs_shims() is expected, version

@@ -77,3 +77,28 @@ an upstream issue or PR, or pin behind a patched fork.
 ### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-2358)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-12 - Review round 1: low findings fixed by hand or declined (owner decision: no new todos)
+
+Round 1 found nothing blocking. These were fixed before round 2:
+
+- **A compat probe could stop the app from starting** (raised by 2 reviewers). `inspect.getsource` raises
+  `OSError`/`TypeError` on a bytecode-only install, and `install()` runs in `CoreConfig.ready()`. Both source
+  probes now go through `_source()`, which logs and returns `""`, so the shim is skipped and boot continues. New
+  test `test_unreadable_source_skips_the_shim_instead_of_failing_startup`. It fails without the guard (mutation
+  check).
+- **The Django guard had no lower bound.** Before 6.1, `quote_name_unless_alias()` left aliases unquoted, so the
+  taggit shim would change the SQL there. The guard is now `(6, 1) <= django.VERSION < (7, 0)`. New test.
+- **The Wagtail probe matched the substring `get_connection(`**, so `mailers.get_connection(` or a docstring
+  would keep the shim after upstream fixed the call. It is now a regex for a bare call. New test.
+- The log messages now carry the `[COMPAT]` prefix.
+- Declined:
+  - Sharing `mailers.default` across calls. Under MAILERS, Django 6.1's `get_connection()` already returned
+    that same default mailer, so nothing changes.
+  - A Django 7.0 bump silently skipping the shims. On 7.0 `install()` does nothing, and the "still needs its
+    shim" tests are the signal: the 7.0 bump must re-check taggit and Wagtail, as the module docstring says.
+  - The AC evidence above quotes executor-shutdown log noise as its last lines. The suite's summary line in the
+    evidence file is `5139 passed, 8 skipped`, and the verifier re-ran it.
+
+Tests: `test_django70_compat.py` plus the forum tag and topic-approval tests pass (83 passed). `apps/core/tests`,
+`apps/forum_host` and `apps/blog/tests` pass (1202 passed, 7 skipped).
