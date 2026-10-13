@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p4
 issue_id: "651"
 tags: [notifications, preferences, follow-ups]
@@ -38,7 +38,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -46,3 +46,42 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-12 - Filed from the PR #1122 review (todo sweep run 2026-10-12-1700)
 
 Filed by the closing step of the run from `state.py followups-md g1`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-13-0121)
+
+- Finding 5 (owner decision): the 30/h `profile_updates` throttle stays. On a 429 both master-switch
+  toggles roll back and say "Too many changes. Try again in a few minutes." Web reads the status through a
+  new `httpStatusOf` in `web/src/utils/httpError.ts`; mobile `UserProfileException` now carries the
+  `statusCode`. Tests: `web/src/pages/SettingsPage.test.tsx`,
+  `plant_community_mobile/test/features/profile/profile_screen_test.dart`, the card test and
+  `test/services/user_profile_service_test.dart`.
+- Findings 1, 2, 3, 6, 7 fixed with tests: the mobile email subtitle names the newsletter exemption; the card
+  and the master switches show an API message or a generic line, never `$e`; a missing or unknown
+  `digest_frequency` is null and the digest switch is not offered (never guessed as off); web merges the
+  PATCH response into the current profile, so an omitted switch stays; a dark-theme test covers the `_Note`
+  colour.
+- Finding 4: the second half of
+  `test_the_newsletter_is_independent_of_the_master_email_switch` now flips the switch through
+  `PATCH /api/v1/auth/user/update/` for a subscriber and a non-subscriber and asserts the subscription is
+  unchanged and none is created.
+- Finding 8 declined: no E2E spec. Every authenticated Playwright project matches `.spec.js` names only, so a
+  settings spec needs the `playwright.config.ts` routing changed, a seeded backend and a logged-in run that
+  spends the same 30/h throttle each time, and Playwright is excluded from CI, so it would guard nothing
+  between local runs. The flow (toggle, save, failure, 429, reload as another client) is covered by the unit
+  tests above and the backend cross-client sequences in `backend/apps/users/tests/test_notification_policy.py`.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-13-0121)
+
+- AC 1: `bash -c "cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest apps/users/tests/test_notification_policy.py --create-db -q && cd plant_community_mobile && flutter test test/features/profile test/services/user_profile_service_test.dart && cd web && npx vitest run src/pages/SettingsPage.test.tsx src/utils/httpError.test.ts && grep -n 'Finding 8 declined' todos/archive/651-completed-p4-notification-preferences-followups-1122.md"` — evidence `.sweep-evidence/g1/651-ac0.txt` (not committed), last lines:
+
+  ```text
+        Tests  68 passed (68)
+     Start at  19:50:40
+     Duration  1.70s (transform 188ms, setup 218ms, import 400ms, tests 685ms, environment 1.01s)
+
+  67:- Finding 8 declined: no E2E spec. Every authenticated Playwright project matches `.spec.js` names only, so a
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-13-0121)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

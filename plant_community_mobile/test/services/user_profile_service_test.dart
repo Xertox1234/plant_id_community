@@ -311,6 +311,24 @@ void main() {
       );
     });
 
+    test('updateProfile keeps a 429 status for the caller (todo 651)',
+        () async {
+      fakeApi.getResult = _response(_profileJson());
+      final container = makeContainer();
+      await container.read(userProfileServiceProvider.future);
+
+      fakeApi.patchResult = ApiException('Too many requests', statusCode: 429);
+      final notifier = container.read(userProfileServiceProvider.notifier);
+
+      await expectLater(
+        notifier.updateProfile(emailNotifications: false),
+        throwsA(
+          isA<UserProfileException>()
+              .having((e) => e.statusCode, 'statusCode', 429),
+        ),
+      );
+    });
+
     test('build() sends no request and holds no profile when signed out',
         () async {
       // Todo 558 finding 1: a bearerless GET /auth/user/ 401s into

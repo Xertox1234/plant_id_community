@@ -1,8 +1,38 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../services/api_service.dart';
+import '../../services/user_profile_service.dart';
 import '../forum/models/models.dart';
 import '../forum/services/forum_api.dart';
+
+/// Shown when a notification save hits a 429. Master-switch toggles share
+/// the 30/h `profile_updates` throttle with the profile form (owner
+/// decision 2026-10-12, todo 651); web Settings shows the same words.
+const notificationThrottledText =
+    'Too many changes. Try again in a few minutes.';
+
+/// An API error's own message, which our views write for users, or null.
+/// Never the exception's `toString()`, which can carry a request URL or a
+/// Dio dump (todo 651).
+String? apiErrorMessage(Object error) => switch (error) {
+  ApiException(:final message) when message.isNotEmpty => message,
+  _ => null,
+};
+
+/// A failed notification save as a line fit to show a user (todo 651): the
+/// throttle text on a 429, else `$action: <API message>`, or `$action.` when
+/// there is no API message to show.
+String notificationErrorText(Object error, {required String action}) {
+  final status = switch (error) {
+    ApiException(:final statusCode) => statusCode,
+    UserProfileException(:final statusCode) => statusCode,
+    _ => null,
+  };
+  if (status == 429) return notificationThrottledText;
+  final message = apiErrorMessage(error);
+  return message == null ? '$action.' : '$action: $message';
+}
 
 /// The forum digest and per-event push/email choices (todo 620), the same
 /// fields web Settings edits through the same endpoint, so the two clients
@@ -90,7 +120,12 @@ class _ForumNotificationSettingsCardState
       setState(() => _settings = previous);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to save notification settings: $e'),
+          content: Text(
+            notificationErrorText(
+              e,
+              action: 'Failed to save notification settings',
+            ),
+          ),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
@@ -101,7 +136,7 @@ class _ForumNotificationSettingsCardState
 
   void _setDigest(bool on) {
     final settings = _settings;
-    if (settings == null) return;
+    if (settings == null || !settings.hasDigest) return;
     final frequency = on
         ? ForumNotificationSettings.digestWeekly
         : ForumNotificationSettings.digestOff;
@@ -158,7 +193,9 @@ class _ForumNotificationSettingsCardState
               )
             : ListTile(
                 title: const Text('Could not load notification settings'),
-                subtitle: Text('$error'),
+                subtitle: Text(
+                  apiErrorMessage(error) ?? 'Something went wrong.',
+                ),
                 trailing: TextButton(
                   onPressed: _retry,
                   child: const Text('Retry'),
@@ -166,16 +203,19 @@ class _ForumNotificationSettingsCardState
               ),
       );
     } else {
-      children.add(
-        SwitchListTile(
-          title: const Text('Weekly forum digest'),
-          subtitle: const Text(
-            'An email of new replies on topics you follow and active topics',
+      // No known cadence from the server: not offered, never guessed.
+      if (settings.hasDigest) {
+        children.add(
+          SwitchListTile(
+            title: const Text('Weekly forum digest'),
+            subtitle: const Text(
+              'An email of new replies on topics you follow and active topics',
+            ),
+            value: settings.digestOn,
+            onChanged: _saving ? null : _setDigest,
           ),
-          value: settings.digestOn,
-          onChanged: _saving ? null : _setDigest,
-        ),
-      );
+        );
+      }
       for (final verb in forumNotificationVerbLabels.entries) {
         for (final channel in forumNotificationChannelLabels.entries) {
           final value = settings.cell(verb.key, channel.key);

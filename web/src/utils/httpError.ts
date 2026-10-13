@@ -73,3 +73,14 @@ export function toHttpError(error: unknown): unknown {
   }
   return error;
 }
+
+/**
+ * The HTTP status behind a `toHttpError` result (kept on its `cause`), or of
+ * a raw axios error; `undefined` for anything without a response. Lets a
+ * caller tell a 429 from other failures without matching on message text
+ * (todo 651).
+ */
+export function httpStatusOf(error: unknown): number | undefined {
+  const source = error instanceof Error && axios.isAxiosError(error.cause) ? error.cause : error;
+  return axios.isAxiosError(source) ? source.response?.status : undefined;
+}

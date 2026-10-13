@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, act, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { BrowserRouter } from 'react-router-dom';
 import { ThemeProvider } from '../contexts/ThemeContext';
 import SettingsPage, {
@@ -990,6 +991,60 @@ describe('AccountNotificationSwitchesSection (todo 620)', () => {
     expect(await screen.findByText('Server unavailable')).toBeInTheDocument();
     expect(await forumSwitch()).toBeChecked(); // back to the stored value
     expect(await forumSwitch()).toBeEnabled();
+  });
+
+  it('a 429 rolls the switch back and says to try again later (todo 651)', async () => {
+    // What profileService rethrows through toHttpError: the server's message,
+    // with the axios error (and its status) kept as the cause.
+    const config = { headers: {} } as InternalAxiosRequestConfig;
+    const throttled = new AxiosError(
+      '429',
+      AxiosError.ERR_BAD_REQUEST,
+      config,
+      {},
+      {
+        data: { message: 'Request was throttled. Expected available in 1200 seconds.' },
+        status: 429,
+        statusText: '',
+        headers: {},
+        config,
+      }
+    );
+    vi.mocked(profileService.updateProfile).mockRejectedValue(
+      new Error('Request was throttled. Expected available in 1200 seconds.', { cause: throttled })
+    );
+
+    render(<AccountNotificationSwitchesSection />);
+    await userEvent.click(await emailSwitch());
+
+    expect(
+      await screen.findByText('Too many changes. Try again in a few minutes.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/throttled/)).toBeNull();
+    expect(await emailSwitch()).toBeChecked(); // rolled back to the stored value
+    expect(await emailSwitch()).toBeEnabled();
+
+    await userEvent.click(await forumSwitch());
+    expect(
+      await screen.findByText('Too many changes. Try again in a few minutes.')
+    ).toBeInTheDocument();
+    expect(await forumSwitch()).toBeChecked();
+  });
+
+  it('a save whose response omits a switch keeps that switch (todo 651)', async () => {
+    // Deploy skew: the update answers without forum_notifications.
+    const { forum_notifications: _f, ...partial } = accountProfile;
+    vi.mocked(profileService.updateProfile).mockResolvedValue({
+      ...partial,
+      email_notifications: false,
+    });
+
+    render(<AccountNotificationSwitchesSection />);
+    await userEvent.click(await emailSwitch());
+
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument());
+    expect(await emailSwitch()).not.toBeChecked();
+    expect(await forumSwitch()).toBeChecked(); // still rendered, as stored
   });
 
   it('shows the persisted value after a reload, whichever client changed it', async () => {
