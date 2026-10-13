@@ -47,6 +47,43 @@ class _FakeAuthService extends AuthService {
       loggedIn ? const AuthState(jwtToken: 'test-jwt') : const AuthState();
 }
 
+/// Every master-switch save is refused with a 429: the shared 30/h
+/// `profile_updates` throttle (todo 651). A refresh re-reads the unchanged
+/// profile, never the network.
+class _ThrottledUserProfileService extends UserProfileService {
+  int updates = 0;
+
+  @override
+  Future<UserProfile?> build() async => _mockProfile();
+
+  @override
+  Future<UserProfile> fetchProfile() async => _mockProfile();
+
+  @override
+  Future<UserProfile?> updateProfile({
+    String? firstName,
+    String? lastName,
+    String? bio,
+    String? location,
+    String? website,
+    String? gardeningExperience,
+    String? avatar,
+    String? profileVisibility,
+    bool? showEmail,
+    bool? showLocation,
+    bool? emailNotifications,
+    bool? plantIdNotifications,
+    bool? forumNotifications,
+  }) async {
+    updates++;
+    throw UserProfileException(
+      'Failed to update profile: Too many requests. Please wait a moment and '
+      'try again.',
+      statusCode: 429,
+    );
+  }
+}
+
 Widget _wrap(AppDensity density, {bool loggedIn = true}) => ProviderScope(
   overrides: [
     authServiceProvider.overrideWith(
@@ -156,6 +193,11 @@ void main() {
     expect(find.text('Email notifications'), findsOneWidget);
     expect(find.text('Forum notifications'), findsOneWidget);
     expect(find.textContaining('forum digest included'), findsOneWidget);
+    // The newsletter is not gated by the email master switch (todo 651).
+    expect(
+      find.textContaining('The blog newsletter has its own unsubscribe link'),
+      findsOneWidget,
+    );
     // The inert switch is relabelled, with no "Plant ID" branding (owner
     // decision 2026-10-12): nothing in production sends it.
     expect(find.text('Plant identification updates'), findsOneWidget);
@@ -166,4 +208,51 @@ void main() {
     expect(find.text('Weekly forum digest'), findsOneWidget);
     expect(find.text('Replies to topics you follow: Email'), findsOneWidget);
   });
+
+  testWidgets(
+    'a throttled master-switch save rolls back and says try later (todo 651)',
+    (tester) async {
+      final service = _ThrottledUserProfileService();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authServiceProvider.overrideWith(
+              () => _FakeAuthService(loggedIn: true),
+            ),
+            userProfileServiceProvider.overrideWith(() => service),
+            forumApiProvider.overrideWithValue(FakeForumApi()),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.build(Brightness.light, AppDensity.cozy),
+            home: const ProfileScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      SwitchListTile master(String title) => tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, title),
+      );
+      for (final title in ['Email notifications', 'Forum notifications']) {
+        await tester.scrollUntilVisible(find.text(title), 200);
+        expect(master(title).value, isTrue);
+        await tester.tap(find.text(title));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('Too many changes. Try again in a few minutes.'),
+          findsOneWidget,
+        );
+        // Never the raw exception.
+        expect(find.textContaining('UserProfileException'), findsNothing);
+        await tester.scrollUntilVisible(find.text(title), 200);
+        expect(master(title).value, isTrue); // rolled back: still on
+        ScaffoldMessenger.of(
+          tester.element(find.text(title)),
+        ).removeCurrentSnackBar();
+        await tester.pumpAndSettle();
+      }
+      expect(service.updates, 2);
+    },
+  );
 }

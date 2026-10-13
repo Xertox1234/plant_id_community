@@ -11,8 +11,10 @@ class ForumNotificationSettings {
     required this.preferences,
   });
 
-  /// `off` or `weekly`.
-  final String digestFrequency;
+  /// `off` or `weekly`; null when the server sent neither (deploy skew).
+  /// Such a digest is not offered, never guessed: showing it as off would
+  /// make the next tap write `weekly` over a choice nobody saw (todo 651).
+  final String? digestFrequency;
 
   /// `{verb: {channel: bool}}`, e.g. `{'reply': {'push': true, 'email': false}}`.
   final Map<String, Map<String, bool>> preferences;
@@ -21,6 +23,9 @@ class ForumNotificationSettings {
   static const digestWeekly = 'weekly';
 
   bool get digestOn => digestFrequency == digestWeekly;
+
+  /// Whether the server sent a digest cadence this client understands.
+  bool get hasDigest => digestFrequency != null;
 
   /// The stored value of one cell, or null when the server sent no such cell.
   bool? cell(String verb, String channel) => preferences[verb]?[channel];
@@ -46,7 +51,8 @@ class ForumNotificationSettings {
   }
 
   /// Tolerant of a skewed backend: junk cells (non-bool values, non-map rows)
-  /// are dropped, never thrown on.
+  /// are dropped, never thrown on, and a missing or unknown digest cadence
+  /// is null, not `off`.
   factory ForumNotificationSettings.fromJson(Map<String, dynamic> json) {
     final raw = json['notification_preferences'];
     final matrix = <String, Map<String, bool>>{};
@@ -62,7 +68,9 @@ class ForumNotificationSettings {
     }
     final digest = json['digest_frequency'];
     return ForumNotificationSettings(
-      digestFrequency: digest is String ? digest : digestOff,
+      digestFrequency: digest == digestOff || digest == digestWeekly
+          ? digest as String
+          : null,
       preferences: matrix,
     );
   }

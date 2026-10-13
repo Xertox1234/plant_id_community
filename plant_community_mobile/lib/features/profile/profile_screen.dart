@@ -446,8 +446,11 @@ class _SettingsSection extends ConsumerWidget {
 
   const _SettingsSection({required this.profile});
 
-  /// Apply a single notification-preference toggle. On failure, surface a
-  /// snackbar and refresh so the switch reverts to the real backend state.
+  /// Apply a single notification-preference toggle. The switch shows the
+  /// provider's state, which only a successful save changes, so a failed
+  /// save leaves it where it was. On failure, surface a snackbar (a 429 from
+  /// the shared `profile_updates` throttle gets its own words, todo 651) and
+  /// refresh so the switch shows the real backend state.
   Future<void> _applyPreference(
     BuildContext context,
     WidgetRef ref,
@@ -459,7 +462,9 @@ class _SettingsSection extends ConsumerWidget {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to update preferences: $e'),
+          content: Text(
+            notificationErrorText(e, action: 'Failed to update preferences'),
+          ),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
@@ -494,7 +499,8 @@ class _SettingsSection extends ConsumerWidget {
             title: const Text('Email notifications'),
             subtitle: const Text(
               'Off stops every optional email, the forum digest included. '
-              'Security email always sends.',
+              'Security email always sends. The blog newsletter has its own '
+              'unsubscribe link.',
             ),
             value: profile.emailNotifications,
             onChanged: (value) => _applyPreference(

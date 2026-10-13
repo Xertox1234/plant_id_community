@@ -30,6 +30,7 @@ import {
 import { fetchProfile, updateProfile } from '../services/profileService';
 import type { MasterNotificationSwitch, UserProfile } from '../types/auth';
 import { specimenAvatar } from '../utils/forumAvatars';
+import { httpStatusOf } from '../utils/httpError';
 import { logger } from '../utils/logger';
 import Eyebrow from '../components/ui/Eyebrow';
 import Avatar from '../components/ui/Avatar';
@@ -81,6 +82,11 @@ function ThemeControls() {
     </div>
   );
 }
+
+/** A master-switch save refused by the shared 30/h `profile_updates`
+ * throttle (owner decision 2026-10-12, todo 651); the mobile app shows the
+ * same words. */
+const ACCOUNT_SWITCH_THROTTLED = 'Too many changes. Try again in a few minutes.';
 
 const MASTER_SWITCHES: { field: MasterNotificationSwitch; label: string; detail: string }[] = [
   {
@@ -166,7 +172,9 @@ export function AccountNotificationSwitchesSection() {
     setProfile((cur) => cur && { ...cur, [field]: next });
     try {
       const updated = await updateProfile({ [field]: next });
-      setProfile(updated);
+      // Merged, not replaced: a response that omits a switch (deploy skew)
+      // must not make it vanish after a successful save (todo 651).
+      setProfile((cur) => (cur ? { ...cur, ...updated } : updated));
       setNotice({ text: 'Saved', tone: 'saved' });
     } catch (err) {
       logger.error('Error updating account notification switch', {
@@ -176,7 +184,12 @@ export function AccountNotificationSwitchesSection() {
       });
       setProfile((cur) => cur && { ...cur, [field]: previous });
       setNotice({
-        text: err instanceof Error ? err.message : 'Failed to save your account switches',
+        text:
+          httpStatusOf(err) === 429
+            ? ACCOUNT_SWITCH_THROTTLED
+            : err instanceof Error
+              ? err.message
+              : 'Failed to save your account switches',
         tone: 'error',
       });
     } finally {

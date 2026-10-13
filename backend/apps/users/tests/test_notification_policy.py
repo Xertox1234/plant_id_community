@@ -266,9 +266,22 @@ def test_the_newsletter_is_independent_of_the_master_email_switch():
     )
 
     assert list(newsletter_digest.recipients()) == [subscriber]
-    # And the master switch never creates a subscription for anyone.
-    User.objects.create_user(username="nl-none", email="none@x.test")
+
+    # Flipping the master switch through the endpoint both clients use
+    # neither unsubscribes a subscriber nor subscribes anyone (todo 651:
+    # the old second half never touched the switch at all).
+    other = User.objects.create_user(username="nl-none", email="none@x.test")
+    for target, value in [(user, True), (user, False), (other, False), (other, True)]:
+        response = _client(target).patch(
+            USER_UPDATE_URL, {"email_notifications": value}, format="json"
+        )
+        assert response.status_code == 200, response.content
+        target.refresh_from_db()
+        assert target.email_notifications is value
+        assert list(newsletter_digest.recipients()) == [subscriber]
     assert BlogNewsletter.objects.filter(email="none@x.test").exists() is False
+    subscriber.refresh_from_db()
+    assert subscriber.is_active is True
 
 
 @pytest.mark.django_db

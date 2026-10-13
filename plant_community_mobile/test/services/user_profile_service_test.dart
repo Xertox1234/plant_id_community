@@ -311,17 +311,81 @@ void main() {
       );
     });
 
-    test('build() sends no request and holds no profile when signed out',
-        () async {
-      // Todo 558 finding 1: a bearerless GET /auth/user/ 401s into
-      // Riverpod's retry loop over a cleared profile.
-      fakeApi.setAuthToken(null);
+    test(
+      'updateProfile keeps a 429 status for the caller (todo 651)',
+      () async {
+        fakeApi.getResult = _response(_profileJson());
+        final container = makeContainer();
+        await container.read(userProfileServiceProvider.future);
+
+        fakeApi.patchResult = ApiException(
+          'Too many requests',
+          statusCode: 429,
+        );
+        final notifier = container.read(userProfileServiceProvider.notifier);
+
+        await expectLater(
+          notifier.updateProfile(emailNotifications: false),
+          throwsA(
+            isA<UserProfileException>().having(
+              (e) => e.statusCode,
+              'statusCode',
+              429,
+            ),
+          ),
+        );
+      },
+    );
+
+    test('updateProfile carries a structured API message, never a proxy page '
+        '(todo 651 review)', () async {
       fakeApi.getResult = _response(_profileJson());
       final container = makeContainer();
+      await container.read(userProfileServiceProvider.future);
+      final notifier = container.read(userProfileServiceProvider.notifier);
 
-      expect(await container.read(userProfileServiceProvider.future), isNull);
-      expect(fakeApi.gets, 0);
+      fakeApi.patchResult = ApiException('Bad value.', statusCode: 400);
+      await expectLater(
+        notifier.updateProfile(emailNotifications: false),
+        throwsA(
+          isA<UserProfileException>().having(
+            (e) => e.apiMessage,
+            'apiMessage',
+            'Bad value.',
+          ),
+        ),
+      );
+
+      fakeApi.patchResult = ApiException(
+        '<html>Gateway</html>',
+        statusCode: 403,
+        unstructured: true,
+      );
+      await expectLater(
+        notifier.updateProfile(emailNotifications: false),
+        throwsA(
+          isA<UserProfileException>().having(
+            (e) => e.apiMessage,
+            'apiMessage',
+            isNull,
+          ),
+        ),
+      );
     });
+
+    test(
+      'build() sends no request and holds no profile when signed out',
+      () async {
+        // Todo 558 finding 1: a bearerless GET /auth/user/ 401s into
+        // Riverpod's retry loop over a cleared profile.
+        fakeApi.setAuthToken(null);
+        fakeApi.getResult = _response(_profileJson());
+        final container = makeContainer();
+
+        expect(await container.read(userProfileServiceProvider.future), isNull);
+        expect(fakeApi.gets, 0);
+      },
+    );
 
     test('a refresh in flight when clear() runs does not bring the old '
         'profile back', () async {
@@ -344,29 +408,30 @@ void main() {
       expect(state.value, isNull);
     });
 
-    test('an update that lands after clear() does not write the profile',
-        () async {
-      fakeApi.getResult = _response(_profileJson());
-      final container = makeContainer();
-      await container.read(userProfileServiceProvider.future);
-      final notifier = container.read(userProfileServiceProvider.notifier);
-      fakeApi.patchResult = _response({
-        'message': 'ok',
-        'user': _profileJson(username: 'old'),
-      });
-      final gate = fakeApi.patchGate = Completer<void>();
+    test(
+      'an update that lands after clear() does not write the profile',
+      () async {
+        fakeApi.getResult = _response(_profileJson());
+        final container = makeContainer();
+        await container.read(userProfileServiceProvider.future);
+        final notifier = container.read(userProfileServiceProvider.notifier);
+        fakeApi.patchResult = _response({
+          'message': 'ok',
+          'user': _profileJson(username: 'old'),
+        });
+        final gate = fakeApi.patchGate = Completer<void>();
 
-      final updating = notifier.updateProfile(bio: 'x');
-      await pumpEventQueue();
-      notifier.clear();
-      gate.complete();
-      await updating;
+        final updating = notifier.updateProfile(bio: 'x');
+        await pumpEventQueue();
+        notifier.clear();
+        gate.complete();
+        await updating;
 
-      expect(container.read(userProfileServiceProvider).value, isNull);
-    });
+        expect(container.read(userProfileServiceProvider).value, isNull);
+      },
+    );
 
-    test('a build in flight when clear() runs settles on no profile',
-        () async {
+    test('a build in flight when clear() runs settles on no profile', () async {
       fakeApi.getResult = _response(_profileJson(username: 'old'));
       final gate = fakeApi.getGate = Completer<void>();
       final container = makeContainer();
@@ -379,34 +444,39 @@ void main() {
       expect(container.read(userProfileServiceProvider).value, isNull);
     });
 
-    test('deleteAvatar removes the photo and keeps the returned profile',
-        () async {
-      // Todo 565 finding 9.
-      fakeApi.getResult = _response(_profileJson());
-      final container = makeContainer();
-      await container.read(userProfileServiceProvider.future);
-      fakeApi.deleteResult = _response({
-        'message': 'Profile photo removed',
-        'user': _profileJson(username: 'nophoto'),
-      });
+    test(
+      'deleteAvatar removes the photo and keeps the returned profile',
+      () async {
+        // Todo 565 finding 9.
+        fakeApi.getResult = _response(_profileJson());
+        final container = makeContainer();
+        await container.read(userProfileServiceProvider.future);
+        fakeApi.deleteResult = _response({
+          'message': 'Profile photo removed',
+          'user': _profileJson(username: 'nophoto'),
+        });
 
-      final profile = await container
-          .read(userProfileServiceProvider.notifier)
-          .deleteAvatar();
+        final profile = await container
+            .read(userProfileServiceProvider.notifier)
+            .deleteAvatar();
 
-      expect(fakeApi.lastDeletePath, '/auth/user/avatar/');
-      expect(profile.username, 'nophoto');
-      expect(
-        container.read(userProfileServiceProvider).value?.username,
-        'nophoto',
-      );
-    });
+        expect(fakeApi.lastDeletePath, '/auth/user/avatar/');
+        expect(profile.username, 'nophoto');
+        expect(
+          container.read(userProfileServiceProvider).value?.username,
+          'nophoto',
+        );
+      },
+    );
 
     test('deleteAvatar throws UserProfileException on API failure', () async {
       fakeApi.getResult = _response(_profileJson());
       final container = makeContainer();
       await container.read(userProfileServiceProvider.future);
-      fakeApi.deleteResult = ApiException('Rate limit exceeded', statusCode: 429);
+      fakeApi.deleteResult = ApiException(
+        'Rate limit exceeded',
+        statusCode: 429,
+      );
 
       await expectLater(
         container.read(userProfileServiceProvider.notifier).deleteAvatar(),

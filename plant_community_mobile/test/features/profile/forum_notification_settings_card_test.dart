@@ -5,25 +5,39 @@ import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/profile/forum_notification_settings_card.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
+import 'package:plant_community_mobile/services/user_profile_service.dart';
 
 import '../forum/support/forum_test_support.dart';
 
-Widget _wrap(FakeForumApi api, {bool emailOn = true, bool forumOn = true}) =>
-    ProviderScope(
-      overrides: [forumApiProvider.overrideWithValue(api)],
-      child: MaterialApp(
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: ForumNotificationSettingsCard(
-              // A new key per pump is a fresh State: a "reload".
-              key: UniqueKey(),
-              emailOn: emailOn,
-              forumOn: forumOn,
-            ),
-          ),
+Widget _wrap(
+  FakeForumApi api, {
+  bool emailOn = true,
+  bool forumOn = true,
+  ThemeData? theme,
+}) => ProviderScope(
+  overrides: [forumApiProvider.overrideWithValue(api)],
+  child: MaterialApp(
+    theme: theme,
+    home: Scaffold(
+      body: SingleChildScrollView(
+        child: ForumNotificationSettingsCard(
+          // A new key per pump is a fresh State: a "reload".
+          key: UniqueKey(),
+          emailOn: emailOn,
+          forumOn: forumOn,
         ),
       ),
-    );
+    ),
+  ),
+);
+
+/// Its load fails with a non-API error whose text carries a URL.
+class _DumpingForumApi extends FakeForumApi {
+  @override
+  Future<ForumNotificationSettings> fetchNotificationSettings() async {
+    throw Exception('DioException GET https://api.example/secret');
+  }
+}
 
 SwitchListTile _switch(WidgetTester tester, String title) =>
     tester.widget<SwitchListTile>(find.widgetWithText(SwitchListTile, title));
@@ -178,5 +192,153 @@ void main() {
     expect(find.textContaining('Forum notifications are off'), findsOneWidget);
     // The choices stay visible and editable as stored.
     expect(_switch(tester, _replyEmail).value, isTrue);
+  });
+
+  test(
+    'a missing or unknown digest cadence is unknown, not off (todo 651)',
+    () {
+      for (final json in <Map<String, dynamic>>[
+        {},
+        {'digest_frequency': null},
+        {'digest_frequency': 7},
+        {'digest_frequency': 'daily'},
+      ]) {
+        final settings = ForumNotificationSettings.fromJson(json);
+        expect(settings.hasDigest, isFalse, reason: '$json');
+        expect(settings.digestFrequency, isNull, reason: '$json');
+      }
+      expect(
+        ForumNotificationSettings.fromJson({
+          'digest_frequency': 'off',
+        }).digestFrequency,
+        'off',
+      );
+    },
+  );
+
+  testWidgets('an unknown digest is not offered, so no tap writes weekly', (
+    tester,
+  ) async {
+    final api = FakeForumApi()
+      ..notificationSettings = ForumNotificationSettings.fromJson({
+        'notification_preferences': {
+          'reply': {'push': true, 'email': true},
+        },
+      });
+    await tester.pumpWidget(_wrap(api));
+    await tester.pumpAndSettle();
+
+    expect(find.text(_digest), findsNothing);
+    expect(_switch(tester, _replyEmail).value, isTrue); // the rest still shows
+
+    // A cell save never sends a guessed digest (todo 651 review).
+    await tester.tap(find.text(_replyEmail));
+    await tester.pumpAndSettle();
+    expect(api.notificationSettingsUpdates, hasLength(1));
+    expect(
+      api.notificationSettingsUpdates.single.containsKey('digest_frequency'),
+      isFalse,
+    );
+  });
+
+  test('only a message our views wrote reaches the user (todo 651 review)', () {
+    expect(
+      apiErrorMessage(ApiException('Bad value.', statusCode: 400)),
+      'Bad value.',
+    );
+    expect(
+      apiErrorMessage(
+        ApiException(
+          '<html>Gateway</html>',
+          statusCode: 403,
+          unstructured: true,
+        ),
+      ),
+      isNull,
+    );
+    expect(
+      apiErrorMessage(
+        UserProfileException(
+          'Failed to update profile: Bad value.',
+          statusCode: 400,
+          apiMessage: 'Bad value.',
+        ),
+      ),
+      'Bad value.',
+    );
+    expect(
+      apiErrorMessage(UserProfileException('Failed to update profile: boom')),
+      isNull,
+    );
+    // Dio's own text for a failure with no HTTP status (todo 651 round 2).
+    expect(apiErrorMessage(ApiException('Connection reset by peer')), isNull);
+    expect(
+      notificationErrorText(
+        UserProfileException('x', statusCode: 400, apiMessage: 'Bad value.'),
+        action: 'Failed to update preferences',
+      ),
+      'Failed to update preferences: Bad value.',
+    );
+  });
+
+  testWidgets('a 429 save rolls back and says try again later (todo 651)', (
+    tester,
+  ) async {
+    final api = FakeForumApi()
+      ..failNotificationSettingsUpdateWith = ApiException(
+        'Too many requests. Please wait a moment and try again.',
+        statusCode: 429,
+      );
+    await tester.pumpWidget(_wrap(api));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(_replyEmail));
+    await tester.pumpAndSettle();
+
+    expect(_switch(tester, _replyEmail).value, isTrue);
+    expect(find.text(notificationThrottledText), findsOneWidget);
+  });
+
+  testWidgets('errors show the API message, never the exception dump', (
+    tester,
+  ) async {
+    final api = FakeForumApi()
+      ..failNotificationSettingsUpdateWith = ApiException(
+        'Server unavailable',
+        statusCode: 503,
+      );
+    await tester.pumpWidget(_wrap(api));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(_replyEmail));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Failed to save notification settings: Server unavailable'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('ApiException'), findsNothing);
+
+    // A non-API error (e.g. a DioException that escaped) shows no detail.
+    await tester.pumpWidget(_wrap(_DumpingForumApi()));
+    await tester.pumpAndSettle();
+    expect(find.text('Could not load notification settings'), findsOneWidget);
+    expect(find.text('Something went wrong.'), findsOneWidget);
+    expect(find.textContaining('example/secret'), findsNothing);
+  });
+
+  testWidgets('the master-switch note reads in dark mode (todo 651)', (
+    tester,
+  ) async {
+    final dark = ThemeData(brightness: Brightness.dark);
+    await tester.pumpWidget(_wrap(FakeForumApi(), emailOn: false, theme: dark));
+    await tester.pumpAndSettle();
+
+    final note = tester.widget<Text>(
+      find.textContaining('Email notifications are off'),
+    );
+    expect(note.style?.color, dark.colorScheme.onSurfaceVariant);
+    expect(
+      dark.colorScheme.onSurfaceVariant.computeLuminance(),
+      greaterThan(0.4), // light ink on the dark surface
+    );
   });
 }
