@@ -50,6 +50,7 @@ def logs(caplog):
     apps_logger.addHandler(caplog.handler)
     caplog.set_level(logging.INFO)
     cache.clear()
+    notification_ops._LAST_ALERT.clear()
     try:
         yield caplog
     finally:
@@ -123,6 +124,21 @@ class TestOutboxOutcomes:
         delivery.claim_one(intent_id=row.pk)
         delivery.mark_held([row.pk], timezone.now() + timedelta(hours=2))
         assert _outcome(row) == Outcome.QUEUED
+
+    def test_a_hold_after_a_transient_failure_is_queued(self, users):
+        """Review round 1: a row that failed once, then was held (quiet
+        hours), is waiting by design, not backing off."""
+        row = _row(users[0])
+        delivery.claim_one(intent_id=row.pk)
+        delivery.mark_retry([row.pk], "SMTPServerDisconnected")
+        delivery.claim_one(intent_id=row.pk)
+        delivery.mark_held([row.pk], timezone.now() + timedelta(hours=2))
+        row.refresh_from_db()
+        assert row.attempts == 1  # the failed attempt still counts
+        assert _outcome(row) == Outcome.QUEUED
+        assert notification_ops.outbox_outcome_counts()[Kind.FORUM_EMAIL] == {
+            Outcome.QUEUED: 1
+        }
 
     def test_every_outbox_kind_is_a_live_path_with_a_redriver(self):
         assert set(delivery.REDRIVERS) == set(Kind.values)
@@ -240,6 +256,18 @@ class TestOutcomeLines:
             "retrying=2 failed=0 suppressed=1"
         ]
 
+    def test_a_recovery_run_that_cannot_be_enqueued_reports_failed(self, logs):
+        task = MagicMock()
+        task.apply_async.side_effect = KombuOperationalError("broker down")
+        output = "[EMAIL] digest sent=3 failed=2 suppressed=0"
+
+        assert not delivery.schedule_weekly_recovery(task, output, 0, "forum digest")
+        # Logged after the decision: nothing will retry them, so failed.
+        assert _outcome_lines(logs) == [
+            "[OUTCOME] channel=email path=forum_digest accepted=3 retrying=0 "
+            "failed=2 suppressed=0"
+        ]
+
     def test_failures_past_the_recovery_cap_are_failed_and_alert(self, logs):
         output = "[EMAIL] newsletter sent=4 failed=1 suppressed=0 pruned=0"
         assert not delivery.schedule_weekly_recovery(
@@ -280,9 +308,10 @@ class TestCareReminderOutcomes:
     def _sweep(self, fcm):
         from apps.garden_calendar.tasks import send_due_care_task_reminders
 
-        with patch(
-            "apps.core.firebase_config.is_firebase_available", return_value=True
-        ), patch("apps.core.firebase_config.get_fcm_client", return_value=fcm):
+        with (
+            patch("apps.core.firebase_config.is_firebase_available", return_value=True),
+            patch("apps.core.firebase_config.get_fcm_client", return_value=fcm),
+        ):
             send_due_care_task_reminders.run()
 
     def test_a_sweep_reports_one_outcome_per_owner(self, logs):
@@ -311,6 +340,40 @@ class TestCareReminderOutcomes:
             "failed=1 suppressed=1"
         ]
         assert DEVICE_TOKEN not in lines[0]
+
+    def test_a_crashed_sweep_still_reports_its_outcomes(self, logs):
+        from apps.garden_calendar import tasks as care_tasks
+
+        self._owner("crash", token=DEVICE_TOKEN)
+        with patch.object(
+            care_tasks, "_push_to_owners", side_effect=RuntimeError("worker died")
+        ):
+            with pytest.raises(RuntimeError):
+                self._sweep(MagicMock())
+        # Released for the next sweep: retrying, reported in the finally.
+        assert _outcome_lines(logs) == [
+            "[OUTCOME] channel=push path=care_reminder accepted=0 retrying=1 "
+            "failed=0 suppressed=0"
+        ]
+
+    def test_a_credentials_stop_reports_every_owner(self, logs):
+        from apps.core.fcm import FCM_CREDENTIALS_STOP_FAILURES
+        from firebase_admin import messaging
+
+        for i in range(FCM_CREDENTIALS_STOP_FAILURES):
+            self._owner(f"cred{i}", token=f"fake-cred-token-{i}")
+        self._owner("untried", token="fake-untried-token")
+        self._owner("nodevice")  # untried, no token: its claim stands
+        fcm = MagicMock()
+        fcm.send.side_effect = messaging.ThirdPartyAuthError("apns auth")
+        self._sweep(fcm)
+
+        # The failed owners, the untried one with a device released for the
+        # next sweep, and the deviceless one whose claim stands.
+        assert _outcome_lines(logs) == [
+            f"[OUTCOME] channel=push path=care_reminder accepted=0 retrying=1 "
+            f"failed={FCM_CREDENTIALS_STOP_FAILURES} suppressed=1"
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -364,13 +427,18 @@ class TestBrokerFailure:
         TopicSubscription.subscribe(author, topic)
 
         refused = KombuOperationalError(f"Error connecting to {SECRET_BROKER_URL}")
-        with patch(
-            "apps.forum_host.tasks.send_forum_email_batch.delay", side_effect=refused
-        ), patch(
-            "apps.forum_host.tasks.send_forum_push_batch.delay", side_effect=refused
-        ), patch(
-            "apps.forum_host.tasks.send_forum_web_push_batch.delay",
-            side_effect=refused,
+        with (
+            patch(
+                "apps.forum_host.tasks.send_forum_email_batch.delay",
+                side_effect=refused,
+            ),
+            patch(
+                "apps.forum_host.tasks.send_forum_push_batch.delay", side_effect=refused
+            ),
+            patch(
+                "apps.forum_host.tasks.send_forum_web_push_batch.delay",
+                side_effect=refused,
+            ),
         ):
             post = Post.objects.create(topic=topic, author=replier)
             with caplog.at_level("ERROR", logger="forum_host.notifications"):
@@ -390,10 +458,13 @@ class TestBrokerFailure:
     ):
         from apps.users import email_verification
 
-        with patch(
-            "apps.users.tasks.send_verification_email_task.delay",
-            side_effect=KombuOperationalError(SECRET_BROKER_URL),
-        ), django_capture_on_commit_callbacks(execute=True):
+        with (
+            patch(
+                "apps.users.tasks.send_verification_email_task.delay",
+                side_effect=KombuOperationalError(SECRET_BROKER_URL),
+            ),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
             email_verification.enqueue_on_commit(
                 "send_verification_email_task", 1, context="user=1"
             )
@@ -417,7 +488,29 @@ class TestOutboxAlerts:
         [record] = [r for r in _errors(logs) if "overdue" in r.getMessage()]
         assert "1 delivery(ies) overdue" in record.getMessage()
         _assert_clean([record])
-        assert healthy.pk  # a row inside its grace window is not overdue
+        # The one counted was the late row: without it, the row inside its
+        # grace window is not overdue.
+        DeliveryIntent.objects.filter(pk=late.pk).delete()
+        healthy.refresh_from_db()
+        assert healthy.status == Status.PENDING
+        assert notification_ops.check_outbox_lag()["rows"] == 0
+
+    def test_a_failing_lag_check_never_stops_the_redrive(self, users, logs):
+        row = _row(users[0])
+        DeliveryIntent.objects.filter(pk=row.pk).update(
+            next_attempt_at=timezone.now() - timedelta(seconds=1)
+        )
+        with (
+            patch.object(
+                delivery, "check_outbox_lag", side_effect=RuntimeError("db blip")
+            ),
+            patch("apps.forum_host.tasks.redrive_forum_deliveries") as redrive,
+        ):
+            totals = delivery.reconcile()
+        assert totals["redriven"] == 1
+        assert totals["overdue"] == 0  # the key is always there
+        redrive.assert_called_once()
+        assert any("lag check failed" in r.getMessage() for r in _errors(logs))
 
     def test_a_draining_outbox_does_not_alert(self, users, logs):
         _row(users[0])
@@ -462,9 +555,19 @@ class TestOutboxAlerts:
 
 @pytest.mark.django_db
 class TestPushConfigAlerts:
+    @staticmethod
+    def _device(user, token=DEVICE_TOKEN):
+        from wagtail_forum.models import ForumProfile
+
+        profile = ForumProfile.for_user(user)
+        profile.fcm_token = token
+        profile.save(update_fields=["fcm_token"])
+
     def test_forum_mobile_push_without_firebase_alerts_once(self, users, logs):
         from apps.forum_host.tasks import send_forum_push_batch
 
+        self._device(users[0])
+        self._device(users[1], "fake-device-token-two")
         with patch(
             "apps.core.firebase_config.is_firebase_available", return_value=False
         ):
@@ -477,6 +580,7 @@ class TestPushConfigAlerts:
     def test_forum_single_push_without_firebase_alerts(self, users, logs):
         from apps.forum_host.tasks import send_forum_push
 
+        self._device(users[0])
         with patch(
             "apps.core.firebase_config.is_firebase_available", return_value=False
         ):
@@ -487,17 +591,57 @@ class TestPushConfigAlerts:
 
     def test_browser_push_without_vapid_alerts(self, users, logs, settings):
         from apps.forum_host.tasks import send_forum_web_push_batch
+        from apps.users.models import PushSubscription
 
+        PushSubscription.objects.create(
+            user=users[0],
+            endpoint="https://fcm.googleapis.com/fcm/send/ops0",
+            p256dh_key="BPk-key",
+            auth_key="auth-value",  # pragma: allowlist secret
+        )
         settings.VAPID_PRIVATE_KEY = ""
         send_forum_web_push_batch.run("reply_added", [users[0].pk], {})
         [record] = _errors(logs)
         assert "Web push (VAPID) is not configured" in record.getMessage()
+
+    def test_no_subscription_or_device_means_no_push_alert(self, users, logs, settings):
+        """Review round 1: a deployment that runs without VAPID or FCM on
+        purpose must not page on ordinary forum activity."""
+        from apps.forum_host.tasks import (
+            send_forum_push,
+            send_forum_push_batch,
+            send_forum_web_push_batch,
+        )
+
+        settings.VAPID_PRIVATE_KEY = ""
+        with patch(
+            "apps.core.firebase_config.is_firebase_available", return_value=False
+        ):
+            send_forum_web_push_batch.run("reply_added", [users[0].pk], {})
+            send_forum_push_batch.run("reply_added", [users[0].pk], {})
+            send_forum_push.run("reply_added", users[0].pk, {})
+        assert not _errors(logs)
+
+    def test_a_cache_outage_still_alerts_but_at_most_once_per_process(self, logs):
+        with patch.object(notification_ops.cache, "add", return_value=None):
+            assert notification_ops.report_push_unconfigured("FCM", "x")
+            assert not notification_ops.report_push_unconfigured("FCM", "x")
+        with patch.object(notification_ops.cache, "add", side_effect=OSError("down")):
+            assert not notification_ops.report_push_unconfigured("FCM", "x")
+        assert len(_errors(logs)) == 1
+
+    def test_a_failing_work_probe_is_no_alert_and_no_crash(self, logs):
+        assert not notification_ops.report_push_unconfigured(
+            "FCM", "x", has_work=MagicMock(side_effect=RuntimeError("db"))
+        )
+        assert not _errors(logs)
 
     def test_care_reminders_without_firebase_alert_only_when_one_is_due(self, logs):
         from apps.garden_calendar.models import CareTask, Plant
         from apps.garden_calendar.tasks import send_due_care_task_reminders
 
         owner = User.objects.create_user(username="carer", email=ADDRESS)
+        self._device(owner)
         with patch(
             "apps.core.firebase_config.is_firebase_available", return_value=False
         ):
@@ -520,6 +664,32 @@ class TestPushConfigAlerts:
         _assert_clean([record])
         task.refresh_from_db()
         assert task.notification_sent is False  # still delivered once enabled
+
+    def test_care_reminders_nobody_could_receive_do_not_alert(self, logs):
+        from apps.garden_calendar.models import CareTask, Plant
+        from apps.garden_calendar.tasks import send_due_care_task_reminders
+
+        deviceless = User.objects.create_user(username="nodev", email=ADDRESS)
+        opted_out = User.objects.create_user(username="optout", email="o@example.com")
+        opted_out.care_reminder_notifications = False
+        opted_out.save(update_fields=["care_reminder_notifications"])
+        self._device(opted_out)
+        for owner in (deviceless, opted_out):
+            plant = Plant.objects.create(
+                owner=owner, common_name="Fern", planted_date="2026-01-01"
+            )
+            CareTask.objects.create(
+                plant=plant,
+                created_by=owner,
+                task_type="watering",
+                title="Water",
+                scheduled_date=timezone.now() - timedelta(minutes=5),
+            )
+        with patch(
+            "apps.core.firebase_config.is_firebase_available", return_value=False
+        ):
+            send_due_care_task_reminders.run()
+        assert not _errors(logs)
 
     def test_no_work_means_no_alert(self, logs):
         from apps.forum_host.tasks import send_forum_push_batch
@@ -587,7 +757,14 @@ def test_every_beat_entry_gets_a_cron_monitor():
     assert schedule
     for name, entry in schedule.items():
         config = _get_monitor_config(entry["schedule"], app, name)
-        assert config.get("schedule", {}).get("type") == "crontab", name
+        monitor = config.get("schedule", {})
+        # The documented contract: a crontab, or an interval of a minute or
+        # more (the SDK rounds an interval to whole minutes).
+        if monitor.get("type") == "interval":
+            assert monitor.get("unit") in ("minute", "hour", "day"), name
+            assert int(monitor.get("value", 0)) >= 1, name
+        else:
+            assert monitor.get("type") == "crontab", name
 
 
 def test_a_beat_run_checks_in_and_a_failed_one_reports_an_error(sentry_capture):

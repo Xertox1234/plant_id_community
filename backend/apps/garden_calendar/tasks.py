@@ -26,6 +26,7 @@ from django.db import OperationalError, transaction
 from django.utils import timezone
 
 from .constants import (
+    CARE_REMINDER_ALERT_PROBE_OWNERS,
     CARE_REMINDER_BATCH_SIZE,
     CARE_REMINDER_BODY_MAX_TASKS,
     CARE_REMINDER_COLLAPSE_KEY,
@@ -72,6 +73,22 @@ def _due_tasks(now: datetime):
         notification_sent=False,
         plant__is_active=True,
     )
+
+
+def _pushable_due(now: datetime) -> bool:
+    """Whether any due reminder has an owner it could be pushed to: opted
+    in, active, with a registered device."""
+    from apps.core.push_devices import device_tokens_for_users
+
+    owners = set(
+        _due_tasks(now)
+        .filter(
+            plant__owner__care_reminder_notifications=True,
+            plant__owner__is_active=True,
+        )
+        .values_list("plant__owner_id", flat=True)[:CARE_REMINDER_ALERT_PROBE_OWNERS]
+    )
+    return bool(device_tokens_for_users(owners))
 
 
 def _claim_due_tasks(now: datetime) -> list[dict]:
@@ -168,8 +185,13 @@ def send_due_care_task_reminders(self) -> None:
         # tasks that fell due within the lookback window. An alert only when
         # a reminder is actually due (todo 623): no ERROR every 15 minutes on
         # a deployment with nothing to send.
-        if _due_tasks(timezone.now()).exists():
-            report_push_unconfigured("FCM", "due care reminders")
+        # Narrowed to reminders that could have gone out: an opted-in,
+        # active owner with a device. A failed probe is no alert, never a
+        # failed sweep (report_push_unconfigured guards it).
+        now = timezone.now()
+        report_push_unconfigured(
+            "FCM", "due care reminders", has_work=lambda: _pushable_due(now)
+        )
         return
 
     fcm = get_fcm_client()
@@ -204,6 +226,9 @@ def send_due_care_task_reminders(self) -> None:
             _release(retry_later, now, task_id)
     except BaseException as exc:  # re-raised below; a worker shutdown must un-claim too
         unfinished = [t for o, ts in by_owner.items() if o not in done for t in ts]
+        # Released for the next sweep below: retrying, whatever the crash.
+        for task in unfinished:
+            outcomes[task["plant__owner_id"]] = Outcome.RETRYING
         try:
             _release(
                 unfinished + retry_later,
@@ -219,6 +244,10 @@ def send_due_care_task_reminders(self) -> None:
                 task_id,
             )
         raise
+    finally:
+        # On every path, the crash and the shutdown included (todo 623
+        # review): a sweep that dies still says what it did.
+        _log_care_outcomes(outcomes, retry_later)
 
     logger.info(
         "[FCM] care reminders: %s tasks claimed, %s pushes sent, %s tasks "
@@ -228,16 +257,27 @@ def send_due_care_task_reminders(self) -> None:
         len(retry_later),
         task_id,
     )
-    # Per owner, in the shared vocabulary (todo 623). "accepted" is FCM
-    # taking the message, not the device showing it.
-    for task in retry_later:
-        outcomes[task["plant__owner_id"]] = Outcome.RETRYING
-    tally = dict.fromkeys(
-        (Outcome.ACCEPTED, Outcome.RETRYING, Outcome.FAILED, Outcome.SUPPRESSED), 0
-    )
-    for outcome in outcomes.values():
-        tally[outcome] += 1
-    log_outcomes("push", "care_reminder", **tally)
+
+
+def _log_care_outcomes(outcomes: dict[int, str], retry_later: list[dict]) -> None:
+    """One ``[OUTCOME]`` line per sweep, per owner, in the shared vocabulary
+    (todo 623). "accepted" is FCM taking the message, not the device showing
+    it. Never raises into the sweep: it runs in a ``finally``."""
+    try:
+        for task in retry_later:
+            outcomes[task["plant__owner_id"]] = Outcome.RETRYING
+        tally = dict.fromkeys(
+            (Outcome.ACCEPTED, Outcome.RETRYING, Outcome.FAILED, Outcome.SUPPRESSED),
+            0,
+        )
+        for outcome in outcomes.values():
+            tally[outcome] += 1
+        log_outcomes("push", "care_reminder", **tally)
+    except Exception as exc:
+        logger.error(
+            "[FCM] care reminders: could not log the outcomes: %s",
+            type(exc).__name__,
+        )
 
 
 def _next_claim_within(task: Any, exc: BaseException) -> timedelta:
@@ -416,6 +456,11 @@ def _push_to_owners(
                     for t in ts
                 ]
                 retry_later.extend(pending)
+                # A tokenless untried owner's claim stands, as it would have:
+                # suppressed, like one the loop reached (todo 623 review).
+                for o in by_owner:
+                    if o not in done and o not in tokens:
+                        outcomes[o] = Outcome.SUPPRESSED
                 done.update(by_owner)
                 logger.error(
                     "[FCM] care reminders failed permanently on a Firebase "

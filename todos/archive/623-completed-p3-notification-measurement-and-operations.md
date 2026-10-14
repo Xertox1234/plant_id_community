@@ -104,6 +104,21 @@ Existing work remains separate: 547 owns the physical-device due-care verificati
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-10-13 - Review round 1: non-blocking findings (PR #1134)
+
+Each guard fix was mutation-checked: the guard was broken, the test seen failing, and the file restored from a backup copy (14 mutants, all killed). Tests are in `apps/core/tests/test_notification_ops.py`.
+
+- fixed: `report_push_unconfigured` paged on any forum event with recipients. It now takes a `has_work` probe, so forum mobile push alerts only when a recipient has a device token, and browser push only when one has an active `PushSubscription` (`test_no_subscription_or_device_means_no_push_alert`). The existing alert tests now give their recipients a device or subscription. `web_push_enabled()` reflects only missing VAPID keys (there is no separate flag), and a deployment with no subscribers no longer pages.
+- fixed: the care-reminder `[OUTCOME]` line was skipped on the crash path, and the credentials stop left owners out. The tally is now logged in a `finally`, crash-released owners are `retrying`, and untried tokenless owners whose claim stands are `suppressed` (`test_a_crashed_sweep_still_reports_its_outcomes`, `test_a_credentials_stop_reports_every_owner`).
+- fixed: under `IGNORE_EXCEPTIONS`, a `cache.add` that returned None silently skipped the alert; None or an exception now falls back to a per-process `time.monotonic()` throttle, so the alert goes out at most once per window per process (`test_a_cache_outage_still_alerts_but_at_most_once_per_process`).
+- fixed: a failing `check_outbox_lag` could abort `reconcile` before the re-drive; it is guarded and logs an ERROR (`test_a_failing_lag_check_never_stops_the_redrive`).
+- fixed: the care-reminder probe in the Firebase-unconfigured branch could fail the sweep. It runs through the guarded `has_work` probe, where a failed probe means no alert (`test_a_failing_work_probe_is_no_alert_and_no_crash`). It is also narrowed to reminders an opted-in, active owner with a device could have received (`test_care_reminders_nobody_could_receive_do_not_alert`).
+- fixed: a held row after a transient failure was counted as `retrying`; `outcome_of_intent` and `outbox_outcome_counts` treat a hold as `queued` (`test_a_hold_after_a_transient_failure_is_queued`).
+- fixed: the weekly `[OUTCOME]` line was logged before the recovery decision; it is now logged after, and is `retrying` only when the recovery run was enqueued (`test_a_recovery_run_that_cannot_be_enqueued_reports_failed`).
+- fixed: the vacuous `assert healthy.pk`; the test now deletes the late row and asserts the in-grace row is not overdue. The beat test also accepts an interval monitor of a minute or more, as documented.
+- declined (documented): the SoftTimeLimit partial summary. A stopped weekly run writes no summary, so its sends are in no `[OUTCOME]` line; the continuation reports only its own. Writing the summary on the way out would change both commands' control flow for a count. The limit is stated in the `notification_ops` docstring.
+- declined: throttling the lag and expired/interrupted ERRORs. Each is one message template, which Sentry groups into one issue, so a persistent backlog adds events to that issue rather than opening new ones, and alert rules fire on the issue. A cache throttle would also hide whether the backlog is still there.
+
 ## Notes
 
 P3 observability and operational assurance, not a claim of a live delivery outage. Coordinate implementation sequencing with todo 619 after those new todos are committed; dependencies are intentionally empty under todos/README.md's rule against uncommitted dependency IDs. Do not add tracking pixels or third-party analytics without the recorded privacy/product decision.

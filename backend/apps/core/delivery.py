@@ -425,7 +425,15 @@ def reconcile() -> dict[str, int]:
             totals["interrupted"],
         )
     # Before the re-drive below moves due rows out of the due window.
-    totals["overdue"] = check_outbox_lag(now)["rows"]
+    # Guarded: an alerting query must never stop the re-drive below.
+    try:
+        totals["overdue"] = check_outbox_lag(now)["rows"]
+    except Exception as exc:
+        totals["overdue"] = 0  # unknown this pass; callers always find the key
+        logger.error(
+            "[DELIVERY] the outbox lag check failed: %s; re-driving anyway",
+            type(exc).__name__,
+        )
 
     with transaction.atomic():
         rows = list(
@@ -493,17 +501,23 @@ def schedule_weekly_recovery(task, output: str, recovery: int, label: str) -> bo
     """
     counts = summary_counts(output)
     failed = counts["failed"]
-    # The run's outcomes in the shared vocabulary (todo 623): a failed member
-    # stays due, so it is retrying while a recovery run is left, else failed.
-    retrying = bool(failed) and recovery < constants.WEEKLY_RECOVERY_MAX_RUNS
+    enqueued = _enqueue_weekly_recovery(task, failed, recovery, label)
+    # The run's outcomes in the shared vocabulary (todo 623), logged after
+    # the decision so the line says what happened: a failed member is
+    # retrying only when a recovery run was actually enqueued, else failed
+    # (it stays due for the next scheduled run, which is not a retry).
     log_outcomes(
         "email",
         label.replace(" ", "_"),
         accepted=counts["sent"],
         suppressed=counts["suppressed"],
-        retrying=failed if retrying else 0,
-        failed=0 if retrying else failed,
+        retrying=failed if enqueued else 0,
+        failed=0 if enqueued else failed,
     )
+    return enqueued
+
+
+def _enqueue_weekly_recovery(task, failed: int, recovery: int, label: str) -> bool:
     if not failed:
         return False
     if recovery >= constants.WEEKLY_RECOVERY_MAX_RUNS:

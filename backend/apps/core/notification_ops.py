@@ -42,6 +42,8 @@ Where each path records it
   ``send_email``, the ``EmailNotification`` row (``outcome_of_notification``).
 - Forum weekly digest and blog newsletter: the command's summary line,
   logged as an ``[OUTCOME]`` line by ``delivery.schedule_weekly_recovery``.
+  A run stopped by its soft time limit writes no summary, so its sends are
+  not in any line; the continuation run reports only its own.
 - Care-task reminders: an ``[OUTCOME]`` line per sweep.
 
 Alerts
@@ -62,6 +64,7 @@ an address, a token, a URL or a message body.
 import logging
 import re
 import sys
+import time
 from datetime import timedelta
 
 from django.core.cache import cache
@@ -102,11 +105,15 @@ PROVIDER_OUTCOMES = (Outcome.DELIVERED, Outcome.BOUNCED, Outcome.COMPLAINED)
 
 def outcome_of_intent(status: str, attempts: int, last_error: str = "") -> str:
     """The outcome of one outbox row (``DeliveryIntent``)."""
-    from .delivery import HANDED_OFF
+    from .delivery import HANDED_OFF, HOLDS
     from .models import DeliveryIntent
 
     S = DeliveryIntent.Status
     if status == S.PENDING:
+        # A hold is queued even after an earlier transient failure: the
+        # row is waiting by design, not backing off.
+        if last_error in HOLDS:
+            return Outcome.QUEUED
         return Outcome.RETRYING if attempts else Outcome.QUEUED
     if status == S.CLAIMED:
         return Outcome.ATTEMPTED
@@ -157,7 +164,7 @@ def outcome_of_notification(status: str) -> str:
 def outbox_outcome_counts(since=None) -> dict[str, dict[str, int]]:
     """{kind: {outcome: rows}} for outbox rows created since ``since`` (all
     retained rows when None). One aggregate query."""
-    from .delivery import HANDED_OFF
+    from .delivery import HANDED_OFF, HOLDS
     from .models import DeliveryIntent
 
     S = DeliveryIntent.Status
@@ -166,7 +173,8 @@ def outbox_outcome_counts(since=None) -> dict[str, dict[str, int]]:
         rows = rows.filter(created_at__gte=since)
     grouped = rows.values("kind", "status").annotate(
         n=Count("pk"),
-        tried=Count("pk", filter=Q(attempts__gt=0)),
+        # Tried and not held: a hold after a transient failure is queued.
+        tried=Count("pk", filter=Q(attempts__gt=0) & ~Q(last_error__in=HOLDS)),
         handed=Count("pk", filter=Q(last_error=HANDED_OFF)),
     )
     totals: dict[str, dict[str, int]] = {}
@@ -227,16 +235,37 @@ def log_broker_failure(log: logging.Logger, message: str, *args) -> None:
     log.error(message + " (broker: %s)", *args, name)
 
 
-def report_push_unconfigured(channel: str, context: str) -> bool:
+# Per-process fallback for the alert throttle when the cache cannot answer:
+# {cache key: time.monotonic() of the last alert}.
+_LAST_ALERT: dict[str, float] = {}
+
+
+def report_push_unconfigured(channel: str, context: str, *, has_work=None) -> bool:
     """ERROR when a push channel is not configured and there was work for it
-    (todo 623). At most once per channel per
-    ``PUSH_UNCONFIGURED_ALERT_SECONDS`` and process cache, so a 15-minute
-    sweep does not page every run. Returns whether it logged."""
+    (todo 623). ``has_work`` (a callable) says whether anything could have
+    been pushed, e.g. a recipient with a browser subscription or a device:
+    with none, a deployment that deliberately runs without that channel
+    stays quiet. At most once per channel per
+    ``PUSH_UNCONFIGURED_ALERT_SECONDS``, through the shared cache, or a
+    per-process clock when the cache cannot answer (a Redis outage under
+    IGNORE_EXCEPTIONS answers None), so a 15-minute sweep never pages every
+    run. Returns whether it logged."""
+    if has_work is not None:
+        try:
+            if not has_work():
+                return False
+        except Exception as exc:
+            logger.warning(
+                "[PUSH] could not check for %s work: %s", channel, type(exc).__name__
+            )
+            return False
     key = f"notification_ops:push_unconfigured:{channel}"
     try:
         fresh = cache.add(key, 1, constants.PUSH_UNCONFIGURED_ALERT_SECONDS)
     except Exception:
-        fresh = True
+        fresh = None
+    if fresh is None:
+        fresh = _throttle_locally(key)
     if not fresh:
         return False
     logger.error(
@@ -245,6 +274,17 @@ def report_push_unconfigured(channel: str, context: str) -> bool:
         channel,
         context,
     )
+    return True
+
+
+def _throttle_locally(key: str) -> bool:
+    """True at most once per ``PUSH_UNCONFIGURED_ALERT_SECONDS`` per key in
+    this process."""
+    now = time.monotonic()
+    last = _LAST_ALERT.get(key)
+    if last is not None and now - last < constants.PUSH_UNCONFIGURED_ALERT_SECONDS:
+        return False
+    _LAST_ALERT[key] = now
     return True
 
 
