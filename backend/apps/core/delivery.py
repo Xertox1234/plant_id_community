@@ -57,6 +57,7 @@ once.
 """
 
 import logging
+import sys
 import uuid
 from collections import defaultdict
 from datetime import timedelta
@@ -428,11 +429,12 @@ def reconcile() -> dict[str, int]:
     # Guarded: an alerting query must never stop the re-drive below.
     try:
         totals["overdue"] = check_outbox_lag(now)["rows"]
-    except Exception as exc:
+    except Exception:
         totals["overdue"] = 0  # unknown this pass; callers always find the key
+        # No bound exception: a frame local would reach Sentry (todo 623).
         logger.error(
             "[DELIVERY] the outbox lag check failed: %s; re-driving anyway",
-            type(exc).__name__,
+            sys.exc_info()[0].__name__,
         )
 
     with transaction.atomic():

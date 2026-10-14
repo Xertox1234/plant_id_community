@@ -356,6 +356,49 @@ class TestCareReminderOutcomes:
             "failed=0 suppressed=0"
         ]
 
+    def test_a_soft_limit_after_one_device_counts_that_owner_accepted(self, logs):
+        from apps.core.models import PushDevice
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        owner = self._owner("twodev", token=DEVICE_TOKEN)
+        PushDevice.objects.create(
+            user=owner, token="fake-second-device", platform="ios"
+        )
+        calls = []
+
+        def send(message, *args, **kwargs):
+            calls.append(1)
+            if len(calls) == 2:
+                raise SoftTimeLimitExceeded()
+            return "projects/x/messages/1"
+
+        fcm = MagicMock()
+        fcm.send.side_effect = send
+        with pytest.raises(SoftTimeLimitExceeded):
+            self._sweep(fcm)
+        assert _outcome_lines(logs) == [
+            "[OUTCOME] channel=push path=care_reminder accepted=1 retrying=0 "
+            "failed=0 suppressed=0"
+        ]
+
+    def test_a_release_that_fails_reports_failed_not_retrying(self, logs):
+        from apps.garden_calendar import tasks as care_tasks
+
+        self._owner("stuck", token=DEVICE_TOKEN)
+        with (
+            patch.object(
+                care_tasks, "_push_to_owners", side_effect=RuntimeError("worker died")
+            ),
+            patch.object(care_tasks, "_release", side_effect=RuntimeError("db down")),
+        ):
+            with pytest.raises(RuntimeError):
+                self._sweep(MagicMock())
+        # The claim stands, so nothing will push it: failed.
+        assert _outcome_lines(logs) == [
+            "[OUTCOME] channel=push path=care_reminder accepted=0 retrying=0 "
+            "failed=1 suppressed=0"
+        ]
+
     def test_a_credentials_stop_reports_every_owner(self, logs):
         from apps.core.fcm import FCM_CREDENTIALS_STOP_FAILURES
         from firebase_admin import messaging
@@ -469,7 +512,9 @@ class TestBrokerFailure:
                 "send_verification_email_task", 1, context="user=1"
             )
         [record] = _errors(logs)
-        assert record.getMessage().endswith(": OperationalError")
+        # The shared broker-failure line (review round 2: no bound exception
+        # whose text a Sentry frame local could carry).
+        assert record.getMessage().endswith("(broker: OperationalError)")
         _assert_clean([record])
 
 
@@ -630,6 +675,44 @@ class TestPushConfigAlerts:
             assert not notification_ops.report_push_unconfigured("FCM", "x")
         assert len(_errors(logs)) == 1
 
+    def test_a_throttled_alert_skips_the_work_probe(self, logs):
+        has_work = MagicMock(return_value=True)
+        assert notification_ops.report_push_unconfigured("FCM", "x", has_work=has_work)
+        assert not notification_ops.report_push_unconfigured(
+            "FCM", "x", has_work=has_work
+        )
+        # Inside the window, the throttle answers before any probe query.
+        assert has_work.call_count == 1
+
+    def test_a_due_reminder_alerts_past_any_number_of_deviceless_owners(self, logs):
+        from apps.garden_calendar.models import CareTask, Plant
+        from apps.garden_calendar.tasks import _pushable_due
+
+        def owner_with_tasks(name, count):
+            owner = User.objects.create_user(username=name, email=f"{name}@x.example")
+            plant = Plant.objects.create(
+                owner=owner, common_name="Fern", planted_date="2026-01-01"
+            )
+            CareTask.objects.bulk_create(
+                CareTask(
+                    plant=plant,
+                    created_by=owner,
+                    task_type="watering",
+                    title="Water",
+                    scheduled_date=timezone.now() - timedelta(minutes=5 + i),
+                )
+                for i in range(count)
+            )
+            return owner
+
+        for i in range(3):
+            owner_with_tasks(f"nodev{i}", 4)
+        now = timezone.now()
+        assert not _pushable_due(now)
+        # One owner with a device among many deviceless tasks: found.
+        self._device(owner_with_tasks("hasdev", 1))
+        assert _pushable_due(now)
+
     def test_a_failing_work_probe_is_no_alert_and_no_crash(self, logs):
         assert not notification_ops.report_push_unconfigured(
             "FCM", "x", has_work=MagicMock(side_effect=RuntimeError("db"))
@@ -740,7 +823,50 @@ def sentry_capture():
 
 
 def test_settings_enable_beat_monitors():
+    """settings.py's own ``sentry_sdk.init`` call (the one gated on SENTRY_DSN)
+    passes ``sentry_integrations()`` and the alert scrubber, and that list
+    carries the beat-monitoring Celery integration. Review round 2: calling
+    ``sentry_integrations()`` alone proved nothing about settings.py. Read
+    from the source, as ``test_sentry_options_drift.py`` does: the call only
+    runs with a DSN, which no test has."""
+    import ast
+    import inspect as pyinspect
+
+    import plant_community_backend.settings as settings_module
     from sentry_sdk.integrations.celery import CeleryIntegration
+
+    tree = ast.parse(pyinspect.getsource(settings_module))
+    [gate] = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and "SENTRY_DSN" in ast.unparse(node.test)
+        and "DEBUG" in ast.unparse(node.test)
+    ]
+    [init] = [
+        node
+        for node in ast.walk(gate)
+        if isinstance(node, ast.Call) and ast.unparse(node.func) == "sentry_sdk.init"
+    ]
+    keywords = {kw.arg: ast.unparse(kw.value) for kw in init.keywords}
+    assert keywords["integrations"] == "_sentry_integrations()"
+    assert keywords["before_send"] == "_sentry_before_send"
+    imported = {
+        (node.module, alias.name, alias.asname)
+        for node in ast.walk(gate)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+    assert (
+        "plant_community_backend.sentry_config",
+        "sentry_integrations",
+        "_sentry_integrations",
+    ) in imported
+    assert (
+        "plant_community_backend.sentry_config",
+        "before_send",
+        "_sentry_before_send",
+    ) in imported
 
     [celery] = [i for i in sentry_integrations() if isinstance(i, CeleryIntegration)]
     assert celery.monitor_beat_tasks is True
@@ -821,3 +947,67 @@ def test_an_alert_reaches_sentry_without_secrets(sentry_capture):
     payload = json.dumps(events)
     assert "fake-broker-password" not in payload
     assert SECRET_BROKER_URL not in payload
+
+
+@pytest.fixture
+def sentry_prod_capture():
+    """Sentry as production runs it: stack traces attached to log events and
+    local variables on, with the project's before_send."""
+    from plant_community_backend.sentry_config import before_send
+
+    transport = _CaptureTransport()
+    sentry_sdk.init(
+        dsn="https://public@sentry.invalid/1",
+        transport=transport,
+        integrations=sentry_integrations(),
+        send_default_pii=False,
+        attach_stacktrace=True,
+        include_local_variables=True,
+        before_send=before_send,
+    )
+    try:
+        yield transport
+    finally:
+        sentry_sdk.get_client().close()
+        sentry_sdk.init()
+
+
+def _frames(event):
+    for key in ("exception", "threads"):
+        for entry in (event.get(key) or {}).get("values") or []:
+            yield from (entry.get("stacktrace") or {}).get("frames") or []
+
+
+def test_alert_events_carry_no_frame_variables(sentry_prod_capture):
+    """Review round 2: with attach_stacktrace and locals on, an alert must
+    not ship its caller's locals (a payload, a token, the broker error)."""
+
+    def dispatch_like(token, payload):
+        try:
+            raise KombuOperationalError(SECRET_BROKER_URL)
+        except Exception:
+            notification_ops.log_broker_failure(
+                logging.getLogger("forum_host.notifications"),
+                "[CELERY] forum_host: failed to enqueue %s email batch",
+                "reply_added",
+            )
+        notification_ops.report_push_unconfigured("FCM", "forum reply_added pushes")
+        # A control: an ordinary ERROR keeps its frame variables.
+        logging.getLogger("apps.core.tests.control").error("[ERROR] control %s", 1)
+
+    dispatch_like(DEVICE_TOKEN, {"actor_name": ADDRESS})
+    sentry_sdk.flush()
+
+    events = sentry_prod_capture.items("event")
+    alerts = [e for e in events if "control" not in e["logentry"]["formatted"]]
+    [control] = [e for e in events if "control" in e["logentry"]["formatted"]]
+    assert len(alerts) == 2
+    for event in alerts:
+        assert list(_frames(event)), "the stack trace is still attached"
+        assert not any("vars" in frame for frame in _frames(event))
+    payload = json.dumps(alerts)
+    for secret in (SECRET_BROKER_URL, "fake-broker-password", DEVICE_TOKEN, ADDRESS):
+        assert secret not in payload
+    # The scrubber is narrow: the control event still has its locals, so
+    # the alerts above lost theirs to before_send, not to the SDK config.
+    assert any("vars" in frame for frame in _frames(control))

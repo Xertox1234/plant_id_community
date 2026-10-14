@@ -7,6 +7,7 @@ of their due tasks.
 """
 
 import logging
+import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
@@ -23,10 +24,10 @@ from apps.core.notification_ops import Outcome, log_outcomes, report_push_unconf
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from django.db import OperationalError, transaction
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 from .constants import (
-    CARE_REMINDER_ALERT_PROBE_OWNERS,
     CARE_REMINDER_BATCH_SIZE,
     CARE_REMINDER_BODY_MAX_TASKS,
     CARE_REMINDER_COLLAPSE_KEY,
@@ -77,18 +78,27 @@ def _due_tasks(now: datetime):
 
 def _pushable_due(now: datetime) -> bool:
     """Whether any due reminder has an owner it could be pushed to: opted
-    in, active, with a registered device."""
-    from apps.core.push_devices import device_tokens_for_users
+    in, active, with a registered device (a ``PushDevice`` or the legacy
+    ``ForumProfile.fcm_token``, the sources ``device_tokens_for_users``
+    reads). One EXISTS query, with the device test in the database: a sample
+    of task rows could fill up with deviceless owners and miss one who has a
+    device (todo 623 review)."""
+    from apps.core.models import PushDevice
+    from wagtail_forum.models import ForumProfile
 
-    owners = set(
+    owner = OuterRef("plant__owner_id")
+    has_device = Exists(PushDevice.objects.filter(user_id=owner)) | Exists(
+        ForumProfile.objects.filter(user_id=owner).exclude(fcm_token="")
+    )
+    return (
         _due_tasks(now)
         .filter(
+            has_device,
             plant__owner__care_reminder_notifications=True,
             plant__owner__is_active=True,
         )
-        .values_list("plant__owner_id", flat=True)[:CARE_REMINDER_ALERT_PROBE_OWNERS]
+        .exists()
     )
-    return bool(device_tokens_for_users(owners))
 
 
 def _claim_due_tasks(now: datetime) -> list[dict]:
@@ -226,9 +236,6 @@ def send_due_care_task_reminders(self) -> None:
             _release(retry_later, now, task_id)
     except BaseException as exc:  # re-raised below; a worker shutdown must un-claim too
         unfinished = [t for o, ts in by_owner.items() if o not in done for t in ts]
-        # Released for the next sweep below: retrying, whatever the crash.
-        for task in unfinished:
-            outcomes[task["plant__owner_id"]] = Outcome.RETRYING
         try:
             _release(
                 unfinished + retry_later,
@@ -243,6 +250,15 @@ def send_due_care_task_reminders(self) -> None:
                 len(unfinished) + len(retry_later),
                 task_id,
             )
+            # Their claims stand, so nothing will push them: failed, not
+            # retrying (todo 623 review).
+            for task in unfinished + retry_later:
+                outcomes[task["plant__owner_id"]] = Outcome.FAILED
+            retry_later = []
+        else:
+            # Released for the next sweep: retrying, whatever the crash.
+            for task in unfinished:
+                outcomes[task["plant__owner_id"]] = Outcome.RETRYING
         raise
     finally:
         # On every path, the crash and the shutdown included (todo 623
@@ -273,10 +289,10 @@ def _log_care_outcomes(outcomes: dict[int, str], retry_later: list[dict]) -> Non
         for outcome in outcomes.values():
             tally[outcome] += 1
         log_outcomes("push", "care_reminder", **tally)
-    except Exception as exc:
+    except Exception:
         logger.error(
             "[FCM] care reminders: could not log the outcomes: %s",
-            type(exc).__name__,
+            sys.exc_info()[0].__name__,
         )
 
 
@@ -375,6 +391,9 @@ def _push_to_owners(
                 # so the retry does not send to that device twice.
                 if owner_sent:
                     done.add(owner_id)
+                    # FCM took it on a device: accepted, in the crash
+                    # path's [OUTCOME] line too (todo 623 review).
+                    outcomes[owner_id] = Outcome.ACCEPTED
                 raise
             except Exception as exc:
                 if is_fcm_credentials_error(exc):

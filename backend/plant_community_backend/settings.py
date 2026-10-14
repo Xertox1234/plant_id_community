@@ -1336,6 +1336,7 @@ if not ENABLE_FILE_LOGGING:
 # Sentry Error Tracking
 SENTRY_DSN = config("SENTRY_DSN", default="")
 if SENTRY_DSN and not DEBUG:
+    from plant_community_backend.sentry_config import before_send as _sentry_before_send
     from plant_community_backend.sentry_config import (
         sentry_integrations as _sentry_integrations,
     )
@@ -1345,6 +1346,8 @@ if SENTRY_DSN and not DEBUG:
         # Django + Celery, with Cron Monitors for every beat entry (todo 623;
         # plant_community_backend/sentry_config.py says what they alert on).
         integrations=_sentry_integrations(),
+        # Drops frame variables from the operational-alert events only.
+        before_send=_sentry_before_send,
         traces_sample_rate=config("SENTRY_TRACES_SAMPLE_RATE", default=0.1, cast=float),
         send_default_pii=False,  # Don't send personally identifiable information
         environment=config("ENVIRONMENT", default="production"),

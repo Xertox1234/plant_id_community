@@ -50,7 +50,11 @@ Alerts
 ------
 Sentry's logging integration turns every ERROR log into an event, so each
 alert below is an ERROR line: counts, kinds and exception class names, never
-an address, a token, a URL or a message body.
+an address, a token, a URL or a message body. No alert path binds the
+exception (``except Exception:`` plus ``sys.exc_info()``), and
+``plant_community_backend.sentry_config.before_send`` drops the frame
+variables from these events, so ``attach_stacktrace`` cannot ship a caller's
+``payload``, a task's ``token`` or a broker error's text.
 
 - Broker refused an enqueue: ``log_broker_failure``.
 - Exhausted retries: ``delivery.mark_retry`` and ``reconcile`` (expired and
@@ -249,17 +253,23 @@ def report_push_unconfigured(channel: str, context: str, *, has_work=None) -> bo
     ``PUSH_UNCONFIGURED_ALERT_SECONDS``, through the shared cache, or a
     per-process clock when the cache cannot answer (a Redis outage under
     IGNORE_EXCEPTIONS answers None), so a 15-minute sweep never pages every
-    run. Returns whether it logged."""
+    run. The throttle is peeked at BEFORE the probe, so a throttled window
+    costs no probe query. Returns whether it logged."""
+    key = f"notification_ops:push_unconfigured:{channel}"
+    if _throttled(key):
+        return False
     if has_work is not None:
         try:
             if not has_work():
                 return False
-        except Exception as exc:
+        except Exception:
+            # No bound exception: frame locals reach Sentry.
             logger.warning(
-                "[PUSH] could not check for %s work: %s", channel, type(exc).__name__
+                "[PUSH] could not check for %s work: %s",
+                channel,
+                sys.exc_info()[0].__name__,
             )
             return False
-    key = f"notification_ops:push_unconfigured:{channel}"
     try:
         fresh = cache.add(key, 1, constants.PUSH_UNCONFIGURED_ALERT_SECONDS)
     except Exception:
@@ -273,8 +283,24 @@ def report_push_unconfigured(channel: str, context: str, *, has_work=None) -> bo
         "credentials on the deployed service)",
         channel,
         context,
+        stack_info=False,
     )
     return True
+
+
+def _throttled(key: str) -> bool:
+    """A cheap peek: True when this window's alert already went out, by the
+    shared cache or, when the cache cannot answer, this process's clock."""
+    try:
+        if cache.get(key):
+            return True
+    except Exception:
+        pass
+    last = _LAST_ALERT.get(key)
+    return (
+        last is not None
+        and time.monotonic() - last < constants.PUSH_UNCONFIGURED_ALERT_SECONDS
+    )
 
 
 def _throttle_locally(key: str) -> bool:

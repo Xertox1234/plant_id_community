@@ -34,3 +34,38 @@ def sentry_integrations() -> list:
         DjangoIntegration(),
         CeleryIntegration(monitor_beat_tasks=True),
     ]
+
+
+# The operational alerts (todo 623) are ERROR logs. With ``attach_stacktrace``
+# and local variables on, the logging integration would ship the frame
+# locals of whoever logged them: a dispatch's ``payload``, a task's
+# ``token`` kwarg, a bound broker exception whose text holds the broker URL.
+# The alerts promise counts and class names only, so their events lose frame
+# variables here. Every other event keeps them: this is narrow on purpose.
+ALERT_LOGGERS = ("apps.core.notification_ops", "apps.core.delivery")
+ALERT_MARKERS = ("[PUSH]", "[DELIVERY]", "[OUTCOME]")
+BROKER_MARKER = " (broker: %s)"
+
+
+def is_alert_event(event: dict) -> bool:
+    logger_name = str(event.get("logger") or "")
+    template = str((event.get("logentry") or {}).get("message") or "")
+    return (
+        logger_name.startswith(ALERT_LOGGERS)
+        or template.startswith(ALERT_MARKERS)
+        or template.endswith(BROKER_MARKER)
+    )
+
+
+def _strip_frame_vars(container) -> None:
+    for entry in (container or {}).get("values") or []:
+        for frame in (entry.get("stacktrace") or {}).get("frames") or []:
+            frame.pop("vars", None)
+
+
+def before_send(event, hint):
+    """Drop frame variables from the operational-alert events only."""
+    if is_alert_event(event):
+        _strip_frame_vars(event.get("exception"))
+        _strip_frame_vars(event.get("threads"))
+    return event

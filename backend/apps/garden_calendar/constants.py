@@ -370,10 +370,6 @@ CARE_REMINDER_SWEEP_INTERVAL_MINUTES = 15
 # 2026-09-27). An older overdue task never pushes; it still shows as overdue
 # in the app. It also bounds the catch-up after a worker outage.
 CARE_REMINDER_LOOKBACK_HOURS = 24
-# Owners the "FCM is not configured" probe looks at for a device (todo
-# 623): enough to answer "could anything have been pushed?" without
-# reading every due owner while Firebase is down.
-CARE_REMINDER_ALERT_PROBE_OWNERS = 500
 
 # Due tasks claimed per sweep. The rest wait for the next sweep. Sized to the
 # soft limit below at ~1 s per FCM send (the forum digest's measured budget);
