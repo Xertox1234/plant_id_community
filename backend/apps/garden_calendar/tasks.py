@@ -19,6 +19,7 @@ from apps.core.fcm import (
     is_permanent_fcm_error,
     send_fcm_message,
 )
+from apps.core.notification_ops import Outcome, log_outcomes, report_push_unconfigured
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from django.db import OperationalError, transaction
@@ -59,6 +60,20 @@ def _reminder_content(tasks: list[dict]) -> tuple[str, str]:
     return f"{len(tasks)} plant care tasks are due", body
 
 
+def _due_tasks(now: datetime):
+    """Unclaimed CareTasks due within the lookback window."""
+    from .models import CareTask
+
+    return CareTask.objects.filter(
+        scheduled_date__lte=now,
+        scheduled_date__gte=now - timedelta(hours=CARE_REMINDER_LOOKBACK_HOURS),
+        completed=False,
+        skipped=False,
+        notification_sent=False,
+        plant__is_active=True,
+    )
+
+
 def _claim_due_tasks(now: datetime) -> list[dict]:
     """Mark a batch of due tasks as notified and return them.
 
@@ -70,15 +85,8 @@ def _claim_due_tasks(now: datetime) -> list[dict]:
 
     with transaction.atomic():
         claimed = list(
-            CareTask.objects.select_for_update(skip_locked=True, of=("self",))
-            .filter(
-                scheduled_date__lte=now,
-                scheduled_date__gte=now - timedelta(hours=CARE_REMINDER_LOOKBACK_HOURS),
-                completed=False,
-                skipped=False,
-                notification_sent=False,
-                plant__is_active=True,
-            )
+            _due_tasks(now)
+            .select_for_update(skip_locked=True, of=("self",))
             .order_by("scheduled_date")
             .values(
                 "uuid",
@@ -157,8 +165,11 @@ def send_due_care_task_reminders(self) -> None:
     task_id = self.request.id
     if not is_firebase_available():
         # Nothing is claimed, so enabling Firebase later still delivers the
-        # tasks that fell due within the lookback window.
-        logger.debug("[FCM] Firebase not configured — skipping care reminders")
+        # tasks that fell due within the lookback window. An alert only when
+        # a reminder is actually due (todo 623): no ERROR every 15 minutes on
+        # a deployment with nothing to send.
+        if _due_tasks(timezone.now()).exists():
+            report_push_unconfigured("FCM", "due care reminders")
         return
 
     fcm = get_fcm_client()
@@ -184,8 +195,11 @@ def send_due_care_task_reminders(self) -> None:
     # retry's claim cannot see those rows and they never push.
     done: set[int] = set()
     retry_later: list[dict] = []
+    outcomes: dict[int, str] = {}
     try:
-        sent = _push_to_owners(fcm, by_owner, done, retry_later, task_id)
+        sent = _push_to_owners(
+            fcm, by_owner, done, retry_later, task_id, outcomes=outcomes
+        )
         if retry_later:
             _release(retry_later, now, task_id)
     except BaseException as exc:  # re-raised below; a worker shutdown must un-claim too
@@ -214,6 +228,16 @@ def send_due_care_task_reminders(self) -> None:
         len(retry_later),
         task_id,
     )
+    # Per owner, in the shared vocabulary (todo 623). "accepted" is FCM
+    # taking the message, not the device showing it.
+    for task in retry_later:
+        outcomes[task["plant__owner_id"]] = Outcome.RETRYING
+    tally = dict.fromkeys(
+        (Outcome.ACCEPTED, Outcome.RETRYING, Outcome.FAILED, Outcome.SUPPRESSED), 0
+    )
+    for outcome in outcomes.values():
+        tally[outcome] += 1
+    log_outcomes("push", "care_reminder", **tally)
 
 
 def _next_claim_within(task: Any, exc: BaseException) -> timedelta:
@@ -251,12 +275,16 @@ def _push_to_owners(
     done: set[int],
     retry_later: list[dict],
     task_id: str | None = None,
+    outcomes: dict[int, str] | None = None,
 ) -> int:
     """Send one push per owner, to each of their devices; returns the number
     of owners at least one device reached.
 
     Adds each handled owner to ``done`` and a transient failure's tasks to
     ``retry_later``, so the caller can un-claim exactly what did not go out.
+    Records each handled owner's outcome (``notification_ops.Outcome``) in
+    ``outcomes`` when given (todo 623).
+
     A credentials error leaves that owner's claim standing and keeps going.
     The sweep stops only after ``FCM_CREDENTIALS_STOP_FAILURES`` of them with
     no successful send yet: then every untried owner with a token moves to
@@ -274,6 +302,8 @@ def _push_to_owners(
     # Every device of each owner (todo 621), legacy token included.
     tokens = device_tokens_for_users(opted_in)
 
+    if outcomes is None:
+        outcomes = {}
     sent = 0
     credentials_failed: list[int] = []
     for owner_id, tasks in by_owner.items():
@@ -281,6 +311,7 @@ def _push_to_owners(
         if not devices:
             # Opted out, or no device registered: the claim stands, so the
             # task is not re-examined every sweep.
+            outcomes[owner_id] = Outcome.SUPPRESSED
             done.add(owner_id)
             continue
         first = tasks[0]
@@ -338,6 +369,11 @@ def _push_to_owners(
                     )
                     transient.append(token)
         sent += 1 if owner_sent else 0
+        outcomes[owner_id] = (
+            Outcome.ACCEPTED
+            if owner_sent
+            else Outcome.RETRYING if transient else Outcome.FAILED
+        )
         if transient:
             if len(transient) == len(devices):
                 # No device got it and none failed for good: release the

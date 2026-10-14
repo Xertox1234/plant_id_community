@@ -57,7 +57,6 @@ once.
 """
 
 import logging
-import re
 import uuid
 from collections import defaultdict
 from datetime import timedelta
@@ -70,6 +69,7 @@ from django.utils.module_loading import import_string
 
 from . import constants
 from .models import DeliveryIntent
+from .notification_ops import check_outbox_lag, log_outcomes, summary_counts
 
 logger = logging.getLogger("apps.core.delivery")
 
@@ -381,7 +381,13 @@ def reconcile() -> dict[str, int]:
     under ``SKIP LOCKED`` and pushed out of the due window before they are
     re-driven, and every task claims before it sends."""
     now = timezone.now()
-    totals = {"expired": 0, "interrupted": 0, "redriven": 0, "pruned": 0}
+    totals = {
+        "expired": 0,
+        "interrupted": 0,
+        "overdue": 0,
+        "redriven": 0,
+        "pruned": 0,
+    }
     lease_cut = now - timedelta(seconds=constants.DELIVERY_CLAIM_LEASE_SECONDS)
 
     # A row still inside its hold is not stale: its member asked for it
@@ -408,6 +414,18 @@ def reconcile() -> dict[str, int]:
         claimed_at__lt=lease_cut,
         attempts__gte=constants.DELIVERY_MAX_ATTEMPTS,
     ).update(status=Status.FAILED, last_error="interrupted", claim_token=None)
+    # Terminal failures nobody else reports (todo 623): Sentry's logging
+    # integration makes each ERROR an event. Counts only.
+    if totals["expired"] or totals["interrupted"]:
+        logger.error(
+            "[DELIVERY] %d delivery(ies) expired undelivered after %ss and %d "
+            "interrupted on their last attempt; giving up",
+            totals["expired"],
+            constants.DELIVERY_MAX_AGE_SECONDS,
+            totals["interrupted"],
+        )
+    # Before the re-drive below moves due rows out of the due window.
+    totals["overdue"] = check_outbox_lag(now)["rows"]
 
     with transaction.atomic():
         rows = list(
@@ -459,8 +477,6 @@ def reconcile() -> dict[str, int]:
 
 # --- weekly mail recovery ------------------------------------------------------
 
-_FAILED_COUNT = re.compile(r"\bfailed=(\d+)\b")
-
 
 def schedule_weekly_recovery(task, output: str, recovery: int, label: str) -> bool:
     """After a weekly mail run (forum digest, blog newsletter), enqueue one
@@ -475,7 +491,19 @@ def schedule_weekly_recovery(task, output: str, recovery: int, label: str) -> bo
     ``WEEKLY_RECOVERY_MAX_RUNS`` times, ``WEEKLY_RECOVERY_DELAY_SECONDS``
     apart and doubling. Returns whether a recovery run was enqueued.
     """
-    failed = sum(int(n) for n in _FAILED_COUNT.findall(output))
+    counts = summary_counts(output)
+    failed = counts["failed"]
+    # The run's outcomes in the shared vocabulary (todo 623): a failed member
+    # stays due, so it is retrying while a recovery run is left, else failed.
+    retrying = bool(failed) and recovery < constants.WEEKLY_RECOVERY_MAX_RUNS
+    log_outcomes(
+        "email",
+        label.replace(" ", "_"),
+        accepted=counts["sent"],
+        suppressed=counts["suppressed"],
+        retrying=failed if retrying else 0,
+        failed=0 if retrying else failed,
+    )
     if not failed:
         return False
     if recovery >= constants.WEEKLY_RECOVERY_MAX_RUNS:

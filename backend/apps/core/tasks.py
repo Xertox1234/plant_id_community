@@ -26,7 +26,7 @@ def reconcile_deliveries() -> None:
     if any(totals.values()):
         logger.info(
             "[DELIVERY] reconcile: redriven=%(redriven)s expired=%(expired)s "
-            "interrupted=%(interrupted)s pruned=%(pruned)s",
+            "interrupted=%(interrupted)s overdue=%(overdue)s pruned=%(pruned)s",
             totals,
         )
 

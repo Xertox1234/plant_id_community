@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "623"
 tags: [backend, notifications, email, observability, operations, privacy]
@@ -42,13 +42,13 @@ Existing work remains separate: 547 owns the physical-device due-care verificati
 
 ## Acceptance Criteria
 
-- [ ] All live email/push send paths contribute consistent attempted/accepted/failed/suppressed outcomes; tests distinguish provider acceptance from delivered/displayed and from user engagement.
+- [x] All live email/push send paths contribute consistent attempted/accepted/failed/suppressed outcomes; tests distinguish provider acceptance from delivered/displayed and from user engagement.
 - [ ] Provider feedback authentication, malformed-event refusal, duplicate/replayed/out-of-order events and message correlation are tested. Bounce/complaint suppression prevents inappropriate future sends under a recorded policy without bypassing account-security controls. → todo 625 (re-pointed 2026-10-12)
 - [ ] Click/action attribution is implemented with recorded consent/privacy, retention and deletion rules; tests cover attribution windows and no duplicate counting. Any decision not to collect opens is explicit, and the unused track_opens promise is removed or corrected. → todo 625 (re-pointed 2026-10-12)
-- [ ] Tests or controlled fault injection demonstrate alerts for broker failure, aged queues, exhausted retries, missing push configuration and missed worker/beat activity without secrets or raw PII in logs.
+- [x] Tests or controlled fault injection demonstrate alerts for broker failure, aged queues, exhausted retries, missing push configuration and missed worker/beat activity without secrets or raw PII in logs.
 - [ ] Owner-approved production checks record dates and observed results for sender-domain authentication, deployed provider settings, worker/beat and push readiness; unknowns stay explicitly open, not marked verified from repository defaults. → todo 625 (re-pointed 2026-10-12)
 - [ ] Controlled test-inbox/device delivery evidence and an initial aggregate baseline are recorded, with observation window, denominators, delivery latency and click/action/unsubscribe outcomes; existing evidence from 547 may be reused with its build/date stated. → todo 625 (re-pointed 2026-10-12)
-- [ ] Operational recovery steps and the single-scheduler/scaling constraint are documented in the existing deployment/pattern docs; relevant backend/consumer tests pass. Unavailable external checks remain open or are explicitly re-pointed before archive.
+- [x] Operational recovery steps and the single-scheduler/scaling constraint are documented in the existing deployment/pattern docs; relevant backend/consumer tests pass. Unavailable external checks remain open or are explicitly re-pointed before archive.
 
 ## Work Log
 
@@ -60,6 +60,49 @@ Existing work remains separate: 547 owns the physical-device due-care verificati
 ### 2026-10-12 - Triage split (run 2026-10-12-1616)
 
 - Owner decision at triage: repo-only slice here (outcome vocabulary, track_opens, alert counters, docs); provider feedback (AC2), attribution (AC3), prod checks (AC5) and baseline (AC6) re-pointed to [todo 625](625-pending-p3-notification-provider-feedback-and-prod-baseline.md). Provider unknown.
+
+### 2026-10-13 - Implemented by the todo sweep (run 2026-10-12-1739)
+
+- Shared outcome vocabulary in `backend/apps/core/notification_ops.py` (queued, attempted, accepted, retrying, failed, suppressed; delivered/bounced/complained from the provider webhook only), read from each path's own record: the 619 outbox rows, `EmailOutcome`, `EmailNotification`, the weekly runs' summary lines and a per-owner tally in the care sweep. No second ledger. `manage.py delivery_outcomes` counts outbox rows; weekly runs and care sweeps log one `[OUTCOME]` line. `track_opens` was already removed by todo 625.
+- Sentry alerts (owner decision 2026-10-12): `backend/plant_community_backend/sentry_config.py` enables `CeleryIntegration(monitor_beat_tasks=True)`, so every beat entry is a Cron Monitor (missed run, timeout). ERROR logs, which Sentry records as events: broker refusals give the exception class only (`log_broker_failure`, in forum dispatch and account mail), expired/interrupted outbox rows, an outbox overdue past `DELIVERY_QUEUE_LAG_ALERT_SECONDS`, and FCM/VAPID unconfigured when there is work to drop (at most hourly).
+- Docs: outcomes, alerts and the one-scheduler rule in `backend/docs/patterns/domain/celery.md`; alerts, recovery steps and the single-scheduler constraint in `backend/docs/deployment/railway.md`; the Sentry alert-rule setup added to "Still open" in `docs/operations/notification-baseline.md`.
+- Tests: `backend/apps/core/tests/test_notification_ops.py`. They include a real Sentry client on a capturing transport, which checks that the beat check-ins and the ERROR events arrive with no broker password or address in them.
+
+### 2026-10-13 - Verified by the todo sweep (run 2026-10-12-1739)
+
+- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 1 -- venv/bin/python -m pytest apps/core/tests/test_notification_ops.py::TestOutboxOutcomes apps/core/tests/test_notification_ops.py::TestEmailServiceOutcomes apps/core/tests/test_notification_ops.py::TestOutcomeLines apps/core/tests/test_notification_ops.py::TestCareReminderOutcomes apps/core/tests/test_email_feedback.py::test_opens_are_not_collected --create-db -p no:cacheprovider -v` — evidence `.sweep-evidence/g1/623-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================= 14 passed, 3 warnings in 19.16s ========================
+  ```
+
+- AC 4: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 1 -- venv/bin/python -m pytest apps/core/tests/test_notification_ops.py::TestBrokerFailure apps/core/tests/test_notification_ops.py::TestOutboxAlerts apps/core/tests/test_notification_ops.py::TestPushConfigAlerts apps/core/tests/test_notification_ops.py::test_settings_enable_beat_monitors apps/core/tests/test_notification_ops.py::test_every_beat_entry_gets_a_cron_monitor apps/core/tests/test_notification_ops.py::test_a_beat_run_checks_in_and_a_failed_one_reports_an_error apps/core/tests/test_notification_ops.py::test_an_alert_reaches_sentry_without_secrets --create-db -p no:cacheprovider -v` — evidence `.sweep-evidence/g1/623-ac3.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ======================= 17 passed, 2 warnings in 19.66s ========================
+  ```
+
+- AC 7: `bash -c "grep -n -e 'One scheduler' -e 'Cron Monitors' -e 'Recovery, in order' -e 'Single scheduler' -e 'Alerts (todo 623)' backend/docs/patterns/domain/celery.md backend/docs/deployment/railway.md && cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest backend/apps/core backend/apps/forum_host backend/apps/garden_calendar backend/apps/users backend/apps/blog --create-db -p no:cacheprovider -q"` — evidence `.sweep-evidence/g1/623-ac6.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  =========== 3986 passed, 8 skipped, 7 warnings in 314.19s (0:05:14) ============
+  ```
+
+### 2026-10-13 - Completed by the todo sweep (run 2026-10-12-1739)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
 ## Notes
 

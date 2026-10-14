@@ -181,6 +181,12 @@ These need the owner. None of them can be settled from the repository.
    either way.
 4. The controlled delivery test and the initial aggregate baseline are
    [todo 638](../../todos/638-pending-p3-notification-delivery-baseline.md).
-5. Pre-existing and unchanged: `EmailNotification.user` is `SET_NULL`, so a
+5. **Sentry alert rules** (todo 623). The code sends Cron Monitor check-ins for
+   every beat entry and ERROR events for broker, retry-exhaustion, outbox-lag
+   and missing-push-config failures (`backend/docs/patterns/domain/celery.md`,
+   "Outcomes and alerts"). Who is notified is configured in Sentry: add an
+   alert rule on monitor failures and on new error events. `SENTRY_DSN` must be
+   set on Railway for any of it to report.
+6. Pre-existing and unchanged: `EmailNotification.user` is `SET_NULL`, so a
    delivery-ledger row keeps `recipient_email` after its account is deleted.
    Click attribution rows do cascade.

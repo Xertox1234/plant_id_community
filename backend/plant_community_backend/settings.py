@@ -1336,11 +1336,15 @@ if not ENABLE_FILE_LOGGING:
 # Sentry Error Tracking
 SENTRY_DSN = config("SENTRY_DSN", default="")
 if SENTRY_DSN and not DEBUG:
+    from plant_community_backend.sentry_config import (
+        sentry_integrations as _sentry_integrations,
+    )
+
     sentry_sdk.init(
         dsn=SENTRY_DSN,
-        integrations=[
-            # Auto-configured integrations for Django and Celery
-        ],
+        # Django + Celery, with Cron Monitors for every beat entry (todo 623;
+        # plant_community_backend/sentry_config.py says what they alert on).
+        integrations=_sentry_integrations(),
         traces_sample_rate=config("SENTRY_TRACES_SAMPLE_RATE", default=0.1, cast=float),
         send_default_pii=False,  # Don't send personally identifiable information
         environment=config("ENVIRONMENT", default="production"),

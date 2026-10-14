@@ -248,7 +248,12 @@ def enqueue_on_commit(task_name, *args, context=""):
         try:
             getattr(tasks, task_name).delay(*args)
         except Exception as exc:
-            logger.error(f"[EMAIL] Could not queue {task_name} for {context}: {exc}")
+            # The type only: a broker error's message can carry its host or
+            # URL (todo 623).
+            logger.error(
+                f"[EMAIL] Could not queue {task_name} for {context}: "
+                f"{type(exc).__name__}"
+            )
 
     transaction.on_commit(_enqueue)
 

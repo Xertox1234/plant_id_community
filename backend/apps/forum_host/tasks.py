@@ -11,6 +11,7 @@ Fired by forum_host/notifications.py dispatch() via .delay() so that:
 import logging
 
 from apps.core import fcm as core_fcm
+from apps.core.notification_ops import report_push_unconfigured
 from celery import shared_task
 from django.db import OperationalError
 from wagtail_forum.preferences import wants_channel
@@ -192,7 +193,7 @@ def send_forum_push(
     User = get_user_model()
 
     if not is_firebase_available():
-        logger.debug("[FCM] Firebase not configured — skipping forum push (%s)", event)
+        report_push_unconfigured("FCM", f"forum {event} pushes")
         return
 
     try:
@@ -428,7 +429,7 @@ def send_forum_push_batch(
         return
 
     if not is_firebase_available():
-        logger.debug("[FCM] Firebase not configured — skipping forum push (%s)", event)
+        report_push_unconfigured("FCM", f"forum {event} pushes")
         _finish_unclaimed_batch(kind, batch_id, recipient_user_ids, "channel_off")
         return
 
@@ -751,6 +752,7 @@ def send_forum_web_push_batch(
     if not recipient_user_ids:
         return
     if not web_push_enabled():
+        report_push_unconfigured("Web push (VAPID)", f"forum {event} pushes")
         _finish_unclaimed_batch(kind, batch_id, recipient_user_ids, "channel_off")
         return
     if _notification_content(event, data) is None:
