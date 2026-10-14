@@ -176,6 +176,16 @@ WEEKLY_RECOVERY_MAX_RUNS = 2
 WEEKLY_RECOVERY_DELAY_SECONDS = 30 * 60
 
 # ============================================================================
+# Notification alerts (todo 623, apps/core/notification_ops.py)
+# ============================================================================
+# A pending outbox row this far past due means reconciliation is not keeping
+# up: every pass (5 min) re-drives due rows and moves them 10 min out, so a
+# healthy row is never more than one redrive interval overdue.
+DELIVERY_QUEUE_LAG_ALERT_SECONDS = 30 * 60
+# "Push is not configured" pages at most this often per channel.
+PUSH_UNCONFIGURED_ALERT_SECONDS = 60 * 60
+
+# ============================================================================
 # Email provider feedback and click attribution (todo 625,
 # apps/core/email_feedback.py; policy: docs/operations/notification-baseline.md)
 # ============================================================================

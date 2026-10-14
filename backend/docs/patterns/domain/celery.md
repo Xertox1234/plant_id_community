@@ -192,3 +192,56 @@ deliveries that must not be lost now go through `apps/core/delivery.py`
 Tests: `apps/forum_host/tests/test_send_time_eligibility.py`,
 `test_delivery_outbox.py`, `test_quiet_hours_and_coalescing.py`, `apps/users/tests/test_mail_recovery.py`,
 `apps/blog/tests/test_newsletter_recovery.py`.
+
+## Outcomes and alerts (todo 623)
+
+One vocabulary, `apps/core/notification_ops.py::Outcome`, for every live
+email and push path. It is read from each path's own record (the outbox row,
+`EmailOutcome`, `EmailNotification`, a weekly run's summary line, a care
+sweep's per-owner result); there is no second ledger.
+
+- **Send side:** `queued`, `attempted`, `accepted`, `retrying`, `failed`,
+  `suppressed`. `accepted` is the provider (SMTP relay, FCM, a browser push
+  service) taking the message, nothing more. A hold is `queued`, a hand-off to
+  another task's retries (`delivery.HANDED_OFF`) is `attempted`.
+- **Provider evidence only:** `delivered`, `bounced`, `complained`, written by
+  the Resend webhook (`email_feedback.py`, todo 625). `log_outcomes` refuses
+  them, so no send path can claim delivery.
+- **Engagement is not an outcome.** A click is an `EmailClick` row and leaves
+  the status alone; opens are not collected.
+- **Where to read it:** `manage.py delivery_outcomes [--hours N]` counts outbox
+  rows by kind and outcome. The weekly digest, the newsletter and each care
+  sweep log one `[OUTCOME] channel=… path=… accepted=N …` line.
+
+Alerts go to Sentry (owner decision 2026-10-12). The logging integration makes
+every ERROR log an event, so an alert is an ERROR line carrying counts, kinds
+and exception class names, never an address, token, URL or body:
+
+| Failure | Where it is raised |
+| --- | --- |
+| Broker refused an enqueue | `notification_ops.log_broker_failure` (class name only, no traceback: a broker error can carry its URL) |
+| Retries exhausted | `delivery.mark_retry`; `reconcile` for expired and interrupted rows; the weekly recovery cap |
+| Outbox not draining | `check_outbox_lag`, every reconcile pass: a pending row more than `DELIVERY_QUEUE_LAG_ALERT_SECONDS` past due |
+| Push not configured, with work to drop | `report_push_unconfigured` (FCM, VAPID), at most hourly per channel |
+| Beat or worker stopped, queue backed up | Sentry Cron Monitors (below) |
+
+**Cron Monitors.** `plant_community_backend/sentry_config.py` turns on
+`CeleryIntegration(monitor_beat_tasks=True)`. Every `CELERY_BEAT_SCHEDULE`
+entry becomes a monitor named after its key. Beat checks in `in_progress` when
+it enqueues, the worker `ok` on success and `error` on a failure or a retry.
+Sentry reports a **missed** run when beat did not enqueue (worker or beat dead)
+and a **timeout** when the task did not finish within the monitor's max
+runtime (the queue is backed up or the worker is wedged). The check that runs
+inside the worker cannot see its own worker die, which is why that case is
+Sentry's. Keep every entry a `crontab` or a `schedule` of a minute or more;
+`test_every_beat_entry_gets_a_cron_monitor` fails otherwise. A recovery run
+or a manual `.delay()` carries no monitor headers and does not check in.
+
+**One scheduler.** Beat is embedded in the one worker (`worker -B`). Never run
+a second `-B` worker or a separate beat beside it: two schedulers fire every
+entry twice. The commands' run locks and per-row claims absorb a double fire,
+but the monitors then see two runs. Split beat into its own service only when
+the worker must scale past one container; then run exactly one beat, and give
+the workers no `-B`.
+
+Tests: `apps/core/tests/test_notification_ops.py`.

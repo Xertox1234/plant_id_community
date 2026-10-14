@@ -216,9 +216,10 @@ on purpose, because a redelivered `send_forum_email_batch` would double-email
 What the worker now delivers, gated by env: **reply emails** (`EMAIL_HOST` is
 Resend SMTP with credentials set in prod — live), **topic summaries** for
 premium users (`OPENAI_API_KEY` — live, bounded by the summary budget),
-**push** (`FIREBASE_CREDENTIALS_PATH` — unset, so `send_forum_push*` log
-"Firebase not configured" and return), and `sync_blog_page_chunks` (dark behind
-`FORUM_RAG_ENABLED`).
+**push** (`FIREBASE_CREDENTIALS_B64` and the VAPID keys were present on
+2026-10-12, names only, `docs/operations/notification-baseline.md`; with them
+unset a push with recipients logs an ERROR, todo 623), and
+`sync_blog_page_chunks` (dark behind `FORUM_RAG_ENABLED`).
 
 ### Operating the worker
 
@@ -241,6 +242,33 @@ premium users (`OPENAI_API_KEY` — live, bounded by the summary budget),
   (`test_weekly_digest_is_scheduled_on_a_registered_task` pins it). A
   worker-only restart also restarts beat — a due entry can re-fire, which the
   digest command's run-lock absorbs.
+- **Alerts (todo 623).** Sentry is the alert channel once `SENTRY_DSN` is
+  set. Each `CELERY_BEAT_SCHEDULE` entry is a Sentry Cron Monitor
+  (`plant_community_backend/sentry_config.py`): a **missed** check-in means
+  beat did not enqueue (worker or beat down), a **timeout** means the task
+  did not finish within the monitor's max runtime (the queue is backed up).
+  ERROR logs become Sentry events: a refused enqueue (`(broker: …)`), retries
+  exhausted, `[DELIVERY] … overdue` (the outbox is not draining) and `[PUSH]
+  … is not configured`. Owner follow-up: in Sentry, set an alert rule on
+  monitor failures and on new `error` events for this project; the monitors
+  appear after their first check-in.
+- **Recovery, in order.** (1) `celery inspect ping` and the log lines above:
+  is the worker up and is beat ticking? (2) A worker that is down or wedged:
+  worker-only restart, then `railway redeploy` if it does not come back.
+  (3) Broker errors: check the Redis service, then let reconciliation catch
+  up. Nothing needs re-sending by hand: outbox rows stay pending and the next
+  passes re-drive them, a weekly run's failed members stay due, and a care
+  reminder not pushed is still unclaimed. (4) Afterwards,
+  `python manage.py delivery_outcomes --hours 24` shows what was sent,
+  retried, failed and suppressed. Rows older than 24 h were expired, not
+  sent; that is deliberate (a day-old reply notice is worth less than none).
+  (5) Never purge the queue to "fix" a backlog without measuring and
+  recording it first (see Purging).
+- **Single scheduler.** Beat runs inside this one worker (`-B`). Do not add a
+  second worker with `-B`, or a beat service beside it: every entry would fire
+  twice. If the worker ever needs a second container, move beat to its own
+  single-replica service first and drop `-B` from every worker (see
+  `backend/docs/patterns/domain/celery.md`, "One scheduler").
 - **Queue depth:** over `railway ssh`, `python manage.py shell -c` with
   `redis.from_url(settings.CELERY_BROKER_URL).llen("celery")`.
 - **Broker db:** the web service sets `CELERY_BROKER_URL=${{Redis.REDIS_URL}}/1`

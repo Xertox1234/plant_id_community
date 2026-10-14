@@ -31,6 +31,7 @@ from datetime import timedelta
 
 from allauth.account.models import EmailAddress
 from allauth.account.signals import email_confirmed
+from apps.core.notification_ops import log_broker_failure
 from apps.core.services.email_service import EmailService
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from apps.users.constants import VERIFICATION_EMAIL_CAP, VERIFICATION_EMAIL_WINDOW_DAYS
@@ -247,8 +248,13 @@ def enqueue_on_commit(task_name, *args, context=""):
 
         try:
             getattr(tasks, task_name).delay(*args)
-        except Exception as exc:
-            logger.error(f"[EMAIL] Could not queue {task_name} for {context}: {exc}")
+        except Exception:
+            # The type only, and no bound exception: a broker error's message
+            # can carry its host or URL, and a frame local would carry it to
+            # Sentry (todo 623).
+            log_broker_failure(
+                logger, "[EMAIL] Could not queue %s for %s", task_name, context
+            )
 
     transaction.on_commit(_enqueue)
 

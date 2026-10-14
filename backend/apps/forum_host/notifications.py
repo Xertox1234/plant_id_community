@@ -1,5 +1,7 @@
 import logging
 
+from apps.core.notification_ops import log_broker_failure
+
 logger = logging.getLogger("forum_host.notifications")
 
 
@@ -151,7 +153,8 @@ def dispatch(event, **kwargs):
             extra = {"batch_id": batch_id} if batch_id else {}
             send_forum_web_push_batch.delay(event_name, list(pks), payload, **extra)
         except Exception:
-            logger.exception(
+            log_broker_failure(
+                logger,
                 "[CELERY] forum_host: failed to enqueue web push for event=%s",
                 event_name,
             )
@@ -210,8 +213,10 @@ def dispatch(event, **kwargs):
             )
         except Exception:
             # The outbox rows stay pending for reconciliation (todo 619).
-            logger.exception(
-                "[CELERY] forum_host: failed to enqueue %s email batch", event_name
+            log_broker_failure(
+                logger,
+                "[CELERY] forum_host: failed to enqueue %s email batch",
+                event_name,
             )
 
     def _enqueue_quote_push_for(users, payload, web_batch=None, batch=None):
@@ -227,7 +232,9 @@ def dispatch(event, **kwargs):
                 NotificationVerb.QUOTE, pks, payload, **_batch_kwargs(batch)
             )
         except Exception:
-            logger.exception("[CELERY] forum_host: failed to enqueue quote push batch")
+            log_broker_failure(
+                logger, "[CELERY] forum_host: failed to enqueue quote push batch"
+            )
         _enqueue_web_push(NotificationVerb.QUOTE, pks, payload, web_batch)
 
     def _enqueue_mention_push_for(mentioned, payload, web_batch=None, batch=None):
@@ -245,8 +252,8 @@ def dispatch(event, **kwargs):
                 **_batch_kwargs(batch),
             )
         except Exception:
-            logger.exception(
-                "[CELERY] forum_host: failed to enqueue mention push batch"
+            log_broker_failure(
+                logger, "[CELERY] forum_host: failed to enqueue mention push batch"
             )
         _enqueue_web_push(NotificationVerb.MENTION, mentioned_pks, payload, web_batch)
 
@@ -274,7 +281,8 @@ def dispatch(event, **kwargs):
                         **_batch_kwargs(batches.get("reply_push")),
                     )
                 except Exception:
-                    logger.exception(
+                    log_broker_failure(
+                        logger,
                         "[CELERY] forum_host: failed to enqueue reply push batch"
                         " for event=%s",
                         event,
@@ -326,7 +334,8 @@ def dispatch(event, **kwargs):
                 except Exception:
                     # The outbox rows stay pending: reconciliation sends
                     # them once the broker is back (todo 619).
-                    logger.exception(
+                    log_broker_failure(
+                        logger,
                         "[CELERY] forum_host: failed to enqueue reply email batch"
                         " for event=%s",
                         event,
@@ -499,7 +508,8 @@ def dispatch(event, **kwargs):
                 },
             )
         except Exception:
-            logger.exception(
+            log_broker_failure(
+                logger,
                 "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
                 event,
                 author.pk,
@@ -535,7 +545,8 @@ def dispatch(event, **kwargs):
             try:
                 send_forum_push.delay(event, recipient.pk, payload)
             except Exception:
-                logger.exception(
+                log_broker_failure(
+                    logger,
                     "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
                     event,
                     recipient.pk,
