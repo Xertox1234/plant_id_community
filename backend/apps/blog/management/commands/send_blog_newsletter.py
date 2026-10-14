@@ -19,6 +19,7 @@ rows the prune would delete. It sends nothing and writes nothing.
 import logging
 from uuid import uuid4
 
+from apps.core.email_feedback import SUPPRESSED
 from celery.exceptions import SoftTimeLimitExceeded
 from django.core.cache import cache
 from django.core.management.base import BaseCommand
@@ -98,12 +99,20 @@ class Command(BaseCommand):
         self.stdout.write(
             f"[EMAIL] newsletter recipients={totals['recipients']} due={totals['due']} "
             f"empty={totals['empty']} {label}={totals['sent']} failed={totals['failed']} "
+            f"suppressed={totals['suppressed']} "
             f"{'would prune' if dry_run else 'pruned'}={totals['pruned']}"
             + (" (dry run: nothing sent, nothing written)" if dry_run else "")
         )
 
     def _send(self, now, dry_run):
-        totals = {"recipients": 0, "due": 0, "empty": 0, "sent": 0, "failed": 0}
+        totals = {
+            "recipients": 0,
+            "due": 0,
+            "empty": 0,
+            "sent": 0,
+            "failed": 0,
+            "suppressed": 0,
+        }
         for subscriber in newsletter_digest.recipients().iterator(chunk_size=200):
             totals["recipients"] += 1
             if not newsletter_digest.is_due(subscriber, now):
@@ -138,14 +147,18 @@ class Command(BaseCommand):
                 totals["sent"] += 1
                 continue
             sent = self._send_one(subscriber, posts, now)
-            if sent:
+            if sent == SUPPRESSED:
+                # Not a failure: nothing to recover (todo 625).
+                totals["suppressed"] += 1
+            elif sent:
                 totals["sent"] += 1
             elif sent is False:
                 totals["failed"] += 1
         return totals
 
-    def _send_one(self, subscriber, posts, now) -> bool | None:
-        """True sent, False failed, None not ours to send any more."""
+    def _send_one(self, subscriber, posts, now) -> bool | str | None:
+        """True sent, False failed, SUPPRESSED dropped by the suppression
+        backstop (todo 625), None not ours to send any more."""
         # Claim the row before sending, on the marker we read. A second run
         # racing on it cannot also match: its UPDATE waits on our row lock,
         # then finds the marker changed. The row must still be subscribed: it
@@ -183,7 +196,8 @@ class Command(BaseCommand):
             if not claimed:
                 return None
             sent = newsletter_digest.send(subscriber, posts)
-            if not sent:
+            if sent is not True:
+                # Failed or suppressed: no stamp for a mail that never went.
                 # Nothing went out: undo the claim so the row stays due.
                 transaction.set_rollback(True)
         return sent

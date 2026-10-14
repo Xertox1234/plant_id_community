@@ -21,6 +21,7 @@ import logging
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
+from apps.core.email_feedback import SUPPRESSED
 from django.conf import settings
 from django.core import signing
 from django.core.mail import EmailMultiAlternatives
@@ -176,6 +177,9 @@ def unsubscribe_headers(subscriber: BlogNewsletter, token: str | None = None) ->
 CONFIRMATION_SENT = "sent"
 CONFIRMATION_SKIPPED = "skipped"  # already subscribed, or sent too recently
 CONFIRMATION_FAILED = "failed"  # nothing went out; the stamp is given back
+# The mail backend dropped a suppressed address (todo 625): the stamp is
+# given back and nothing is retried.
+CONFIRMATION_SUPPRESSED = "suppressed"
 
 
 def request_confirmation(email: str) -> bool:
@@ -213,10 +217,10 @@ def request_confirmation_outcome(email: str) -> str:
         # A re-raised Warning (todo 537) gives the stamp back too.
         _release_confirmation_stamp(subscriber, now, previous)
         raise
-    if sent:
+    if sent is True:
         return CONFIRMATION_SENT
     _release_confirmation_stamp(subscriber, now, previous)
-    return CONFIRMATION_FAILED
+    return CONFIRMATION_SUPPRESSED if sent == SUPPRESSED else CONFIRMATION_FAILED
 
 
 def record_confirmation_intent(email: str) -> None:
@@ -271,7 +275,7 @@ def _release_confirmation_stamp(
     )
 
 
-def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
+def _send_confirmation_email(subscriber: BlogNewsletter) -> bool | str:
     """Send one confirmation email. A failure is logged and returns False.
     Raises only a Warning: a RemovedInDjango70Warning is an error under
     pytest.ini (todo 454), and request_confirmation then restores the
@@ -309,7 +313,7 @@ def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
         )
         return False
     try:
-        message.send()
+        sent_count = message.send()
     except Warning:
         raise
     except Exception:
@@ -317,5 +321,13 @@ def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
             "[EMAIL] newsletter confirmation failed for subscriber=%s", subscriber.pk
         )
         return False
+    if not sent_count:
+        # The mail backend's backstop dropped a hard-bounced address.
+        logger.info(
+            "[EMAIL] newsletter confirmation not sent to subscriber=%s: "
+            "the address is suppressed",
+            subscriber.pk,
+        )
+        return SUPPRESSED
     logger.info("[EMAIL] newsletter confirmation sent to subscriber=%s", subscriber.pk)
     return True

@@ -1184,7 +1184,10 @@ def send_forum_email_batch(
         # A False that is not a transport failure is never retried.
         outcome = service.email_service.last_outcome or EmailOutcome.TRANSIENT
         if outcome == EmailOutcome.SUPPRESSED:
-            _record(delivery.mark_suppressed, row, "preference_off")
+            # A provider suppression (bounce, complaint) is not an opt-out:
+            # recorded as such, as the account tasks do (todo 625).
+            reason = service.email_service.last_suppression_reason or "preference_off"
+            _record(delivery.mark_suppressed, row, reason)
         elif outcome == EmailOutcome.PERMANENT:
             _record(delivery.mark_failed, row, "permanent")
         else:

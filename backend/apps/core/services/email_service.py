@@ -9,8 +9,12 @@ import html
 import logging
 import re
 import smtplib
+import uuid
+from email.utils import parseaddr
 from typing import Any, Dict, List, Optional, Union
 
+from apps.core import email_feedback
+from apps.core.constants import EMAIL_TRACKED_LINK_KEYS
 from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_context
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -112,6 +116,12 @@ class EmailOutcome:
     TRANSIENT = "transient"
 
 
+# ``EmailService.last_suppression_reason``: why a send was SUPPRESSED, in the
+# outbox's own words (``DeliveryIntent.last_error``).
+SUPPRESSED_PREFERENCE = "preference_off"
+SUPPRESSED_ADDRESS = "address_suppressed"
+
+
 def classify_send_error(exc: BaseException) -> str:
     """PERMANENT only when this message or its recipient was refused with a
     5xx: every recipient refused with one, or a 5xx reply to the message
@@ -158,6 +168,17 @@ class EmailType:
     COMMUNITY_UPDATE = "community_update"
 
 
+# Account mail: always sent, whatever the optional-mail preferences say, and
+# held back only by a hard bounce, never by a spam complaint (todo 625).
+SYSTEM_EMAIL_TYPES = frozenset(
+    {
+        EmailType.ACCOUNT_VERIFICATION,
+        EmailType.PASSWORD_RESET,
+        EmailType.SECURITY_ALERT,
+    }
+)
+
+
 # Email type -> the list its unsubscribe link leaves (a key of
 # apps.users.email_unsubscribe.LISTS). A type with no entry carries no link.
 UNSUBSCRIBE_LISTS = {
@@ -182,6 +203,9 @@ class EmailService:
         self.site_name = getattr(settings, "SITE_NAME", "Houseplant MD")
         # The EmailOutcome of the last send_email call (todo 619).
         self.last_outcome: Optional[str] = None
+        # Why it was SUPPRESSED, for an outbox to record (todo 625):
+        # SUPPRESSED_PREFERENCE or SUPPRESSED_ADDRESS, else None.
+        self.last_suppression_reason: Optional[str] = None
 
     def send_email(
         self,
@@ -193,11 +217,15 @@ class EmailService:
         from_email: Optional[str] = None,
         attachments: Optional[List] = None,
         priority: str = "normal",
-        track_opens: bool = True,
         respect_preferences: bool = True,
     ) -> bool:
         """
-        Send an email with full tracking and preference checking.
+        Send an email with preference and suppression checks.
+
+        Opens are never tracked (no pixel; owner decision 2026-10-12, todo
+        625). The content links named by ``EMAIL_TRACKED_LINK_KEYS`` go
+        through a signed first-party click redirect when ``API_PUBLIC_URL``
+        is set (``apps.core.email_feedback.click_url``).
 
         Args:
             email_type: Type of email from EmailType constants
@@ -208,7 +236,6 @@ class EmailService:
             from_email: Sender email (defaults to site default)
             attachments: List of file attachments
             priority: Email priority ('low', 'normal', 'high')
-            track_opens: Whether to track email opens
             respect_preferences: Whether to check user preferences
 
         Returns:
@@ -216,6 +243,7 @@ class EmailService:
             ``self.last_outcome`` (an ``EmailOutcome``).
         """
         self.last_outcome = None
+        self.last_suppression_reason = None
         # Normalize recipient
         if isinstance(recipient, User):
             user = recipient
@@ -237,11 +265,35 @@ class EmailService:
                 f"[EMAIL] Email {email_type} skipped for {log_safe_email(recipient_email)} due to user preferences"
             )
             self.last_outcome = EmailOutcome.SUPPRESSED
+            self.last_suppression_reason = SUPPRESSED_PREFERENCE
             return False
+
+        # The provider reported this address as undeliverable, or its owner
+        # as complaining (todo 625). Terminal: retrying cannot help.
+        if email_feedback.is_suppressed(
+            recipient_email, optional=email_type not in SYSTEM_EMAIL_TYPES
+        ):
+            logger.info(
+                f"[EMAIL] Email {email_type} to {log_safe_email(recipient_email)} "
+                "not sent: the address is suppressed"
+            )
+            self.last_outcome = EmailOutcome.SUPPRESSED
+            self.last_suppression_reason = SUPPRESSED_ADDRESS
+            return False
+
+        # The row's uuid exists before the send: it names the click redirects
+        # and the Message-ID the provider's feedback is matched on (todo 625).
+        notification_uuid = uuid.uuid4()
+        message_id = self._message_id(notification_uuid, from_email)
 
         # Prepare context
         context = context or {}
         context.update(self._get_base_context(user, email_type))
+        for key in EMAIL_TRACKED_LINK_KEYS:
+            if isinstance(context.get(key), str):
+                context[key] = email_feedback.click_url(
+                    notification_uuid, key, context[key]
+                )
 
         # Render email content. The .html body is REQUIRED — a missing/broken
         # .html is a hard failure. The .txt alternative is OPTIONAL: a missing
@@ -288,6 +340,7 @@ class EmailService:
         # one-click when API_PUBLIC_URL is set) puts a signed link in the mail
         # client's own "Unsubscribe" button (todo 416).
         headers = dict(context.get("unsubscribe_headers") or {})
+        headers["Message-ID"] = message_id
         email = EmailMultiAlternatives(
             subject=subject,
             body=text_content,
@@ -317,11 +370,20 @@ class EmailService:
                     f"[EMAIL] Email {email_type} to {log_safe_email(recipient_email)} "
                     "reached 0 recipients — not marking as sent"
                 )
-                self.last_outcome = EmailOutcome.PERMANENT
+                if recipient_email:
+                    # A real address that reached nobody: the mail backend's
+                    # suppression backstop dropped it (suppressed after the
+                    # check above). Terminal, and recorded as such (todo 625).
+                    self.last_outcome = EmailOutcome.SUPPRESSED
+                    self.last_suppression_reason = SUPPRESSED_ADDRESS
+                else:
+                    self.last_outcome = EmailOutcome.PERMANENT
                 return False
 
             # Track email sending
             self._track_email_sent(
+                notification_uuid=notification_uuid,
+                message_id=message_id,
                 email_type=email_type,
                 recipient_email=recipient_email,
                 user=user,
@@ -432,13 +494,7 @@ class EmailService:
         # System emails (security, verification) always send: no optional-mail
         # preference, the master toggle included, may hold them back (todo
         # 622 — the toggle used to be checked first and did).
-        system_emails = {
-            EmailType.ACCOUNT_VERIFICATION,
-            EmailType.PASSWORD_RESET,
-            EmailType.SECURITY_ALERT,
-        }
-
-        if email_type in system_emails:
+        if email_type in SYSTEM_EMAIL_TYPES:
             return True
 
         # Check master email toggle (using direct user model attributes)
@@ -507,8 +563,21 @@ class EmailService:
 
         return context
 
+    def _message_id(
+        self, notification_uuid: uuid.UUID, from_email: Optional[str]
+    ) -> str:
+        """The RFC 5322 Message-ID for a tracked email, on the sender's own
+        domain, so Resend's ``data.message_id`` names the row (todo 625)."""
+        sender = parseaddr(from_email or self.from_email)[1]
+        # Lowercased: the feedback lookup compares a normalized id
+        # (``email_feedback.normalize_message_id``).
+        domain = sender.rpartition("@")[2].lower() or "localhost"
+        return f"<hpmd.{notification_uuid.hex}@{domain}>"
+
     def _track_email_sent(
         self,
+        notification_uuid: uuid.UUID,
+        message_id: str,
         email_type: str,
         recipient_email: str,
         user: Optional[User],
@@ -524,6 +593,8 @@ class EmailService:
             from apps.core.models import EmailNotification
 
             EmailNotification.objects.create(
+                uuid=notification_uuid,
+                message_id=message_id,
                 email_type=email_type,
                 recipient_email=recipient_email,
                 user=user,
@@ -561,17 +632,42 @@ class EmailService:
         else:
             recipient_email = recipient
 
+        # Account mail: only a hard bounce holds it back (todo 625). The
+        # caller's flow (tokens, allowance, its response) is unchanged.
+        self.last_outcome = None
+        self.last_suppression_reason = None
+        if email_feedback.is_suppressed(recipient_email, optional=False):
+            logger.info(
+                f"[EMAIL] Transactional email to {log_safe_email(recipient_email)} "
+                "not sent: the address is suppressed"
+            )
+            self.last_outcome = EmailOutcome.SUPPRESSED
+            self.last_suppression_reason = SUPPRESSED_ADDRESS
+            return False
+
         try:
-            send_mail(
+            sent_count = send_mail(
                 subject=subject,
                 message=message,
                 from_email=self.from_email,
                 recipient_list=[recipient_email],
                 html_message=html_message,
             )
+            if not sent_count:
+                # The mail backend's suppression backstop dropped the only
+                # recipient (an address suppressed after the check above),
+                # or there was no address: not a send (todo 625).
+                logger.warning(
+                    f"[EMAIL] Transactional email to {log_safe_email(recipient_email)} "
+                    "reached 0 recipients — not marking as sent"
+                )
+                self.last_outcome = EmailOutcome.SUPPRESSED
+                self.last_suppression_reason = SUPPRESSED_ADDRESS
+                return False
             logger.info(
                 f"[EMAIL] Transactional email sent to {log_safe_email(recipient_email)}"
             )
+            self.last_outcome = EmailOutcome.SENT
             return True
         except Warning:
             # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
