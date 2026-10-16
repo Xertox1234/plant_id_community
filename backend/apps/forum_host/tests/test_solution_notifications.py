@@ -128,13 +128,18 @@ def test_reaccepting_the_same_answer_does_not_push_again(
 def test_accepting_a_cleared_answer_again_notifies_on_every_channel(
     django_capture_on_commit_callbacks,
 ):
-    # Todo 652 (PR #1128 review F4): accept, clear, accept the same answer
-    # again. The phone push goes out again (PR #1132's quiet-hours test pins
-    # that), so the browser push and the email must too: the first
-    # acceptance's finished outbox rows used to swallow them.
+    # Todo 652 (PR #1128 review F4; owner decision 2026-10-16): accept, clear,
+    # accept the same answer again. The first acceptance's finished outbox
+    # rows are reopened under a new batch, so the browser push and the email
+    # go out again with pacing, quiet hours and retries; within the cooldown
+    # they stay quiet, so toggling an acceptance never floods the answerer.
+    import datetime
+
+    from apps.core.constants import FORUM_REACCEPT_COOLDOWN_SECONDS
     from apps.core.models import DeliveryIntent
     from apps.forum_host import tasks as forum_tasks
     from django.test import override_settings
+    from django.utils import timezone
 
     topic, reply, asker, answerer = _thread("again")
     client = APIClient()
@@ -157,33 +162,58 @@ def test_accepting_a_cleared_answer_again_notifies_on_every_channel(
             action()
         return push, web, email
 
-    push, web, email = run(lambda: _accept(asker, topic, reply))
-    assert (push.call_count, web.call_count, email.call_count) == (1, 1, 1)
-    assert web.call_args.kwargs["batch_id"] and email.call_args.kwargs["batch_id"]
-    # The first acceptance's deliveries run to an end (the answerer has no
-    # browser and no email address, so both rows are finished as suppressed).
-    with push_on:
-        forum_tasks.send_forum_web_push_batch(
-            *web.call_args.args, **web.call_args.kwargs
+    def clear():
+        client.delete(f"/api/v1/forum/topics/{topic.id}/solution/")
+
+    def finish(web, email):
+        # The answerer has no browser and no email address, so both rows are
+        # finished as suppressed.
+        with push_on:
+            forum_tasks.send_forum_web_push_batch(
+                *web.call_args.args, **web.call_args.kwargs
+            )
+            forum_tasks.send_forum_email_batch(
+                *email.call_args.args, **email.call_args.kwargs
+            )
+        assert not rows.filter(status__in=["pending", "claimed"]).exists()
+
+    def age_past_cooldown():
+        rows.update(
+            updated_at=timezone.now()
+            - datetime.timedelta(seconds=FORUM_REACCEPT_COOLDOWN_SECONDS + 60)
         )
-        forum_tasks.send_forum_email_batch(
-            *email.call_args.args, **email.call_args.kwargs
-        )
+
     rows = DeliveryIntent.objects.filter(recipient=answerer)
-    assert rows.count() == 2
-    assert not rows.filter(status__in=["pending", "claimed"]).exists()
-
-    push, web, email = run(
-        lambda: client.delete(f"/api/v1/forum/topics/{topic.id}/solution/")
-    )
-    assert (push.call_count, web.call_count, email.call_count) == (0, 0, 0)
-
     push, web, email = run(lambda: _accept(asker, topic, reply))
     assert (push.call_count, web.call_count, email.call_count) == (1, 1, 1)
-    # Sent without an outbox batch, as before the outbox: nothing to dedup.
-    assert "batch_id" not in web.call_args.kwargs
-    assert not email.call_args.kwargs.get("batch_id")
-    assert DeliveryIntent.objects.filter(recipient=answerer).count() == 2
+    finish(web, email)
+    assert rows.count() == 2
+
+    # Within the cooldown: the phone push goes out (PR #1132), browser push
+    # and email stay quiet.
+    run(clear)
+    push, web, email = run(lambda: _accept(asker, topic, reply))
+    assert (push.call_count, web.call_count, email.call_count) == (1, 0, 0)
+
+    # Past it: both rows reopen under a new batch, still one row per channel.
+    age_past_cooldown()
+    run(clear)
+    push, web, email = run(lambda: _accept(asker, topic, reply))
+    assert (push.call_count, web.call_count, email.call_count) == (1, 1, 1)
+    assert rows.count() == 2
+    for call, kind in (
+        (web, DeliveryIntent.Kind.FORUM_WEB_PUSH),
+        (email, DeliveryIntent.Kind.FORUM_EMAIL),
+    ):
+        row = rows.get(kind=kind)
+        assert row.status == "pending" and row.attempts == 0
+        assert call.call_args.kwargs["batch_id"] == str(row.batch_id)
+    finish(web, email)
+
+    # A second toggle right after the re-send is inside the new cooldown.
+    run(clear)
+    push, web, email = run(lambda: _accept(asker, topic, reply))
+    assert (web.call_count, email.call_count) == (0, 0)
     assert Notification.objects.filter(recipient=answerer).count() == 1
 
 
@@ -191,7 +221,7 @@ def test_accepting_a_cleared_answer_again_notifies_on_every_channel(
 def test_a_duplicate_acceptance_signal_still_records_one_batch(
     django_capture_on_commit_callbacks,
 ):
-    # Todo 652: the re-accept bypass is only for a FINISHED earlier delivery.
+    # Todo 652: only a FINISHED earlier delivery is reopened.
     # The same acceptance dispatched twice while its rows are still pending
     # (a retried signal) still dedups on the outbox.
     from apps.core.models import DeliveryIntent

@@ -262,20 +262,55 @@ def has_any(kind, recipient_id) -> bool:
     return DeliveryIntent.objects.filter(kind=kind, recipient_id=recipient_id).exists()
 
 
-def finished(kind, event, subject_key, recipient_id) -> bool:
-    """Whether a forum delivery of ``event`` about ``subject_key`` to
-    ``recipient_id`` already ran to an end on this channel: sent,
-    suppressed or failed, not pending or claimed (todo 652)."""
-    return (
-        DeliveryIntent.objects.filter(
+REACCEPT_COOLING = "cooling"
+
+
+def record_reaccept(kind, event, recipient_id, payload, *, subject_key) -> str | None:
+    """``record_batch`` for an event that may legitimately happen again on the
+    same post, an answer accepted, cleared and accepted again (todo 652).
+
+    The forum unique key would swallow the second acceptance's row (ON
+    CONFLICT DO NOTHING). So a FINISHED row (sent, suppressed or failed) is
+    reopened as pending under a new batch, and the send keeps the outbox's
+    pacing, quiet hours and retries. A row reopened or finished within
+    ``FORUM_REACCEPT_COOLDOWN_SECONDS`` is not: toggling an acceptance never
+    floods the answerer. Returns the batch id, or ``REACCEPT_COOLING`` when
+    the caller must not send on this channel. A row still pending or claimed
+    is the same acceptance in flight and dedups as before. In the caller's
+    transaction."""
+    now = timezone.now()
+    row = (
+        DeliveryIntent.objects.select_for_update()
+        .filter(
             kind=kind,
             event=str(event),
             subject_key=str(subject_key),
             recipient_id=recipient_id,
         )
         .exclude(status__in=[Status.PENDING, Status.CLAIMED])
-        .exists()
+        .first()
     )
+    if row is None:
+        return record_batch(
+            kind, event, [recipient_id], payload, subject_key=subject_key
+        )
+    if row.updated_at > now - timedelta(
+        seconds=constants.FORUM_REACCEPT_COOLDOWN_SECONDS
+    ):
+        return REACCEPT_COOLING
+    batch_id = uuid.uuid4()
+    DeliveryIntent.objects.filter(pk=row.pk).update(
+        status=Status.PENDING,
+        batch_id=batch_id,
+        payload=dict(payload),
+        attempts=0,
+        next_attempt_at=now + timedelta(seconds=constants.DELIVERY_GRACE_SECONDS),
+        claimed_at=None,
+        claim_token=None,
+        last_error="",
+        updated_at=now,
+    )
+    return str(batch_id)
 
 
 # --- outcome -------------------------------------------------------------------

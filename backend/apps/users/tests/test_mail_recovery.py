@@ -175,6 +175,30 @@ class VerificationRecoveryTest(TestCase):
         intent = DeliveryIntent.objects.get(kind=Kind.VERIFICATION_EMAIL)
         self.assertEqual(intent.status, Status.SENT)
 
+    def test_a_database_error_before_the_claim_does_not_drop_the_mail(self):
+        """Todo 652 review: the checks run before the claim, so an
+        OperationalError in one autoretries into a row it can still claim."""
+        from apps.users import email_verification
+        from django.db import OperationalError
+
+        real = email_verification.is_email_verified
+        calls = []
+
+        def flaky(user):
+            # Call 1 is the view's own check; call 2, the task's, fails once.
+            calls.append(user.pk)
+            if len(calls) == 2:
+                raise OperationalError("connection reset")
+            return real(user)
+
+        with patch.object(email_verification, "is_email_verified", flaky):
+            self.assertTrue(self._resend().data["sent"])
+
+        self.assertEqual(len(calls), 3)  # the autoretry ran
+        self.assertEqual([m.to for m in mail.outbox], [["ada@example.com"]])
+        intent = DeliveryIntent.objects.get(kind=Kind.VERIFICATION_EMAIL)
+        self.assertEqual(intent.status, Status.SENT)
+
 
 class LockoutMailIsQueuedTest(TestCase):
     def setUp(self):
@@ -349,3 +373,33 @@ class LockoutMailIsQueuedTest(TestCase):
             smtp.call_args.kwargs["recipient_list"], ["locked@example.com"]
         )
         self.assertFalse(DeliveryIntent.objects.exists())
+
+    def test_a_database_error_before_the_claim_does_not_drop_the_mail(self):
+        """Todo 652 review: the lockout task's reads run before its claim, as
+        the verification task's do, so an OperationalError autoretries into
+        a row it can still claim and the mail is sent once."""
+        from django.db import OperationalError
+
+        with patch.object(
+            tasks.send_lockout_email_task, "delay", side_effect=BROKER_DOWN
+        ):
+            self._lock()
+        intent = DeliveryIntent.objects.get(kind=Kind.LOCKOUT_EMAIL)
+        real = tasks._address_suppressed
+        calls = []
+
+        def flaky(user):
+            calls.append(user.pk)
+            if len(calls) == 1:
+                raise OperationalError("connection reset")
+            return real(user)
+
+        with patch.object(tasks, "_address_suppressed", flaky):
+            tasks.send_lockout_email_task.apply(
+                args=(self.user.pk,), kwargs={"intent_id": intent.pk}
+            )
+
+        self.assertEqual(len(calls), 2)  # the autoretry ran
+        self.assertEqual(len(mail.outbox), 1)
+        intent.refresh_from_db()
+        self.assertEqual(intent.status, Status.SENT)

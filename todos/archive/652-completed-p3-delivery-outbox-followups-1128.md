@@ -78,3 +78,32 @@ Filed by the closing step of the run from `state.py followups-md g1`, plus two l
 ### 2026-10-16 - Completed by the todo sweep (run 2026-10-16-1135)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-16 - Review round 1: non-blocking findings (run 2026-10-16-1135)
+
+- Fixed, medium x2 + low x2 (F4 re-accept, `backend/apps/forum_host/notifications.py`): the worker's re-accept
+  sent the browser push and email with no outbox batch. That skipped pacing, quiet hours and retry, and with
+  no cap, toggling accept and clear could email the answerer without limit. The finished-check-then-insert
+  was also racy. Owner decision 2026-10-16: reopen with a 24 h cooldown. `delivery.record_reaccept`
+  (`backend/apps/core/delivery.py`) locks the finished row and reopens it as pending under a new batch, so
+  the normal paced and retried path runs. Inside `FORUM_REACCEPT_COOLDOWN_SECONDS` (24 h) it returns
+  `REACCEPT_COOLING`, and that channel is not enqueued. The phone push is unchanged. The rewritten
+  `test_accepting_a_cleared_answer_again_notifies_on_every_channel` covers quiet inside the cooldown,
+  reopened under the batch past it, and a second toggle quiet again. It fails with the cooldown check
+  disabled, and with the reopen disabled.
+- Fixed, low x2 (`backend/apps/users/tasks.py` lockout): the lockout task claimed its row before its reads,
+  so an OperationalError autoretried into its own claim (the finding-2 class). The reads now come first,
+  and a send-time OperationalError releases the row. The new lockout test fails on origin/main's task and
+  passes now.
+- Fixed, low (no test for the verification reorder): the new `test_a_database_error_before_the_claim_does_not_drop_the_mail`
+  (verification) fails on origin/main's task and passes now.
+- Declined, low (verification outcome writes after the claim): an OperationalError in `mark_*` means the
+  database is down. The row stays claimed and reconciliation re-drives it after the lease, which is the
+  documented at-least-once window.
+- Declined, low x2 (bare 5xx relay wording such as `550 relay not permitted`; 5.4.1/5.5.x): without an
+  enhanced code, a 5xx at RCPT is ambiguous. The owner decision covered only the 554 paused-account case,
+  so a recipient fault stays the default rather than guessing from wording.
+- Declined, low (the re-accept test does not show delivery): the rewritten test runs both batch tasks
+  against the reopened rows. The delivery itself is covered by the outbox suites.
+- Declined, low (split the re-accept test): its steps are one flow, and every assertion names its step.
+- No change, low x2 (justified edit of a 554 case): it is the owner-directed reclassification.

@@ -551,9 +551,11 @@ def dispatch(event, **kwargs):
                     event,
                     recipient.pk,
                 )
-            _enqueue_web_push(event, [recipient.pk], payload, web_batch)
+            if web_batch != delivery.REACCEPT_COOLING:
+                _enqueue_web_push(event, [recipient.pk], payload, web_batch)
             # The optional accepted-answer email (todo 624, off by default).
-            _enqueue_email_for(event, [recipient], payload, email_batch)
+            if email_batch != delivery.REACCEPT_COOLING:
+                _enqueue_email_for(event, [recipient], payload, email_batch)
 
         try:
             # Same nested-atomic/except-outside shape as reply_added: this runs
@@ -573,23 +575,25 @@ def dispatch(event, **kwargs):
             if actor is None or recipient.pk != actor.pk:
                 subject_key = getattr(post, "id", "")
 
-                def _record_acceptance(kind):
-                    # Accepted, cleared and accepted again (todo 652): the
-                    # first acceptance's finished row would swallow this one
-                    # (ON CONFLICT DO NOTHING), while the phone push still
-                    # goes out. So a re-accept runs without an outbox batch,
-                    # sent now like FCM's; a row still pending or claimed is
-                    # the same acceptance in flight and dedups as before.
-                    if delivery.finished(kind, event, subject_key, recipient.pk):
-                        return None
-                    return delivery.record_batch(
-                        kind, event, [recipient.pk], payload, subject_key=subject_key
-                    )
-
+                # Accepted, cleared and accepted again (todo 652): a finished
+                # row is reopened, so a re-accept keeps pacing, quiet hours
+                # and retries; within the cooldown that channel stays quiet.
                 with transaction.atomic():
                     if web_push_on:
-                        web_batch = _record_acceptance(delivery.Kind.FORUM_WEB_PUSH)
-                    email_batch = _record_acceptance(delivery.Kind.FORUM_EMAIL)
+                        web_batch = delivery.record_reaccept(
+                            delivery.Kind.FORUM_WEB_PUSH,
+                            event,
+                            recipient.pk,
+                            payload,
+                            subject_key=subject_key,
+                        )
+                    email_batch = delivery.record_reaccept(
+                        delivery.Kind.FORUM_EMAIL,
+                        event,
+                        recipient.pk,
+                        payload,
+                        subject_key=subject_key,
+                    )
                 # Registered inside the try, after the write succeeded, so a
                 # failed persist cannot still deliver a push (docs/rules/forum.md).
                 transaction.on_commit(_enqueue_push)
