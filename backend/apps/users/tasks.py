@@ -190,12 +190,9 @@ def send_lockout_email_task(self, user_id: int, intent_id: int | None = None) ->
         return
     from apps.core.email_feedback import SUPPRESSED
 
-    try:
-        result = SecurityMonitor._send_lockout_notification(user.username, lockout_data)
-    except OperationalError:
-        # Hand the row back so the autoretry can claim it (todo 652).
-        _release(rows)
-        raise
+    # Catches every error itself, a DB fault included, and returns False:
+    # that is retried below through mark_retry.
+    result = SecurityMonitor._send_lockout_notification(user.username, lockout_data)
     if result is None:
         # Nobody to send to: the account or its address went away after the
         # check above. Finished, never retried (todo 652).

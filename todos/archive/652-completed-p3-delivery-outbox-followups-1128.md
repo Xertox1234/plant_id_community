@@ -107,3 +107,27 @@ Filed by the closing step of the run from `state.py followups-md g1`, plus two l
   against the reopened rows. The delivery itself is covered by the outbox suites.
 - Declined, low (split the re-accept test): its steps are one flow, and every assertion names its step.
 - No change, low x2 (justified edit of a 554 case): it is the owner-directed reclassification.
+
+### 2026-10-16 - Review round 2 and owner-approved round 3 repair (run 2026-10-16-1135)
+
+- Owner approved one round 3 (2026-10-16) after round 2 blocked on a high.
+- Fixed, high + medium x2 + low x2 (`backend/apps/core/delivery.py` `record_reaccept`): a reopened row kept
+  its old `created_at`. Because of the 24 h cooldown that was always past `DELIVERY_MAX_AGE_SECONDS`, so
+  reconciliation expired the row as FAILED instead of re-driving it after a lost enqueue, retry or hold.
+  The reopen now resets `created_at`. The cooldown is measured from `created_at` too (the last record or
+  reopen), so a bulk outcome update that skips `auto_now` (the low about `mark_retry`/`reconcile` not
+  bumping `updated_at`) no longer affects it. The integration test now ages both timestamps, loses the
+  enqueue and runs `reconcile()`, asserting both rows are re-driven and none expired. The new
+  `apps/core/tests/test_delivery_reaccept.py` covers the first record, in-flight dedup (pending and
+  claimed), the cooldown, the reopen, and re-drive rather than expiry. Three tests fail with the reset
+  removed and pass now.
+- Fixed, low (`backend/apps/users/tasks.py`): the round-1 `except OperationalError` around
+  `_send_lockout_notification` was dead, since that method catches every error and returns False. It is
+  removed, and a comment says the DB fault is retried through `mark_retry`.
+- Fixed, low (`record_reaccept` type hints): the parameters are annotated.
+- Fixed, low (`test_a_duplicate_acceptance_signal_still_records_one_batch` was vacuous): it now asserts that
+  both dispatches enqueue (in-flight dedup), which a cooldown hit would not do.
+- Declined, low x2 (5.4.x at RCPT; bare `550 relay denied`): as in round 1, without an enhanced code the
+  owner decision covers only 554, and recipient fault stays the default.
+- Broad run of apps/core, users and forum_host: 3327 passed and 1 failed (`test_r2_storage` sqlite warning,
+  the known local-env failure, unrelated).

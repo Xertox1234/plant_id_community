@@ -265,16 +265,26 @@ def has_any(kind, recipient_id) -> bool:
 REACCEPT_COOLING = "cooling"
 
 
-def record_reaccept(kind, event, recipient_id, payload, *, subject_key) -> str | None:
+def record_reaccept(
+    kind: str,
+    event: str,
+    recipient_id: int,
+    payload: dict,
+    *,
+    subject_key: str | int,
+) -> str | None:
     """``record_batch`` for an event that may legitimately happen again on the
     same post, an answer accepted, cleared and accepted again (todo 652).
 
     The forum unique key would swallow the second acceptance's row (ON
     CONFLICT DO NOTHING). So a FINISHED row (sent, suppressed or failed) is
     reopened as pending under a new batch, and the send keeps the outbox's
-    pacing, quiet hours and retries. A row reopened or finished within
+    pacing, quiet hours and retries. A row recorded (or last reopened) within
     ``FORUM_REACCEPT_COOLDOWN_SECONDS`` is not: toggling an acceptance never
-    floods the answerer. Returns the batch id, or ``REACCEPT_COOLING`` when
+    floods the answerer. The reopen resets ``created_at``, which both that
+    cooldown and reconciliation's max age measure from, so a reopened row is
+    re-driven, never expired at once. Returns the batch id, or
+    ``REACCEPT_COOLING`` when
     the caller must not send on this channel. A row still pending or claimed
     is the same acceptance in flight and dedups as before. In the caller's
     transaction."""
@@ -294,7 +304,7 @@ def record_reaccept(kind, event, recipient_id, payload, *, subject_key) -> str |
         return record_batch(
             kind, event, [recipient_id], payload, subject_key=subject_key
         )
-    if row.updated_at > now - timedelta(
+    if row.created_at > now - timedelta(
         seconds=constants.FORUM_REACCEPT_COOLDOWN_SECONDS
     ):
         return REACCEPT_COOLING
@@ -308,6 +318,7 @@ def record_reaccept(kind, event, recipient_id, payload, *, subject_key) -> str |
         claimed_at=None,
         claim_token=None,
         last_error="",
+        created_at=now,
         updated_at=now,
     )
     return str(batch_id)

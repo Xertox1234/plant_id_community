@@ -178,10 +178,11 @@ def test_accepting_a_cleared_answer_again_notifies_on_every_channel(
         assert not rows.filter(status__in=["pending", "claimed"]).exists()
 
     def age_past_cooldown():
-        rows.update(
-            updated_at=timezone.now()
-            - datetime.timedelta(seconds=FORUM_REACCEPT_COOLDOWN_SECONDS + 60)
+        # A day later for real: recorded and finished then.
+        then = timezone.now() - datetime.timedelta(
+            seconds=FORUM_REACCEPT_COOLDOWN_SECONDS + 60
         )
+        rows.update(created_at=then, updated_at=then)
 
     rows = DeliveryIntent.objects.filter(recipient=answerer)
     push, web, email = run(lambda: _accept(asker, topic, reply))
@@ -208,6 +209,18 @@ def test_accepting_a_cleared_answer_again_notifies_on_every_channel(
         row = rows.get(kind=kind)
         assert row.status == "pending" and row.attempts == 0
         assert call.call_args.kwargs["batch_id"] == str(row.batch_id)
+    # The enqueue is lost: reconciliation re-drives the reopened rows, it
+    # never expires them as past the max age (round 2 review).
+    from apps.core import delivery
+
+    rows.update(next_attempt_at=timezone.now() - datetime.timedelta(seconds=1))
+    with patch("apps.forum_host.tasks.redrive_forum_deliveries") as redrive:
+        totals = delivery.reconcile()
+    assert totals["expired"] == 0
+    # One redriver call per kind.
+    redriven = [r.pk for call in redrive.call_args_list for r in call.args[0]]
+    assert sorted(redriven) == sorted(rows.values_list("pk", flat=True))
+    assert not rows.filter(status="failed").exists()
     finish(web, email)
 
     # A second toggle right after the re-send is inside the new cooldown.
@@ -242,6 +255,9 @@ def test_a_duplicate_acceptance_signal_still_records_one_batch(
         ).count()
         == 1
     )
+    # The second dispatch is in flight dedup, not a cooldown: it is still
+    # enqueued, with a batch that claims no row of its own.
+    assert email.call_count == 2
     assert all(call.kwargs.get("batch_id") for call in email.call_args_list)
 
 
