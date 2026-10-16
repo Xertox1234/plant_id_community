@@ -7,6 +7,7 @@ import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 import 'package:plant_community_mobile/features/garden/garden_screen.dart';
 import 'package:plant_community_mobile/features/garden/models/models.dart';
+import 'package:plant_community_mobile/features/garden/providers/garden_focus_provider.dart';
 import 'package:plant_community_mobile/features/garden/services/garden_api_service.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 
@@ -96,6 +97,9 @@ class _BrokenSkipGardenApi extends FakeGardenApi {
     throw TypeError();
   }
 }
+
+/// Finds [text] in a tile built off screen too (inside the cache extent).
+Finder _text(String text) => find.text(text, skipOffstage: false);
 
 IconButton _button(WidgetTester tester, String tooltip) => tester.widget(
   find.ancestor(of: find.byTooltip(tooltip), matching: find.byType(IconButton)),
@@ -431,6 +435,75 @@ void main() {
         expect(_button(tester, 'Skip').onPressed, isNotNull);
       },
     );
+
+    testWidgets('highlighting a task mid-completion keeps its buttons disabled '
+        '(todo 650 #1)', (tester) async {
+      final api = _GatedGardenApi(tasks: [_task()]);
+      await _pump(tester, api);
+
+      await tester.tap(find.byTooltip('Mark done'));
+      await tester.pump();
+      expect(_button(tester, 'Mark done').onPressed, isNull);
+
+      // A reminder for the same task is tapped while the request is in
+      // flight: the tile is highlighted, and must keep its busy state.
+      ProviderScope.containerOf(
+        tester.element(find.byType(GardenScreen)),
+      ).read(gardenFocusProvider.notifier).set(const GardenFocus.task('t1'));
+      await tester.pump();
+      await tester.pump();
+
+      final tile = tester.widget<ListTile>(
+        find.ancestor(
+          of: find.text('Water Fern'),
+          matching: find.byType(ListTile),
+        ),
+      );
+      expect(tile.selected, isTrue, reason: 'highlighted');
+      expect(_button(tester, 'Mark done').onPressed, isNull);
+      expect(_button(tester, 'Skip').onPressed, isNull);
+      await tester.tap(find.byTooltip('Mark done'), warnIfMissed: false);
+      await tester.pump();
+      expect(
+        api.calls.where((c) => c.startsWith('completeTask')),
+        hasLength(1),
+      );
+
+      api.gate.complete();
+      await tester.pumpAndSettle();
+      expect(_button(tester, 'Mark done').onPressed, isNotNull);
+    });
+
+    testWidgets('a highlighted task below the fold scrolls into view '
+        '(todo 650 #1)', (tester) async {
+      await _pump(
+        tester,
+        FakeGardenApi(
+          tasks: [
+            for (var i = 0; i < 10; i++) _task(id: 't$i', title: 'Task $i'),
+          ],
+        ),
+      );
+      // The first task built (inside the list's cache extent) but below the
+      // viewport.
+      final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+      final below = [
+        for (var i = 0; i < 10; i++)
+          if (_text('Task $i').evaluate().isNotEmpty &&
+              tester.getRect(_text('Task $i')).top > screen.height)
+            i,
+      ].first;
+
+      ProviderScope.containerOf(
+        tester.element(find.byType(GardenScreen)),
+      ).read(gardenFocusProvider.notifier).set(GardenFocus.task('t$below'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getRect(_text('Task $below')).bottom,
+        lessThan(screen.height),
+      );
+    });
 
     testWidgets('a care log that did not save is reported', (tester) async {
       final api = FakeGardenApi(tasks: [_task()])..logSaves = false;

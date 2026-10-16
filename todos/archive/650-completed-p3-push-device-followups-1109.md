@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "650"
 tags: [push, notifications, mobile, follow-ups]
@@ -41,7 +41,7 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -49,3 +49,27 @@ Dropped by curation (fixed on main, refuted, or not a reported location):
 ### 2026-10-12 - Filed from the PR #1109 review (todo sweep run 2026-10-12-1736)
 
 Filed by the closing step of the run from `state.py followups-md g2`.
+
+### 2026-10-16 - Implemented by the todo sweep (run 2026-10-16-1135)
+
+- #1 fixed: every due task is now the same `_TaskTile(key: ValueKey(id))` highlighted or not (the `KeyedSubtree`/`GlobalKey` wrapper is gone), and the tile scrolls itself into view when highlighted, so an in-flight Mark done/Skip keeps its busy state. Tests in `plant_community_mobile/test/features/garden/garden_screen_test.dart` (the first fails on the old code).
+- #2 fixed for the single path: `send_forum_push` now guards each per-device `token=` re-enqueue and logs only the exception type. The batch path was already guarded on main (`send_forum_push_batch`, the todo 643 #1 `try` around the hand-off). #3 fixed: per-account 429 tests for both endpoints (separate buckets, 30/h each).
+- #4 fixed: `MeProfileView.perform_update` runs the column write and its `PushDevice` mirror in one `transaction.atomic()`; a caught `IntegrityError` still keeps the column (`register_device`'s own savepoint rolls back), any other error rolls both back.
+- #5/#6 fixed per the owner decision: `PUSH_DEVICE_MAX_PER_ACCOUNT = 10`; `register_device` evicts the account's oldest devices (by `created_at`) past it, silently, never the device being registered, and clears an evicted token from the legacy column. `device_tokens_for_users` also targets only the newest 10, so rows from before the cap cannot stretch a forum push or the care sweep. The token format check is declined: FCM publishes no token grammar, so a check could drop real devices, and the cap already bounds the loop.
+- #7 fixed: the installation id moves to a new key in `FlutterSecureStorage` with `first_unlock_this_device`, which a backup restore never carries to another phone; the old key is deleted, never reused. A new key, because the iOS plugin matches accessibility on read. An existing install mints one new id once, and the backend updates that device's row in place (same token).
+
+### 2026-10-16 - Verified by the todo sweep (run 2026-10-16-1135)
+
+- AC 1: `bash -c "cd backend && python3 scripts/todos/slot_env.py --main-root . 1 -- backend/venv/bin/python -m pytest apps/core/tests/test_push_devices.py apps/garden_calendar/tests apps/forum_host/tests --create-db -q -p no:cacheprovider && cd plant_community_mobile && flutter test test/features/garden/garden_screen_test.dart test/services/push_registration_service_test.dart test/services/push_care_target_test.dart && grep -n -A6 'Implemented by the todo sweep (run 2026-10-16-1135)' todos/archive/650-completed-p3-push-device-followups-1109.md"` — evidence `.sweep-evidence/g5/650-ac0.txt` (not committed), last lines:
+
+  ```text
+  55-- #1 fixed: every due task is now the same `_TaskTile(key: ValueKey(id))` highlighted or not (the `KeyedSubtree`/`GlobalKey` wrapper is gone), and the tile scrolls itself into view when highlighted, so an in-flight Mark done/Skip keeps its busy state. Tests in `plant_community_mobile/test/features/garden/garden_screen_test.dart` (the first fails on the old code).
+  56-- #2 fixed for the single path: `send_forum_push` now guards each per-device `token=` re-enqueue and logs only the exception type. The batch path was already guarded on main (`send_forum_push_batch`, the todo 643 #1 `try` around the hand-off). #3 fixed: per-account 429 tests for both endpoints (separate buckets, 30/h each).
+  57-- #4 fixed: `MeProfileView.perform_update` runs the column write and its `PushDevice` mirror in one `transaction.atomic()`; a caught `IntegrityError` still keeps the column (`register_device`'s own savepoint rolls back), any other error rolls both back.
+  58-- #5/#6 fixed per the owner decision: `PUSH_DEVICE_MAX_PER_ACCOUNT = 10`; `register_device` evicts the account's oldest devices (by `created_at`) past it, silently, never the device being registered, and clears an evicted token from the legacy column. `device_tokens_for_users` also targets only the newest 10, so rows from before the cap cannot stretch a forum push or the care sweep. The token format check is declined: FCM publishes no token grammar, so a check could drop real devices, and the cap already bounds the loop.
+  59-- #7 fixed: the installation id moves to a new key in `FlutterSecureStorage` with `first_unlock_this_device`, which a backup restore never carries to another phone; the old key is deleted, never reused. A new key, because the iOS plugin matches accessibility on read. An existing install mints one new id once, and the backend updates that device's row in place (same token).
+  ```
+
+### 2026-10-16 - Completed by the todo sweep (run 2026-10-16-1135)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

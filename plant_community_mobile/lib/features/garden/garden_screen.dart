@@ -83,7 +83,6 @@ const String gardenTaskGoneNotice = 'That care task is no longer due.';
 class _GardenListState extends ConsumerState<_GardenList> {
   /// The task a tapped reminder pointed at, once found in the list.
   String? _highlighted;
-  final GlobalKey _highlightedKey = GlobalKey();
 
   /// Applies a pending [GardenFocus] once the list is settled, then clears
   /// it, so it is acted on once.
@@ -105,17 +104,8 @@ class _GardenListState extends ConsumerState<_GardenList> {
       )?.showSnackBar(const SnackBar(content: Text(gardenTaskGoneNotice)));
       return;
     }
+    // The tile scrolls itself into view once highlighted.
     setState(() => _highlighted = id);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final target = _highlightedKey.currentContext;
-      if (target != null && target.mounted) {
-        Scrollable.ensureVisible(
-          target,
-          alignment: 0.2,
-          duration: const Duration(milliseconds: 250),
-        );
-      }
-    });
   }
 
   @override
@@ -159,18 +149,15 @@ class _GardenListState extends ConsumerState<_GardenList> {
             style: muted,
           )
         else
+          // The same key and parent highlighted or not, so a highlight never
+          // discards a tile's state: an in-flight Mark done or Skip keeps its
+          // buttons disabled (todo 650 #1).
           for (final task in data.tasks)
-            if (task.id.toLowerCase() == _highlighted)
-              KeyedSubtree(
-                key: _highlightedKey,
-                child: _TaskTile(
-                  key: ValueKey(task.id),
-                  task: task,
-                  highlighted: true,
-                ),
-              )
-            else
-              _TaskTile(key: ValueKey(task.id), task: task),
+            _TaskTile(
+              key: ValueKey(task.id),
+              task: task,
+              highlighted: task.id.toLowerCase() == _highlighted,
+            ),
         SizedBox(height: ext.gapY * 2),
         Text('YOUR PLANTS', style: eyebrow),
         SizedBox(height: ext.gapY),
@@ -202,6 +189,30 @@ class _TaskTile extends ConsumerStatefulWidget {
 
 class _TaskTileState extends ConsumerState<_TaskTile> {
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.highlighted) _scheduleReveal();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TaskTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.highlighted && !oldWidget.highlighted) _scheduleReveal();
+  }
+
+  /// Scrolls this tile into view after the frame that highlighted it.
+  void _scheduleReveal() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0.2,
+        duration: const Duration(milliseconds: 250),
+      );
+    });
+  }
 
   Future<void> _mutate(
     Future<Object?> Function() action, {

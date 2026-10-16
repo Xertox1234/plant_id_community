@@ -55,6 +55,10 @@ def register_device(
     the column it was just given, and never overwrites the installation id
     or platform an upgraded install recorded.
 
+    An account keeps at most ``PUSH_DEVICE_MAX_PER_ACCOUNT`` devices: past
+    it, the oldest (by first registration) are evicted in the same
+    transaction, never the device being registered (todo 650).
+
     Raises ``IntegrityError`` only when it lost the race to concurrent
     registrations of the same token or installation every time; callers
     report it as a conflict the client can retry.
@@ -108,6 +112,7 @@ def register_device(
                         "platform": platform[:16],
                     },
                 )
+                _evict_oldest_devices(user, keep=device.pk)
             return device
         except IntegrityError:
             if attempt == _REGISTER_ATTEMPTS - 1:
@@ -117,6 +122,39 @@ def register_device(
                 user.pk,
             )
     raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _evict_oldest_devices(user, *, keep: int) -> None:
+    """Remove ``user``'s oldest devices past the cap, never ``keep``.
+
+    Inside ``register_device``'s transaction. Silent to the client (owner
+    decision 2026-10-16): the evicted device is simply no longer reached, as
+    after a dead-token report. Clears the legacy column when it holds an
+    evicted token, which the send path would otherwise still target.
+    """
+    from wagtail_forum.models import ForumProfile
+
+    from .constants import PUSH_DEVICE_MAX_PER_ACCOUNT
+    from .models import PushDevice
+
+    others = (
+        PushDevice.objects.filter(user=user)
+        .exclude(pk=keep)
+        .order_by("-created_at", "-pk")
+        .values_list("pk", "token")
+    )
+    evicted = list(others[PUSH_DEVICE_MAX_PER_ACCOUNT - 1 :])
+    if not evicted:
+        return
+    PushDevice.objects.filter(pk__in=[pk for pk, _ in evicted]).delete()
+    ForumProfile.objects.filter(
+        user=user, fcm_token__in=[token for _, token in evicted]
+    ).update(fcm_token="")
+    logger.info(
+        "[PUSH] device cap reached; evicted %s oldest device(s) (user=%s)",
+        len(evicted),
+        user.pk,
+    )
 
 
 def unregister_device(user, token: str) -> int:
@@ -164,9 +202,14 @@ def device_tokens_for_users(user_ids) -> dict[int, list[str]]:
     docstring), deduplicated, legacy first and devices in registration
     order, so a send loop is deterministic. Accounts with no device are
     absent.
+
+    At most the newest ``PUSH_DEVICE_MAX_PER_ACCOUNT`` devices per account,
+    so rows from before the cap (todo 650), kept until that account next
+    registers, never stretch a send loop.
     """
     from wagtail_forum.models import ForumProfile
 
+    from .constants import PUSH_DEVICE_MAX_PER_ACCOUNT
     from .models import PushDevice
 
     user_ids = list(user_ids)
@@ -179,14 +222,20 @@ def device_tokens_for_users(user_ids) -> dict[int, list[str]]:
         .values_list("user_id", "fcm_token")
     ):
         tokens.setdefault(user_id, []).append(token)
+    newest: dict[int, list[str]] = {}
     for user_id, token in (
         PushDevice.objects.filter(user_id__in=user_ids)
-        .order_by("created_at", "pk")
+        .order_by("-created_at", "-pk")
         .values_list("user_id", "token")
     ):
+        kept = newest.setdefault(user_id, [])
+        if len(kept) < PUSH_DEVICE_MAX_PER_ACCOUNT:
+            kept.append(token)
+    for user_id, kept in newest.items():
         held = tokens.setdefault(user_id, [])
-        if token not in held:
-            held.append(token)
+        for token in reversed(kept):
+            if token not in held:
+                held.append(token)
     return tokens
 
 

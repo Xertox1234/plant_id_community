@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/push_registration_service.dart';
@@ -592,6 +593,44 @@ void main() {
 
       hung.complete();
       await clear;
+    });
+  });
+
+  group('installation id storage (todo 650 #7)', () {
+    setUp(resetInstallationIdCache);
+    tearDown(resetInstallationIdCache);
+
+    test('is kept this-device-only on iOS, so a backup restore never '
+        'carries it to another phone', () {
+      expect(
+        pushInstallationIdStorage.iOptions.accessibility,
+        KeychainAccessibility.first_unlock_this_device,
+      );
+    });
+
+    test(
+      'an id kept under the old key is never reused, and is removed',
+      () async {
+        FlutterSecureStorage.setMockInitialValues({
+          'push_installation_id': 'restored-from-another-phone',
+        });
+
+        final id = await secureInstallationIdForTesting();
+
+        expect(id, isNotNull);
+        expect(id, isNot('restored-from-another-phone'));
+        const storage = pushInstallationIdStorage;
+        expect(await storage.read(key: pushInstallationIdKey), id);
+        expect(await storage.read(key: 'push_installation_id'), isNull);
+      },
+    );
+
+    test('a stored id is read back, not replaced', () async {
+      FlutterSecureStorage.setMockInitialValues({
+        pushInstallationIdKey: 'install-kept',
+      });
+
+      expect(await secureInstallationIdForTesting(), 'install-kept');
     });
   });
 

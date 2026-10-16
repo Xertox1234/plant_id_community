@@ -139,6 +139,11 @@ SECURITY_SENSITIVE_PATHS = (
 # bounded reconciliation retries all register, so a few devices signing in
 # and out must fit with room to spare.
 PUSH_DEVICE_RATE_LIMIT = "30/h"
+# Devices one account keeps (owner decision 2026-10-16, todo 650). A
+# registration past it evicts the account's oldest devices, silently, and the
+# send path never targets more: junk tokens cannot grow every forum push and
+# care sweep without bound.
+PUSH_DEVICE_MAX_PER_ACCOUNT = 10
 # Model field limits, mirrored by the API serializer.
 PUSH_DEVICE_TOKEN_MAX_LENGTH = 255
 PUSH_DEVICE_INSTALLATION_ID_MAX_LENGTH = 64
