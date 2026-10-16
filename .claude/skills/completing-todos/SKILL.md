@@ -240,7 +240,13 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    → `python3 scripts/todos/state.py ingest-review $RUN --output <file> --round 1`.
    Read `review-args`' `residue` key first (todo 484): a group listed there still holds what an earlier attempt
    at this round left, so it was left out of `prs` and gets no review. Handle each one per step 5.
-   - `clean` → round 2.
+   - `clean` → round 2. First, the regression fallback (todo 617; owner decision 2026-10-11 KEEPS this manual
+     read as a fallback, it is not dropped): a reviewer sets `regression` on a medium that is a new regression
+     against origin/main, and that medium then blocks like a high, but a reviewer can fail to set it. So skim
+     the group's stored mediums (`followups` in the run file) for wording like "vs main", "regression" or
+     "flagged on main but quiet here". Skip one that starts `(refuted as a regression; …)`: both refuters already
+     dismissed it as a regression, and it stays only as a plain medium. Treat a real one as blocking: fix it in the PR worktree with a test
+     before round 2, committed and pushed as for `repair-staged`.
    - `repair-staged` → `ensure-worktree`, `git -C $WT diff --cached --stat`, commit `fix: address review round 1 (todo <id>)`,
      `ensure-worktree` again, push, then round 2.
    - `rerun` → run round 1 again once. The run file counts it (`review_reruns`, todo 478), so a second
@@ -266,9 +272,10 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    `rerun` and `residue`, first post the refuter-dismissed findings: run `state.py refuted-comment $RUN G --out
    $SCRATCH/refuted-G.md`. If it prints a path, run `gh pr comment <n> --body-file <that path>`. Never
    build `--body` from the findings: they are LLM text, and this step runs with the sandbox off.
-   `clean` → then arm it (see **Arming auto-merge**). The round-2 reviewers read the full
-   diff in fresh contexts; that is the "review before arming" step. You read `--stat` and their verdicts
-   only.
+   `clean` → run the step-1 regression fallback over the round-2 mediums; on a real regression do NOT arm,
+   and report the PR to the owner with that finding. Otherwise arm it (see **Arming auto-merge**). The
+   round-2 reviewers read the full diff in fresh contexts; that is the "review before arming" step. You read
+   `--stat` and their verdicts only.
    `held` → a critical finding was dismissed only by the refuters (in either round). `ingest-review` has
    already blocked the group. Do NOT arm. Report the PR to the owner as held. Only the owner can clear a
    critical. When they do, run `state.py clear-hold $RUN G --decision "<their words, dated>"`, which moves the
@@ -297,7 +304,8 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    (`routing_failed: true`); the round counts as complete only when no changed `.py` outside `apps/blog/` could
    need wagtail-reviewer by content. The router greps through `git -C WT grep` over a pathspec, so no changed
    file's name reaches a shell. No subagent can spawn subagents (pilot P8), so all fan-out is in the workflow
-   script. Each critical/high file:line then faces two refuters and stops blocking only if both refute every
+   script. Each critical/high file:line, and each medium a reviewer flagged
+   `regression` (todo 617), then faces two refuters and stops blocking only if both refute every
    phrasing reported there. A dead reviewer makes the round `rerun`, never a partial pass. The run file keeps each
    todo's `refuted` findings whole (`<severity>: file:line summary | also: …`, never capped, one line per severity
    and file:line across both rounds). List them in the wrap-up, so the owner can see what the refuters dismissed.

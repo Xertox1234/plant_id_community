@@ -1395,6 +1395,7 @@ def main():
 
     residue_tests()
     bookkeeping_tests()
+    regression_medium_tests()
     rename_quoting_test()
     reverify_tests()
     reverify_grouping_tests()
@@ -1685,6 +1686,60 @@ def pr_open_run(worktree="/wt/g1"):
 def review_result(**over):
     return {"group": "g1", "ids": ["1"], "findings": [], "blocking": [], "refuted": [], "reviewers_ok": True,
             "residue": None, "repair": None, "verdict": None, **over}
+
+
+def regression_medium_tests():
+    """Todo 617: a medium the reviewer flagged as a regression against origin/main blocks in round 2 and is never
+    stored as a follow-up; a medium without the flag is a follow-up and the round is clean."""
+    def medium(line, regression=None):
+        f = {"severity": "medium", "file": "g.py", "line": line, "summary": "main flags it, the PR is quiet",
+             "suggested_fix": ""}
+        return f if regression is None else {**f, "regression": regression}
+
+    run = pr_open_run()
+    check("617: round 1 with only a plain medium is clean", ingest(run, [review_result(findings=[medium(1)])], 1)
+          == {"g1": "clean"}, run["todos"]["1"])
+    reg = dict(medium(7, True), also=[])
+    got = ingest(run, [review_result(findings=[medium(7, True), medium(8, False)], blocking=[reg])], 2)
+    entry = run["todos"]["1"]
+    followups = run["groups"]["g1"]["followups"]
+    check("617 AC2: round 2: a medium regression blocks the group (ingest-review -> blocked)",
+          got == {"g1": "blocked"} and entry["stage"] == "blocked"
+          and entry["reason"].startswith("1 blocking findings after round 2")
+          and entry.get("blocked_by") == "review round 2", (got, entry))
+    check("617 AC2: the medium regression is not stored as a follow-up; the unflagged mediums are",
+          not any(line.startswith("medium: g.py:7 ") for line in followups)
+          and any(line.startswith("medium: g.py:8 ") for line in followups)
+          and any(line.startswith("medium: g.py:1 ") for line in followups), followups)
+    run = pr_open_run()
+    ingest(run, [review_result()], 1)
+    got = ingest(run, [review_result(findings=[medium(9)])], 2)
+    check("617 AC2: round 2 with only an unflagged medium is clean, the medium a follow-up",
+          got == {"g1": "clean"} and run["todos"]["1"]["stage"] == "reviewed"
+          and run["groups"]["g1"]["followups"] == ["medium: g.py:9 main flags it, the PR is quiet"], run)
+    for round_no in (1, 2):
+        run = pr_open_run()
+        if round_no == 2:
+            ingest(run, [review_result()], 1)
+        dismissed = dict(medium(7, True), also=[], refutations=["no", "no"])
+        got = ingest(run, [review_result(findings=[medium(7, True)], refuted=[dismissed])], round_no)
+        check(f"617 repair: round {round_no}: a medium regression both refuters dismissed is clean, not held",
+              got == {"g1": "clean"} and run["todos"]["1"]["stage"] == ("pr_open", "reviewed")[round_no - 1]
+              and state._open_criticals(state._group_entries(run, "g1")) == [], (got, run["todos"]["1"]))
+        check(f"617 review: round {round_no}: a dismissed medium regression is kept as an ordinary medium follow-up",
+              any(line.startswith(f"medium: g.py:7 {state.REFUTED_REGRESSION_TAG} ")
+                  for line in run["groups"]["g1"]["followups"]),
+              run["groups"]["g1"].get("followups"))
+    check("617 repair: a refuted line with no severity label still holds (fail closed); a labelled critical does",
+          state._holds("g.py:7 x") and state._holds("critical: g.py:7 x")
+          and not state._holds("medium: g.py:7 x") and not state._holds("high: g.py:7 x"))
+    check("617 review: a labelled high never holds, even at a negative line or with no file:line",
+          not state._holds("high: g.py:-1 x") and not state._holds("high: no location here")
+          and state._holds("critical: no location here"))
+    check("617: is_blocking is critical, high, or a medium with regression=True only",
+          [state.is_blocking(f) for f in ({"severity": "critical"}, {"severity": "high"}, medium(1, True),
+                                          medium(1), medium(1, False), {"severity": "low", "regression": True},
+                                          medium(1, "yes"))] == [True, True, True, False, False, False, False])
 
 
 def bookkeeping_tests():

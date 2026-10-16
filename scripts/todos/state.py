@@ -1318,9 +1318,13 @@ HELD = "held for the owner"
 MAX_INCOMPLETE = 2
 
 
+SEVERITY_LABEL = re.compile(r"(?:critical|high|medium|low): ")
+
+
 def _holds(line):
-    # Fail closed: a refuted line without a known severity (written before todo 478) counts as critical.
-    return line.startswith("critical: ") or not line.startswith("high: ")
+    # Fail closed: a refuted line without a known severity (written before todo 478) counts as critical. A
+    # labelled high or medium (todo 617: a medium regression is refuted like a high) never holds.
+    return line.startswith("critical: ") or not SEVERITY_LABEL.match(line)
 
 
 def _group_refuted(entries):
@@ -1719,6 +1723,17 @@ def _merge_refuted(kept, findings, phrasings=None):
 
 
 SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+
+def is_blocking(finding):
+    """Todo 617: critical and high block, and so does a medium that is a regression against origin/main
+    (the reviewer's `regression` flag). The same rule as `isBlocking` in `.claude/workflows/todo-review.js`."""
+    return finding["severity"] in {"critical", "high"} or (finding["severity"] == "medium"
+                                                          and finding.get("regression") is True)
+
+
+# Marks a follow-up that both refuters dismissed as a regression: the completing-todos regression fallback skips it.
+REFUTED_REGRESSION_TAG = "(refuted as a regression; re-judge as a plain medium)"
 FOLLOWUP_CAP = 10
 FOLLOWUP_LINE = re.compile(r"(critical|high|medium|low): (.+?:\d+) (.*)\Z", re.S)
 # A line written before todo 529: `file:line summary`, no severity.
@@ -1902,8 +1917,13 @@ def ingest_review(run, results, round_no, git=run_git, criteria=None, source=Non
                                        "a reviewer or the router returned nothing", source)
             continue
         worktree = entries[0][1].get("worktree", "")
-        follow = [{**f, "file": _rel_file(f["file"], worktree)} for f in result["findings"]
-                  if f["severity"] not in {"critical", "high"}]
+        # Todo 617: a medium flagged `regression` is blocking, not a follow-up (the workflow refutes it like a high).
+        follow = [{**f, "file": _rel_file(f["file"], worktree)} for f in result["findings"] if not is_blocking(f)]
+        # A medium regression the refuters dismissed was refuted only as a regression; the defect itself may be
+        # real (main shares it), so it is also stored as an ordinary medium follow-up.
+        follow += [{**{k: v for k, v in f.items() if k != "regression"}, "file": _rel_file(f["file"], worktree),
+                    "summary": f"{REFUTED_REGRESSION_TAG} {f['summary']}"}
+                   for f in result.get("refuted", []) if f["severity"] == "medium"]
         _store_followups(run, gid, entries, follow)
         # Blocking findings both refuters dismissed are kept whole (severity, every phrasing, no cap): the
         # PR comment before arming, the follow-up todos and the critical hold below all read them (todo 478).
