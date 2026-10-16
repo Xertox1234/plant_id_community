@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "652"
 tags: [notifications, delivery, outbox, follow-ups]
@@ -46,7 +46,7 @@ Added from the focused review of the owner-requested repair (398df114) on PR #11
 
 ## Acceptance Criteria
 
-- [ ] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
       declined with a reason (or as already fixed on main, with the evidence).
 
 ## Work Log
@@ -54,3 +54,27 @@ Added from the focused review of the owner-requested repair (398df114) on PR #11
 ### 2026-10-12 - Filed from the PR #1128 review (todo sweep run 2026-10-12-1737)
 
 Filed by the closing step of the run from `state.py followups-md g1`, plus two lows from the repair review.
+
+### 2026-10-16 - Implemented by the todo sweep (run 2026-10-16-1135)
+
+- Finding 1 fixed: `send_forum_reply_notification` / `send_forum_event_notification` set `EmailOutcome.PERMANENT` when there is no copy, so `send_forum_email_batch` fails that row instead of retrying it. An outcome still unset now only means an error escaped `send_email` before the send, which is still retried. Test: `test_a_send_with_no_email_copy_is_failed_not_retried`.
+- Findings 2 and 3 fixed in `backend/apps/users/tasks.py`. The verification task does its reads before the claim, and hands its row back (`delivery.release`) when an OperationalError comes before the send, so the autoretry can claim it again. The lockout task records a `None` from `_send_lockout_notification` as suppressed `no_destination`, not a failed send. The `intent_id=None` test gap (the second repair-review low) is covered by `test_a_direct_enqueue_retries_a_failed_send_without_an_outbox_row`.
+- SMTP 554 low fixed (owner decision): `classify_send_error` now looks at the RFC 3463 enhanced code. Only 5.1/5.2/5.3/5.6 (recipient, mailbox, destination system, content) are PERMANENT; 5.7.x, and a 554 with no enhanced code, are TRANSIENT. The old `SMTPDataError(554, b"message rejected")` PERMANENT row in `apps/core/tests/test_classify_send_error.py` moved to TRANSIENT on purpose, because it is the paused-account case.
+- F4 fixed (owner decision), by sending again on every channel rather than silencing FCM. PR #1132's `test_a_re_accepted_answer_is_not_dropped_by_quiet_hours` pins that a re-accept pushes FCM again. So when a re-accept finds the first acceptance's web-push or email row already finished (`delivery.finished`), it runs without an outbox batch. A row still pending or claimed (the same acceptance in flight) still dedups. Tests are in `apps/forum_host/tests/test_solution_notifications.py`.
+- Finding 5 declined: the VAPID-unset case is already finished up front as `channel_off` (`web_push_enabled()`), and pywebpush is a pinned requirement. For a 400/403/413, the shared `send_web_push_notification` would have to report a status, which is beyond this todo. Those retries stop at `DELIVERY_MAX_ATTEMPTS`.
+
+### 2026-10-16 - Verified by the todo sweep (run 2026-10-16-1135)
+
+- AC 1: `cd backend && python3 ../scripts/todos/slot_env.py --main-root .. 4 -- venv/bin/python -m pytest apps/core/tests/test_classify_send_error.py apps/forum_host/tests/test_delivery_outbox.py apps/forum_host/tests/test_solution_notifications.py apps/forum_host/tests/test_quiet_hours_and_coalescing.py apps/users/tests/test_mail_recovery.py --create-db -p no:cacheprovider -v; grep -n 'fixed\|declined' ../todos/archive/652-completed-p3-delivery-outbox-followups-1128.md` — evidence `.sweep-evidence/g6/652-ac0.txt` (not committed), last lines:
+
+  ```text
+  60:- Finding 1 fixed: `send_forum_reply_notification` / `send_forum_event_notification` set `EmailOutcome.PERMANENT` when there is no copy, so `send_forum_email_batch` fails that row instead of retrying it. An outcome still unset now only means an error escaped `send_email` before the send, which is still retried. Test: `test_a_send_with_no_email_copy_is_failed_not_retried`.
+  61:- Findings 2 and 3 fixed in `backend/apps/users/tasks.py`. The verification task does its reads before the claim, and hands its row back (`delivery.release`) when an OperationalError comes before the send, so the autoretry can claim it again. The lockout task records a `None` from `_send_lockout_notification` as suppressed `no_destination`, not a failed send. The `intent_id=None` test gap (the second repair-review low) is covered by `test_a_direct_enqueue_retries_a_failed_send_without_an_outbox_row`.
+  62:- SMTP 554 low fixed (owner decision): `classify_send_error` now looks at the RFC 3463 enhanced code. Only 5.1/5.2/5.3/5.6 (recipient, mailbox, destination system, content) are PERMANENT; 5.7.x, and a 554 with no enhanced code, are TRANSIENT. The old `SMTPDataError(554, b"message rejected")` PERMANENT row in `apps/core/tests/test_classify_send_error.py` moved to TRANSIENT on purpose, because it is the paused-account case.
+  63:- F4 fixed (owner decision), by sending again on every channel rather than silencing FCM. PR #1132's `test_a_re_accepted_answer_is_not_dropped_by_quiet_hours` pins that a re-accept pushes FCM again. So when a re-accept finds the first acceptance's web-push or email row already finished (`delivery.finished`), it runs without an outbox batch. A row still pending or claimed (the same acceptance in flight) still dedups. Tests are in `apps/forum_host/tests/test_solution_notifications.py`.
+  64:- Finding 5 declined: the VAPID-unset case is already finished up front as `channel_off` (`web_push_enabled()`), and pywebpush is a pinned requirement. For a 400/403/413, the shared `send_web_push_notification` would have to report a status, which is beyond this todo. Those retries stop at `DELIVERY_MAX_ATTEMPTS`.
+  ```
+
+### 2026-10-16 - Completed by the todo sweep (run 2026-10-16-1135)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

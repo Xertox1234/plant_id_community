@@ -13,7 +13,7 @@ from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_conte
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from .email_service import EmailService, EmailType
+from .email_service import EmailOutcome, EmailService, EmailType
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -323,6 +323,9 @@ class NotificationService:
             # and an unpacking TypeError here would abort the batch mid-loop,
             # silently skipping every remaining recipient with no retry.
             logger.error("[EMAIL] No forum email copy for 'reply_added'; skipping send")
+            # Never reached send_email: say why, or the outbox would read the
+            # unset outcome as a transport failure and retry it (todo 652).
+            self.email_service.last_outcome = EmailOutcome.PERMANENT
             return False
         subject, message = copy
 
@@ -369,6 +372,7 @@ class NotificationService:
         copy = email_content(str(event), topic_title=topic_title, actor=actor_name)
         if email_type is None or copy is None:
             logger.error("[EMAIL] No forum email arm for %r; skipping send", event)
+            self.email_service.last_outcome = EmailOutcome.PERMANENT  # todo 652
             return False
         subject, message = copy
         context = {

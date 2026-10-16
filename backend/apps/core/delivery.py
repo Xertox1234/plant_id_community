@@ -262,6 +262,22 @@ def has_any(kind, recipient_id) -> bool:
     return DeliveryIntent.objects.filter(kind=kind, recipient_id=recipient_id).exists()
 
 
+def finished(kind, event, subject_key, recipient_id) -> bool:
+    """Whether a forum delivery of ``event`` about ``subject_key`` to
+    ``recipient_id`` already ran to an end on this channel: sent,
+    suppressed or failed, not pending or claimed (todo 652)."""
+    return (
+        DeliveryIntent.objects.filter(
+            kind=kind,
+            event=str(event),
+            subject_key=str(subject_key),
+            recipient_id=recipient_id,
+        )
+        .exclude(status__in=[Status.PENDING, Status.CLAIMED])
+        .exists()
+    )
+
+
 # --- outcome -------------------------------------------------------------------
 
 

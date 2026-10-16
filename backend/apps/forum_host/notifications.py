@@ -571,22 +571,25 @@ def dispatch(event, **kwargs):
                     post=post,
                 )
             if actor is None or recipient.pk != actor.pk:
+                subject_key = getattr(post, "id", "")
+
+                def _record_acceptance(kind):
+                    # Accepted, cleared and accepted again (todo 652): the
+                    # first acceptance's finished row would swallow this one
+                    # (ON CONFLICT DO NOTHING), while the phone push still
+                    # goes out. So a re-accept runs without an outbox batch,
+                    # sent now like FCM's; a row still pending or claimed is
+                    # the same acceptance in flight and dedups as before.
+                    if delivery.finished(kind, event, subject_key, recipient.pk):
+                        return None
+                    return delivery.record_batch(
+                        kind, event, [recipient.pk], payload, subject_key=subject_key
+                    )
+
                 with transaction.atomic():
                     if web_push_on:
-                        web_batch = delivery.record_batch(
-                            delivery.Kind.FORUM_WEB_PUSH,
-                            event,
-                            [recipient.pk],
-                            payload,
-                            subject_key=getattr(post, "id", ""),
-                        )
-                    email_batch = delivery.record_batch(
-                        delivery.Kind.FORUM_EMAIL,
-                        event,
-                        [recipient.pk],
-                        payload,
-                        subject_key=getattr(post, "id", ""),
-                    )
+                        web_batch = _record_acceptance(delivery.Kind.FORUM_WEB_PUSH)
+                    email_batch = _record_acceptance(delivery.Kind.FORUM_EMAIL)
                 # Registered inside the try, after the write succeeded, so a
                 # failed persist cannot still deliver a push (docs/rules/forum.md).
                 transaction.on_commit(_enqueue_push)

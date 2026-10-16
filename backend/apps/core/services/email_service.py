@@ -110,7 +110,8 @@ class EmailOutcome:
     # Preferences said no. Never retried.
     SUPPRESSED = "suppressed"
     # Retrying cannot help: a template that does not render, no deliverable
-    # recipient, a 5xx SMTP rejection.
+    # recipient, a 5xx SMTP rejection of this recipient or message
+    # (``classify_send_error``).
     PERMANENT = "permanent"
     # Worth another attempt: connection, timeout, a 4xx SMTP reply.
     TRANSIENT = "transient"
@@ -122,20 +123,60 @@ SUPPRESSED_PREFERENCE = "preference_off"
 SUPPRESSED_ADDRESS = "address_suppressed"
 
 
+# An RFC 3463 enhanced status code at the start of an SMTP reply's text,
+# e.g. b"5.1.1 <a@x>: Recipient address rejected" -> class 5, subject 1.
+_ENHANCED_STATUS = re.compile(rb"^\s*([245])\.(\d{1,3})\.\d{1,3}\b")
+# Subjects that are about this recipient or this message (RFC 3463 3.1):
+# addressing, mailbox, the destination mail system, message content. The
+# others, above all 5.7.x security or policy ("relay denied", "sending
+# paused"), are about our relay or account.
+_RECIPIENT_FAULT_SUBJECTS = frozenset({1, 2, 3, 6})
+
+
+def _refuses_this_message(code, reply) -> bool:
+    """A 5xx reply at RCPT or DATA that retrying cannot get past (todo 652).
+
+    With an enhanced code, only a class-5 recipient or content subject. With
+    none, any 5xx but 554: 554 is SMTP's catch-all "transaction failed",
+    which is what a relay answers for blank credentials (``554 relay
+    denied`` at RCPT) or a paused account (``554 Message rejected: Sending
+    paused`` at DATA). A real rejection classed TRANSIENT costs at most
+    ``DELIVERY_MAX_ATTEMPTS`` retries; the reverse fails every queued row."""
+    try:
+        code = int(code)
+    except (TypeError, ValueError):
+        return False
+    if code < 500:
+        return False
+    if isinstance(reply, str):
+        reply = reply.encode("utf-8", "replace")
+    enhanced = _ENHANCED_STATUS.match(reply or b"")
+    if enhanced:
+        return (
+            enhanced.group(1) == b"5"
+            and int(enhanced.group(2)) in _RECIPIENT_FAULT_SUBJECTS
+        )
+    return code != 554
+
+
 def classify_send_error(exc: BaseException) -> str:
-    """PERMANENT only when this message or its recipient was refused with a
-    5xx: every recipient refused with one, or a 5xx reply to the message
-    data. TRANSIENT for anything else: a connection or timeout error, a 4xx
-    reply, a disconnect, and a 5xx about the session rather than the
-    message (auth 535/530, sender refused, HELO). Those are relay credential
-    or config faults: during such an outage every queued row would
-    otherwise be failed for good, so they wait out the outbox backoff."""
+    """PERMANENT only when this message or its recipient was refused for
+    good: every recipient refused, or the message data refused, with a reply
+    that names the recipient or the message (``_refuses_this_message``).
+    TRANSIENT for anything else: a connection or timeout error, a 4xx reply,
+    a disconnect, a 5xx about the session rather than the message (auth
+    535/530, sender refused, HELO), and a RCPT or DATA refusal that is about
+    our relay or account (5.7.x, a bare 554). Those are relay credential or
+    config faults: during such an outage every queued row would otherwise be
+    failed for good, so they wait out the outbox backoff."""
     if isinstance(exc, smtplib.SMTPRecipientsRefused):
-        codes = [code for code, _msg in exc.recipients.values()]
-        if codes and all(int(code) >= 500 for code in codes):
+        replies = list(exc.recipients.values())
+        if replies and all(_refuses_this_message(*reply) for reply in replies):
             return EmailOutcome.PERMANENT
         return EmailOutcome.TRANSIENT
-    if isinstance(exc, smtplib.SMTPDataError) and exc.smtp_code >= 500:
+    if isinstance(exc, smtplib.SMTPDataError) and _refuses_this_message(
+        exc.smtp_code, exc.smtp_error
+    ):
         return EmailOutcome.PERMANENT
     return EmailOutcome.TRANSIENT
 

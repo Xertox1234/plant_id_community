@@ -125,6 +125,97 @@ def test_reaccepting_the_same_answer_does_not_push_again(
 
 
 @pytest.mark.django_db
+def test_accepting_a_cleared_answer_again_notifies_on_every_channel(
+    django_capture_on_commit_callbacks,
+):
+    # Todo 652 (PR #1128 review F4): accept, clear, accept the same answer
+    # again. The phone push goes out again (PR #1132's quiet-hours test pins
+    # that), so the browser push and the email must too: the first
+    # acceptance's finished outbox rows used to swallow them.
+    from apps.core.models import DeliveryIntent
+    from apps.forum_host import tasks as forum_tasks
+    from django.test import override_settings
+
+    topic, reply, asker, answerer = _thread("again")
+    client = APIClient()
+    client.force_authenticate(asker)
+    push_on = override_settings(
+        VAPID_PUBLIC_KEY="BPub",
+        VAPID_PRIVATE_KEY="priv",  # pragma: allowlist secret
+        VAPID_CLAIMS_EMAIL="ops@example.com",
+    )
+    tasks = "apps.forum_host.tasks"
+
+    def run(action):
+        with (
+            push_on,
+            patch(f"{tasks}.send_forum_push.delay") as push,
+            patch(f"{tasks}.send_forum_web_push_batch.delay") as web,
+            patch(f"{tasks}.send_forum_email_batch.delay") as email,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            action()
+        return push, web, email
+
+    push, web, email = run(lambda: _accept(asker, topic, reply))
+    assert (push.call_count, web.call_count, email.call_count) == (1, 1, 1)
+    assert web.call_args.kwargs["batch_id"] and email.call_args.kwargs["batch_id"]
+    # The first acceptance's deliveries run to an end (the answerer has no
+    # browser and no email address, so both rows are finished as suppressed).
+    with push_on:
+        forum_tasks.send_forum_web_push_batch(
+            *web.call_args.args, **web.call_args.kwargs
+        )
+        forum_tasks.send_forum_email_batch(
+            *email.call_args.args, **email.call_args.kwargs
+        )
+    rows = DeliveryIntent.objects.filter(recipient=answerer)
+    assert rows.count() == 2
+    assert not rows.filter(status__in=["pending", "claimed"]).exists()
+
+    push, web, email = run(
+        lambda: client.delete(f"/api/v1/forum/topics/{topic.id}/solution/")
+    )
+    assert (push.call_count, web.call_count, email.call_count) == (0, 0, 0)
+
+    push, web, email = run(lambda: _accept(asker, topic, reply))
+    assert (push.call_count, web.call_count, email.call_count) == (1, 1, 1)
+    # Sent without an outbox batch, as before the outbox: nothing to dedup.
+    assert "batch_id" not in web.call_args.kwargs
+    assert not email.call_args.kwargs.get("batch_id")
+    assert DeliveryIntent.objects.filter(recipient=answerer).count() == 2
+    assert Notification.objects.filter(recipient=answerer).count() == 1
+
+
+@pytest.mark.django_db
+def test_a_duplicate_acceptance_signal_still_records_one_batch(
+    django_capture_on_commit_callbacks,
+):
+    # Todo 652: the re-accept bypass is only for a FINISHED earlier delivery.
+    # The same acceptance dispatched twice while its rows are still pending
+    # (a retried signal) still dedups on the outbox.
+    from apps.core.models import DeliveryIntent
+    from apps.forum_host.notifications import dispatch
+
+    topic, reply, asker, answerer = _thread("dupsignal")
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay"),
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay") as email,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        dispatch("answer_accepted", topic=topic, post=reply, actor=asker)
+        dispatch("answer_accepted", topic=topic, post=reply, actor=asker)
+
+    assert (
+        DeliveryIntent.objects.filter(
+            recipient=answerer, kind=DeliveryIntent.Kind.FORUM_EMAIL
+        ).count()
+        == 1
+    )
+    assert all(call.kwargs.get("batch_id") for call in email.call_args_list)
+
+
+@pytest.mark.django_db
 def test_clearing_an_answer_notifies_nobody(django_capture_on_commit_callbacks):
     # There is no "your answer was un-accepted" product decision — unmarking is
     # silent by design.
