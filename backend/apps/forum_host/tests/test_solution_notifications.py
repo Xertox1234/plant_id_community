@@ -125,6 +125,143 @@ def test_reaccepting_the_same_answer_does_not_push_again(
 
 
 @pytest.mark.django_db
+def test_accepting_a_cleared_answer_again_notifies_on_every_channel(
+    django_capture_on_commit_callbacks,
+):
+    # Todo 652 (PR #1128 review F4; owner decision 2026-10-16): accept, clear,
+    # accept the same answer again. The first acceptance's finished outbox
+    # rows are reopened under a new batch, so the browser push and the email
+    # go out again with pacing, quiet hours and retries; within the cooldown
+    # they stay quiet, so toggling an acceptance never floods the answerer.
+    import datetime
+
+    from apps.core.constants import FORUM_REACCEPT_COOLDOWN_SECONDS
+    from apps.core.models import DeliveryIntent
+    from apps.forum_host import tasks as forum_tasks
+    from django.test import override_settings
+    from django.utils import timezone
+
+    topic, reply, asker, answerer = _thread("again")
+    client = APIClient()
+    client.force_authenticate(asker)
+    push_on = override_settings(
+        VAPID_PUBLIC_KEY="BPub",
+        VAPID_PRIVATE_KEY="priv",  # pragma: allowlist secret
+        VAPID_CLAIMS_EMAIL="ops@example.com",
+    )
+    tasks = "apps.forum_host.tasks"
+
+    def run(action):
+        with (
+            push_on,
+            patch(f"{tasks}.send_forum_push.delay") as push,
+            patch(f"{tasks}.send_forum_web_push_batch.delay") as web,
+            patch(f"{tasks}.send_forum_email_batch.delay") as email,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            action()
+        return push, web, email
+
+    def clear():
+        client.delete(f"/api/v1/forum/topics/{topic.id}/solution/")
+
+    def finish(web, email):
+        # The answerer has no browser and no email address, so both rows are
+        # finished as suppressed.
+        with push_on:
+            forum_tasks.send_forum_web_push_batch(
+                *web.call_args.args, **web.call_args.kwargs
+            )
+            forum_tasks.send_forum_email_batch(
+                *email.call_args.args, **email.call_args.kwargs
+            )
+        assert not rows.filter(status__in=["pending", "claimed"]).exists()
+
+    def age_past_cooldown():
+        # A day later for real: recorded and finished then.
+        then = timezone.now() - datetime.timedelta(
+            seconds=FORUM_REACCEPT_COOLDOWN_SECONDS + 60
+        )
+        rows.update(created_at=then, updated_at=then)
+
+    rows = DeliveryIntent.objects.filter(recipient=answerer)
+    push, web, email = run(lambda: _accept(asker, topic, reply))
+    assert (push.call_count, web.call_count, email.call_count) == (1, 1, 1)
+    finish(web, email)
+    assert rows.count() == 2
+
+    # Within the cooldown: the phone push goes out (PR #1132), browser push
+    # and email stay quiet.
+    run(clear)
+    push, web, email = run(lambda: _accept(asker, topic, reply))
+    assert (push.call_count, web.call_count, email.call_count) == (1, 0, 0)
+
+    # Past it: both rows reopen under a new batch, still one row per channel.
+    age_past_cooldown()
+    run(clear)
+    push, web, email = run(lambda: _accept(asker, topic, reply))
+    assert (push.call_count, web.call_count, email.call_count) == (1, 1, 1)
+    assert rows.count() == 2
+    for call, kind in (
+        (web, DeliveryIntent.Kind.FORUM_WEB_PUSH),
+        (email, DeliveryIntent.Kind.FORUM_EMAIL),
+    ):
+        row = rows.get(kind=kind)
+        assert row.status == "pending" and row.attempts == 0
+        assert call.call_args.kwargs["batch_id"] == str(row.batch_id)
+    # The enqueue is lost: reconciliation re-drives the reopened rows, it
+    # never expires them as past the max age (round 2 review).
+    from apps.core import delivery
+
+    rows.update(next_attempt_at=timezone.now() - datetime.timedelta(seconds=1))
+    with patch("apps.forum_host.tasks.redrive_forum_deliveries") as redrive:
+        totals = delivery.reconcile()
+    assert totals["expired"] == 0
+    # One redriver call per kind.
+    redriven = [r.pk for call in redrive.call_args_list for r in call.args[0]]
+    assert sorted(redriven) == sorted(rows.values_list("pk", flat=True))
+    assert not rows.filter(status="failed").exists()
+    finish(web, email)
+
+    # A second toggle right after the re-send is inside the new cooldown.
+    run(clear)
+    push, web, email = run(lambda: _accept(asker, topic, reply))
+    assert (web.call_count, email.call_count) == (0, 0)
+    assert Notification.objects.filter(recipient=answerer).count() == 1
+
+
+@pytest.mark.django_db
+def test_a_duplicate_acceptance_signal_still_records_one_batch(
+    django_capture_on_commit_callbacks,
+):
+    # Todo 652: only a FINISHED earlier delivery is reopened.
+    # The same acceptance dispatched twice while its rows are still pending
+    # (a retried signal) still dedups on the outbox.
+    from apps.core.models import DeliveryIntent
+    from apps.forum_host.notifications import dispatch
+
+    topic, reply, asker, answerer = _thread("dupsignal")
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay"),
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay") as email,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        dispatch("answer_accepted", topic=topic, post=reply, actor=asker)
+        dispatch("answer_accepted", topic=topic, post=reply, actor=asker)
+
+    assert (
+        DeliveryIntent.objects.filter(
+            recipient=answerer, kind=DeliveryIntent.Kind.FORUM_EMAIL
+        ).count()
+        == 1
+    )
+    # The second dispatch is in flight dedup, not a cooldown: it is still
+    # enqueued, with a batch that claims no row of its own.
+    assert email.call_count == 2
+    assert all(call.kwargs.get("batch_id") for call in email.call_args_list)
+
+
+@pytest.mark.django_db
 def test_clearing_an_answer_notifies_nobody(django_capture_on_commit_callbacks):
     # There is no "your answer was un-accepted" product decision — unmarking is
     # silent by design.

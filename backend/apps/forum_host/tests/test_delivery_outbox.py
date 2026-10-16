@@ -303,6 +303,52 @@ def test_a_permanent_rejection_is_not_retried(django_capture_on_commit_callbacks
 
 
 @pytest.mark.django_db
+def test_a_relay_refusal_at_rcpt_or_data_is_retried_not_failed(
+    django_capture_on_commit_callbacks,
+):
+    # Todo 652: blank credentials answered at RCPT, or a paused account at
+    # DATA, are faults of our relay, not of this recipient or message.
+    members, topic, post = _thread("relay", subscribers=2)
+    email, _ = _dispatch_reply(django_capture_on_commit_callbacks, topic, post)
+    refusals = {
+        members[0].email: smtplib.SMTPRecipientsRefused(
+            {members[0].email: (554, b"5.7.1 relay denied")}
+        ),
+        members[1].email: smtplib.SMTPDataError(
+            554, b"Message rejected: Sending paused for this account"
+        ),
+    }
+
+    def send(message, *args, **kwargs):
+        raise refusals[message.to[0]]
+
+    with patch(SEND, autospec=True, side_effect=send):
+        _run(email.call_args, tasks.send_forum_email_batch)
+
+    rows = DeliveryIntent.objects.filter(kind=Kind.FORUM_EMAIL)
+    assert {(r.status, r.last_error) for r in rows} == {
+        (Status.PENDING, "smtp_transient")
+    }
+
+
+@pytest.mark.django_db
+def test_a_send_with_no_email_copy_is_failed_not_retried(
+    django_capture_on_commit_callbacks,
+):
+    # Todo 652 (PR #1128 review finding 1): a False that never reached
+    # send_email left the outcome unset, which read as TRANSIENT.
+    members, topic, post = _thread("nocopy", subscribers=1)
+    email, _ = _dispatch_reply(django_capture_on_commit_callbacks, topic, post)
+
+    with patch("apps.forum_host.notification_copy.email_content", return_value=None):
+        _run(email.call_args, tasks.send_forum_email_batch)
+
+    assert mail.outbox == []
+    row = DeliveryIntent.objects.get(kind=Kind.FORUM_EMAIL)
+    assert (row.status, row.last_error) == (Status.FAILED, "permanent")
+
+
+@pytest.mark.django_db
 def test_an_opt_out_or_missing_address_is_finished_not_retried(
     django_capture_on_commit_callbacks,
 ):

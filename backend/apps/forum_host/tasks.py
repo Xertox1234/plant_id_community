@@ -1215,7 +1215,10 @@ def send_forum_email_batch(
         if sent:
             _record(delivery.mark_sent, row)
             continue
-        # A False that is not a transport failure is never retried.
+        # A False that is not a transport failure is never retried. A send
+        # that never reached send_email (no copy for the event) says
+        # PERMANENT itself (todo 652); an outcome still unset means an error
+        # escaped send_email before it sent (a database read), worth a retry.
         outcome = service.email_service.last_outcome or EmailOutcome.TRANSIENT
         if outcome == EmailOutcome.SUPPRESSED:
             # A provider suppression (bounce, complaint) is not an opt-out:

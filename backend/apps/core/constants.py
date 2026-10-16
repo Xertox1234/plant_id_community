@@ -155,6 +155,9 @@ PUSH_DEVICE_PLATFORMS = ("ios", "android")
 # A row written with the event waits this long before reconciliation may
 # re-drive it: the normal path (an on_commit enqueue) gets there first.
 DELIVERY_GRACE_SECONDS = 5 * 60
+# An answer accepted again (after a clear) re-sends its browser push and email
+# at most once per window per post and recipient (todo 652, owner 2026-10-16).
+FORUM_REACCEPT_COOLDOWN_SECONDS = 24 * 60 * 60
 # A claimed row whose worker has not reported back after this long is taken
 # to be interrupted and re-driven (the at-least-once window). Well above the
 # per-task hard time limit (CELERY_TASK_TIME_LIMIT, 120 s).

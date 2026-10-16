@@ -31,6 +31,11 @@ Contract
   back to ``pending`` with exponential backoff, and makes it terminal at
   ``DELIVERY_MAX_ATTEMPTS``. A sent row is never claimed again, so a retry
   or re-drive sends only to the recipients that did not get it.
+- **Reopen.** The one exception: ``record_reaccept`` puts a finished forum
+  row back to ``pending`` under a new batch, at most once per
+  ``FORUM_REACCEPT_COOLDOWN_SECONDS`` (an answer accepted again, todo 652).
+  The old batch's task can no longer claim it. The earlier outcome is
+  overwritten in place.
 - **Hold.** ``mark_held`` puts a claimed row back to ``pending`` until a
   release time without spending an attempt: a quiet-hours or coalescing hold
   (todo 624) is not a failure. Reconciliation re-drives it once due, and
@@ -260,6 +265,70 @@ def has_any(kind, recipient_id) -> bool:
     nothing to claim tells "another worker has it, or it went out" (rows
     exist) from "enqueued before the outbox existed" (none)."""
     return DeliveryIntent.objects.filter(kind=kind, recipient_id=recipient_id).exists()
+
+
+REACCEPT_COOLING = "cooling"
+
+
+def record_reaccept(
+    kind: str,
+    event: str,
+    recipient_id: int,
+    payload: dict,
+    *,
+    subject_key: str | int,
+) -> str | None:
+    """``record_batch`` for an event that may legitimately happen again on the
+    same post, an answer accepted, cleared and accepted again (todo 652).
+
+    The forum unique key would swallow the second acceptance's row (ON
+    CONFLICT DO NOTHING). So a FINISHED row (sent, suppressed or failed) is
+    reopened as pending under a new batch, and the send keeps the outbox's
+    pacing, quiet hours and retries. A row recorded, reopened or finished
+    within ``FORUM_REACCEPT_COOLDOWN_SECONDS`` is not (the later of
+    ``created_at`` and ``updated_at``, so a row held for hours and sent late
+    still counts from its send): toggling an acceptance never floods the
+    answerer's browser or inbox. The phone push is outside the outbox and
+    unchanged. The reopen resets ``created_at``, which reconciliation's max
+    age measures from, so a reopened row is re-driven, never expired at once. Returns the batch id, or
+    ``REACCEPT_COOLING`` when
+    the caller must not send on this channel. A row still pending or claimed
+    is the same acceptance in flight and dedups as before. In the caller's
+    transaction."""
+    now = timezone.now()
+    row = (
+        DeliveryIntent.objects.select_for_update()
+        .filter(
+            kind=kind,
+            event=str(event),
+            subject_key=str(subject_key),
+            recipient_id=recipient_id,
+        )
+        .exclude(status__in=[Status.PENDING, Status.CLAIMED])
+        .first()
+    )
+    if row is None:
+        return record_batch(
+            kind, event, [recipient_id], payload, subject_key=subject_key
+        )
+    if max(row.created_at, row.updated_at) > now - timedelta(
+        seconds=constants.FORUM_REACCEPT_COOLDOWN_SECONDS
+    ):
+        return REACCEPT_COOLING
+    batch_id = uuid.uuid4()
+    DeliveryIntent.objects.filter(pk=row.pk).update(
+        status=Status.PENDING,
+        batch_id=batch_id,
+        payload=dict(payload),
+        attempts=0,
+        next_attempt_at=now + timedelta(seconds=constants.DELIVERY_GRACE_SECONDS),
+        claimed_at=None,
+        claim_token=None,
+        last_error="",
+        created_at=now,
+        updated_at=now,
+    )
+    return str(batch_id)
 
 
 # --- outcome -------------------------------------------------------------------

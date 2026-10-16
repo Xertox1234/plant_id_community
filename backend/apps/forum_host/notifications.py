@@ -551,9 +551,11 @@ def dispatch(event, **kwargs):
                     event,
                     recipient.pk,
                 )
-            _enqueue_web_push(event, [recipient.pk], payload, web_batch)
+            if web_batch != delivery.REACCEPT_COOLING:
+                _enqueue_web_push(event, [recipient.pk], payload, web_batch)
             # The optional accepted-answer email (todo 624, off by default).
-            _enqueue_email_for(event, [recipient], payload, email_batch)
+            if email_batch != delivery.REACCEPT_COOLING:
+                _enqueue_email_for(event, [recipient], payload, email_batch)
 
         try:
             # Same nested-atomic/except-outside shape as reply_added: this runs
@@ -571,21 +573,26 @@ def dispatch(event, **kwargs):
                     post=post,
                 )
             if actor is None or recipient.pk != actor.pk:
+                subject_key = getattr(post, "id", "")
+
+                # Accepted, cleared and accepted again (todo 652): a finished
+                # row is reopened, so a re-accept keeps pacing, quiet hours
+                # and retries; within the cooldown that channel stays quiet.
                 with transaction.atomic():
                     if web_push_on:
-                        web_batch = delivery.record_batch(
+                        web_batch = delivery.record_reaccept(
                             delivery.Kind.FORUM_WEB_PUSH,
                             event,
-                            [recipient.pk],
+                            recipient.pk,
                             payload,
-                            subject_key=getattr(post, "id", ""),
+                            subject_key=subject_key,
                         )
-                    email_batch = delivery.record_batch(
+                    email_batch = delivery.record_reaccept(
                         delivery.Kind.FORUM_EMAIL,
                         event,
-                        [recipient.pk],
+                        recipient.pk,
                         payload,
-                        subject_key=getattr(post, "id", ""),
+                        subject_key=subject_key,
                     )
                 # Registered inside the try, after the write succeeded, so a
                 # failed persist cannot still deliver a push (docs/rules/forum.md).

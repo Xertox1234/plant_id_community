@@ -52,6 +52,17 @@ def _address_suppressed(user) -> bool:
     return False
 
 
+def _release(rows):
+    """Hand claimed rows back untouched, without raising: a row left claimed
+    is re-driven after its lease, the documented at-least-once window."""
+    from apps.core import delivery
+
+    try:
+        delivery.release(rows)
+    except OperationalError:
+        logger.warning("[EMAIL] Could not release a claimed mail row")
+
+
 def _retry_or_give_up(task, kind, user_id):
     """Retry a send that reported failure, with backoff; log the final one."""
     if task.request.retries >= task.max_retries:
@@ -86,6 +97,11 @@ def send_verification_email_task(self, user_id: int) -> None:
     user = _load_user(user_id)
     if user is None:
         return
+    # Every read before the claim (todo 652): an OperationalError autoretry
+    # must never find this run's own claim in its way and drop the mail as
+    # a duplicate until the lease runs out.
+    not_needed = not user.email or is_email_verified(user)
+    address_suppressed = not not_needed and _address_suppressed(user)
     intent = delivery.claim_one(kind, recipient_id=user_id)
     if intent is None and delivery.has_any(kind, user_id):
         logger.info(
@@ -94,13 +110,21 @@ def send_verification_email_task(self, user_id: int) -> None:
         )
         return
     rows = [intent.pk] if intent is not None else []
-    if not user.email or is_email_verified(user):
+    if not_needed:
         delivery.mark_suppressed(rows, "not_needed")
         return
-    if _address_suppressed(user):
+    if address_suppressed:
         delivery.mark_suppressed(rows, "address_suppressed")
         return
-    if deliver_verification_email(user):
+    try:
+        sent = deliver_verification_email(user)
+    except OperationalError:
+        # Raised before the send (deliver_verification_email swallows the
+        # send's own errors): hand the row back so the autoretry can claim
+        # it, then let the autoretry run.
+        _release(rows)
+        raise
+    if sent:
         delivery.mark_sent(rows)
         return
     if self.request.retries >= self.max_retries:
@@ -136,6 +160,17 @@ def send_lockout_email_task(self, user_id: int, intent_id: int | None = None) ->
     from apps.core.security import SecurityMonitor
     from django.core.cache import cache
 
+    # Every read before the claim (todo 652, as in the verification task):
+    # an OperationalError autoretry must never find this run's own claim in
+    # its way and drop the mail until the lease runs out.
+    user = _load_user(user_id)
+    no_destination = user is None or not user.email
+    lockout_data = (
+        None
+        if no_destination
+        else cache.get(LOCKOUT_STATUS_KEY.format(username=user.username))
+    )
+    address_suppressed = bool(lockout_data) and _address_suppressed(user)
     # Claimed on every attempt, and put back to pending before each retry
     # (below): a row left CLAIMED across a retry countdown would be re-driven
     # by reconcile once its lease ran out, and both tasks would send.
@@ -143,21 +178,26 @@ def send_lockout_email_task(self, user_id: int, intent_id: int | None = None) ->
         if delivery.claim_one(intent_id=intent_id) is None:
             return  # another worker holds it, or it is finished
     rows = [intent_id] if intent_id is not None else []
-    user = _load_user(user_id)
-    if user is None or not user.email:
+    if no_destination:
         delivery.mark_suppressed(rows, "no_destination")
         return
-    lockout_data = cache.get(LOCKOUT_STATUS_KEY.format(username=user.username))
     if not lockout_data:
         logger.info(f"[EMAIL] Lockout for account {user_id} is over; mail dropped")
         delivery.mark_suppressed(rows, "lockout_over")
         return
-    if _address_suppressed(user):
+    if address_suppressed:
         delivery.mark_suppressed(rows, "address_suppressed")
         return
     from apps.core.email_feedback import SUPPRESSED
 
+    # Catches every error itself, a DB fault included, and returns False:
+    # that is retried below through mark_retry.
     result = SecurityMonitor._send_lockout_notification(user.username, lockout_data)
+    if result is None:
+        # Nobody to send to: the account or its address went away after the
+        # check above. Finished, never retried (todo 652).
+        delivery.mark_suppressed(rows, "no_destination")
+        return
     if result == SUPPRESSED:
         delivery.mark_suppressed(rows, "address_suppressed")
         return
