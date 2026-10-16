@@ -500,21 +500,60 @@ class PushRegistrationService {
   }
 }
 
-const _installationIdKey = 'push_installation_id';
+/// Where the installation id lives (todo 650 #7). Under a new key: the one
+/// before it was stored with the default iOS accessibility (WhenUnlocked),
+/// which an encrypted backup carries to a restored phone, so two phones
+/// shared one id and each registration deleted the other's row. A new key,
+/// not new options on the old one: the iOS plugin matches the accessibility
+/// on read, so the old item would read as missing and block the write.
+@visibleForTesting
+const pushInstallationIdKey = 'push_installation_id_device';
+const _legacyInstallationIdKey = 'push_installation_id';
+
+/// `ThisDeviceOnly`: never restored onto another device, so a restored
+/// phone mints its own id. After first unlock, so a token refresh in the
+/// background can still read it. Android keeps its default.
+@visibleForTesting
+const pushInstallationIdStorage = FlutterSecureStorage(
+  iOptions: IOSOptions(
+    accessibility: KeychainAccessibility.first_unlock_this_device,
+  ),
+);
 String? _cachedInstallationId;
+
+/// Forgets the id read this process, so a test can read storage again.
+@visibleForTesting
+void resetInstallationIdCache() => _cachedInstallationId = null;
+
+/// [_secureInstallationId], for tests.
+@visibleForTesting
+Future<String?> secureInstallationIdForTesting() => _secureInstallationId();
 
 /// A random id for this install, kept in secure storage so a rotated token
 /// replaces this device's registration instead of adding one. Null when
 /// storage is unavailable; the registration then goes without it.
+///
+/// An install that kept its id under the old key mints a new one once; the
+/// backend then updates that device's row in place (same token).
 Future<String?> _secureInstallationId() async {
   final cached = _cachedInstallationId;
   if (cached != null) return cached;
   try {
-    const storage = FlutterSecureStorage();
-    var id = await storage.read(key: _installationIdKey);
+    const storage = pushInstallationIdStorage;
+    var id = await storage.read(key: pushInstallationIdKey);
     if (id == null || id.isEmpty) {
       id = const Uuid().v4();
-      await storage.write(key: _installationIdKey, value: id);
+      await storage.write(key: pushInstallationIdKey, value: id);
+      // The old id may be another phone's (a restore): never reused. Deleted
+      // with the default options it was written with (the iOS plugin matches
+      // accessibility), and on its own: a failure here never loses the new id.
+      try {
+        await const FlutterSecureStorage().delete(
+          key: _legacyInstallationIdKey,
+        );
+      } catch (_) {
+        // A leftover item is only clutter: nothing reads the old key.
+      }
     }
     return _cachedInstallationId = id;
   } catch (e) {

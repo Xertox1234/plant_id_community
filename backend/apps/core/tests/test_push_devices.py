@@ -11,6 +11,10 @@ import importlib
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
+# Imported here, not first by a request inside a test that patches
+# ``apps.core.push_devices.register_device``: the API module binds that name
+# on import, so a first import under the patch would keep the mock for good.
+from apps.core.api import push_devices as _push_devices_api  # noqa: F401
 from apps.core.models import PushDevice
 from apps.core.push_devices import (
     device_tokens_for_users,
@@ -24,6 +28,7 @@ from django.core.cache import cache
 from django.db import IntegrityError
 from django.test import TestCase
 from django.utils import timezone
+from freezegun import freeze_time
 from rest_framework.test import APIClient
 from wagtail_forum.models import ForumProfile
 
@@ -451,6 +456,221 @@ class PushDeviceApiTest(TestCase):
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(_tokens(self.alice), ["fake-token-1"])
 
+    def test_a_failed_mirror_rolls_back_the_column_write(self):
+        """Todo 650 #4: the column and its mirror commit together."""
+        from django.db import OperationalError
+
+        self.client.force_authenticate(self.alice)
+        self.client.raise_request_exception = False
+        with patch(
+            "apps.core.push_devices.register_device",
+            side_effect=OperationalError("connection lost"),
+        ):
+            response = self.client.patch(
+                ME_PROFILE, {"fcm_token": "fake-token-old-build"}, format="json"
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(_legacy(self.alice), "")
+        self.assertEqual(_tokens(self.alice), [])
+
+    def test_a_failed_release_rolls_back_the_replacing_write(self):
+        from django.db import OperationalError
+
+        _set_legacy(self.alice, "fake-token-first")
+        register_device(self.alice, "fake-token-first", platform="legacy", legacy=True)
+        self.client.force_authenticate(self.alice)
+        self.client.raise_request_exception = False
+        with patch(
+            "apps.core.push_devices.unregister_device",
+            side_effect=OperationalError("connection lost"),
+        ):
+            response = self.client.patch(
+                ME_PROFILE, {"fcm_token": "fake-token-second"}, format="json"
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(_legacy(self.alice), "fake-token-first")
+        self.assertEqual(_tokens(self.alice), ["fake-token-first"])
+
+    def test_registration_is_rate_limited_per_account(self):
+        """Todo 650 #3: 30 an hour per account, then 429."""
+        self.client.force_authenticate(self.alice)
+        # Frozen: the ratelimit window can roll over mid-loop and reset the count.
+        with freeze_time():
+            statuses = [
+                self.client.post(
+                    REGISTER, {"token": "fake-token-1"}, format="json"
+                ).status_code
+                for _ in range(31)
+            ]
+        self.assertEqual(statuses, [200] * 30 + [429])
+
+        # Per account: another account is not limited.
+        self.client.force_authenticate(self.bob)
+        response = self.client.post(REGISTER, {"token": "fake-token-2"}, format="json")
+        self.assertEqual(response.status_code, 200)
+
+    def test_sign_out_is_rate_limited_per_account(self):
+        self.client.force_authenticate(self.alice)
+        # Frozen: the ratelimit window can roll over mid-loop and reset the count.
+        with freeze_time():
+            statuses = [
+                self.client.post(
+                    UNREGISTER, {"token": "fake-token-1"}, format="json"
+                ).status_code
+                for _ in range(31)
+            ]
+        self.assertEqual(statuses, [200] * 30 + [429])
+
+        self.client.force_authenticate(self.bob)
+        response = self.client.post(
+            UNREGISTER, {"token": "fake-token-1"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+
+
+class DeviceCapTest(TestCase):
+    """Owner decision 2026-10-16 (todo 650 #5, #6): an account keeps at most
+    ``PUSH_DEVICE_MAX_PER_ACCOUNT`` devices; a registration past it evicts the
+    oldest, silently, and the send path never targets more."""
+
+    def setUp(self):
+        from apps.core.constants import PUSH_DEVICE_MAX_PER_ACCOUNT
+
+        self.cap = PUSH_DEVICE_MAX_PER_ACCOUNT
+        self.alice = User.objects.create_user(username="alice", email="a@x.com")
+        self.bob = User.objects.create_user(username="bob", email="b@x.com")
+        for i in range(self.cap):
+            register_device(self.alice, f"fake-token-{i}", f"install-{i}")
+
+    def test_the_cap_is_ten(self):
+        self.assertEqual(self.cap, 10)
+
+    def test_a_registration_past_the_cap_evicts_the_oldest(self):
+        register_device(self.alice, "fake-token-new", "install-new")
+
+        self.assertEqual(
+            _tokens(self.alice),
+            [f"fake-token-{i}" for i in range(1, self.cap)] + ["fake-token-new"],
+        )
+
+    def test_re_registering_an_old_device_evicts_nothing(self):
+        register_device(self.alice, "fake-token-0", "install-0")
+
+        self.assertEqual(
+            _tokens(self.alice), [f"fake-token-{i}" for i in range(self.cap)]
+        )
+
+    def test_a_device_in_use_outlives_newer_stale_ones(self):
+        # The first-created phone re-registers (every launch does), then a new
+        # device pushes the account past the cap: the least recently
+        # registered goes, not the phone that is still in use.
+        later = timezone.now() + timedelta(minutes=5)
+        with freeze_time(later):
+            register_device(self.alice, "fake-token-0", "install-0")
+        with freeze_time(later + timedelta(minutes=1)):
+            register_device(self.alice, "fake-token-new", "install-new")
+
+        self.assertEqual(
+            _tokens(self.alice),
+            ["fake-token-0"]
+            + [f"fake-token-{i}" for i in range(2, self.cap)]
+            + ["fake-token-new"],
+        )
+        self.assertIn(
+            "fake-token-0", device_tokens_for_users([self.alice.pk])[self.alice.pk]
+        )
+
+    def test_the_device_being_registered_is_never_the_one_evicted(self):
+        # Over the cap from before it (a pre-cap row), the account's OLDEST
+        # device re-registers: it stays, and the next oldest go.
+        PushDevice.objects.create(user=self.alice, token="fake-token-pre-cap")
+
+        register_device(self.alice, "fake-token-0", "install-0")
+
+        self.assertEqual(
+            _tokens(self.alice),
+            ["fake-token-0"]
+            + [f"fake-token-{i}" for i in range(2, self.cap)]
+            + ["fake-token-pre-cap"],
+        )
+
+    def test_an_evicted_token_leaves_the_legacy_column(self):
+        _set_legacy(self.alice, "fake-token-0")
+
+        register_device(self.alice, "fake-token-new", "install-new")
+
+        self.assertEqual(_legacy(self.alice), "")
+        self.assertNotIn(
+            "fake-token-0", device_tokens_for_users([self.alice.pk])[self.alice.pk]
+        )
+
+    def test_another_account_is_untouched(self):
+        register_device(self.bob, "fake-token-bob", "install-bob")
+
+        register_device(self.alice, "fake-token-new", "install-new")
+
+        self.assertEqual(_tokens(self.bob), ["fake-token-bob"])
+
+    def test_a_legacy_rotation_at_the_cap_evicts_no_live_device(self):
+        # Alice's tenth device is a legacy build; it rotates its token through
+        # the profile PATCH. The old token's row frees its slot first.
+        PushDevice.objects.filter(token="fake-token-9").delete()
+        _set_legacy(self.alice, "fake-token-legacy-1")
+        register_device(
+            self.alice, "fake-token-legacy-1", platform="legacy", legacy=True
+        )
+        cache.clear()
+        client = APIClient()
+        client.force_authenticate(self.alice)
+
+        response = client.patch(
+            ME_PROFILE, {"fcm_token": "fake-token-legacy-2"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            _tokens(self.alice),
+            [f"fake-token-{i}" for i in range(9)] + ["fake-token-legacy-2"],
+        )
+
+    def test_the_api_evicts_silently(self):
+        cache.clear()
+        client = APIClient()
+        client.force_authenticate(self.alice)
+
+        response = client.post(
+            REGISTER,
+            {"token": "fake-token-new", "installation_id": "install-new"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"registered": True})
+        self.assertEqual(len(_tokens(self.alice)), self.cap)
+
+    def test_the_send_path_targets_at_most_the_newest_devices(self):
+        # Rows from before the cap, kept until the account next registers.
+        now = timezone.now()
+        for i in range(25):
+            junk = PushDevice.objects.create(
+                user=self.alice, token=f"fake-token-junk-{i}"
+            )
+            # updated_at is auto_now: set it after the insert.
+            PushDevice.objects.filter(pk=junk.pk).update(
+                updated_at=now + timedelta(seconds=i + 1)
+            )
+        _set_legacy(self.alice, "fake-token-legacy")
+
+        tokens = device_tokens_for_users([self.alice.pk])[self.alice.pk]
+
+        self.assertEqual(
+            tokens,
+            ["fake-token-legacy"]
+            + [f"fake-token-junk-{i}" for i in range(25 - self.cap, 25)],
+        )
+
 
 def _fcm(send=None):
     fcm = MagicMock()
@@ -554,6 +774,34 @@ class ForumFanOutTest(TestCase):
                     sorted(_tokens(self.alice)),
                     ["fake-token-phone", "fake-token-tablet"],
                 )
+
+    def test_a_refused_device_retry_enqueue_still_hands_off_the_rest(self):
+        """Todo 650 #2: the single path guards each hand-off, as the batch
+        path already did (todo 643 #1)."""
+        from apps.forum_host.tasks import send_forum_push
+        from firebase_admin import exceptions as fb_exceptions
+        from kombu.exceptions import OperationalError as BrokerError
+
+        register_device(self.alice, "fake-token-watch", "install-watch")
+        fcm = _failing_on(
+            {
+                "fake-token-tablet": fb_exceptions.UnavailableError("down"),
+                "fake-token-watch": fb_exceptions.UnavailableError("down"),
+            }
+        )
+        a, b = self._patches(fcm)
+        with a, b, patch(
+            "apps.forum_host.tasks.send_forum_push.delay",
+            side_effect=[BrokerError("broker down"), None],
+        ) as handoff, self.assertLogs("forum_host.tasks", "ERROR") as logs:
+            send_forum_push("reply_added", self.alice.pk, {"topic_id": "1"})
+
+        self.assertEqual(
+            [c.kwargs["token"] for c in handoff.call_args_list],
+            ["fake-token-tablet", "fake-token-watch"],
+        )
+        self.assertIn("OperationalError", "\n".join(logs.output))
+        self.assertNotIn("broker down", "\n".join(logs.output))
 
     def test_a_single_device_retry_sends_to_that_device_only(self):
         fcm = _fcm()

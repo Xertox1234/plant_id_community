@@ -83,7 +83,19 @@ const String gardenTaskGoneNotice = 'That care task is no longer due.';
 class _GardenListState extends ConsumerState<_GardenList> {
   /// The task a tapped reminder pointed at, once found in the list.
   String? _highlighted;
-  final GlobalKey _highlightedKey = GlobalKey();
+
+  /// Bumped by each reminder that names a task, so a repeat tap scrolls back
+  /// to it. [_revealedSeq] is the last one a tile claimed: a lazily rebuilt
+  /// tile reuses this list's last widget, token included, so the claim (not
+  /// the widget) is what stops it yanking the list mid-drag.
+  int _revealSeq = 0;
+  int _revealedSeq = 0;
+
+  bool _claimReveal(int seq) {
+    if (seq == _revealedSeq) return false;
+    _revealedSeq = seq;
+    return true;
+  }
 
   /// Applies a pending [GardenFocus] once the list is settled, then clears
   /// it, so it is acted on once.
@@ -105,17 +117,15 @@ class _GardenListState extends ConsumerState<_GardenList> {
       )?.showSnackBar(const SnackBar(content: Text(gardenTaskGoneNotice)));
       return;
     }
-    setState(() => _highlighted = id);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final target = _highlightedKey.currentContext;
-      if (target != null && target.mounted) {
-        Scrollable.ensureVisible(
-          target,
-          alignment: 0.2,
-          duration: const Duration(milliseconds: 250),
-        );
-      }
+    // The tile scrolls itself into view once, for this reminder.
+    setState(() {
+      _highlighted = id;
+      _revealSeq++;
     });
+    // A tile built this frame claims the reveal first. One not built yet
+    // (past the cache extent) never claims it later, mid-drag.
+    final seq = _revealSeq;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _claimReveal(seq));
   }
 
   @override
@@ -159,18 +169,17 @@ class _GardenListState extends ConsumerState<_GardenList> {
             style: muted,
           )
         else
+          // The same key and parent highlighted or not, so a highlight never
+          // discards a tile's state: an in-flight Mark done or Skip keeps its
+          // buttons disabled (todo 650 #1).
           for (final task in data.tasks)
-            if (task.id.toLowerCase() == _highlighted)
-              KeyedSubtree(
-                key: _highlightedKey,
-                child: _TaskTile(
-                  key: ValueKey(task.id),
-                  task: task,
-                  highlighted: true,
-                ),
-              )
-            else
-              _TaskTile(key: ValueKey(task.id), task: task),
+            _TaskTile(
+              key: ValueKey(task.id),
+              task: task,
+              highlighted: task.id.toLowerCase() == _highlighted,
+              revealSeq: task.id.toLowerCase() == _highlighted ? _revealSeq : 0,
+              claimReveal: _claimReveal,
+            ),
         SizedBox(height: ext.gapY * 2),
         Text('YOUR PLANTS', style: eyebrow),
         SizedBox(height: ext.gapY),
@@ -189,12 +198,23 @@ class _GardenListState extends ConsumerState<_GardenList> {
 /// one request, not two (todo 386 review; the server also refuses the
 /// loser, but a disabled button never sends it).
 class _TaskTile extends ConsumerStatefulWidget {
-  const _TaskTile({super.key, required this.task, this.highlighted = false});
+  const _TaskTile({
+    super.key,
+    required this.task,
+    this.highlighted = false,
+    this.revealSeq = 0,
+    this.claimReveal,
+  });
 
   final CareTask task;
 
   /// The task a tapped reminder named (todo 621).
   final bool highlighted;
+
+  /// The reminder this tile was highlighted by (0: none). It scrolls into
+  /// view only if [claimReveal] grants that value, which happens once.
+  final int revealSeq;
+  final bool Function(int seq)? claimReveal;
 
   @override
   ConsumerState<_TaskTile> createState() => _TaskTileState();
@@ -202,6 +222,33 @@ class _TaskTile extends ConsumerStatefulWidget {
 
 class _TaskTileState extends ConsumerState<_TaskTile> {
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _maybeReveal();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TaskTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.revealSeq != oldWidget.revealSeq) _maybeReveal();
+  }
+
+  /// Scrolls this tile into view after the frame that highlighted it, once
+  /// per reminder.
+  void _maybeReveal() {
+    final seq = widget.revealSeq;
+    if (seq == 0 || !(widget.claimReveal?.call(seq) ?? false)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0.2,
+        duration: const Duration(milliseconds: 250),
+      );
+    });
+  }
 
   Future<void> _mutate(
     Future<Object?> Function() action, {

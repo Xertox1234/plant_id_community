@@ -129,30 +129,38 @@ class MeProfileView(forum_views.MeProfileView):
         import logging
 
         from apps.core.push_devices import register_device, unregister_device
-        from django.db import IntegrityError
+        from django.db import IntegrityError, transaction
 
         previous = serializer.instance.fcm_token
-        super().perform_update(serializer)
-        if "fcm_token" not in serializer.validated_data:
-            return
-        token = serializer.validated_data["fcm_token"]
-        try:
-            if token:
-                register_device(
-                    self.request.user, token, platform="legacy", legacy=True
-                )
-                if previous and previous != token:
+        # One transaction for the column write and its mirror (todo 650 #4):
+        # any other error rolls both back, so the column is never left set
+        # without its device row, nor a replaced token still registered.
+        with transaction.atomic():
+            super().perform_update(serializer)
+            if "fcm_token" not in serializer.validated_data:
+                return
+            token = serializer.validated_data["fcm_token"]
+            try:
+                if token:
+                    # The replaced token goes first, so it frees its slot
+                    # before the device cap evicts a live phone.
+                    if previous and previous != token:
+                        unregister_device(self.request.user, previous)
+                    register_device(
+                        self.request.user, token, platform="legacy", legacy=True
+                    )
+                elif previous:
                     unregister_device(self.request.user, previous)
-            elif previous:
-                unregister_device(self.request.user, previous)
-        except IntegrityError:
-            # Lost a race to a concurrent registration of the same token. The
-            # column write above stands and the send path reads it, so the
-            # device is still reached; the next registration settles the row.
-            logging.getLogger("forum_host.api").warning(
-                "[PUSH] legacy token mirror lost a race (user=%s)",
-                self.request.user.pk,
-            )
+            except IntegrityError:
+                # Lost a race to a concurrent registration of the same token
+                # (register_device's own savepoint rolled back). The column
+                # write above stands and the send path reads it, so the
+                # device is still reached; the next registration settles the
+                # row.
+                logging.getLogger("forum_host.api").warning(
+                    "[PUSH] legacy token mirror lost a race (user=%s)",
+                    self.request.user.pk,
+                )
 
 
 @_throttled("search", "GET", key=client_ip_key)

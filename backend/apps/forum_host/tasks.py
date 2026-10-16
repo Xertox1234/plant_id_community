@@ -317,7 +317,22 @@ def send_forum_push(
                 self.request.id,
                 exc,
             )
-            send_forum_push.delay(event, recipient_user_id, data, token=device_token)
+            # Guarded as in send_forum_push_batch (todo 650 #2): a broker that
+            # refuses one hand-off must not escape and drop the devices after
+            # it. Only the type is logged: a broker error can carry its URL.
+            try:
+                send_forum_push.delay(
+                    event, recipient_user_id, data, token=device_token
+                )
+            except Exception as enqueue_exc:
+                logger.error(
+                    "[FCM] forum.%s device retry could not be enqueued (user=%s,"
+                    " task_id=%s): %s — that device misses this push",
+                    event,
+                    recipient_user_id,
+                    self.request.id,
+                    type(enqueue_exc).__name__,
+                )
         return
     exc = transient[-1][1]
     logger.warning(
