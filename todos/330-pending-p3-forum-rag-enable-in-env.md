@@ -7,9 +7,9 @@ dependencies: ["289"]
 source_review: "docs/audits/2026-07-11-forum-modernization-COMPLETED.md"
 source_finding: "M13"
 triage: blocked-prod
-triaged: 2026-09-28
-blocked_on: "AC 4-5: a first real 'answered' response from a premium user, then RAG_SIMILARITY_FLOOR reviewed against real [RAG] top-score lines"
-owner_decision: "Gates 1-3 hold; FORUM_RAG_ENABLED=True set in prod 2026-10-11 (owner-approved) and BlogChunks rebuilt (59 pages). Remaining AC 4-5 need real premium traffic: owner hand-off (2026-10-11)"
+triaged: 2026-10-16
+blocked_on: "The first real premium 'answered' response and the prod [RAG] retrieval top-score log lines (owner hand-off)"
+owner_decision: "Still blocked: needs a real premium answered response and prod [RAG] score logs (owner, 2026-10-16)"
 ---
 
 # Enable RAG plant-care answers in a target environment

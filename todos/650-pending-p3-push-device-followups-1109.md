@@ -4,6 +4,9 @@ priority: p3
 issue_id: "650"
 tags: [push, notifications, mobile, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-16
+owner_decision: "Device cap: evict the account's oldest PushDevice above N=10, silently (2026-10-16)"
 ---
 
 # Follow-ups from PR #1109 (todo 621, mobile push devices)

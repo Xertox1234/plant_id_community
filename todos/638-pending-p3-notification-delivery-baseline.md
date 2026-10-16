@@ -4,6 +4,10 @@ priority: p3
 issue_id: "638"
 tags: [notifications, email, observability, operations, owner, prod]
 dependencies: []
+triage: blocked-prod
+triaged: 2026-10-16
+blocked_on: "Owner approval for test sends and a prod read of the 623/625 outcome data over a stated window"
+owner_decision: "Still blocked: owner test sends and prod aggregate read not done yet (owner, 2026-10-16)"
 ---
 
 # Record a controlled delivery test and an initial notification baseline

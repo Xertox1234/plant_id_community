@@ -4,6 +4,9 @@ priority: p3
 issue_id: "652"
 tags: [notifications, delivery, outbox, follow-ups]
 dependencies: []
+triage: ready
+triaged: 2026-10-16
+owner_decision: "Fix both lows: SMTP 554 at RCPT/DATA classification and the web-push re-accept dedup (F4), with tests (2026-10-16)"
 ---
 
 # Follow-ups from PR #1128 (todo 619, notification delivery outbox)
