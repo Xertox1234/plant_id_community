@@ -107,6 +107,9 @@ const FINDINGS = {
           // died on the schema retry cap (live run, PR #873), and a dead reviewer forces a rerun.
           summary: { type: 'string', maxLength: 600 },
           suggested_fix: { type: 'string', maxLength: 600 },
+          // Todo 617: the PR head behaves worse than origin/main on the same input. A medium with it blocks
+          // like a high. Optional, so a reviewer that leaves it out is not refused (and dies on the retry cap).
+          regression: { type: 'boolean' },
         },
         required: ['severity', 'file', 'line', 'summary', 'suggested_fix'],
       },
@@ -177,6 +180,9 @@ const VERDICT = {
 const round = args && args.round
 const prs = (args && args.prs) || []
 const BLOCKING = new Set(['critical', 'high'])
+// Todo 617: a medium that is a NEW regression against origin/main holds the PR too. In round 1 it is refuted
+// and repaired like a high; in round 2 (and 3) it blocks the group, so the owner sees it through `hand-round`.
+const isBlocking = f => BLOCKING.has(f.severity) || (f.severity === 'medium' && f.regression === true)
 
 function diffRange(p) {
   return `/usr/bin/git -C '${p.worktree}' diff origin/main...HEAD`
@@ -208,7 +214,11 @@ const LANDED = 'Land has already flipped the verified boxes to `[x]` and archive
   'ORIGIN_PATHS are the pending paths at the merge-base.'
 
 const SEVERITY = 'critical/high = would ship a bug, a security hole or data loss; medium = a real but contained ' +
-  'defect; style and nits are low. Keep each summary and suggested_fix under 300 characters.'
+  'defect; style and nits are low. Keep each summary and suggested_fix under 300 characters. ' +
+  'Set regression=true only when the PR head behaves worse than origin/main on the same input (a check, ' +
+  'detection, guard or behaviour main has that the PR loses or breaks), and put the probe in summary: the ' +
+  'input, what main does and what the PR does. Otherwise leave it false. A medium with regression=true ' +
+  'blocks the PR like a high.'
 // Todo 478: a domain reviewer's "high" for a pattern it prefers blocked the PR, and refuters could not
 // dismiss it because the deviation is real. A checklist item with no concrete failure is at most medium.
 const CHECKLIST_CAP = 'A checklist or pattern-library deviation is at most medium unless you can name the concrete ' +
@@ -268,11 +278,13 @@ function refutePrompt(p, f) {
       `in todo group ${p.group} (PR #${p.pr}). Try to refute them.`,
     `Worktree ${p.worktree}; the change is exactly: ${diffRange(p)}. Read the code, not just the hunk. Do not use gh.`,
     ...claims.map((c, i) => `${i + 1}. ${c}`),
+    f.regression ? 'The reviewer flagged this as a regression against origin/main: it is wrong only if main ' +
+      'behaves the same on that input, or the PR does not behave worse.' : '',
     'These may be one bug in different words or different bugs on the same line; judge each. ' +
       'Set refuted=true only if you can show EVERY one is wrong: the code does not do that, the input cannot ' +
       'reach it, or something already handles it. If any holds, or you cannot tell, set refuted=false. Give the ' +
       'reason in under 300 characters.',
-  ].join('\n')
+  ].filter(Boolean).join('\n')
 }
 
 function residuePrompt(p) {
@@ -407,7 +419,7 @@ const results = await pipeline(
   async (rev, p) => {
     // Different reviewers can report the same finding; count it once. Then each blocking finding
     // faces two skeptics, and stops blocking only if both refute it (a dead skeptic refutes nothing).
-    const candidates = rev.reviewers_ok ? byLocation(rev.findings.filter(f => BLOCKING.has(f.severity)), p.worktree) : []
+    const candidates = rev.reviewers_ok ? byLocation(rev.findings.filter(isBlocking), p.worktree) : []
     const judged = await parallel(candidates.map(f => () => parallel([0, 1].map(n => () => agent(refutePrompt(p, f),
       { label: `refute-${n}:${p.group}:${f.file}:${f.line}`, phase: 'Refute', agentType: 'todo-reviewer', schema: REFUTATION })))))
     const blocking = [], refuted = []

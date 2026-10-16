@@ -1719,6 +1719,15 @@ def _merge_refuted(kept, findings, phrasings=None):
 
 
 SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+
+def is_blocking(finding):
+    """Todo 617: critical and high block, and so does a medium that is a regression against origin/main
+    (the reviewer's `regression` flag). The same rule as `isBlocking` in `.claude/workflows/todo-review.js`."""
+    return finding["severity"] in {"critical", "high"} or (finding["severity"] == "medium"
+                                                          and finding.get("regression") is True)
+
+
 FOLLOWUP_CAP = 10
 FOLLOWUP_LINE = re.compile(r"(critical|high|medium|low): (.+?:\d+) (.*)\Z", re.S)
 # A line written before todo 529: `file:line summary`, no severity.
@@ -1902,8 +1911,8 @@ def ingest_review(run, results, round_no, git=run_git, criteria=None, source=Non
                                        "a reviewer or the router returned nothing", source)
             continue
         worktree = entries[0][1].get("worktree", "")
-        follow = [{**f, "file": _rel_file(f["file"], worktree)} for f in result["findings"]
-                  if f["severity"] not in {"critical", "high"}]
+        # Todo 617: a medium flagged `regression` is blocking, not a follow-up (the workflow refutes it like a high).
+        follow = [{**f, "file": _rel_file(f["file"], worktree)} for f in result["findings"] if not is_blocking(f)]
         _store_followups(run, gid, entries, follow)
         # Blocking findings both refuters dismissed are kept whole (severity, every phrasing, no cap): the
         # PR comment before arming, the follow-up todos and the critical hold below all read them (todo 478).
