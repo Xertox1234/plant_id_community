@@ -5,6 +5,8 @@ issue_id: "617"
 tags: [todo-sweep, tooling, review]
 dependencies: []
 owner_decision: "Implement as proposed; AC 3: KEEP the manual round-1 medium read in SKILL.md as a fallback for regressions the reviewer did not flag (2026-10-11)"
+triage: ready
+triaged: 2026-10-16
 ---
 
 # todo-review: a medium that is a regression against main should hold the PR, not become a follow-up

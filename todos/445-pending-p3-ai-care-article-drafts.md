@@ -5,6 +5,8 @@ issue_id: "445"
 tags: [blog, content, ai, rag]
 dependencies: []
 owner_decision: "Owner spot-checked and published the 53 care drafts on 2026-10-11; verified in prod (59/59 BlogPostPage live+public, 0 drafts); AC 3 done, archive (2026-10-11)"
+triage: already-done
+triaged: 2026-10-16
 ---
 
 # Draft ~50 AI care articles in the CMS for the owner to spot-check
