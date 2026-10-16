@@ -1727,11 +1727,15 @@ def regression_medium_tests():
               got == {"g1": "clean"} and run["todos"]["1"]["stage"] == ("pr_open", "reviewed")[round_no - 1]
               and state._open_criticals(state._group_entries(run, "g1")) == [], (got, run["todos"]["1"]))
         check(f"617 review: round {round_no}: a dismissed medium regression is kept as an ordinary medium follow-up",
-              any(line.startswith("medium: g.py:7 ") for line in run["groups"]["g1"]["followups"]),
+              any(line.startswith(f"medium: g.py:7 {state.REFUTED_REGRESSION_TAG} ")
+                  for line in run["groups"]["g1"]["followups"]),
               run["groups"]["g1"].get("followups"))
     check("617 repair: a refuted line with no severity label still holds (fail closed); a labelled critical does",
           state._holds("g.py:7 x") and state._holds("critical: g.py:7 x")
           and not state._holds("medium: g.py:7 x") and not state._holds("high: g.py:7 x"))
+    check("617 review: a labelled high never holds, even at a negative line or with no file:line",
+          not state._holds("high: g.py:-1 x") and not state._holds("high: no location here")
+          and state._holds("critical: no location here"))
     check("617: is_blocking is critical, high, or a medium with regression=True only",
           [state.is_blocking(f) for f in ({"severity": "critical"}, {"severity": "high"}, medium(1, True),
                                           medium(1), medium(1, False), {"severity": "low", "regression": True},

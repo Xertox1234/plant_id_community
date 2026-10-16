@@ -244,7 +244,8 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
      read as a fallback, it is not dropped): a reviewer sets `regression` on a medium that is a new regression
      against origin/main, and that medium then blocks like a high, but a reviewer can fail to set it. So skim
      the group's stored mediums (`followups` in the run file) for wording like "vs main", "regression" or
-     "flagged on main but quiet here". Treat a real one as blocking: fix it in the PR worktree with a test
+     "flagged on main but quiet here". Skip one that starts `(refuted as a regression; …)`: both refuters already
+     dismissed it as a regression, and it stays only as a plain medium. Treat a real one as blocking: fix it in the PR worktree with a test
      before round 2, committed and pushed as for `repair-staged`.
    - `repair-staged` → `ensure-worktree`, `git -C $WT diff --cached --stat`, commit `fix: address review round 1 (todo <id>)`,
      `ensure-worktree` again, push, then round 2.

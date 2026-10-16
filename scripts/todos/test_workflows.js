@@ -464,6 +464,11 @@ async function main() {
     check(`617 review: a high and a medium regression at one line collapse to the high (${label})`,
       b.length === 1 && b[0].severity === 'high' && b[0].summary === 'a high at the same line' && !b[0].regression, b)
   }
+  r = await run('todo-review', { round: 2, prs: [pr({ round: 2 })] },
+    reviewStub({ lens: { reviewed_range: 'x', findings: [{ ...highAt7.findings[0], regression: true }] } }))
+  check('617 review: a high flagged regression=true is refuted as a high, with no regression line',
+    refuteCalls(r.calls).length === 2
+    && refuteCalls(r.calls).every(c => !c.prompt.includes('regression against origin/main')), refuteCalls(r.calls).map(c => c.prompt))
   r = await run('todo-review', { round: 2, prs: [pr({ round: 2 })] }, reviewStub({ lens: medium(true) }))
   check('617 AC2: round 2: a medium regression is reported blocking, with no repair',
     r.result.results[0].blocking.length === 1 && r.result.results[0].repair === null

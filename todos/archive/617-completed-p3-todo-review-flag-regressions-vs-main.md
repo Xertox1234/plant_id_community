@@ -136,3 +136,23 @@ flag. A reviewer can fail to set the flag, so the hand read stays as a backstop.
 - Fixed, low (`.claude/workflows/todo-review.js` meta): the Refute phase detail now names medium regressions.
 - Declined, low (`.claude/skills/completing-todos/SKILL.md` manual fallback): it depends on wording, and that
   is the owner's chosen fallback (owner decision 2026-10-11). The reviewer suggested no change.
+
+### 2026-10-16 - Review round 2: non-blocking findings (run 2026-10-16-1135)
+
+- Fixed, medium (`.claude/workflows/todo-review.js` refutePrompt): the regression framing was added to any
+  finding with the flag, so a high marked `regression=true` was refuted under the weaker "wrong if main
+  behaves the same" test. That was a regression this PR introduced. Only a medium gets the line now. The new
+  `scripts/todos/test_workflows.js` case fails with the old condition and passes now.
+- Fixed, medium + low x2 (SKILL.md fallback, `state.py` dismissed-regression follow-up): a re-stored dismissed
+  medium regression carried exactly the wording the manual fallback skims for, so the fallback re-raised what
+  both refuters had dismissed, and the same item showed twice in the follow-up body. Such a follow-up now
+  starts with `REFUTED_REGRESSION_TAG`, and the SKILL.md fallback skips it. The test asserts the tag; it fails
+  with the tag removed.
+- Fixed, low x2 (`state.py` `_holds`): matching `LOCATION` made a labelled high at a negative line, or one with
+  no file:line, hold like a critical. `_holds` now checks the severity label alone (`SEVERITY_LABEL`), so only
+  `critical:` and unlabelled pre-478 lines hold. A new `scripts/todos/test_state_flow.py` case fails with
+  `LOCATION` and passes now.
+- Declined, low x2 (byLocation folds a medium regression into a high at the same line): the refuters must
+  refute every phrasing, the medium's included, so it is judged. If they dismiss the high, the medium's
+  words stay on the refuted line, which the refuted comment posts on the PR for the owner.
+- No change, low (justified test edits): no action needed.

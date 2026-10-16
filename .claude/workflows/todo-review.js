@@ -279,7 +279,8 @@ function refutePrompt(p, f) {
       `in todo group ${p.group} (PR #${p.pr}). Try to refute them.`,
     `Worktree ${p.worktree}; the change is exactly: ${diffRange(p)}. Read the code, not just the hunk. Do not use gh.`,
     ...claims.map((c, i) => `${i + 1}. ${c}`),
-    f.regression ? 'The reviewer flagged this as a regression against origin/main: it is wrong only if main ' +
+    // Only a medium is refuted as a regression; a high or critical keeps its own gate (todo 617 round 2).
+    f.severity === 'medium' && f.regression === true ? 'The reviewer flagged this as a regression against origin/main: it is wrong only if main ' +
       'behaves the same on that input, or the PR does not behave worse.' : '',
     'These may be one bug in different words or different bugs on the same line; judge each. ' +
       'Set refuted=true only if you can show EVERY one is wrong: the code does not do that, the input cannot ' +
