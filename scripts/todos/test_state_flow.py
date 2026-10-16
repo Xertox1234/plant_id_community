@@ -1717,6 +1717,18 @@ def regression_medium_tests():
     check("617 AC2: round 2 with only an unflagged medium is clean, the medium a follow-up",
           got == {"g1": "clean"} and run["todos"]["1"]["stage"] == "reviewed"
           and run["groups"]["g1"]["followups"] == ["medium: g.py:9 main flags it, the PR is quiet"], run)
+    for round_no in (1, 2):
+        run = pr_open_run()
+        if round_no == 2:
+            ingest(run, [review_result()], 1)
+        dismissed = dict(medium(7, True), also=[], refutations=["no", "no"])
+        got = ingest(run, [review_result(findings=[medium(7, True)], refuted=[dismissed])], round_no)
+        check(f"617 repair: round {round_no}: a medium regression both refuters dismissed is clean, not held",
+              got == {"g1": "clean"} and run["todos"]["1"]["stage"] == ("pr_open", "reviewed")[round_no - 1]
+              and state._open_criticals(state._group_entries(run, "g1")) == [], (got, run["todos"]["1"]))
+    check("617 repair: a refuted line with no severity label still holds (fail closed); a labelled critical does",
+          state._holds("g.py:7 x") and state._holds("critical: g.py:7 x")
+          and not state._holds("medium: g.py:7 x") and not state._holds("high: g.py:7 x"))
     check("617: is_blocking is critical, high, or a medium with regression=True only",
           [state.is_blocking(f) for f in ({"severity": "critical"}, {"severity": "high"}, medium(1, True),
                                           medium(1), medium(1, False), {"severity": "low", "regression": True},

@@ -1319,8 +1319,9 @@ MAX_INCOMPLETE = 2
 
 
 def _holds(line):
-    # Fail closed: a refuted line without a known severity (written before todo 478) counts as critical.
-    return line.startswith("critical: ") or not line.startswith("high: ")
+    # Fail closed: a refuted line without a known severity (written before todo 478) counts as critical. A
+    # labelled high or medium (todo 617: a medium regression is refuted like a high) never holds.
+    return line.startswith("critical: ") or not LOCATION.match(line)
 
 
 def _group_refuted(entries):

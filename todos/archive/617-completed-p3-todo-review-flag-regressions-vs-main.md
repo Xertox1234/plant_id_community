@@ -108,3 +108,14 @@ flag. A reviewer can fail to set the flag, so the hand read stays as a backstop.
 ### 2026-10-16 - Completed by the todo sweep (run 2026-10-16-1135)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-16 - Repaired by the todo sweep (run 2026-10-16-1135)
+
+- Round-1 review (two reviewers, same finding): a medium regression that both refuters dismiss is stored in
+  the refuted lines as `medium: f:l ...`, and `_holds` in `scripts/todos/state.py` treated every line not
+  starting `high: ` as a critical, so the PR was held for the owner instead of going clean.
+- `_holds` now holds a labelled `critical: ` line, or a line with no `severity: file:line` label (still fail
+  closed for pre-478 lines); a labelled high or medium never holds.
+- `scripts/todos/test_state_flow.py` gains cases: a refuted medium regression in round 1 and in round 2 is
+  clean with no open criticals, and `_holds` on unlabelled, critical, high and medium lines. Both cases fail
+  against the old `_holds` and pass now.
