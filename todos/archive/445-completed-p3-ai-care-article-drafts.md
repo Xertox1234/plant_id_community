@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "445"
 tags: [blog, content, ai, rag]
@@ -142,3 +142,15 @@ STILL_DRAFT []
 
 `last_published_at` is 2026-10-12 UTC for all 59. AC 3 is met, so archive this todo. An earlier check that day
 showed the 53 still unpublished, so this todo stayed open until the re-check above.
+
+### 2026-10-16 - Checked by the todo sweep (run 2026-10-16-1135)
+
+- Verify-only pass: no code changed.
+- All three Acceptance Criteria were already `[x]` at the merge-base, so each is recorded as "already checked"
+  in `.sweep-evidence/g1/ac.json` and nothing was re-run.
+- AC 3 rests on the owner's 2026-10-11 publish and the read-only prod check above (59/59 live and public,
+  0 drafts). The todo is ready to archive.
+
+### 2026-10-16 - Completed by the todo sweep (run 2026-10-16-1135)
+
+- Archived by `land.py archive`; review is on the PR.
