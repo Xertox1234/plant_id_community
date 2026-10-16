@@ -39,7 +39,8 @@ the laptop.
   (for example `TMPDIR=/Volumes/U34Bolt/plant_id_community/tmp ./run_archive.sh`). Never set
   it globally.
 - **Before ejecting**, run `./gradlew --stop` (from `android/`). Gradle and Kotlin daemons keep
-  jars open on the drive. `lsof +f -- /Volumes/U34Bolt` shows what is holding it.
+  jars open on the drive. Also quit Docker Desktop: its disk image (shared by every project) lives at
+  `_shared/docker/`. `lsof +f -- /Volumes/U34Bolt` shows what is holding it.
 - Not moved on purpose: the Android SDK (no fallback when unplugged), `~/.pub-cache`
   (`.dart_tool/package_config.json` stores absolute paths into it) and `.claude/worktrees`
   (the hooks are wired to that path).
