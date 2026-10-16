@@ -28,6 +28,7 @@ from django.core.cache import cache
 from django.db import IntegrityError
 from django.test import TestCase
 from django.utils import timezone
+from freezegun import freeze_time
 from rest_framework.test import APIClient
 from wagtail_forum.models import ForumProfile
 
@@ -494,12 +495,14 @@ class PushDeviceApiTest(TestCase):
     def test_registration_is_rate_limited_per_account(self):
         """Todo 650 #3: 30 an hour per account, then 429."""
         self.client.force_authenticate(self.alice)
-        statuses = [
-            self.client.post(
-                REGISTER, {"token": "fake-token-1"}, format="json"
-            ).status_code
-            for _ in range(31)
-        ]
+        # Frozen: the ratelimit window can roll over mid-loop and reset the count.
+        with freeze_time():
+            statuses = [
+                self.client.post(
+                    REGISTER, {"token": "fake-token-1"}, format="json"
+                ).status_code
+                for _ in range(31)
+            ]
         self.assertEqual(statuses, [200] * 30 + [429])
 
         # Per account: another account is not limited.
@@ -509,12 +512,14 @@ class PushDeviceApiTest(TestCase):
 
     def test_sign_out_is_rate_limited_per_account(self):
         self.client.force_authenticate(self.alice)
-        statuses = [
-            self.client.post(
-                UNREGISTER, {"token": "fake-token-1"}, format="json"
-            ).status_code
-            for _ in range(31)
-        ]
+        # Frozen: the ratelimit window can roll over mid-loop and reset the count.
+        with freeze_time():
+            statuses = [
+                self.client.post(
+                    UNREGISTER, {"token": "fake-token-1"}, format="json"
+                ).status_code
+                for _ in range(31)
+            ]
         self.assertEqual(statuses, [200] * 30 + [429])
 
         self.client.force_authenticate(self.bob)
@@ -554,6 +559,26 @@ class DeviceCapTest(TestCase):
 
         self.assertEqual(
             _tokens(self.alice), [f"fake-token-{i}" for i in range(self.cap)]
+        )
+
+    def test_a_device_in_use_outlives_newer_stale_ones(self):
+        # The first-created phone re-registers (every launch does), then a new
+        # device pushes the account past the cap: the least recently
+        # registered goes, not the phone that is still in use.
+        later = timezone.now() + timedelta(minutes=5)
+        with freeze_time(later):
+            register_device(self.alice, "fake-token-0", "install-0")
+        with freeze_time(later + timedelta(minutes=1)):
+            register_device(self.alice, "fake-token-new", "install-new")
+
+        self.assertEqual(
+            _tokens(self.alice),
+            ["fake-token-0"]
+            + [f"fake-token-{i}" for i in range(2, self.cap)]
+            + ["fake-token-new"],
+        )
+        self.assertIn(
+            "fake-token-0", device_tokens_for_users([self.alice.pk])[self.alice.pk]
         )
 
     def test_the_device_being_registered_is_never_the_one_evicted(self):
@@ -609,9 +634,9 @@ class DeviceCapTest(TestCase):
             junk = PushDevice.objects.create(
                 user=self.alice, token=f"fake-token-junk-{i}"
             )
-            # created_at is auto_now_add: set it after the insert.
+            # updated_at is auto_now: set it after the insert.
             PushDevice.objects.filter(pk=junk.pk).update(
-                created_at=now + timedelta(seconds=i + 1)
+                updated_at=now + timedelta(seconds=i + 1)
             )
         _set_legacy(self.alice, "fake-token-legacy")
 

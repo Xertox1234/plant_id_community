@@ -544,8 +544,16 @@ Future<String?> _secureInstallationId() async {
     if (id == null || id.isEmpty) {
       id = const Uuid().v4();
       await storage.write(key: pushInstallationIdKey, value: id);
-      // The old id may be another phone's (a restore): never reused.
-      await storage.delete(key: _legacyInstallationIdKey);
+      // The old id may be another phone's (a restore): never reused. Deleted
+      // with the default options it was written with (the iOS plugin matches
+      // accessibility), and on its own: a failure here never loses the new id.
+      try {
+        await const FlutterSecureStorage().delete(
+          key: _legacyInstallationIdKey,
+        );
+      } catch (_) {
+        // A leftover item is only clutter: nothing reads the old key.
+      }
     }
     return _cachedInstallationId = id;
   } catch (e) {

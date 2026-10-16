@@ -56,8 +56,9 @@ def register_device(
     or platform an upgraded install recorded.
 
     An account keeps at most ``PUSH_DEVICE_MAX_PER_ACCOUNT`` devices: past
-    it, the oldest (by first registration) are evicted in the same
-    transaction, never the device being registered (todo 650).
+    it, the least recently registered (``updated_at``, which every
+    re-registration bumps) are evicted in the same transaction, never the
+    device being registered (todo 650).
 
     Raises ``IntegrityError`` only when it lost the race to concurrent
     registrations of the same token or installation every time; callers
@@ -125,7 +126,9 @@ def register_device(
 
 
 def _evict_oldest_devices(user, *, keep: int) -> None:
-    """Remove ``user``'s oldest devices past the cap, never ``keep``.
+    """Remove ``user``'s least recently registered devices past the cap,
+    never ``keep``. A phone in daily use re-registers on launch, so it is
+    never the one evicted ahead of a stale row.
 
     Inside ``register_device``'s transaction. Silent to the client (owner
     decision 2026-10-16): the evicted device is simply no longer reached, as
@@ -140,7 +143,7 @@ def _evict_oldest_devices(user, *, keep: int) -> None:
     others = (
         PushDevice.objects.filter(user=user)
         .exclude(pk=keep)
-        .order_by("-created_at", "-pk")
+        .order_by("-updated_at", "-pk")
         .values_list("pk", "token")
     )
     evicted = list(others[PUSH_DEVICE_MAX_PER_ACCOUNT - 1 :])
@@ -203,9 +206,10 @@ def device_tokens_for_users(user_ids) -> dict[int, list[str]]:
     order, so a send loop is deterministic. Accounts with no device are
     absent.
 
-    At most the newest ``PUSH_DEVICE_MAX_PER_ACCOUNT`` devices per account,
-    so rows from before the cap (todo 650), kept until that account next
-    registers, never stretch a send loop.
+    At most the ``PUSH_DEVICE_MAX_PER_ACCOUNT`` most recently registered
+    devices per account, so rows from before the cap (todo 650), kept until
+    that account next registers, never stretch a send loop. The legacy
+    column adds at most one more token, so the bound is the cap plus one.
     """
     from wagtail_forum.models import ForumProfile
 
@@ -225,7 +229,7 @@ def device_tokens_for_users(user_ids) -> dict[int, list[str]]:
     newest: dict[int, list[str]] = {}
     for user_id, token in (
         PushDevice.objects.filter(user_id__in=user_ids)
-        .order_by("-created_at", "-pk")
+        .order_by("-updated_at", "-pk")
         .values_list("user_id", "token")
     ):
         kept = newest.setdefault(user_id, [])

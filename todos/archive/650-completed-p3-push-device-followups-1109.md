@@ -73,3 +73,26 @@ Filed by the closing step of the run from `state.py followups-md g2`.
 ### 2026-10-16 - Completed by the todo sweep (run 2026-10-16-1135)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-16 - Review round 1: non-blocking findings (run 2026-10-16-1135)
+
+- Fixed, medium x3 + low (`backend/apps/core/push_devices.py`): eviction and the send-path cap ranked
+  devices by `created_at`, which re-registration never changes. A phone in daily use therefore looked oldest
+  and was evicted, or skipped, ahead of newer stale rows. Both now rank by `-updated_at, -pk` (auto_now, bumped
+  on every registration). The new `test_a_device_in_use_outlives_newer_stale_ones` fails with `created_at`
+  ranking and passes now. The send-path test now sets `updated_at`.
+- Fixed, medium + low x2 (`plant_community_mobile/lib/features/garden/garden_screen.dart`): the tile revealed
+  itself on every `initState`, so a highlighted tile rebuilt on scrolling back yanked the list mid-drag. A
+  repeat reminder for the highlighted task also no longer scrolled back to it. Each reminder now bumps a token
+  that a tile must claim from the list (`_claimReveal`), once. A lazily rebuilt tile reuses the list's last
+  widget, so the claim, not the widget, carries the "once". Two new widget tests (repeat tap, scroll back)
+  each fail under a mutation of the claim or the token and pass now.
+- Fixed, medium (`backend/apps/core/tests/test_push_devices.py`): the two count-to-limit rate-limit loops
+  now run inside `with freeze_time():`, so the ratelimit window cannot roll over mid-loop.
+- Fixed, low x2 (`plant_community_mobile/lib/services/push_registration_service.dart`): the legacy key is
+  deleted with the default `FlutterSecureStorage()` it was written with, in its own try, so a failed delete
+  never discards the new id. The mock storage cannot make the delete throw, so that path is unit-untested.
+- Fixed, low x2 (send path returns cap + 1): `device_tokens_for_users` now documents that the legacy column
+  adds at most one token.
+- Declined, low (cap tests derive fixtures from the constant): `test_the_cap_is_ten` pins the literal, so a
+  shrink of the constant fails on that test.

@@ -505,6 +505,86 @@ void main() {
       );
     });
 
+    testWidgets('a repeat reminder for the highlighted task scrolls back to '
+        'it (todo 650 review)', (tester) async {
+      await _pump(
+        tester,
+        FakeGardenApi(
+          tasks: [
+            for (var i = 0; i < 10; i++) _task(id: 't$i', title: 'Task $i'),
+          ],
+        ),
+      );
+      final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+      final below = [
+        for (var i = 0; i < 10; i++)
+          if (_text('Task $i').evaluate().isNotEmpty &&
+              tester.getRect(_text('Task $i')).top > screen.height)
+            i,
+      ].first;
+      final focus = ProviderScope.containerOf(
+        tester.element(find.byType(GardenScreen)),
+      ).read(gardenFocusProvider.notifier);
+      focus.set(GardenFocus.task('t$below'));
+      await tester.pumpAndSettle();
+
+      // The user scrolls back to the top, then taps the same reminder again.
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 2000));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(_text('Task $below')).top,
+        greaterThan(screen.height),
+      );
+      focus.set(GardenFocus.task('t$below'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getRect(_text('Task $below')).bottom,
+        lessThan(screen.height),
+      );
+    });
+
+    testWidgets('a highlighted tile rebuilt on scrolling back does not yank '
+        'the list (todo 650 review)', (tester) async {
+      await _pump(
+        tester,
+        FakeGardenApi(
+          tasks: [
+            for (var i = 0; i < 40; i++) _task(id: 't$i', title: 'Task $i'),
+          ],
+        ),
+      );
+      final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+      final below = [
+        for (var i = 0; i < 40; i++)
+          if (_text('Task $i').evaluate().isNotEmpty &&
+              tester.getRect(_text('Task $i')).top > screen.height)
+            i,
+      ].first;
+      ProviderScope.containerOf(
+        tester.element(find.byType(GardenScreen)),
+      ).read(gardenFocusProvider.notifier).set(GardenFocus.task('t$below'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(_text('Task $below')).bottom,
+        lessThan(screen.height),
+      );
+
+      // Down to the end: the tile leaves the cache extent and is disposed.
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -20000));
+      await tester.pumpAndSettle();
+      expect(_text('Task $below'), findsNothing);
+
+      // Scroll up until it is built again, above the viewport.
+      while (_text('Task $below').evaluate().isEmpty) {
+        await tester.drag(find.byType(Scrollable).first, const Offset(0, 100));
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+
+      expect(tester.getRect(_text('Task $below')).bottom, lessThan(0));
+    });
+
     testWidgets('a care log that did not save is reported', (tester) async {
       final api = FakeGardenApi(tasks: [_task()])..logSaves = false;
       await _pump(tester, api);
