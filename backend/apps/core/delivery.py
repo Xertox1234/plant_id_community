@@ -31,6 +31,11 @@ Contract
   back to ``pending`` with exponential backoff, and makes it terminal at
   ``DELIVERY_MAX_ATTEMPTS``. A sent row is never claimed again, so a retry
   or re-drive sends only to the recipients that did not get it.
+- **Reopen.** The one exception: ``record_reaccept`` puts a finished forum
+  row back to ``pending`` under a new batch, at most once per
+  ``FORUM_REACCEPT_COOLDOWN_SECONDS`` (an answer accepted again, todo 652).
+  The old batch's task can no longer claim it. The earlier outcome is
+  overwritten in place.
 - **Hold.** ``mark_held`` puts a claimed row back to ``pending`` until a
   release time without spending an attempt: a quiet-hours or coalescing hold
   (todo 624) is not a failure. Reconciliation re-drives it once due, and
@@ -279,11 +284,13 @@ def record_reaccept(
     The forum unique key would swallow the second acceptance's row (ON
     CONFLICT DO NOTHING). So a FINISHED row (sent, suppressed or failed) is
     reopened as pending under a new batch, and the send keeps the outbox's
-    pacing, quiet hours and retries. A row recorded (or last reopened) within
-    ``FORUM_REACCEPT_COOLDOWN_SECONDS`` is not: toggling an acceptance never
-    floods the answerer. The reopen resets ``created_at``, which both that
-    cooldown and reconciliation's max age measure from, so a reopened row is
-    re-driven, never expired at once. Returns the batch id, or
+    pacing, quiet hours and retries. A row recorded, reopened or finished
+    within ``FORUM_REACCEPT_COOLDOWN_SECONDS`` is not (the later of
+    ``created_at`` and ``updated_at``, so a row held for hours and sent late
+    still counts from its send): toggling an acceptance never floods the
+    answerer's browser or inbox. The phone push is outside the outbox and
+    unchanged. The reopen resets ``created_at``, which reconciliation's max
+    age measures from, so a reopened row is re-driven, never expired at once. Returns the batch id, or
     ``REACCEPT_COOLING`` when
     the caller must not send on this channel. A row still pending or claimed
     is the same acceptance in flight and dedups as before. In the caller's
@@ -304,7 +311,7 @@ def record_reaccept(
         return record_batch(
             kind, event, [recipient_id], payload, subject_key=subject_key
         )
-    if row.created_at > now - timedelta(
+    if max(row.created_at, row.updated_at) > now - timedelta(
         seconds=constants.FORUM_REACCEPT_COOLDOWN_SECONDS
     ):
         return REACCEPT_COOLING

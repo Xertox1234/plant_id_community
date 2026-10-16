@@ -131,3 +131,22 @@ Filed by the closing step of the run from `state.py followups-md g1`, plus two l
   owner decision covers only 554, and recipient fault stays the default.
 - Broad run of apps/core, users and forum_host: 3327 passed and 1 failed (`test_r2_storage` sqlite warning,
   the known local-env failure, unrelated).
+
+### 2026-10-16 - Review round 3: non-blocking findings (run 2026-10-16-1135)
+
+- Round 3 was clean (no blocking findings).
+- Fixed, low (cooldown counted from `created_at` only): a row held for quiet hours and sent late could
+  reopen less than 24 h after the real send. The cooldown now uses the later of `created_at` and
+  `updated_at`. The new `test_a_row_recorded_long_ago_but_sent_just_now_is_cooling` fails with the
+  `created_at`-only check and passes now.
+- Fixed, low (the delivery Contract docstring said finished rows are terminal): it gains a **Reopen**
+  bullet, which also notes that the earlier outcome is overwritten in place (the audit-trail low).
+- Fixed, low (the "never floods the answerer" claim): the docstring now names the browser and inbox, and
+  says the phone push is outside the outbox and unchanged (the phone push predates this PR).
+- No change, low (reopen sets `next_attempt_at` to the grace window): the Contract says a task ignores
+  `next_attempt_at`, so the immediate on-commit task sends at once.
+- Declined, low (a FAILED or SUPPRESSED row also cools): the cooldown applies to every finished status, a
+  simple bound the owner chose. A re-accept within 24 h of a failed send is rare.
+- Declined, low (the string sentinel `REACCEPT_COOLING`): the one caller checks it, and the tests pin both
+  arms.
+- Declined, low x2 (5.4.1 and bare `550 relay` classification): same reason as rounds 1 and 2.

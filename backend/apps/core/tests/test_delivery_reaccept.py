@@ -68,6 +68,16 @@ def test_a_finished_row_inside_the_cooldown_stays_quiet(user):
     assert _row(user).status == Status.SENT
 
 
+def test_a_row_recorded_long_ago_but_sent_just_now_is_cooling(user):
+    # Held for quiet hours past the cooldown, then sent: the window counts
+    # from the send, not from when the row was recorded.
+    _reaccept(user)
+    _finish_a_day_ago(user)
+    DeliveryIntent.objects.filter(recipient=user).update(updated_at=timezone.now())
+
+    assert _reaccept(user) == delivery.REACCEPT_COOLING
+
+
 def test_a_finished_row_past_the_cooldown_reopens_under_a_new_batch(user):
     first = _reaccept(user)
     _finish_a_day_ago(user)
