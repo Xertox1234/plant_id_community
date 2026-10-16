@@ -4,7 +4,7 @@ export const meta = {
   whenToUse: 'Called by the completing-todos engine with args {round, prs} from `state.py review-args`',
   phases: [
     { title: 'Review', detail: 'every PR: three bug-lens reviewers, plus every domain reviewer the orchestrator routes to' },
-    { title: 'Refute', detail: 'two skeptics per critical/high finding; it stops blocking only if both refute it' },
+    { title: 'Refute', detail: 'two skeptics per critical/high finding and per medium regression; it stops blocking only if both refute it' },
     { title: 'Repair', detail: 'round 1 only: a residue check, then todo-worker in the PR worktree, then todo-verifier' },
   ],
 }
@@ -182,6 +182,7 @@ const prs = (args && args.prs) || []
 const BLOCKING = new Set(['critical', 'high'])
 // Todo 617: a medium that is a NEW regression against origin/main holds the PR too. In round 1 it is refuted
 // and repaired like a high; in round 2 (and 3) it blocks the group, so the owner sees it through `hand-round`.
+const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low']
 const isBlocking = f => BLOCKING.has(f.severity) || (f.severity === 'medium' && f.regression === true)
 
 function diffRange(p) {
@@ -367,10 +368,13 @@ function byLocation(findings, worktree) {
     const key = JSON.stringify([f.file, f.line])
     const g = groups.get(key)
     if (!g) { groups.set(key, { ...f, also: [] }); continue }
-    // A critical takes over as the representative; its own words leave `also` (todo 478: they could repeat).
-    const [keep, other] = f.severity === 'critical' && g.severity !== 'critical'
+    // The more severe finding takes over as the representative; its own words leave `also` (todo 478: they
+    // could repeat). Todo 617: a medium regression never stands for a high at the same line.
+    const [keep, other] = SEVERITY_ORDER.indexOf(f.severity) < SEVERITY_ORDER.indexOf(g.severity)
       ? [{ ...f, also: g.also.filter(s => s !== f.summary) }, g] : [g, f]
     if (other.summary !== keep.summary && !keep.also.includes(other.summary)) keep.also.push(other.summary)
+    // A merged medium regression keeps the location a regression only while a medium represents it.
+    if (keep.severity === 'medium' && other.regression === true) keep.regression = true
     groups.set(key, keep)
   }
   return [...groups.values()]

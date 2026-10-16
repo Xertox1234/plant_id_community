@@ -119,3 +119,20 @@ flag. A reviewer can fail to set the flag, so the hand read stays as a backstop.
 - `scripts/todos/test_state_flow.py` gains cases: a refuted medium regression in round 1 and in round 2 is
   clean with no open criticals, and `_holds` on unlabelled, critical, high and medium lines. Both cases fail
   against the old `_holds` and pass now.
+
+### 2026-10-16 - Review round 1: non-blocking findings (run 2026-10-16-1135)
+
+- Fixed, medium (`scripts/todos/state.py` ingest_review): a medium regression the refuters dismissed
+  survived only as a refuted line, never curated, so a real defect that main shares disappeared. It is now
+  also stored as an ordinary medium follow-up (the `regression` flag stripped). The round 1 and round 2
+  cases in `scripts/todos/test_state_flow.py` assert the follow-up line; they fail with the new lines
+  disabled and pass with them.
+- Fixed, medium (`scripts/todos/test_state_flow.py`): no test sent a medium regression through
+  `result["refuted"]`. Covered by the round-1 repair's cases and the follow-up assertion above.
+- Fixed, low x2 (`.claude/workflows/todo-review.js` byLocation): a medium regression that arrived first stood
+  for a high at the same line. The more severe finding now takes over, and the flag stays only while a medium
+  represents the location. The new `scripts/todos/test_workflows.js` case covers both arrival orders; it fails
+  with the old critical-only takeover and passes now.
+- Fixed, low (`.claude/workflows/todo-review.js` meta): the Refute phase detail now names medium regressions.
+- Declined, low (`.claude/skills/completing-todos/SKILL.md` manual fallback): it depends on wording, and that
+  is the owner's chosen fallback (owner decision 2026-10-11). The reviewer suggested no change.

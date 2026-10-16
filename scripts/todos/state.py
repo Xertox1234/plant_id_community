@@ -1914,6 +1914,10 @@ def ingest_review(run, results, round_no, git=run_git, criteria=None, source=Non
         worktree = entries[0][1].get("worktree", "")
         # Todo 617: a medium flagged `regression` is blocking, not a follow-up (the workflow refutes it like a high).
         follow = [{**f, "file": _rel_file(f["file"], worktree)} for f in result["findings"] if not is_blocking(f)]
+        # A medium regression the refuters dismissed was refuted only as a regression; the defect itself may be
+        # real (main shares it), so it is also stored as an ordinary medium follow-up.
+        follow += [{**{k: v for k, v in f.items() if k != "regression"}, "file": _rel_file(f["file"], worktree)}
+                   for f in result.get("refuted", []) if f["severity"] == "medium"]
         _store_followups(run, gid, entries, follow)
         # Blocking findings both refuters dismissed are kept whole (severity, every phrasing, no cap): the
         # PR comment before arming, the follow-up todos and the critical hold below all read them (todo 478).

@@ -1726,6 +1726,9 @@ def regression_medium_tests():
         check(f"617 repair: round {round_no}: a medium regression both refuters dismissed is clean, not held",
               got == {"g1": "clean"} and run["todos"]["1"]["stage"] == ("pr_open", "reviewed")[round_no - 1]
               and state._open_criticals(state._group_entries(run, "g1")) == [], (got, run["todos"]["1"]))
+        check(f"617 review: round {round_no}: a dismissed medium regression is kept as an ordinary medium follow-up",
+              any(line.startswith("medium: g.py:7 ") for line in run["groups"]["g1"]["followups"]),
+              run["groups"]["g1"].get("followups"))
     check("617 repair: a refuted line with no severity label still holds (fail closed); a labelled critical does",
           state._holds("g.py:7 x") and state._holds("critical: g.py:7 x")
           and not state._holds("medium: g.py:7 x") and not state._holds("high: g.py:7 x"))

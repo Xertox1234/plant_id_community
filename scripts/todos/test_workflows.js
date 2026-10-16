@@ -456,6 +456,14 @@ async function main() {
   r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high }))
   check('617: a refuter for a finding without the flag gets no regression line',
     refuteCalls(r.calls).every(c => !c.prompt.includes('regression against origin/main')), refuteCalls(r.calls).map(c => c.prompt))
+  const highAt7 = { reviewed_range: 'x', findings: [{ ...medium().findings[0], severity: 'high',
+    summary: 'a high at the same line' }] }
+  for (const [label, lens, domain] of [['medium first', medium(true), highAt7], ['high first', highAt7, medium(true)]]) {
+    r = await run('todo-review', { round: 2, prs: [pr({ round: 2 })] }, reviewStub({ lens, domain }))
+    const b = r.result.results[0].blocking
+    check(`617 review: a high and a medium regression at one line collapse to the high (${label})`,
+      b.length === 1 && b[0].severity === 'high' && b[0].summary === 'a high at the same line' && !b[0].regression, b)
+  }
   r = await run('todo-review', { round: 2, prs: [pr({ round: 2 })] }, reviewStub({ lens: medium(true) }))
   check('617 AC2: round 2: a medium regression is reported blocking, with no repair',
     r.result.results[0].blocking.length === 1 && r.result.results[0].repair === null
