@@ -122,6 +122,10 @@ class _GardenListState extends ConsumerState<_GardenList> {
       _highlighted = id;
       _revealSeq++;
     });
+    // A tile built this frame claims the reveal first. One not built yet
+    // (past the cache extent) never claims it later, mid-drag.
+    final seq = _revealSeq;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _claimReveal(seq));
   }
 
   @override

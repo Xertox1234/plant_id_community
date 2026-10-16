@@ -202,8 +202,8 @@ def device_tokens_for_users(user_ids) -> dict[int, list[str]]:
     """Each account's device tokens, ``{user_id: [token, ...]}``.
 
     The union of ``PushDevice`` and the legacy column (see the module
-    docstring), deduplicated, legacy first and devices in registration
-    order, so a send loop is deterministic. Accounts with no device are
+    docstring), deduplicated, legacy first and devices from least to most
+    recently registered (``updated_at``), so a send loop is deterministic. Accounts with no device are
     absent.
 
     At most the ``PUSH_DEVICE_MAX_PER_ACCOUNT`` most recently registered

@@ -55,7 +55,7 @@ Filed by the closing step of the run from `state.py followups-md g2`.
 - #1 fixed: every due task is now the same `_TaskTile(key: ValueKey(id))` highlighted or not (the `KeyedSubtree`/`GlobalKey` wrapper is gone), and the tile scrolls itself into view when highlighted, so an in-flight Mark done/Skip keeps its busy state. Tests in `plant_community_mobile/test/features/garden/garden_screen_test.dart` (the first fails on the old code).
 - #2 fixed for the single path: `send_forum_push` now guards each per-device `token=` re-enqueue and logs only the exception type. The batch path was already guarded on main (`send_forum_push_batch`, the todo 643 #1 `try` around the hand-off). #3 fixed: per-account 429 tests for both endpoints (separate buckets, 30/h each).
 - #4 fixed: `MeProfileView.perform_update` runs the column write and its `PushDevice` mirror in one `transaction.atomic()`; a caught `IntegrityError` still keeps the column (`register_device`'s own savepoint rolls back), any other error rolls both back.
-- #5/#6 fixed per the owner decision: `PUSH_DEVICE_MAX_PER_ACCOUNT = 10`; `register_device` evicts the account's oldest devices (by `created_at`) past it, silently, never the device being registered, and clears an evicted token from the legacy column. `device_tokens_for_users` also targets only the newest 10, so rows from before the cap cannot stretch a forum push or the care sweep. The token format check is declined: FCM publishes no token grammar, so a check could drop real devices, and the cap already bounds the loop.
+- #5/#6 fixed per the owner decision: `PUSH_DEVICE_MAX_PER_ACCOUNT = 10`; `register_device` evicts the account's oldest devices (by `created_at`; superseded by `updated_at` in review round 1 below) past it, silently, never the device being registered, and clears an evicted token from the legacy column. `device_tokens_for_users` also targets only the newest 10, so rows from before the cap cannot stretch a forum push or the care sweep. The token format check is declined: FCM publishes no token grammar, so a check could drop real devices, and the cap already bounds the loop.
 - #7 fixed: the installation id moves to a new key in `FlutterSecureStorage` with `first_unlock_this_device`, which a backup restore never carries to another phone; the old key is deleted, never reused. A new key, because the iOS plugin matches accessibility on read. An existing install mints one new id once, and the backend updates that device's row in place (same token).
 
 ### 2026-10-16 - Verified by the todo sweep (run 2026-10-16-1135)
@@ -96,3 +96,26 @@ Filed by the closing step of the run from `state.py followups-md g2`.
   adds at most one token.
 - Declined, low (cap tests derive fixtures from the constant): `test_the_cap_is_ten` pins the literal, so a
   shrink of the constant fails on that test.
+
+### 2026-10-16 - Review round 2: non-blocking findings (run 2026-10-16-1135)
+
+- Fixed, medium x2 + low (`garden_screen.dart`): the round-1 claim was taken only in a tile's `initState`, so a
+  reminder for a tile past the cache extent stayed unclaimed. The first build as the user scrolled toward it
+  then yanked the list. `_consume` now claims the token in a post-frame callback, after any tile built that
+  frame has claimed it. The new `a reminder for a tile not yet built never yanks the list later` test fails
+  without that claim and passes now. Not scrolling to an unbuilt tile is unchanged from main: reveal needs a
+  built tile.
+- Fixed, low (`backend/apps/forum_host/api.py` legacy PATCH): a rotation registered the new token before
+  unregistering the old one, so at the cap it evicted a live phone. The old token now goes first. The new
+  `test_a_legacy_rotation_at_the_cap_evicts_no_live_device` fails with the old order and passes now.
+- Fixed, low x2 (`device_tokens_for_users` docstring): it now says least to most recently registered.
+- Fixed, low x2 (`test_a_failed_release_rolls_back_the_replacing_write`): now asserts the 500.
+- Fixed, low (this Work Log): the Implemented entry's "by `created_at`" is marked as superseded.
+- Fixed, low (`garden_screen_test.dart`): the scroll loops are bounded at 200 drags and assert the tile is
+  found.
+- Declined, low (`test_the_cap_is_ten` checks no behaviour): it is a deliberate tripwire on the owner's number
+  (2026-10-16); the behavioural cap tests read the constant.
+- Declined, low (the legacy keychain delete is not retried): a leftover item is clutter only, since nothing
+  reads the old key.
+- Declined, low (the this-device-only test re-reads the constant): the plugin's mock storage ignores
+  `IOSOptions`, so no unit test can observe the options in use. The constant is the only seam.

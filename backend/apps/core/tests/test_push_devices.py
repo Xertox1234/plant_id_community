@@ -485,10 +485,11 @@ class PushDeviceApiTest(TestCase):
             "apps.core.push_devices.unregister_device",
             side_effect=OperationalError("connection lost"),
         ):
-            self.client.patch(
+            response = self.client.patch(
                 ME_PROFILE, {"fcm_token": "fake-token-second"}, format="json"
             )
 
+        self.assertEqual(response.status_code, 500)
         self.assertEqual(_legacy(self.alice), "fake-token-first")
         self.assertEqual(_tokens(self.alice), ["fake-token-first"])
 
@@ -611,6 +612,28 @@ class DeviceCapTest(TestCase):
         register_device(self.alice, "fake-token-new", "install-new")
 
         self.assertEqual(_tokens(self.bob), ["fake-token-bob"])
+
+    def test_a_legacy_rotation_at_the_cap_evicts_no_live_device(self):
+        # Alice's tenth device is a legacy build; it rotates its token through
+        # the profile PATCH. The old token's row frees its slot first.
+        PushDevice.objects.filter(token="fake-token-9").delete()
+        _set_legacy(self.alice, "fake-token-legacy-1")
+        register_device(
+            self.alice, "fake-token-legacy-1", platform="legacy", legacy=True
+        )
+        cache.clear()
+        client = APIClient()
+        client.force_authenticate(self.alice)
+
+        response = client.patch(
+            ME_PROFILE, {"fcm_token": "fake-token-legacy-2"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            _tokens(self.alice),
+            [f"fake-token-{i}" for i in range(9)] + ["fake-token-legacy-2"],
+        )
 
     def test_the_api_evicts_silently(self):
         cache.clear()

@@ -576,13 +576,42 @@ void main() {
       expect(_text('Task $below'), findsNothing);
 
       // Scroll up until it is built again, above the viewport.
-      while (_text('Task $below').evaluate().isEmpty) {
+      for (var i = 0; i < 200 && _text('Task $below').evaluate().isEmpty; i++) {
         await tester.drag(find.byType(Scrollable).first, const Offset(0, 100));
         await tester.pump();
       }
+      expect(_text('Task $below'), findsOneWidget);
       await tester.pumpAndSettle();
 
       expect(tester.getRect(_text('Task $below')).bottom, lessThan(0));
+    });
+
+    testWidgets('a reminder for a tile not yet built never yanks the list '
+        'later (todo 650 review)', (tester) async {
+      await _pump(
+        tester,
+        FakeGardenApi(
+          tasks: [
+            for (var i = 0; i < 40; i++) _task(id: 't$i', title: 'Task $i'),
+          ],
+        ),
+      );
+      final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+      expect(_text('Task 35'), findsNothing, reason: 'past the cache extent');
+      ProviderScope.containerOf(
+        tester.element(find.byType(GardenScreen)),
+      ).read(gardenFocusProvider.notifier).set(const GardenFocus.task('t35'));
+      await tester.pumpAndSettle();
+
+      // The user scrolls down until the tile is first built, below the fold.
+      for (var i = 0; i < 200 && _text('Task 35').evaluate().isEmpty; i++) {
+        await tester.drag(find.byType(Scrollable).first, const Offset(0, -100));
+        await tester.pump();
+      }
+      expect(_text('Task 35'), findsOneWidget);
+      await tester.pumpAndSettle();
+
+      expect(tester.getRect(_text('Task 35')).top, greaterThan(screen.height));
     });
 
     testWidgets('a care log that did not save is reported', (tester) async {

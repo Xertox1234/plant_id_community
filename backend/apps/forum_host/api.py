@@ -142,11 +142,13 @@ class MeProfileView(forum_views.MeProfileView):
             token = serializer.validated_data["fcm_token"]
             try:
                 if token:
+                    # The replaced token goes first, so it frees its slot
+                    # before the device cap evicts a live phone.
+                    if previous and previous != token:
+                        unregister_device(self.request.user, previous)
                     register_device(
                         self.request.user, token, platform="legacy", legacy=True
                     )
-                    if previous and previous != token:
-                        unregister_device(self.request.user, previous)
                 elif previous:
                     unregister_device(self.request.user, previous)
             except IntegrityError:
