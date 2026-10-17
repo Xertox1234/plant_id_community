@@ -261,3 +261,17 @@ Todo 428 left this out as its optional item 4 ("slice E").
 - The web composer previews the last link anywhere in the body, not what the
   server will turn into a card. After todo 655 that mismatch is smaller but
   still there; this todo doesn't change the web.
+
+### 2026-10-17 - Review rounds 1 and 2: non-blocking findings
+
+- **Declined, with reasons:**
+  - *With `FORUM_EMBEDS_ENABLED=False` the composer still skips video lines*,
+    so the preview and "+N more" undercount. Embeds are on in production; the
+    client has no embeds flag to read. The doc comment states the
+    assumption.
+  - *The card-link scan runs on every keystroke* (only the fetch is
+    debounced): composer drafts are short. Declined until a long-draft
+    slowdown is seen.
+  - *`forumBody.test.ts` reads the shared `video_url_cases.json` across
+    packages*: deliberate, since one table pins both matchers. It needs the
+    monorepo checkout, which every CI job uses.

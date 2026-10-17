@@ -640,6 +640,24 @@ void _backGuardTests() {
       expect(args.initialBodyText, isEmpty);
     });
 
+    // Review round 2 (todo 655): two paragraphs with no card between them
+    // are a paragraph break, which a '\n' join would collapse on save.
+    test('two adjacent paragraphs still warn, with or without a card', () {
+      for (final body in const [
+        [ParagraphBlock('One'), ParagraphBlock('Two')],
+        [
+          ParagraphBlock('One'),
+          ParagraphBlock('Two'),
+          LinkPreviewBlock(url: 'https://example.com/'),
+        ],
+      ]) {
+        final args = ForumComposeArgs.edit(post: post(id: 7, body: body));
+
+        expect(args.hasNonTextContent, isTrue, reason: '$body');
+        expect(args.initialBodyText, isEmpty, reason: '$body');
+      }
+    });
+
     test('a card with no usable link offers nothing and warns', () {
       final args = ForumComposeArgs.edit(
         post: post(id: 7, body: const [LinkPreviewBlock(url: '')]),

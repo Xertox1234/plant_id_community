@@ -288,3 +288,43 @@ count.
   widens which links qualify.
 - Already-stored posts are not rewritten. An old post is split the next time
   it's edited and saved, which is the intended result.
+
+### 2026-10-17 - Review rounds 1 and 2: non-blocking findings, and the round-2 block
+
+- **Round-2 block, owner decision ("Merge as is + new todo", 2026-10-17).**
+  Round 2 blocked on one regression, which two reviewers reported: a stored
+  body near `MAX_BODY_BLOCKS` (for example 99 paragraphs plus
+  `Intro<br>url<br>Outro`) saves on main but 400s here, because the split
+  pushes it past 100 blocks. That is exactly what acceptance criterion 4
+  prescribes (refuse a split past the cap). The fix, bounding the split by
+  the block budget, contradicts that criterion, and a round 3 may not change
+  one. The owner merged it as is; todo 657 bounds the split and replaces
+  criterion 4.
+- **Fixed by hand after round 2 (a regression this PR introduced):** the
+  mobile edit view accepted two adjacent paragraphs with no card between them
+  and joined them with one `\n`, collapsing a paragraph break on save. On
+  main that body opened with the warning. Adjacent paragraphs now warn again
+  (`forum_composer_screen.dart`, a test in
+  `forum_composer_screen_test.dart`, mutation-checked: guard removed → the
+  test fails; restored from a copy, confirmed with `cmp`). Flutter forum
+  suite 638 passed, analyze clean.
+- **Declined, with reasons:**
+  - *The split runs with the kill switch off or no fetcher* (both rounds):
+    the stored shape changes with no card gained. Declined: content is kept,
+    a later re-enable needs no re-edit, and making the split depend on the
+    fetcher adds a second state to the round trip. Revisit in todo 657 if it
+    matters.
+  - *Blank lines next to a link stay in the neighbouring run*
+    (`Intro<br>` / `<br>Outro`): cosmetic, consistent across re-saves (pinned
+    by the resave test). Folded into todo 657's scope as an optional
+    clean-up.
+  - *`SPAM_MAX_LINKS` 3 → 5 also loosens DMs* (both rounds): the owner's
+    decision 1a set the shared default. A DM-only limit is a new setting, so
+    it's declined here and named in todo 657's Notes for the owner.
+  - *The package default change affects every host*: the README already
+    states the new default (5) and that a host can set it back.
+  - *Trailing punctuation on a video line* (`https://youtu.be/x.`): the line
+    is split out and may not embed. Cosmetic (it stays a linked paragraph);
+    folded into todo 657.
+  - *A near-cap legacy body refused after round 1's fix*: this is the round-2
+    block above.

@@ -88,7 +88,9 @@ String? _lineText(String line) {
 /// each once, at most [kForumMaxLinkCardsPerPost]. The server's rule (todo
 /// 655): a line whose whole text is one `http(s)` URL becomes a card — not a
 /// URL inside a sentence, a list item (`- `) or inline code, and not a video,
-/// which embeds instead.
+/// which embeds instead. This assumes the host has embeds on: with
+/// `FORUM_EMBEDS_ENABLED=False` the server cards video lines too, so this
+/// count is low there (the client cannot read that flag).
 List<String> forumComposerCardLinks(String text) {
   final links = <String>[];
   for (final line in text.split('\n')) {

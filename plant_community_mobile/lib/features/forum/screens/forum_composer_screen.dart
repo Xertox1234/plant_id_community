@@ -70,14 +70,24 @@ class ForumComposeArgs {
     // unchanged sends the same lines back <br>-joined, which the server
     // splits the same way again, reusing every stored card with no refetch.
     final parts = <String>[];
+    ForumBodyBlock? previous;
     for (final block in post.body) {
-      final part = switch (block) {
-        EmbedBlock(:final url) || LinkPreviewBlock(:final url)
-            when url.isNotEmpty =>
-          escapeMarkerChars(url),
-        ParagraphBlock(:final html) => _editableParagraphText(html),
-        _ => null,
-      };
+      // Two paragraphs side by side are never what the split makes (its text
+      // runs always have a card or embed between them): they are a
+      // paragraph break this composer cannot write, and joining them with
+      // one '\n' would collapse it into a line break on save.
+      final adjacentParagraphs =
+          block is ParagraphBlock && previous is ParagraphBlock;
+      previous = block;
+      final part = adjacentParagraphs
+          ? null
+          : switch (block) {
+              EmbedBlock(:final url) || LinkPreviewBlock(:final url)
+                  when url.isNotEmpty =>
+                escapeMarkerChars(url),
+              ParagraphBlock(:final html) => _editableParagraphText(html),
+              _ => null,
+            };
       if (part == null) {
         // Anything else (a heading, an image, a quote, a code block, markup
         // outside the composer's grammar) cannot be pre-filled without losing
