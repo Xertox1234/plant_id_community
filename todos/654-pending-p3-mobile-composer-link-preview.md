@@ -3,7 +3,7 @@ status: pending
 priority: p3
 issue_id: "654"
 tags: [forum, mobile, link-preview]
-dependencies: []
+dependencies: ["655"]
 triage: ready
 triaged: 2026-10-17
 owner_decision: "Simulator counts: an iOS simulator run against the local backend satisfies the on-device criterion (2026-10-17)"
@@ -72,11 +72,19 @@ Todo 428 left this out as its optional item 4 ("slice E").
    endpoint (https only), as the web composer does. This covers the author's
    own device while composing. Readers still get only our cached copy (todo
    428's rule is unchanged).
-2. **Preview what readers will get.** Mirror the server rule in Dart: a
-   paragraph that is one sole non-video `http(s)` URL, up to the first 5.
-   - The simplest first slice is a card for the **first** such paragraph, plus
-     a "+N more" hint when there are more.
-   - Video URLs keep their existing embed handling and get no link card.
+2. **Preview what readers will get.** Mirror the server's split rule from
+   todo 655 in Dart: a composer **line** that is one sole `http(s)` URL, not
+   inside a list item (a line starting "- ") or inline-code markers, and not a video.
+   - Show the card for the **first** such line, plus a "+N more links will
+     show as cards" hint for the rest, counted up to the server's real
+     ceiling. That is `MAX_LINK_PREVIEWS_PER_BODY` (5), or the spam limit
+     todo 655's owner decision settles, whichever is lower.
+   - Only the first line is fetched; the hint is counted locally, so typing
+     several links costs one preview request.
+   - **Video:** there is no Dart video matcher today. Port the web's
+     `embedUrlOf` table (YouTube + Vimeo, `web/src/utils/forumBody.ts`) and
+     test both against the same cases, as `linkPreviewShortAddress` was.
+     A video line gets no link card and does not count toward the hint.
 3. Add `fetchLinkPreview(String url)` to `ForumApi` and its implementation. It
    returns `null` for `available: false` and maps 429 or errors to `null`
    with a debug log, never a user-facing error.
@@ -111,6 +119,11 @@ Todo 428 left this out as its optional item 4 ("slice E").
       shows the card without an image.
 - [ ] A URL inside prose, a video URL, and an `available: false` reply show
       no card. Pinned by tests.
+- [ ] With several URL lines, the first gets the card and the hint counts the
+      rest up to the server's ceiling. A video line is not counted. Pinned by
+      a widget test.
+- [ ] The Dart video matcher agrees with the web's `embedUrlOf` on one shared
+      case table. Pinned by a test.
 - [ ] Editing the URL replaces the card, a stale reply never shows, and the
       debounce timer is cancelled on dispose. Pinned by tests.
 - [ ] A failed or throttled preview request shows nothing and blocks nothing:
@@ -128,10 +141,16 @@ Todo 428 left this out as its optional item 4 ("slice E").
   server; this todo is only author-side parity.
 - The owner decided the composer image the same day: "show the image"
   (Recommended Action 1). The todo is ready to build.
+- Rescoped the same day. Triage found that a mobile post can hold at most one
+  card, because the composer sends one `<br>`-joined paragraph and the
+  server's `_sole_url` rejects whitespace. The web has the same limit. The
+  owner chose the server fix ("Server, new todo"): todo 655 splits link lines
+  out into their own paragraphs. This todo now depends on 655, and its "+N
+  more" hint is real.
 
 ## Notes
 
 - P3: no reader-facing gap; it's a composer convenience.
 - The web composer previews the last link anywhere in the body, not what the
-  server will turn into a card. If that mismatch matters, it's a separate
-  todo; this one doesn't change the web.
+  server will turn into a card. After todo 655 that mismatch is smaller but
+  still there; this todo doesn't change the web.
