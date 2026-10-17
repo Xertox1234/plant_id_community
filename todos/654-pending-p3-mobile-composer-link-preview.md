@@ -64,12 +64,11 @@ Todo 428 left this out as its optional item 4 ("slice E").
 
 ## Recommended Action
 
-1. **Owner decision at triage: the composer image.** Either
-   - (a) show the site's `og:image` (https only), as the web does; the author
-     picked the link, so their device fetching it leaks nothing new; or
-   - (b) a card with no image in the composer.
-
-   (a) is recommended, for parity with the web.
+1. **The composer image: DECIDED 2026-10-17 (owner): "show the image".**
+   The composer card shows the site's `og:image` straight from the preview
+   endpoint (https only), as the web composer does. This covers the author's
+   own device while composing. Readers still get only our cached copy (todo
+   428's rule is unchanged).
 2. **Preview what readers will get.** Mirror the server rule in Dart: a
    paragraph that is one sole non-video `http(s)` URL, up to the first 5.
    - The simplest first slice is a card for the **first** such paragraph, plus
@@ -98,15 +97,15 @@ Todo 428 left this out as its optional item 4 ("slice E").
 - Patterns: `plant_community_mobile/docs/patterns/riverpod.md` and
   `flutter-patterns.md`. A codegen provider needs `build_runner` (pre-commit
   `flutter-codegen` hook).
-- No backend change. If (a) is chosen, the composer's image goes through
+- No backend change. The composer's image goes through
   `CachedNetworkImage` like the reader's.
 
 ## Acceptance Criteria
 
-- [ ] The owner's image decision (1a or 1b) is recorded here with its date.
 - [ ] A sole-URL paragraph in the mobile composer shows a preview card after
-      the debounce, rendered by the same widget the reader uses. Pinned by a
-      widget test.
+      the debounce, with the site's https `og:image`, rendered by the same
+      widget the reader uses. Pinned by a widget test. A non-https image URL
+      shows the card without an image.
 - [ ] A URL inside prose, a video URL, and an `available: false` reply show
       no card. Pinned by tests.
 - [ ] Editing the URL replaces the card, a stale reply never shows, and the
@@ -124,6 +123,8 @@ Todo 428 left this out as its optional item 4 ("slice E").
 - Split out of todo 428 (archived in #1144), where it was the optional
   item 4 / slice E. Readers on both platforms already get the card from the
   server; this todo is only author-side parity.
+- The owner decided the composer image the same day: "show the image"
+  (Recommended Action 1). The todo is ready to build.
 
 ## Notes
 
