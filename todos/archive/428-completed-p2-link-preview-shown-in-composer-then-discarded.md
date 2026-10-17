@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "428"
 tags: [forum, mobile, web, backend, link-preview]
@@ -149,36 +149,49 @@ So the preview is built and it works; it just isn't used where it matters.
 
 ## Acceptance Criteria
 
-- [ ] A post whose body is only a non-video URL is stored as a
+- [x] A post whose body is only a non-video URL is stored as a
       `link_preview` block with the fetched snapshot. Covered by a test that
       fails first, with the fetcher faked (no network in tests).
-- [ ] A failed or unavailable fetch, or no configured fetcher, leaves a
+      (Slice A, package link-preview tests; prod topic 50 post 298 is stored
+      this way, 2026-10-17 entry.)
+- [x] A failed or unavailable fetch, or no configured fetcher, leaves a
       tappable link (a paragraph holding `<a href>`), not a card and not
-      plain text.
-- [ ] A video URL still becomes an `embed` (todo 421 wins), and a link inside
-      prose stays in the prose as a link.
-- [ ] Reading a post never contacts the linked site. Pinned by a test that
-      patches the fetcher to raise.
-- [ ] Web and mobile render the card with the shortened URL (origin plus
+      plain text. (Slice A "linked-paragraph fallback" mutant; prod topic 49
+      post 296, the CBC link, is stored as `<a href>`.)
+- [x] A video URL still becomes an `embed` (todo 421 wins), and a link inside
+      prose stays in the prose as a link. (Slice A "video wins" and auto-link
+      mutants.)
+- [x] Reading a post never contacts the linked site. Pinned by a test that
+      patches the fetcher to raise. (Slice A "read never fetches" mutant.)
+- [x] Web and mobile render the card with the shortened URL (origin plus
       `…`) and never the full one, and open the link on tap. Pinned by tests.
-- [ ] The full URL is reachable: web `title` (hover), mobile long-press, and
+      (Slice C: `shortLinkAddress` / `linkPreviewShortAddress` on one table;
+      web 15/15 and Flutter 13/13 mutants.)
+- [x] The full URL is reachable: web `title` (hover), mobile long-press, and
       a screen-reader custom action. The spoken label never contains the
-      full URL. Pinned by widget and Vitest tests.
-- [ ] A preview image is downloaded once at write time, validated,
+      full URL. Pinned by widget and Vitest tests. (Slice C; long-press opens
+      a sheet rather than a Tooltip, deviation recorded there.)
+- [x] A preview image is downloaded once at write time, validated,
       re-encoded and served from our storage. No card on either client
       references a third-party image host. Pinned by a test asserting the
-      stored `image_url` is on our media origin.
-- [ ] More than 5 standalone links in one post: the first 5 become cards and
-      the rest stay tappable links. Pinned by a test.
-- [ ] `prune_link_preview_images` deletes only unreferenced cached images
+      stored `image_url` is on our media origin. (Slice B,
+      `apps/forum_host/tests/test_link_preview_images.py`; prod topic 50's
+      `image_url` is on `media.houseplant-md.com`.)
+- [x] More than 5 standalone links in one post: the first 5 become cards and
+      the rest stay tappable links. Pinned by a test. (Slice A "cap" mutant.)
+- [x] `prune_link_preview_images` deletes only unreferenced cached images
       older than the grace period, and keeps one referenced only by a
       pending or historical revision. Pinned by tests. It runs nightly from
       `forum-prune-cron`, and its first production run is confirmed in the
-      cron logs.
-- [ ] Every "new block" change is present: the migration, the serializer
+      cron logs. (Slice D,
+      `apps/forum_host/tests/test_prune_link_preview_images.py`; #841 applied
+      2026-09-26; the 2026-10-17 03:03 UTC run is quoted below.)
+- [x] Every "new block" change is present: the migration, the serializer
       branch, the web renderer, the Flutter model and widget, and the README.
-- [ ] On a device: a link pasted in the app composer shows as a preview card
-      for readers on both platforms.
+      (Migration 0039 and README in slice A; renderers in slice C.)
+- [x] On a device: a link pasted in the app composer shows as a preview card
+      for readers on both platforms. (Build 15: app reader seen 2026-09-26;
+      web reader confirmed 2026-10-17 at the API level, see below.)
 
 ## Work Log
 
@@ -534,3 +547,25 @@ both clients' card-type set (`CARD_BLOCK_TYPES` in
 `forum_body_renderer.dart`), because 428 slice C had landed. There is nothing
 left to hand off. A `link_preview` with a null envelope or an unusable URL
 renders nothing, so it never joins a run.
+
+### 2026-10-17 - Last two criteria confirmed in production; archived
+
+The owner approved both read-only production checks.
+
+- **Cron:** `forum-prune-cron` (#841, applied successfully 2026-09-26) ran
+  both commands in its 2026-10-17 run:
+  - `03:03:20Z  Pruned 0 tombstone row(s) older than 30 day(s).`
+  - `03:03:26Z  [PRUNE] link-preview images: 1 stored, 0 younger than 24h, deleted 0, 0 failed.`
+
+  The one stored image is the Wikipedia card's image, which is referenced, so
+  it was kept, as designed.
+- **Web reader:** `GET /api/v1/forum/topics/50/posts/` ("Link Test 2", post
+  298, posted from the app 2026-09-26) returns a `link_preview` block. Its
+  `url` is `https://en.wikipedia.org/wiki/Monstera_deliciosa`, its title is
+  "Monstera deliciosa - Wikipedia", and its `image_url` is under
+  `https://media.houseplant-md.com/forum/link-previews/`. The web
+  `StreamFieldRenderer` renders this block with `LinkPreviewCard`, pinned by
+  Vitest in slice C. This was checked through the API that both clients read;
+  no browser screenshot was taken.
+- Nothing is left open. The mobile composer preview (item 4, optional slice E)
+  was never built and is not an acceptance criterion.
