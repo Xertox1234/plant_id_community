@@ -11,7 +11,7 @@ Moderators" group holds), is trusted, checked at request time. Plain
 These drive the real HTTP API, which is also what the mobile app calls
 (``plant_community_mobile`` posts to the same ``/forum/`` endpoints), so the
 create and edit paths are pinned for both clients. The content is spam the
-heuristic check holds (five links), so a "published" here can only come from
+heuristic check holds (six links), so a "published" here can only come from
 the bypass, never from the spam check passing it.
 
 Trust stays the AUTHOR's: a moderator acting on an untrusted member's content
@@ -47,7 +47,7 @@ from wagtail_forum.workflow import (
 User = get_user_model()
 pytestmark = [pytest.mark.django_db, pytest.mark.urls("wagtail_forum.tests.api.urls")]
 
-SPAM = "http://a.com http://b.com http://c.com http://d.com http://e.com"
+SPAM = "http://a.com http://b.com http://c.com http://d.com http://e.com http://f.com"
 
 
 @pytest.fixture(autouse=True)

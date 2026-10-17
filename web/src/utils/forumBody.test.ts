@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Editor, generateHTML, type JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
@@ -14,6 +16,7 @@ import {
   postQuoteNode,
   postQuoteText,
   isBlankHtml,
+  providerVideoUrl,
   toComposerDoc,
   QUOTE_TEXT_MAX_CHARS,
 } from './forumBody';
@@ -933,6 +936,84 @@ describe('forumBody link_preview blocks (todo 428)', () => {
         { type: 'link_preview', value: { ...card, url: 'javascript:alert(1)' } },
       ])
     ).toEqual(emptyDoc());
+  });
+});
+
+describe('a link split out of its paragraph round-trips (todo 655)', () => {
+  // The server splits a link on its own line into its own block: a post
+  // written as Intro / link / Outro is stored as paragraph, link_preview,
+  // paragraph. Re-editing merges them back into ONE paragraph run, which the
+  // server splits again, reusing the stored card with no fetch. The backend
+  // twin is test_655_an_unchanged_resave_of_a_split_post_stores_the_same_body
+  // (wagtail_forum/tests/api/test_link_previews.py), which resends exactly
+  // this HTML.
+  const url = 'https://example.com/a';
+  const stored: StreamFieldBlock[] = [
+    { type: 'paragraph', value: '<p>Intro</p>' },
+    {
+      type: 'link_preview',
+      value: {
+        url,
+        title: 'T',
+        description: '',
+        site_name: '',
+        domain: 'example.com',
+        image_url: null,
+      },
+    },
+    { type: 'paragraph', value: '<p>Outro</p>' },
+  ];
+
+  it('sends the split post back as one paragraph holding the link on its own line', () => {
+    expect(docToBodyBlocks(bodyBlocksToDoc(stored))).toEqual([
+      {
+        type: 'paragraph',
+        value:
+          '<p>Intro</p><p><a target="_blank" rel="noopener noreferrer" class="text-primary hover:underline" href="https://example.com/a">https://example.com/a</a></p><p>Outro</p>',
+      },
+    ]);
+  });
+
+  it('treats the untouched split post as unchanged', () => {
+    expect(isUnchangedBody(bodyBlocksToDoc(stored), stored)).toBe(true);
+  });
+});
+
+describe('providerVideoUrl matches the mobile twin (todo 654)', () => {
+  // The SAME table file the Flutter test reads, so the two matchers cannot
+  // drift apart.
+  const table = JSON.parse(
+    readFileSync(
+      join(
+        __dirname,
+        '..',
+        '..',
+        '..',
+        'plant_community_mobile',
+        'test',
+        'features',
+        'forum',
+        'support',
+        'video_url_cases.json'
+      ),
+      'utf8'
+    )
+  ) as { cases: [string, string | null][] };
+
+  it.each(table.cases)('%j embeds as %j', (text, expected) => {
+    expect(providerVideoUrl(text)).toBe(expected);
+  });
+
+  it('is what turns a paragraph into an embed block', () => {
+    for (const [text, expected] of table.cases) {
+      if (!text.trim()) continue;
+      const blocks = docToBodyBlocks(docOf(para({ type: 'text', text })));
+      expect(blocks[0]).toEqual(
+        expected
+          ? { type: 'embed', value: expected }
+          : expect.objectContaining({ type: 'paragraph' })
+      );
+    }
   });
 });
 

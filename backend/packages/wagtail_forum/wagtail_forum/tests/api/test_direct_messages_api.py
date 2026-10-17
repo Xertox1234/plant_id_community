@@ -131,7 +131,7 @@ def test_flagged_body_is_rejected_and_not_sent():
     recipient = User.objects.create_user(username="recipient-spam")
     client = APIClient()
     client.force_authenticate(sender)
-    spammy = " ".join(["http://x.test"] * 4)  # SPAM_MAX_LINKS default is 3
+    spammy = " ".join(["http://x.test"] * 6)  # SPAM_MAX_LINKS default is 5
 
     resp = client.post(f"/forum/users/{recipient.username}/messages/", {"body": spammy})
 
@@ -514,7 +514,7 @@ def test_trusted_sender_dm_still_gets_the_heuristic_floor(recording_backend):
     profile.save(update_fields=["trust_level"])
     client = APIClient()
     client.force_authenticate(sender)
-    spammy = " ".join(["http://x.test"] * 4)  # SPAM_MAX_LINKS default is 3
+    spammy = " ".join(["http://x.test"] * 6)  # SPAM_MAX_LINKS default is 5
 
     resp = client.post(f"/forum/users/{recipient.username}/messages/", {"body": spammy})
 
@@ -543,7 +543,7 @@ def test_untrusted_sender_dm_floor_comes_from_the_configured_backend(
     assert ForumProfile.for_user(sender).trust_level == TrustLevel.NEW
     client = APIClient()
     client.force_authenticate(sender)
-    spammy = " ".join(["http://x.test"] * 4)  # would trip the heuristic floor
+    spammy = " ".join(["http://x.test"] * 6)  # would trip the heuristic floor
 
     resp = client.post(f"/forum/users/{recipient.username}/messages/", {"body": spammy})
 

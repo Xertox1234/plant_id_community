@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart' show FormData, MultipartFile, Options;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../services/api_service.dart';
@@ -327,6 +328,16 @@ abstract class ForumApi {
   /// (`GET /forum/users/search/?q=`, `istartswith`, auth required, 30/min
   /// per user). An empty [query] returns `[]` without a request.
   Future<List<ForumMentionUser>> searchMentionUsers(String query);
+
+  /// What a link posted on its own will show as a card, for the composer's
+  /// preview (todo 654): `GET /forum/link-preview/?url=` (auth required,
+  /// throttled, cached for an hour server-side). `null` when the server says
+  /// `available: false`, and for any failure, a 429 included: a preview is a
+  /// convenience, so it never surfaces an error and never blocks a post.
+  /// [LinkPreviewBlock.imageUrl] is the linked site's own `og:image` (the
+  /// author's device loads it while composing, owner decision 2026-10-17),
+  /// kept only when it is `https`.
+  Future<LinkPreviewBlock?> fetchLinkPreview(String url);
 
   /// The viewer's all-time forum stats + earned badges (`GET /forum/me/
   /// stats/`, auth required).
@@ -871,6 +882,35 @@ class HttpForumApi implements ForumApi {
         .whereType<Map<String, dynamic>>()
         .map(ForumMentionUser.fromJson)
         .toList(growable: false);
+  }
+
+  @override
+  Future<LinkPreviewBlock?> fetchLinkPreview(String url) async {
+    try {
+      final resp = await _api.get(
+        '/forum/link-preview/',
+        queryParameters: {'url': url},
+      );
+      final data = resp.data;
+      if (data is! Map<String, dynamic> || data['available'] != true) {
+        return null;
+      }
+      final image = data['image_url'];
+      return LinkPreviewBlock(
+        url: data['url'] as String? ?? url,
+        title: data['title'] as String? ?? '',
+        description: data['description'] as String? ?? '',
+        siteName: data['site_name'] as String? ?? '',
+        domain: data['domain'] as String? ?? '',
+        imageUrl:
+            image is String && Uri.tryParse(image)?.isScheme('https') == true
+            ? image
+            : '',
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('[FORUM] link preview unavailable: $e');
+      return null;
+    }
   }
 
   @override

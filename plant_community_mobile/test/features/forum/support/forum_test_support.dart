@@ -946,6 +946,30 @@ class FakeForumApi implements ForumApi {
     );
   }
 
+  /// [fetchLinkPreview] answers from here by URL (todo 654): a missing URL
+  /// is `available: false`, i.e. `null`.
+  Map<String, LinkPreviewBlock> linkPreviews = const {};
+
+  /// Every [fetchLinkPreview] call's URL, in order.
+  final List<String> linkPreviewCalls = [];
+
+  /// When set, the call for that URL waits on its completer: a preview in
+  /// flight, to test that a stale reply never shows.
+  Map<String, Completer<void>> linkPreviewGates = {};
+
+  /// When set, every [fetchLinkPreview] throws this.
+  Object? failLinkPreviewWith;
+
+  @override
+  Future<LinkPreviewBlock?> fetchLinkPreview(String url) async {
+    linkPreviewCalls.add(url);
+    final gate = linkPreviewGates[url];
+    if (gate != null) await gate.future;
+    final fail = failLinkPreviewWith;
+    if (fail != null) throw fail;
+    return linkPreviews[url];
+  }
+
   @override
   Future<List<ForumMentionUser>> searchMentionUsers(String query) async {
     mentionSearchCalls.add(query);

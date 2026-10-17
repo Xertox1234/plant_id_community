@@ -1412,3 +1412,212 @@ def test_539_item4_the_anchor_scan_of_raw_input_is_linear():
                 work += attempt.end() - start
                 assert work <= budget, f"quadratic scan of {chunk!r} * n"
         assert _server_markup_chars(raw) == 0
+
+
+# --- a link on its own line is split out (todo 655) ---------------------
+
+WEB_SPLIT = "<p>Intro</p><p>https://example.com/a</p><p>Outro</p>"
+MOBILE_SPLIT = "Intro<br>https://example.com/a<br>Outro"
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+@pytest.mark.parametrize(
+    ("html", "intro", "outro"),
+    [
+        (WEB_SPLIT, "<p>Intro</p>", "<p>Outro</p>"),
+        (MOBILE_SPLIT, "Intro", "Outro"),
+        # One web paragraph with hard breaks (Shift+Enter).
+        (
+            "<p>Intro<br>https://example.com/a<br>Outro</p>",
+            "<p>Intro</p>",
+            "<p>Outro</p>",
+        ),
+    ],
+)
+def test_655_a_link_line_between_text_is_stored_as_its_own_card(html, intro, outro):
+    resp = _create(_client(_member()), _board(), [_paragraph(html)])
+
+    assert resp.status_code == 201, resp.data
+    assert _stored() == [
+        ("paragraph", intro),
+        ("link_preview", _card("https://example.com/a", "example.com")),
+        ("paragraph", outro),
+    ]
+    assert CALLS == ["https://example.com/a"]
+
+
+def _link_lines(urls):
+    return "<br>".join(["Five favourite plant sites:", *urls, "Enjoy."])
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+def test_655_five_link_lines_from_an_untrusted_author_publish_as_five_cards():
+    """Under the default spam limit (5, owner decision 2026-10-17), a post
+    carrying all five cards is not held, even from a NEW member whose post
+    the heuristic screens; a sixth link is."""
+    from wagtail_forum.workflow import ensure_default_workflow
+
+    ensure_default_workflow()
+    board = _board()
+    author = User.objects.create_user(username="newbie")
+    assert ForumProfile.for_user(author).trust_level == TrustLevel.NEW
+    urls = [f"https://site{n}.example/" for n in range(6)]
+
+    five = _create(_client(author), board, [_paragraph(_link_lines(urls[:5]))])
+    assert five.status_code == 201, five.data
+    assert five.data["status"] == "published"
+    kinds = [kind for kind, _ in _stored()]
+    assert kinds == ["paragraph"] + ["link_preview"] * 5 + ["paragraph"]
+
+    six = _create(
+        _client(author), board, [_paragraph(_link_lines(urls))], slug="six-links"
+    )
+    assert six.status_code == 201, six.data
+    assert six.data["status"] == "pending"
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+@override_settings(
+    WAGTAILFORUM_ALLOW_EMBED_BLOCKS=True, WAGTAILEMBEDS_FINDERS=YOUTUBE_VIMEO_FINDERS
+)
+def test_655_a_sixth_link_line_stays_a_link_and_a_video_line_embeds(monkeypatch):
+    monkeypatch.setattr("wagtail_forum.api.sanitize.warm_embeds", lambda urls: None)
+    urls = [f"https://site{n}.example/" for n in range(6)]
+    video = "https://youtu.be/dQw4w9WgXcQ"
+
+    resp = _create(
+        _client(_member()), _board(), [_paragraph(_link_lines([*urls, video]))]
+    )
+
+    assert resp.status_code == 201, resp.data
+    stored = _stored()
+    assert [kind for kind, _ in stored] == (
+        ["paragraph"] + ["link_preview"] * 5 + ["paragraph", "embed", "paragraph"]
+    )
+    # The sixth stays a tappable link, never fetched; the video embeds.
+    assert stored[6] == ("paragraph", _linked(urls[5]))
+    assert stored[7] == ("embed", video)
+    assert sorted(CALLS) == sorted(urls[:5])
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<p>Read https://example.com/a first.</p><p>Outro</p>",
+        "Read https://example.com/a first.<br>Outro",
+        "<ul><li>https://example.com/a</li></ul><p>Outro</p>",
+        "<ol><li><p>https://example.com/a</p></li></ol><p>Outro</p>",
+        "<p><code>https://example.com/a</code></p><p>Outro</p>",
+        "Intro<br><code>https://example.com/a</code><br>Outro",
+        "<pre>https://example.com/a</pre><p>Outro</p>",
+        "<blockquote>https://example.com/a</blockquote><p>Outro</p>",
+        "<blockquote><p>https://example.com/a</p></blockquote><p>Outro</p>",
+    ],
+)
+def test_655_a_url_in_a_sentence_list_code_or_quote_is_not_split_out(html):
+    resp = _create(_client(_member()), _board(), [_paragraph(html)])
+
+    assert resp.status_code == 201, resp.data
+    assert [kind for kind, _ in _stored()] == ["paragraph"]
+    assert CALLS == []
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<p>Plain prose, <strong>bold</strong> and <em>italic</em>.</p><p>More.</p>",
+        "Line one<br>Line two with https://example.com/a inside<br><br>Line three",
+        "<ul><li>https://example.com/a</li><li>b</li></ul>",
+        "<p><code>https://example.com/a</code></p>",
+        # A paragraph that IS one link is not split either (it is carded whole).
+        "https://example.com/a",
+        "<p>https://example.com/a</p>",
+        "<p><a href='https://example.com/a'>https://example.com/a</a></p><br>",
+        "",
+    ],
+)
+def test_655_a_paragraph_with_no_link_line_is_left_unchanged(html):
+    from wagtail_forum.api.sanitize import _split_link_paragraphs
+
+    block = {"type": "paragraph", "value": html, "id": "kept"}
+    split = _split_link_paragraphs([block])
+
+    assert split == [block]
+    assert split[0] is block  # the very same block: byte for byte
+
+
+def test_655_the_first_piece_keeps_the_block_id_and_no_id_is_duplicated():
+    from wagtail_forum.api.sanitize import _split_link_paragraphs
+
+    split = _split_link_paragraphs(
+        [{"type": "paragraph", "value": MOBILE_SPLIT, "id": "kept"}]
+    )
+
+    assert split == [
+        {"type": "paragraph", "value": "Intro", "id": "kept"},
+        {"type": "paragraph", "value": "https://example.com/a"},
+        {"type": "paragraph", "value": "Outro"},
+    ]
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+def test_655_a_split_past_the_block_cap_is_refused():
+    """``MAX_BODY_BLOCKS`` holds for what is STORED: 99 paragraphs plus one
+    that splits into three would store 101 blocks."""
+    body = [_paragraph(f"<p>Line {n}</p>") for n in range(99)]
+    body.append(_paragraph(MOBILE_SPLIT))
+
+    resp = _create(_client(_member()), _board(), body)
+
+    assert resp.status_code == 400
+    assert "Post body has too many blocks." in str(resp.data)
+    assert not Post.objects.exists()
+    assert CALLS == []
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("written", "resent"),
+    [
+        # Web: bodyBlocksToDoc -> docToBodyBlocks merges the split post back
+        # into ONE paragraph, with the card as its link (the exact HTML pinned
+        # by web/src/utils/forumBody.test.ts, todo 655).
+        (
+            WEB_SPLIT,
+            '<p>Intro</p><p><a target="_blank" rel="noopener noreferrer" '
+            'class="text-primary hover:underline" href="https://example.com/a">'
+            "https://example.com/a</a></p><p>Outro</p>",
+        ),
+        # Mobile: ForumComposeArgs.edit rebuilds "Intro\nurl\nOutro", which
+        # buildParagraphBody sends back <br>-joined (pinned by
+        # forum_composer_link_preview_test.dart).
+        (MOBILE_SPLIT, MOBILE_SPLIT),
+        ("Intro<br><br>https://example.com/a<br><br>Outro",) * 2,
+    ],
+)
+def test_655_an_unchanged_resave_of_a_split_post_stores_the_same_body(written, resent):
+    user = _member()
+    with _fetcher("fake_fetcher"):
+        _create(_client(user), _board(), [_paragraph(written)])
+    post = Post.objects.get()
+    before = _stored(post)
+    assert [kind for kind, _ in before] == ["paragraph", "link_preview", "paragraph"]
+    CALLS.clear()
+
+    with _fetcher("raising_fetcher"):
+        resp = _client(user).patch(
+            f"/forum/posts/{post.id}/",
+            {"body": [_paragraph(resent)]},
+            format="json",
+        )
+
+    assert resp.status_code == 200, resp.data
+    post.refresh_from_db()
+    assert _stored(post) == before
+    assert CALLS == []

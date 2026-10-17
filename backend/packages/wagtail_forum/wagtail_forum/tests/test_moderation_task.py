@@ -63,7 +63,9 @@ def test_clean_post_is_published_by_workflow():
 @pytest.mark.django_db
 def test_spammy_post_is_not_published():
     user = User.objects.create_user(username="eve")
-    spam = "http://a.com http://b.com http://c.com http://d.com http://e.com"
+    spam = (
+        "http://a.com http://b.com http://c.com http://d.com http://e.com http://f.com"
+    )
     post = _draft_post(user, spam)
 
     # Must NOT recurse (update=False) and must NOT publish: the rejected workflow
@@ -82,7 +84,9 @@ def test_spam_in_latest_revision_is_caught_not_db_row():
     user = User.objects.create_user(username="sneak")
     post = _draft_post(user, "a totally clean saved body")  # DB row stays clean
 
-    spam = "http://a.com http://b.com http://c.com http://d.com http://e.com"
+    spam = (
+        "http://a.com http://b.com http://c.com http://d.com http://e.com http://f.com"
+    )
     post.body = [{"type": "paragraph", "value": f"<p>{spam}</p>"}]
     post.save_revision()  # latest revision is now spam; DB row body still clean
 

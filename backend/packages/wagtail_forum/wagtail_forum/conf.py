@@ -13,7 +13,11 @@ DEFAULTS = {
     # or revoking the group takes effect on the next post. None = superusers
     # only. Plain ``is_staff`` alone does not bypass (owner decision).
     "MODERATION_BYPASS_PERMISSION": "wagtail_forum.publish_post",
-    "SPAM_MAX_LINKS": 3,
+    # Matches MAX_LINK_PREVIEWS_PER_BODY, so a post can carry all five link
+    # cards without the heuristic holding it (todo 655, owner decision
+    # 2026-10-17). A host's admin override (forum_host ``spam_max_links``)
+    # still wins.
+    "SPAM_MAX_LINKS": 5,
     "SPAM_BANNED_WORDS": [],
     "TRUST_THRESHOLDS": {1: 1, 2: 5, 3: 50, 4: 200},  # trust_level -> min post_count
     # Inline-image upload (Spec 2 PR-3). 4-layer validation limits + the
