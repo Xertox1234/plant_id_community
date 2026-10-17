@@ -129,7 +129,7 @@ Todo 428 left this out as its optional item 4 ("slice E").
 - [ ] A failed or throttled preview request shows nothing and blocks nothing:
       the post still submits.
 - [ ] `flutter analyze` is clean, and the forum Flutter tests pass.
-- [ ] On a device: pasting a Wikipedia link in the app composer shows the
+- [ ] On a device: pasting a Wikipedia link in the app composer shows the → todo 656 (re-pointed 2026-10-17)
       card before posting.
 
 ## Work Log
