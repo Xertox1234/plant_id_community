@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "330"
 tags: [forum, ai, rag, premium, safety, ops, deploy]
@@ -8,8 +8,7 @@ source_review: "docs/audits/2026-07-11-forum-modernization-COMPLETED.md"
 source_finding: "M13"
 triage: blocked-prod
 triaged: 2026-10-16
-blocked_on: "The first real premium 'answered' response and the prod [RAG] retrieval top-score log lines (owner hand-off)"
-owner_decision: "Still blocked: needs a real premium answered response and prod [RAG] score logs (owner, 2026-10-16)"
+owner_decision: "Owner seeded 8 questions from a staff account on 2026-10-17; floor raised 0.35 -> 0.45 from the [RAG] lines; archive (2026-10-17)"
 ---
 
 # Enable RAG plant-care answers in a target environment
@@ -123,10 +122,10 @@ In this order — each step is a precondition of the next:
 - [x] Gate 2 holds: corpus re-measured and at/above threshold (≥200 live
       topics or ≥50 blog articles), counts quoted (completed 2026-10-11: 59 live articles)
 - [x] Gate 3 holds: the review-queue owner is named in this file (completed 2026-09-24: the owner, weekly)
-- [ ] `FORUM_RAG_ENABLED=True` and the first real `answered` response observed
-      (question class + cited sources quoted, no PII)
-- [ ] `RAG_SIMILARITY_FLOOR` reviewed against real `[RAG]` top-score lines and
-      either confirmed or changed via PR
+- [x] `FORUM_RAG_ENABLED=True` and the first real `answered` response observed
+      (question class + cited sources quoted, no PII) (completed 2026-10-17: a watering question cited the pothos care guide, see the Work Log)
+- [x] `RAG_SIMILARITY_FLOOR` reviewed against real `[RAG]` top-score lines and
+      either confirmed or changed via PR (completed 2026-10-17: raised 0.35 → 0.45 in this PR, see the Work Log)
 
 ## Work Log
 
@@ -206,3 +205,41 @@ The owner approved the flip once todo 445's articles were published.
 - **Still open:** AC 4 (a first real `answered` from a premium user) and AC 5 (review the floor against real
   `[RAG] retrieval top scores` lines). Both wait on real traffic, so they stay with the owner. Rollback:
   unset `FORUM_RAG_ENABLED`.
+
+### 2026-10-17 - First answers observed; floor raised to 0.45
+
+The owner chose to seed the first traffic rather than wait for it. Before
+seeding, the prod logs since the 2026-10-11 flip held one `care/ask` call (an
+anonymous 401 probe, 2026-10-12) and no `[RAG]` lines.
+
+- **Seeding:** the owner asked 8 questions from a staff account (staff counts
+  as premium) on the web `/forum/search` plant-care panel, 02:11–02:16 UTC.
+  Five covered by the corpus, one adjacent, two off-corpus.
+- **AC 4:** questions 1–5 came back `answered`. Question 1 (a pothos
+  watering question) cited the pothos care guide.
+- **AC 5:** the 8 `[RAG] retrieval top scores` lines (read-only Railway logs,
+  owner-approved; they carry scores only, never question text):
+
+| # | Question class | BlogChunks top | SimilarTopics top | Above 0.35 | Result |
+|---|---|---|---|---|---|
+| 1 | pothos watering | 0.81 | 0.57 | 14 | answered (pothos guide) |
+| 2 | brown leaf tips | 0.65 | 0.51 | 15 | answered |
+| 3 | fungus gnats | 0.65 | 0.35 | 9 | answered |
+| 4 | monstera repotting | 0.63 | 0.57 | 14 | answered |
+| 5 | snake plant root rot | 0.56 | 0.45 | 16 | answered |
+| 6 | air plants (no article) | 0.53 | 0.33 | 8 | passages_only |
+| 7 | tomato fertilizer (off-corpus) | 0.40 | 0.32 | 6 | passages_only |
+| 8 | outdoor fig overwintering (off-corpus) | 0.50 | 0.34 | 8 | passages_only |
+
+- **Reading:** at 0.35 the floor filtered nothing. Every question had 6+
+  candidates above it, so no question got `no_information`. The off-corpus
+  ones were caught only by the model's own `NO_INFORMATION` (`passages_only`),
+  each after a paid call, and showed unrelated passages.
+- **Decision:** `RAG_SIMILARITY_FLOOR` 0.35 → 0.45. Question 7 now gets
+  `no_information` without an LLM call. The weakest answered question (0.56)
+  keeps an 0.11 margin, and weak passages (question 3's 0.35 forum hit) drop
+  out of the prompt context. 0.55 would also refuse 6 and 8 but sits 0.01
+  under question 5, too tight for 8 samples; the model still declines those.
+- **Verified:** `pytest apps/forum_host/tests -k "rag or care"` 152 passed
+  (the tests read the constant, none pins 0.35). Re-check the floor against
+  `[RAG]` lines as the corpus and real traffic grow.
