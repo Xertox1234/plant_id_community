@@ -313,12 +313,16 @@ void main() {
       expect(generateForumRichHtml(args.initialBodyText), url);
     });
 
-    test('an embed next to other blocks still warns', () {
+    // Since todo 655 a paragraph next to an embed is what the server makes
+    // of a video on its own line, so it opens editable (pinned in
+    // forum_composer_link_preview_test.dart); a block the composer cannot
+    // write still warns.
+    test('an embed next to a block the composer cannot write still warns', () {
       final args = ForumComposeArgs.edit(
         post: post(
           id: 7,
           body: const [
-            ParagraphBlock('Watch this'),
+            HeadingBlock('Watch this'),
             EmbedBlock(url: 'https://youtu.be/dQw4w9WgXcQ'),
           ],
         ),
@@ -617,12 +621,16 @@ void _backGuardTests() {
       expect(generateForumRichHtml(args.initialBodyText), url);
     });
 
-    test('a card next to other blocks still warns', () {
+    // Since todo 655 a paragraph next to a card is what the server makes of
+    // a link on its own line, so it opens editable (pinned in
+    // forum_composer_link_preview_test.dart); a block the composer cannot
+    // write still warns.
+    test('a card next to a block the composer cannot write still warns', () {
       final args = ForumComposeArgs.edit(
         post: post(
           id: 7,
           body: const [
-            ParagraphBlock('Look at this'),
+            HeadingBlock('Look at this'),
             LinkPreviewBlock(url: 'https://example.com/'),
           ],
         ),
@@ -630,6 +638,24 @@ void _backGuardTests() {
 
       expect(args.hasNonTextContent, isTrue);
       expect(args.initialBodyText, isEmpty);
+    });
+
+    // Review round 2 (todo 655): two paragraphs with no card between them
+    // are a paragraph break, which a '\n' join would collapse on save.
+    test('two adjacent paragraphs still warn, with or without a card', () {
+      for (final body in const [
+        [ParagraphBlock('One'), ParagraphBlock('Two')],
+        [
+          ParagraphBlock('One'),
+          ParagraphBlock('Two'),
+          LinkPreviewBlock(url: 'https://example.com/'),
+        ],
+      ]) {
+        final args = ForumComposeArgs.edit(post: post(id: 7, body: body));
+
+        expect(args.hasNonTextContent, isTrue, reason: '$body');
+        expect(args.initialBodyText, isEmpty, reason: '$body');
+      }
     });
 
     test('a card with no usable link offers nothing and warns', () {

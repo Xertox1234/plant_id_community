@@ -105,7 +105,9 @@ def test_moderation_summary_item_counts_spam_rejected_post(client):
     index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
     board = index.add_child(instance=ForumBoard(title="General", slug="general"))
     topic = Topic.objects.create(board=board, title="T", slug="t", author=author)
-    spam = "http://a.com http://b.com http://c.com http://d.com http://e.com"
+    spam = (
+        "http://a.com http://b.com http://c.com http://d.com http://e.com http://f.com"
+    )
     post = Post(
         topic=topic,
         author=author,
@@ -266,7 +268,9 @@ def test_post_preview_renders_pending_revision_body():
     index = root.add_child(instance=ForumIndex(title="PForum", slug="pforum"))
     board = index.add_child(instance=ForumBoard(title="PGeneral", slug="pgeneral"))
     topic = Topic.objects.create(board=board, title="PT", slug="pt", author=author)
-    spam = "http://a.com http://b.com http://c.com http://d.com http://e.com"
+    spam = (
+        "http://a.com http://b.com http://c.com http://d.com http://e.com http://f.com"
+    )
     post = Post(
         topic=topic,
         author=author,

@@ -21,7 +21,7 @@ from wagtail_forum.workflow import ensure_default_workflow, submit_for_moderatio
 
 User = get_user_model()
 
-SPAM = "http://a.com http://b.com http://c.com http://d.com http://e.com"
+SPAM = "http://a.com http://b.com http://c.com http://d.com http://e.com http://f.com"
 
 
 def _board():

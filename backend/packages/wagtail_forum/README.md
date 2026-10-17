@@ -266,7 +266,7 @@ The reference implementation is the host's `apps/forum_host/forum_settings.py`
 | `WAGTAILFORUM_TRUST_AUTOPUBLISH_LEVEL` | `2` (`TrustLevel.MEMBER`) | Minimum author trust level that publishes without moderation. |
 | `WAGTAILFORUM_MODERATION_BYPASS_PERMISSION` | `"wagtail_forum.publish_post"` | Authors who publish without moderation at any trust level: active superusers, plus any author holding this permission (grant it to your forum moderator group). Checked on the **author** at request time, never stored as `trust_level`, and applied to create, edit and DM screening alike. `None` = superusers only. Plain `is_staff` is not enough (todo 423). |
 | `WAGTAILFORUM_TRUST_THRESHOLDS` | `{1: 1, 2: 5, 3: 50, 4: 200}` | `trust_level -> minimum visible post_count`. Trust is re-derived in **both** directions, so trust funded by posts later removed as spam is revoked. Keys may be strings (JSON/env-friendly). |
-| `WAGTAILFORUM_SPAM_MAX_LINKS` | `3` | Heuristic backend: max `http(s)://` occurrences before rejection. |
+| `WAGTAILFORUM_SPAM_MAX_LINKS` | `5` | Heuristic backend: max `http(s)://` occurrences before rejection. |
 | `WAGTAILFORUM_SPAM_BANNED_WORDS` | `[]` | Heuristic backend: case-insensitive substring blocklist. |
 | `WAGTAILFORUM_REPORT_AUTO_HIDE_THRESHOLD` | `3` | Distinct open reports on one post before it is auto-unpublished pending review. |
 
@@ -518,8 +518,10 @@ Unsupported or non-http(s) URLs are 400 on write.
 A client does not have to build the block itself. On create, reply and edit,
 a `paragraph` whose only text is one URL that the finders accept is stored as
 an `embed` block. This happens with or without a `<p>` wrapper, and an
-autolinked `<a>` counts too. A link inside other text stays a paragraph, and
-so does a URL on its own line after other text. Once
+autolinked `<a>` counts too. A link inside other text stays a paragraph. A
+URL on its own line between other lines is split out into a paragraph of its
+own first (see "A link on its own line is split out first" under
+[Link previews](#link-previews), todo 655), so it embeds too. Once
 `WAGTAILFORUM_MAX_EMBED_URLS_PER_BODY` distinct URLs have been counted
 (explicit embed blocks first), any further link stays a paragraph rather than
 failing the post. With `WAGTAILFORUM_ALLOW_EMBED_BLOCKS` off, nothing
@@ -564,6 +566,33 @@ already shows is still kept when its post is edited (reuse needs no fetch). The 
   cap, a fetch that fails, raises, answers `None` or runs past the window, and
   a host with no fetcher all leave the link as a paragraph. A fetch still
   queued when the window closes (the pool was busy) is cancelled, never run.
+- **A link on its own line is split out first.** Before the video and card
+  conversions, each `paragraph` is read line by line: its top-level `<p>`
+  elements, and the lines inside them or at its top level separated by
+  `<br>`. A line whose whole text is one card-able `http(s)` URL becomes a
+  `paragraph` block of its own, so it can become an embed or a card like a
+  link that is the whole post. The runs of other lines between such lines
+  stay together as paragraphs, with their markup as written (their first
+  block keeps the original block `id`), and a run that is only an empty line
+  is dropped. A URL inside a sentence, a list item, `<code>`/`<pre>` or a
+  blockquote is never split out, and a paragraph with no such line, or that
+  is a single link, is stored exactly as before. So
+  `<p>Intro</p><p>https://example.com/a</p><p>Outro</p>` and the mobile
+  shape `Intro<br>https://example.com/a<br>Outro` are both stored as
+  paragraph, `link_preview`, paragraph. Only a link line that can still
+  become a card or an embed is split out: the first
+  `MAX_LINK_PREVIEWS_PER_BODY` distinct card URLs and the first
+  `MAX_EMBED_URLS_PER_BODY` distinct video URLs, counting the body's own
+  cards and embeds first. A repeat or a link past its cap stays a line of
+  its paragraph, so a wall of links adds only a handful of blocks and a
+  body that saved before the split still saves. The block cap
+  (`Post body has too many blocks.`) is checked again after the split.
+  Already-stored posts are not rewritten; one is split the next time it is
+  edited and saved. A client resending a split post, whether merged back
+  into one paragraph (the web editor) or as `<br>`-joined lines (the mobile
+  composer), gets the same body back, its cards reused with no fetch.
+  `WAGTAILFORUM_SPAM_MAX_LINKS` defaults to `5` to match the card cap, since
+  every card counts as one link.
 - **Nothing in a card is the client's word.** A submitted `link_preview`
   block is reduced to its URL. On edit, a URL the stored body already shows as
   a card keeps that stored card (no refetch); every other field comes from the

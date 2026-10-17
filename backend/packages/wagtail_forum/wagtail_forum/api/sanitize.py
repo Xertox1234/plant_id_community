@@ -149,6 +149,243 @@ def _sole_video_url(html):
     return text if text and is_supported_url(text) else None
 
 
+# Elements a link line is never split out of (todo 655): a URL in a list
+# item, a code sample or a quotation belongs to it. ``blockquote`` and
+# ``pre`` are not in ALLOWED_TAGS (sanitize_rich_text strips them, keeping
+# their text), so the split reads the paragraph through an allowlist that
+# keeps them, and the stored pieces are sanitized as usual afterwards.
+_SPLIT_OPAQUE_TAGS = {"ul", "ol", "li", "blockquote", "pre"}
+_SPLIT_ANALYSIS_TAGS = ALLOWED_TAGS | {"blockquote", "pre"}
+_SPLIT_EXCLUDED_TAGS = _SPLIT_OPAQUE_TAGS | {"code"}
+
+
+class _LinkLineSplitter(HTMLParser):
+    """Reads sanitized paragraph HTML as a list of top-level segments, each
+    a ``p`` element, a run of loose top-level content (the mobile
+    composer's ``line<br>line`` shape) or an opaque element (a list, a
+    quotation, a code block). A ``p`` or loose segment holds LINES, split at
+    a ``<br>`` directly inside it; an opaque one is one piece of markup.
+    Every line keeps its markup as parsed, and its text with every tag read
+    as a space, as ``_sole_url`` reads it."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.segments = []
+        self._stack = []
+        self._segment = None
+
+    def _new_line(self):
+        self._segment["lines"].append({"html": [], "text": [], "code": False})
+
+    def _open(self, kind):
+        self._segment = {"kind": kind, "lines": [], "html": []}
+        if kind != "opaque":
+            self._new_line()
+        self.segments.append(self._segment)
+
+    def _emit(self, markup, text=" ", in_code=False):
+        if self._segment is None:
+            self._open("loose")
+        if self._segment["kind"] == "opaque":
+            self._segment["html"].append(markup)
+            return
+        line = self._segment["lines"][-1]
+        line["html"].append(markup)
+        line["text"].append(text)
+        if in_code and text.strip():
+            line["code"] = True
+
+    def _line_break(self):
+        """A ``<br>``: a line boundary directly inside a top-level ``p`` or
+        at the top level itself, ordinary markup anywhere else."""
+        if self._stack and self._stack != ["p"]:
+            self._emit("<br>")
+            return
+        if self._segment is None:
+            self._open("loose")  # the line before this break is empty
+        self._new_line()
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "br":
+            self._line_break()
+            return
+        if not self._stack:
+            if tag == "p":
+                self._open("p")
+                self._stack.append(tag)
+                return
+            if tag in _SPLIT_OPAQUE_TAGS:
+                self._open("opaque")
+        self._emit(self.get_starttag_text())
+        self._stack.append(tag)
+
+    def handle_startendtag(self, tag, attrs):
+        if tag == "br":
+            self._line_break()
+        else:
+            self._emit(self.get_starttag_text())
+
+    def handle_endtag(self, tag):
+        if tag not in self._stack:
+            return
+        while self._stack:
+            open_tag = self._stack.pop()
+            if not self._stack and open_tag == "p":
+                break  # the ``p`` wrapper itself is re-emitted per piece
+            self._emit(f"</{open_tag}>")
+            if open_tag == tag:
+                break
+        if not self._stack:
+            # The next top-level content starts a segment of its own.
+            self._segment = (
+                self._segment
+                if self._segment and self._segment["kind"] == "loose"
+                else None
+            )
+
+    def handle_data(self, data):
+        # Text under a code sample, a list or a quotation nested inside a
+        # line rules that line out, as at the top level.
+        excluded = any(tag in _SPLIT_EXCLUDED_TAGS for tag in self._stack)
+        self._emit(html.escape(data, quote=False), data, in_code=excluded)
+
+
+def _link_line_url(line):
+    """The URL when one line is a link posted on its own: its whole text is
+    one URL that could be a card (or a video, which the conversion below
+    then embeds), not written as code. Else ``None``."""
+    if line["code"]:
+        return None
+    token = "".join(line["text"]).strip()
+    if not token or any(ch.isspace() for ch in token):
+        return None
+    url = _trim_url(token)
+    return url if is_card_url(url) else None
+
+
+def _split_link_lines(block, take=None):
+    """``block`` (a ``paragraph``) as a list of blocks: each link line its
+    own paragraph, the runs of other lines between them paragraphs with
+    their markup as written (todo 655). A link on its own line between
+    paragraphs of text can then become a card, or a video embed, like a link
+    that is the whole post. A paragraph with no link line, or one that IS a
+    single link, comes back unchanged, byte for byte. ``take(url)``, when
+    given, is asked once per link line in order; a line it declines stays
+    an ordinary line of its run."""
+    parser = _LinkLineSplitter()
+    parser.feed(
+        nh3.clean(
+            block["value"] or "",
+            tags=_SPLIT_ANALYSIS_TAGS,
+            attributes=ALLOWED_ATTRIBUTES,
+            url_schemes=ALLOWED_URL_SCHEMES,
+            link_rel=None,
+        )
+    )
+    parser.close()
+
+    entries = []  # (segment index, kind, html, is a link line, is blank)
+    for index, segment in enumerate(parser.segments):
+        if segment["kind"] == "opaque":
+            entries.append((index, "opaque", "".join(segment["html"]), False, False))
+            continue
+        for line in segment["lines"]:
+            url = _link_line_url(line)
+            entries.append(
+                (
+                    index,
+                    segment["kind"],
+                    "".join(line["html"]),
+                    url is not None and (take is None or take(url)),
+                    not "".join(line["text"]).strip(),
+                )
+            )
+    if not any(entry[3] for entry in entries):
+        return [block]
+
+    def wrap(kind, inner):
+        return f"<p>{inner}</p>" if kind == "p" else inner
+
+    def run_html(run):
+        if all(entry[4] for entry in run):
+            return ""  # only the empty line around a link: not a block
+        parts = []
+        position = 0
+        while position < len(run):
+            index, kind = run[position][:2]
+            end = position
+            while end < len(run) and run[end][0] == index:
+                end += 1
+            parts.append(
+                wrap(kind, "<br>".join(entry[2] for entry in run[position:end]))
+            )
+            position = end
+        return "".join(parts)
+
+    values = []
+    run = []
+    for entry in entries:
+        if entry[3]:
+            if run:
+                values.append(run_html(run))
+                run = []
+            values.append(wrap(entry[1], entry[2]))
+        else:
+            run.append(entry)
+    if run:
+        values.append(run_html(run))
+    values = [value for value in values if value]
+    if len(values) <= 1:
+        return [block]
+    extra = {key: item for key, item in block.items() if key != "id"}
+    return [{**block, "value": values[0]}] + [
+        {**extra, "value": value} for value in values[1:]
+    ]
+
+
+def _split_link_paragraphs(value):
+    """Every ``paragraph`` block through ``_split_link_lines``, in order.
+
+    Only a link line that can still become a card or an embed is split out:
+    the first ``MAX_LINK_PREVIEWS_PER_BODY`` distinct card URLs and the first
+    ``MAX_EMBED_URLS_PER_BODY`` distinct video URLs (when the host embeds),
+    counting the body's own ``link_preview`` and embed blocks first. A
+    repeat, or a link past its cap, would only ever be a link, so it stays a
+    line of its run. That bounds what the split adds to a handful of blocks:
+    a wall of links that saved before splitting existed (one paragraph of 101
+    URL lines) still saves, as a few cards and a paragraph of links.
+    """
+    embeds_on = get_setting("ALLOW_EMBED_BLOCKS")
+    caps = {
+        "card": get_setting("MAX_LINK_PREVIEWS_PER_BODY"),
+        "video": get_setting("MAX_EMBED_URLS_PER_BODY"),
+    }
+    seen = {"card": set(), "video": set()}
+    for block in value:
+        block_value = block.get("value")
+        if block["type"] == "embed" and isinstance(block_value, str):
+            seen["video"].add(block_value)
+        elif block["type"] == "link_preview" and isinstance(block_value, dict):
+            url = block_value.get("url")
+            if isinstance(url, str):
+                seen["card"].add(url.strip())
+
+    def take(url):
+        kind = "video" if embeds_on and is_supported_url(url) else "card"
+        if url in seen[kind] or len(seen[kind]) >= caps[kind]:
+            return False
+        seen[kind].add(url)
+        return True
+
+    split = []
+    for block in value:
+        if block["type"] == "paragraph" and isinstance(block.get("value"), str):
+            split.extend(_split_link_lines(block, take))
+        else:
+            split.append(block)
+    return split
+
+
 def _convert_video_paragraphs(value, embed_type):
     """Replace each URL-only ``paragraph`` block with an ``embed`` block.
 
@@ -784,6 +1021,12 @@ def validate_forum_body(
         elif not isinstance(block_value, str):
             raise serializers.ValidationError(_("Invalid post body."))
     value = [_without_nul(block) for block in value]
+    # A link on its own line becomes its own paragraph (todo 655), so the
+    # video and card conversions below see it as a link posted on its own.
+    # The block cap holds for what is stored, so it is checked again.
+    value = _split_link_paragraphs(value)
+    if len(value) > MAX_BODY_BLOCKS:
+        raise serializers.ValidationError(_("Post body has too many blocks."))
 
     # Embed blocks (todo 344): a URL string, only when the host opted in,
     # only from a provider the host's finders accept. Then the ONE network

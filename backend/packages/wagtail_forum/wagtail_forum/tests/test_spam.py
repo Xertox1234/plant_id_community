@@ -30,11 +30,29 @@ def test_clean_text_passes():
 
 
 def test_too_many_links_flagged():
-    spammy = "http://a.com http://b.com http://c.com http://d.com http://e.com"
+    spammy = (
+        "http://a.com http://b.com http://c.com http://d.com http://e.com http://f.com"
+    )
     obj = SimpleNamespace(title="", body=_FakeBody(spammy))
     result = HeuristicSpamBackend().check(obj)
     assert result.is_clean is False
     assert "link" in result.reason.lower()
+
+
+def test_the_default_limit_lets_a_post_carry_all_five_link_cards():
+    """SPAM_MAX_LINKS defaults to MAX_LINK_PREVIEWS_PER_BODY (5, todo 655,
+    owner decision 2026-10-17): five links pass, a sixth is held."""
+    from wagtail_forum import conf
+
+    assert conf.DEFAULTS["SPAM_MAX_LINKS"] == 5
+    assert (
+        conf.DEFAULTS["SPAM_MAX_LINKS"] == conf.DEFAULTS["MAX_LINK_PREVIEWS_PER_BODY"]
+    )
+    five = " ".join(f"https://site{n}.example/" for n in range(5))
+    six = f"{five} https://site5.example/"
+    backend = HeuristicSpamBackend()
+    assert backend.check_text(five).is_clean is True
+    assert backend.check_text(six).is_clean is False
 
 
 def test_banned_word_flagged(settings):
@@ -167,9 +185,10 @@ def test_a_link_hiding_its_address_still_counts():
     assert len(URL_COUNT.findall(text)) == 3
 
 
-def test_four_distinct_autolinked_urls_are_still_too_many():
+def test_six_distinct_autolinked_urls_are_still_too_many():
+    # One more than SPAM_MAX_LINKS (5 since todo 655).
     links = " ".join(
-        f'<a href="https://s{n}.example/">https://s{n}.example/</a>' for n in range(4)
+        f'<a href="https://s{n}.example/">https://s{n}.example/</a>' for n in range(6)
     )
     post = _card_body({"type": "paragraph", "value": f"<p>{links}</p>"})
     assert HeuristicSpamBackend().check(post).is_clean is False

@@ -281,8 +281,18 @@ function embedUrlOf(node: JSONContent): string | null {
     (text) => text.marks?.some((mark) => mark.type === 'code') && (text.text ?? '').trim()
   );
   if (inCode) return null;
-  const text = nodeText(node, '').trim();
-  return PROVIDER_VIDEO_URL.test(text) ? text : null;
+  return providerVideoUrl(nodeText(node, ''));
+}
+
+/**
+ * `text`, trimmed, when it is exactly one provider video URL (YouTube or
+ * Vimeo), else null. The mobile twin is `forumVideoUrlOf`
+ * (plant_community_mobile/lib/features/forum/utils/forum_embed_url.dart); both
+ * are tested against the same case table (todo 654).
+ */
+export function providerVideoUrl(text: string): string | null {
+  const trimmed = text.trim();
+  return PROVIDER_VIDEO_URL.test(trimmed) ? trimmed : null;
 }
 
 const PREVIEW_BLOCK_TAGS = new Set([

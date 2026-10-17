@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,10 +15,12 @@ import '../models/models.dart';
 import '../services/forum_api.dart';
 import '../services/forum_composer_controller.dart';
 import '../services/forum_image_picker.dart';
+import '../utils/forum_embed_url.dart';
 import '../widgets/forum_my_images_grid.dart';
 import '../widgets/forum_mention_suggestions.dart';
 import '../widgets/forum_notice_banner.dart';
 import '../widgets/forum_rich_text_toolbar.dart';
+import '../widgets/link_preview_card_view.dart';
 
 /// Which kind of content the composer creates.
 enum ForumComposeMode { topic, reply, edit }
@@ -50,49 +54,71 @@ class ForumComposeArgs {
   /// deliberate side effect is that a web-authored post using only those
   /// five marks becomes editable here too (nothing new is trusted: the
   /// server re-sanitizes on every save regardless of origin). Anything
-  /// outside that grammar falls back to the existing plain-text logic,
-  /// unchanged: a body that isn't exactly one plain-text paragraph block
-  /// cannot be pre-filled without losing content, so [initialBodyText] is
-  /// left empty and [hasNonTextContent] is true, so the screen can warn
-  /// rather than silently discard it on submit.
+  /// outside that grammar falls back to the existing plain-text logic. A
+  /// body of several such paragraphs with link cards and embeds between them
+  /// (what the server makes of a link on its own line, todo 655) opens
+  /// editable too. Any other body cannot be pre-filled without losing
+  /// content, so [initialBodyText] is left empty and [hasNonTextContent] is
+  /// true, so the screen can warn rather than silently discard it on submit.
   factory ForumComposeArgs.edit({required ForumPost post}) {
-    final body = post.body;
-    // The server stores a paragraph that is only a link as one card: an
-    // embed block for a video (todo 421), a link_preview block for any other
-    // page (todo 428). Offer the URL itself: saving it unchanged converts it
-    // back — a stored link card is reused as stored, with no refetch.
-    final onlyBlock = body.length == 1 ? body.first : null;
-    final onlyLink = switch (onlyBlock) {
-      EmbedBlock(:final url) || LinkPreviewBlock(:final url) => url,
-      _ => '',
-    };
-    if (onlyLink.isNotEmpty) {
-      return ForumComposeArgs._edit(
-        postId: post.id,
-        initialBodyText: escapeMarkerChars(onlyLink),
-        hasNonTextContent: false,
-      );
-    }
-    if (body.length == 1 && body.first is ParagraphBlock) {
-      final markup = parseForumRichHtmlToMarkup(
-        (body.first as ParagraphBlock).html,
-      );
-      if (markup != null) {
+    // The server stores a link posted on its own as one card: an embed block
+    // for a video (todo 421), a link_preview block for any other page (todo
+    // 428), and since todo 655 a link on its own line between text is split
+    // out into a card of its own. So a body made only of paragraphs, cards
+    // and embeds is still what this composer wrote: rebuild its text in body
+    // order, each card or embed as its URL on its own line. Saving it
+    // unchanged sends the same lines back <br>-joined, which the server
+    // splits the same way again, reusing every stored card with no refetch.
+    final parts = <String>[];
+    ForumBodyBlock? previous;
+    for (final block in post.body) {
+      // Two paragraphs side by side are never what the split makes (its text
+      // runs always have a card or embed between them): they are a
+      // paragraph break this composer cannot write, and joining them with
+      // one '\n' would collapse it into a line break on save.
+      final adjacentParagraphs =
+          block is ParagraphBlock && previous is ParagraphBlock;
+      previous = block;
+      final part = adjacentParagraphs
+          ? null
+          : switch (block) {
+              EmbedBlock(:final url) || LinkPreviewBlock(:final url)
+                  when url.isNotEmpty =>
+                escapeMarkerChars(url),
+              ParagraphBlock(:final html) => _editableParagraphText(html),
+              _ => null,
+            };
+      if (part == null) {
+        // Anything else (a heading, an image, a quote, a code block, markup
+        // outside the composer's grammar) cannot be pre-filled without losing
+        // content: open empty and warn rather than silently discard it.
         return ForumComposeArgs._edit(
           postId: post.id,
-          initialBodyText: markup,
-          hasNonTextContent: false,
+          initialBodyText: '',
+          hasNonTextContent: true,
         );
       }
+      parts.add(part);
     }
-    final singleParagraph = isSingleEditableParagraph(body);
     return ForumComposeArgs._edit(
       postId: post.id,
-      initialBodyText: singleParagraph
-          ? plainTextFromParagraphHtml((body.first as ParagraphBlock).html)
-          : '',
-      hasNonTextContent: !singleParagraph,
+      initialBodyText: parts.join('\n'),
+      hasNonTextContent: parts.isEmpty,
     );
+  }
+
+  /// One paragraph's HTML as composer text: [parseForumRichHtmlToMarkup]
+  /// first (todo 314), so a post within the five-mark grammar stays rich
+  /// editable, else the plain-text reverse of [buildParagraphBody]'s
+  /// escaping when the HTML is only escaped text and `<br>`
+  /// ([isSingleEditableParagraph]'s test, on this block). `null` for real
+  /// markup outside the grammar.
+  static String? _editableParagraphText(String html) {
+    final markup = parseForumRichHtmlToMarkup(html);
+    if (markup != null) return markup;
+    return isSingleEditableParagraph([ParagraphBlock(html)])
+        ? plainTextFromParagraphHtml(html)
+        : null;
   }
 
   const ForumComposeArgs._edit({
@@ -139,6 +165,7 @@ class ForumComposerScreen extends ConsumerStatefulWidget {
 }
 
 class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
+  late final ForumApi _api;
   late final ForumComposerController _controller;
   final _titleController = TextEditingController();
   final _bodyController = TextEditingController();
@@ -158,6 +185,20 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
   /// action recreates it in one tap.
   ForumQuoteDraft? _quote;
 
+  /// The links in the draft the server will show as cards (todo 654), and
+  /// the preview of the FIRST one, which is the only one fetched: the rest
+  /// are counted locally into the "+N more" hint, so a draft of several
+  /// links costs one preview request. [_previewUrl] is the link the preview
+  /// is for; a reply for any other link is stale and dropped.
+  List<String> _cardLinks = const [];
+  String? _previewUrl;
+  LinkPreviewBlock? _preview;
+
+  /// The debounce, as the web composer's (`TipTapEditor.tsx`): a timer
+  /// field, never state, cancelled in [dispose].
+  Timer? _previewTimer;
+  static const Duration _previewDebounce = Duration(milliseconds: 450);
+
   bool get _isTopic => widget.args.mode == ForumComposeMode.topic;
   bool get _isEdit => widget.args.mode == ForumComposeMode.edit;
   bool get _supportsImage => !_isEdit;
@@ -165,7 +206,8 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
   @override
   void initState() {
     super.initState();
-    _controller = ForumComposerController(api: ref.read(forumApiProvider));
+    _api = ref.read(forumApiProvider);
+    _controller = ForumComposerController(api: _api);
     if (_isEdit) _bodyController.text = widget.args.initialBodyText;
     _quote = widget.args.quote;
     // A listener (not just the body TextField's `onChanged`) so `_canSubmit`
@@ -178,15 +220,46 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     _bodyController.addListener(_onBodyChanged);
     // The title feeds `_hasUnsentInput` (PopScope.canPop is read from the
     // last build), so it needs the same rebuild-on-change as the body.
-    _titleController.addListener(_onBodyChanged);
+    _titleController.addListener(_onTitleChanged);
+    // An edit opens on its text: preview its links too.
+    _updateCardLinks();
   }
 
-  void _onBodyChanged() => setState(() {});
+  void _onTitleChanged() => setState(() {});
+
+  void _onBodyChanged() => setState(_updateCardLinks);
+
+  /// Re-reads which links will be cards, and when the first one changed,
+  /// drops its preview and starts the debounce for the new one.
+  void _updateCardLinks() {
+    _cardLinks = forumComposerCardLinks(_bodyController.text);
+    final first = _cardLinks.isEmpty ? null : _cardLinks.first;
+    if (first == _previewUrl) return;
+    _previewTimer?.cancel();
+    _previewUrl = first;
+    _preview = null;
+    if (first == null) return;
+    _previewTimer = Timer(_previewDebounce, () => _fetchPreview(first));
+  }
+
+  /// A failed or throttled preview shows nothing and blocks nothing: the
+  /// API maps failures to `null`, and anything it throws is the same.
+  Future<void> _fetchPreview(String url) async {
+    LinkPreviewBlock? card;
+    try {
+      card = await _api.fetchLinkPreview(url);
+    } catch (_) {
+      card = null;
+    }
+    if (!mounted || url != _previewUrl) return;
+    setState(() => _preview = card);
+  }
 
   @override
   void dispose() {
+    _previewTimer?.cancel();
     _bodyController.removeListener(_onBodyChanged);
-    _titleController.removeListener(_onBodyChanged);
+    _titleController.removeListener(_onTitleChanged);
     _titleController.dispose();
     _bodyController.dispose();
     super.dispose();
@@ -394,6 +467,34 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     }
   }
 
+  /// The first card-to-be, drawn by the reader's own card widget (todo
+  /// 654), and the hint counting the rest. A tap does nothing here.
+  List<Widget> _linkPreview() {
+    final preview = _preview;
+    final more = _cardLinks.length - 1;
+    return [
+      if (preview != null) ...[
+        const SizedBox(height: AppSpacing.sm),
+        KeyedSubtree(
+          key: const ValueKey('composer-link-preview'),
+          child: LinkPreviewCardView(card: preview),
+        ),
+      ],
+      if (more > 0)
+        Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.xs),
+          child: Text(
+            more == 1
+                ? '+1 more link will show as a card'
+                : '+$more more links will show as cards',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+    ];
+  }
+
   String get _what => _isEdit ? 'edit' : (_isTopic ? 'topic' : 'reply');
 
   @override
@@ -518,6 +619,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
           // initState covers both user-driven edits AND the rich-text
           // toolbar's programmatic `.value =` assignments (todo 314).
         ),
+        ..._linkPreview(),
         if (_supportsImage) ...[
           const SizedBox(height: AppSpacing.sm),
           if (_attachedImage != null)

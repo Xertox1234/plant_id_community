@@ -118,11 +118,6 @@ def test_a_url_only_paragraph_is_stored_as_an_embed(html, url, no_fetch):
         # A link inside prose stays a paragraph (the web rule).
         "Look at this https://youtu.be/dQw4w9WgXcQ",
         "<p>Look at this: https://youtu.be/dQw4w9WgXcQ</p>",
-        # Mobile multi-line: the lines join with <br>, so it is not URL-only.
-        "Repotting day<br>https://youtu.be/dQw4w9WgXcQ",
-        # Two links on two lines must not glue into one bogus URL.
-        "https://youtu.be/dQw4w9WgXcQ<br>https://youtu.be/d2Xc8uupb9E",
-        "<p>https://youtu.be/dQw4w9WgXcQ</p><p>https://vimeo.com/148751763</p>",
         # A link whose text is not the URL keeps its words.
         '<p><a href="https://youtu.be/dQw4w9WgXcQ">my repotting video</a></p>',
         # Not a provider the host allows, or not a video URL at all.
@@ -137,6 +132,44 @@ def test_anything_but_a_lone_allowed_video_url_stays_a_paragraph(html, no_fetch)
     assert resp.status_code == 201, resp.data
     assert [t for t, _ in _stored()] == ["paragraph"]
     no_fetch.assert_not_called()
+
+
+@pytest.mark.django_db
+@EMBEDS_ON
+@pytest.mark.parametrize(
+    ("html", "stored"),
+    [
+        # Mobile multi-line: a video on its own line is split out (todo 655).
+        (
+            "Repotting day<br>https://youtu.be/dQw4w9WgXcQ",
+            [
+                ("paragraph", "Repotting day"),
+                ("embed", "https://youtu.be/dQw4w9WgXcQ"),
+            ],
+        ),
+        # Two links on two lines never glue into one bogus URL: each embeds.
+        (
+            "https://youtu.be/dQw4w9WgXcQ<br>https://youtu.be/d2Xc8uupb9E",
+            [
+                ("embed", "https://youtu.be/dQw4w9WgXcQ"),
+                ("embed", "https://youtu.be/d2Xc8uupb9E"),
+            ],
+        ),
+        (
+            "<p>https://youtu.be/dQw4w9WgXcQ</p><p>https://vimeo.com/148751763</p>",
+            [
+                ("embed", "https://youtu.be/dQw4w9WgXcQ"),
+                ("embed", "https://vimeo.com/148751763"),
+            ],
+        ),
+    ],
+)
+def test_a_video_link_on_its_own_line_is_split_out_and_embedded(html, stored, no_fetch):
+    resp = _create(_client(_member()), _board(), [_paragraph(html)])
+
+    assert resp.status_code == 201, resp.data
+    assert _stored() == stored
+    no_fetch.assert_called_once_with([url for kind, url in stored if kind == "embed"])
 
 
 @pytest.mark.django_db

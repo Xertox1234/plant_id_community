@@ -77,7 +77,9 @@ def test_new_user_spam_stays_pending():
     ForumProfile.for_user(user)
     ensure_default_workflow()
 
-    spam = "http://a.com http://b.com http://c.com http://d.com http://e.com"
+    spam = (
+        "http://a.com http://b.com http://c.com http://d.com http://e.com http://f.com"
+    )
     post = _post(user, spam)
     post.save()
     status = submit_for_moderation(post, user)
@@ -123,7 +125,9 @@ def test_untrusted_author_via_trusted_caller_is_screened():
     caller_profile.save()
     ensure_default_workflow()
 
-    spam = "http://a.com http://b.com http://c.com http://d.com http://e.com"
+    spam = (
+        "http://a.com http://b.com http://c.com http://d.com http://e.com http://f.com"
+    )
     post = _post(author, spam)
     post.save()
     status = submit_for_moderation(post, caller)
