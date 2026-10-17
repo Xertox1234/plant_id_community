@@ -20,15 +20,27 @@ that way when adding a field: no ``TextField`` may be listed
 ``include_fields`` limits ``changes`` only. Every LogEntry also stores
 ``object_repr = str(instance)``, which auditlog does not filter: GardenBed's
 carries the owner's username, and the others carry the plant's common name or
-the bed's name. Those are labels, not prose, and they live only as long as the
-account: deleting a user purges every LogEntry of their garden objects, the
-DELETE rows the cascade itself writes included (owner decision 2026-10-11,
-todo 586; see ``purge_garden_audit_entries`` below).
+the bed's name. Those are labels, not prose. Deleting a user purges a garden
+LogEntry when either (see ``purge_garden_audit_entries`` below):
 
-``actor`` is NULL on every garden LogEntry: no ``AuditlogMiddleware`` or
-``set_actor`` is wired, and middleware could not see a JWT user anyway (DRF
-authenticates in the view, after middleware runs). The trail records what
-changed and when, not who changed it (todo 586).
+- it describes a garden object the user still has when the account goes,
+  the DELETE rows the cascade itself writes included (owner decision
+  2026-10-11, todo 586); or
+- the user is its ``actor``, which also covers objects the user deleted
+  before the account (owner decision 2026-10-11, todo 606).
+
+What neither matches survives the account: a row written with no actor (by a
+Celery task, the CMS admin, or a garden view before todo 606 wired the actor)
+for an object the user had already deleted. The actor match covers rows
+written from todo 606 on, not older ones.
+
+``actor`` is set by the garden API views (``api/audit_actor.py``), which set
+it once DRF has authenticated the request, through a receiver connected below
+rather than auditlog's ``set_actor`` (todo 631, see that module).
+``AuditlogMiddleware`` could not do it: it runs before DRF authenticates the
+JWT. Rows written outside those views (Celery tasks, the CMS admin) have a NULL
+actor. auditlog also stores the actor's email in ``actor_email``; the actor
+match purges those rows with the account.
 
 Registering a model gives it a ``post_delete`` receiver, so Django can no
 longer fast-delete it: deleting a plant, bed or user loads each garden row and
@@ -43,11 +55,14 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models import Q
 from django.db.models.signals import post_delete, pre_delete
 
+from .api.audit_actor import connect_actor_receiver
 from .models import CareLog, CareTask, GardenBed, Harvest, Plant
+
+connect_actor_receiver()
 
 # Register GardenBed for garden ownership and modification tracking
 # Tracks: User garden bed creation, layout changes, soil condition updates
-# (what changed and when; actor is not recorded, see the module docstring)
+# (what changed, when, and by whom from the garden API; see the module docstring)
 auditlog.register(
     GardenBed,
     include_fields=[
@@ -129,6 +144,25 @@ auditlog.register(
 
 _TARGETS_ATTR = "_garden_audit_targets"
 
+# The purge deletes at most this many LogEntry rows per statement (todo 631):
+# a heavy user's rows are never one huge IN clause, and their pks are never
+# all held in memory at once.
+PURGE_CHUNK_SIZE = 500
+
+
+def _delete_in_chunks(queryset):
+    """Delete ``queryset``'s LogEntry rows, ``PURGE_CHUNK_SIZE`` at a time."""
+    model = get_logentry_model()
+    # Unordered (todo 643 #4): LogEntry's default ``-timestamp`` ordering
+    # would re-sort every remaining matching row for each chunk. Any chunk
+    # will do, since every row of the queryset goes.
+    queryset = queryset.order_by()
+    while True:
+        pks = list(queryset.values_list("pk", flat=True)[:PURGE_CHUNK_SIZE])
+        if not pks:
+            return
+        model.objects.filter(pk__in=pks).delete()
+
 
 def _garden_objects_of(user):
     """Every garden row deleting ``user`` cascades to, per audited model."""
@@ -143,30 +177,49 @@ def _garden_objects_of(user):
 
 def collect_garden_audit_targets(sender, instance, **kwargs):
     """Before a user is deleted, note which garden objects their LogEntry rows
-    describe. After the delete the rows are gone and cannot be looked up."""
+    describe, and purge the garden LogEntry rows that name them as actor.
+    After the delete the garden rows are gone and the actor is NULL
+    (``on_delete=SET_NULL``), so neither can be looked up then.
+
+    The actor rows go now, in chunks (todo 631), rather than as one pk list
+    carried to ``post_delete``. Django sends ``pre_delete`` inside the
+    delete's transaction, so a rolled-back delete keeps them."""
     targets = []
+    content_type_ids = []
     for model, queryset in _garden_objects_of(instance).items():
+        content_type_id = ContentType.objects.get_for_model(model).pk
+        content_type_ids.append(content_type_id)
         pks = [str(pk) for pk in queryset.values_list("pk", flat=True)]
         if pks:
-            targets.append((ContentType.objects.get_for_model(model).pk, pks))
+            targets.append((content_type_id, pks))
+    _delete_in_chunks(
+        get_logentry_model().objects.filter(
+            actor=instance, content_type_id__in=content_type_ids
+        )
+    )
     setattr(instance, _TARGETS_ATTR, targets)
 
 
 def purge_garden_audit_entries(sender, instance, **kwargs):
-    """Delete every LogEntry of the deleted user's garden objects.
+    """Delete every LogEntry of the deleted user's garden objects (the rows
+    they are the actor of went in ``collect_garden_audit_targets``, todo 606).
 
     Runs on the user's ``post_delete``, which Django sends after the cascade
     has deleted (and so audited) every garden row: the DELETE entries the
     cascade wrote are purged with the older CREATE and UPDATE ones. It runs
     inside the delete's transaction, so a rolled-back delete keeps its trail.
+    Each statement names at most ``PURGE_CHUNK_SIZE`` objects (todo 631).
     """
-    targets = instance.__dict__.pop(_TARGETS_ATTR, None)
-    if not targets:
-        return
-    match = Q()
+    targets = instance.__dict__.pop(_TARGETS_ATTR, ())
+    entries = get_logentry_model().objects
     for content_type_id, pks in targets:
-        match |= Q(content_type_id=content_type_id, object_pk__in=pks)
-    get_logentry_model().objects.filter(match).delete()
+        for start in range(0, len(pks), PURGE_CHUNK_SIZE):
+            _delete_in_chunks(
+                entries.filter(
+                    content_type_id=content_type_id,
+                    object_pk__in=pks[start : start + PURGE_CHUNK_SIZE],
+                )
+            )
 
 
 _User = get_user_model()

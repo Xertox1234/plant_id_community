@@ -23,6 +23,11 @@ Compact checklist auto-injected before edits. Long-form:
   (`_$xHash`), so *any* edit (even deleting an unrelated method) makes it stale. CI's
   "Ensure generated code is committed" gate (`build_runner` + `git diff
   --exit-code`) blocks the merge; local `flutter analyze`/`test` will NOT catch it.
+  The `flutter-codegen` pre-commit hook (`scripts/check_flutter_codegen.py`) now
+  runs the same build when a staged file declares a `part '*.g.dart'`, fails a
+  stale commit and leaves the regenerated file to stage. The hash covers the
+  provider's own source only, so an edit outside every provider in the same
+  file regenerates nothing.
 - **Firebase-emulator integration tests** (`integration_test/`): adopt the
   native `[DEFAULT]` app — `Firebase.initializeApp()` with NO options (passing
   options throws `[core/duplicate-app]`) and run the emulator with the same
@@ -271,3 +276,11 @@ Compact checklist auto-injected before edits. Long-form:
   across a real rebuild. A factory counter only shows whether the element was
   ever created, which is the right check for "never built" (`expect(builds, 0)`)
   (todo 520, PR #948; `docs/patterns/riverpod.md`).
+- **Show an API error message only when one of our views wrote it.** An
+  `ApiException.message` is fit for the UI only when `unstructured` is false (a
+  proxy or WAF HTML page sets it true) and `statusCode` is set (Dio's own
+  failures have none, and their text is Dio's). Never interpolate `$e`. A service
+  that re-wraps the error (`UserProfileException`) must carry that safe message
+  forward as its own field, or every failure collapses to a generic line and the
+  user loses the server's reason (`apiErrorMessage` in
+  `lib/features/profile/forum_notification_settings_card.dart`, todo 651, PR #1127).

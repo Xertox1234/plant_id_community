@@ -2068,5 +2068,24 @@
     "source": "codify: docs/codify-sweep-2026-10-11-2219",
     "added": "2026-10-11",
     "severity": "warn"
+  },
+  {
+    "id": "integrityerror-409-unscoped",
+    "domains": [
+      "api"
+    ],
+    "path_glob": [
+      "backend/apps/*/views.py",
+      "backend/apps/*/views/*.py",
+      "backend/packages/*/*/api.py",
+      "backend/apps/*/api.py"
+    ],
+    "content_present": "except\\s+IntegrityError[\\s\\S]{0,400}?HTTP_409_CONFLICT",
+    "content_absent": "constraint_name",
+    "message": "A bare except IntegrityError -> 409 reports every integrity fault (bad FK, NOT NULL) as a retryable race, unlogged. Check exc.__cause__.diag.constraint_name, 409 only for the race constraint with a bracketed log line, re-raise the rest.",
+    "pattern_ref": "docs/rules/api.md",
+    "source": "codify: docs/codify-p4-batch-2026-10-12",
+    "added": "2026-10-12",
+    "severity": "warn"
   }
 ]

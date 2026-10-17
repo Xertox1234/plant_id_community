@@ -208,8 +208,13 @@ def fenced_lines(lines):
 # Todo 596 #5: the words form is "re-pointed", then the target within a short clause ("re-pointed 2026-07-26 to
 # todo 283"). An unbounded `.*`, or a todo number BEFORE "re-pointed", matched any criterion that merely
 # mentions both -- and a wrapped criterion is matched as one joined string, so they could be lines apart.
+# Todo 614 #4 (owner decision 2026-10-11): the CLAUDE.md form "re-pointed DATE; promoted to todo N" is a re-point
+# again. Only a dated clause may cross its one `;`; the undated form keeps the 30-char, no-punctuation window, and
+# "todo N ... re-pointed" stays out (todo 596 #5).
 REPOINT_RE = re.compile(
-    r"(?:\u2192|->)\s*todo\s*\d+|re-?pointed\b[^.;!?|/]{0,30}?\btodo\s*\d+",
+    r"(?:\u2192|->)\s*todo\s*\d+"
+    r"|re-?pointed\b[^.;!?|/]{0,30}?\btodo\s*\d+"
+    r"|re-?pointed\s+\d{4}-\d{2}-\d{2}\s*;[^.;!?|/]{0,40}?\btodo\s*\d+",
     re.I,
 )
 STATUS_RE = re.compile(r"^status:\s*(.+?)\s*$", re.M)

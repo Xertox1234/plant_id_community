@@ -427,6 +427,53 @@ async function main() {
   r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: low }))
   check('review: a non-blocking finding is not sent to refuters', refuteCalls(r.calls).length === 0)
 
+  // --- todo 617: a medium that is a regression against origin/main blocks like a high; a plain medium does not.
+  const medium = (regression) => ({ reviewed_range: 'x', findings: [{ severity: 'medium', file: 'g.py', line: 7,
+    summary: 'main flags this input, the PR is quiet here', suggested_fix: '', ...(regression === undefined ? {} : { regression }) }] })
+  const reviewFindings = schemaBlock(source('todo-review'), 'FINDINGS')
+  check('617 AC1: the reviewer FINDINGS schema carries an optional boolean `regression`',
+    /regression: \{ type: 'boolean' \}/.test(reviewFindings)
+    && /required: \['severity', 'file', 'line', 'summary', 'suggested_fix'\]/.test(reviewFindings), reviewFindings)
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: medium(true) }))
+  const domainCall = r.calls.find(c => c.opts.agentType === 'django-drf-reviewer')
+  const sets = 'Set regression=true only when the PR head behaves worse than origin/main on the same input'
+  check('617 AC1: the bug-lens and domain prompts say when to set `regression`',
+    lensCalls(r.calls).every(c => c.prompt.includes(sets)) && Boolean(domainCall) && domainCall.prompt.includes(sets)
+    && lensCalls(r.calls)[0].prompt.includes('A medium with regression=true blocks the PR like a high'),
+    lensCalls(r.calls).map(c => c.prompt))
+  const regRepair = byType(r.calls, 'todo-worker')
+  check('617 AC1: round 1: a medium regression enters `blocking`, faces two refuters, and is repaired',
+    r.result.results[0].blocking.length === 1 && r.result.results[0].blocking[0].severity === 'medium'
+    && r.result.results[0].blocking[0].regression === true && refuteCalls(r.calls).length === 2
+    && refuteCalls(r.calls).every(c => c.prompt.includes('flagged this as a regression against origin/main'))
+    && regRepair.length === 1 && regRepair[0].prompt.includes('"regression": true'), r.result.results[0])
+  for (const [label, flag] of [['without the flag', undefined], ['with regression=false', false]]) {
+    r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: medium(flag) }))
+    check(`617 AC1: round 1: a medium ${label} stays a follow-up (not blocking, no refuters, no repair)`,
+      r.result.results[0].blocking.length === 0 && r.result.results[0].findings.length === 3
+      && refuteCalls(r.calls).length === 0 && byType(r.calls, 'todo-worker').length === 0, r.result.results[0])
+  }
+  r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: high }))
+  check('617: a refuter for a finding without the flag gets no regression line',
+    refuteCalls(r.calls).every(c => !c.prompt.includes('regression against origin/main')), refuteCalls(r.calls).map(c => c.prompt))
+  const highAt7 = { reviewed_range: 'x', findings: [{ ...medium().findings[0], severity: 'high',
+    summary: 'a high at the same line' }] }
+  for (const [label, lens, domain] of [['medium first', medium(true), highAt7], ['high first', highAt7, medium(true)]]) {
+    r = await run('todo-review', { round: 2, prs: [pr({ round: 2 })] }, reviewStub({ lens, domain }))
+    const b = r.result.results[0].blocking
+    check(`617 review: a high and a medium regression at one line collapse to the high (${label})`,
+      b.length === 1 && b[0].severity === 'high' && b[0].summary === 'a high at the same line' && !b[0].regression, b)
+  }
+  r = await run('todo-review', { round: 2, prs: [pr({ round: 2 })] },
+    reviewStub({ lens: { reviewed_range: 'x', findings: [{ ...highAt7.findings[0], regression: true }] } }))
+  check('617 review: a high flagged regression=true is refuted as a high, with no regression line',
+    refuteCalls(r.calls).length === 2
+    && refuteCalls(r.calls).every(c => !c.prompt.includes('regression against origin/main')), refuteCalls(r.calls).map(c => c.prompt))
+  r = await run('todo-review', { round: 2, prs: [pr({ round: 2 })] }, reviewStub({ lens: medium(true) }))
+  check('617 AC2: round 2: a medium regression is reported blocking, with no repair',
+    r.result.results[0].blocking.length === 1 && r.result.results[0].repair === null
+    && byType(r.calls, 'todo-worker').length === 0, r.result.results[0])
+
   // --- review round 1: nothing blocking, and a repair that blocks
   // Todo 478: its own run (it used to read the previous case's `r`, which happened to be the same stub).
   r = await run('todo-review', { round: 1, prs: [pr()] }, reviewStub({ lens: low }))
@@ -906,6 +953,14 @@ async function main() {
   check('PR #1061: ... and a refuted `also` copy drops the identical summary it was not judged on',
     r.result.results[0].kept.length === 1 && r.result.results[0].kept[0].summary === 'nit'
     && r.result.results[0].dropped[0].line === 'medium: a.py:9 real | also: real ', r.result.results[0])
+  // Todo 614 #2: under a `fixed` item, that drop is not "the refuter agreed": it judged the summary not refuted.
+  r = await run('todo-followups', { run_id: 'r', groups: [fg({ followups: ['medium: a.py:9 real', 'medium: a.py:9 real', 'low: a.py:2 nit'] })] },
+    (p, o) => (isCurator(o) ? { pr_on_main: true, items: [item({ also: ['real ', 'nit'], on_main: 'fixed', note: 'removed by #901' })] }
+      : { judgments: [{ index: 0, refuted: false, also_refuted: [0], reason: 'wrong' }] }))
+  check('614 #2: a summary dropped only through a refuted identical `also` copy reads `refuted:`, never "the refuter agreed"',
+    r.result.results[0].dropped.length === 1 && r.result.results[0].dropped[0].why === 'refuted: wrong'
+    && r.result.results[0].dropped[0].line === 'medium: a.py:9 real | also: real '
+    && !r.result.results[0].dropped.some(d => /fixed on main|the refuter agreed/.test(d.why)), r.result.results[0])
   r = await run('todo-followups', { run_id: 'r', groups: [fg()] },
     (p, o) => (isCurator(o) ? curated : { judgments: [{ index: 1, refuted: false, also_refuted: [], reason: 'still there' }] }))
   check('541 #982-3: a fixed claim the refuter does not confirm keeps the item',

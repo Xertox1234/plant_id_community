@@ -195,6 +195,17 @@ repos:
         files: ^plant_community_mobile/.*\.dart$
         pass_filenames: false
 
+      # Riverpod embeds a hash of each provider's source in its .g.dart, so any
+      # edit to that file makes it stale while analyze and test still pass. Runs
+      # build_runner (as mobile CI does) only when a staged file declares a
+      # `part '*.g.dart'`; a stale file fails the commit, regenerated in place.
+      - id: flutter-codegen
+        name: Regenerate Flutter codegen (build_runner) when a provider changed
+        entry: python3 scripts/check_flutter_codegen.py
+        language: system
+        files: ^plant_community_mobile/lib/.*\.dart$
+        exclude: \.(g|freezed)\.dart$
+
   # ===================================
   # Markdown Linting
   # ===================================

@@ -89,6 +89,10 @@ dependencies:
   # Opens forum links in the in-app browser (SFSafariViewController / Custom
   # Tab). Only http(s) is ever handed to it (todo 424).
   url_launcher: ^6.3.2
+  # The device's IANA zone ("America/Denver") for quiet hours; Dart's own
+  # DateTime.timeZoneName is only an abbreviation (todo 624, owner decision
+  # 2026-10-13).
+  flutter_timezone: ^5.1.1
 
 dev_dependencies:
   flutter_test:

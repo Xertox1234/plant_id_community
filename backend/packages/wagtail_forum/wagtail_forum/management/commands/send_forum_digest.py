@@ -17,15 +17,23 @@ mirroring send_blog_newsletter after todo 534).
 """
 
 import logging
+from uuid import uuid4
 
-from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
 from ...conf import get_setting
-from ...digest import build_digest, digest_recipients, is_due, send_digest, since_for
+from ...digest import (
+    DIGEST_SUPPRESSED,
+    build_digest,
+    digest_recipients,
+    is_due,
+    mailable_accounts,
+    send_digest,
+    since_for,
+)
 from ...models import DigestFrequency, ForumProfile
 
 logger = logging.getLogger("wagtail_forum")
@@ -66,12 +74,14 @@ class Command(BaseCommand):
         # after a soft time limit can take over. Its TTL
         # (DIGEST_RUN_LOCK_SECONDS) is the host task's hard time limit plus a
         # margin, so a hard-killed holder blocks the next run for minutes,
-        # not hours (todo 548).
+        # not hours (todo 548). The value is this run's own token, so the
+        # release below can tell its lock from a later fire's (todo 605).
         lock_key = f"wagtail_forum:digest-run:{frequency}"
+        lock_token = f"{now.isoformat()}:{uuid4().hex}"
         holds_lock = False
         if not dry_run:
             locked = cache.add(
-                lock_key, now.isoformat(), get_setting("DIGEST_RUN_LOCK_SECONDS")
+                lock_key, lock_token, get_setting("DIGEST_RUN_LOCK_SECONDS")
             )
             if locked is False:
                 self.stdout.write(
@@ -97,20 +107,44 @@ class Command(BaseCommand):
             # Release only a lock this run took. After an outage (add
             # answered None) the cache may recover mid-run and another fire
             # may take the lock; deleting it here would let a third fire
-            # start (todo 585).
+            # start (todo 585). The same goes for a run that outlived
+            # DIGEST_RUN_LOCK_SECONDS (a manual run with no hard time limit):
+            # its key expired and another fire may hold it now, so delete
+            # only while the key still holds this run's token (todo 605).
+            #
+            # A get that answers None falls back to a plain delete (todo 630,
+            # owner decision 2026-10-12). Under IGNORE_EXCEPTIONS a Redis blip
+            # makes the get answer None, and keeping the lock would block the
+            # soft-time-limit continuation for the full TTL. If the key really
+            # is gone, the delete is a no-op.
+            #
+            # Read-then-delete is not atomic, but the gap is one round-trip
+            # against a TTL of minutes, and the per-member claim still stops
+            # a double send. An atomic compare-and-delete needs a
+            # backend-specific script, which this package cannot assume.
             if holds_lock:
-                cache.delete(lock_key)
+                current = cache.get(lock_key)
+                if current is None or current == lock_token:
+                    cache.delete(lock_key)
 
         label = "would send" if dry_run else "sent"
         self.stdout.write(
             f"[EMAIL] digest frequency={frequency} window_days={window_days} "
             f"recipients={totals['recipients']} due={totals['due']} "
-            f"empty={totals['empty']} {label}={totals['sent']} failed={totals['failed']}"
+            f"empty={totals['empty']} {label}={totals['sent']} failed={totals['failed']} "
+            f"suppressed={totals['suppressed']}"
             + (" (dry run — nothing sent, nothing written)" if dry_run else "")
         )
 
     def _run(self, frequency, dry_run, window_days, now):
-        totals = {"recipients": 0, "due": 0, "empty": 0, "sent": 0, "failed": 0}
+        totals = {
+            "recipients": 0,
+            "due": 0,
+            "empty": 0,
+            "sent": 0,
+            "failed": 0,
+            "suppressed": 0,
+        }
         for profile in digest_recipients(frequency).iterator(chunk_size=200):
             totals["recipients"] += 1
             if not is_due(profile, now, window_days):
@@ -143,14 +177,19 @@ class Command(BaseCommand):
             sent = self._send_one(profile, digest, now, frequency)
             if sent is None:
                 continue  # another run claimed them, or they opted out
-            if sent:
+            if sent == DIGEST_SUPPRESSED:
+                # Not a failure: nothing to recover, the address is on the
+                # host's suppression list (todo 625).
+                totals["suppressed"] += 1
+            elif sent:
                 totals["sent"] += 1
             else:
                 totals["failed"] += 1
         return totals
 
-    def _send_one(self, profile, digest, now, frequency) -> bool | None:
-        """True sent, False failed, None not ours to send any more."""
+    def _send_one(self, profile, digest, now, frequency) -> bool | str | None:
+        """True sent, False failed, DIGEST_SUPPRESSED dropped by the host's
+        suppression backstop, None not ours to send any more."""
         # Claim the member before sending, on the marker we read: belt to the
         # run lock's braces. A second run racing on the row cannot also
         # match: its UPDATE waits on our row lock, then finds the marker
@@ -179,9 +218,14 @@ class Command(BaseCommand):
         # profile PATCH, a trust update). Other rows are not blocked, and the
         # wait ends when the send returns (todo 585).
         #
-        # The claim rechecks the opt-in and the account (todo 585): the
+        # The claim rechecks every digest_recipients condition (todos 585,
+        # 605, and the host's DIGEST_RECIPIENT_FILTER since 620): the
         # recipient query was read up to a 200-row chunk ago, and a member
-        # who has since opted out or been deactivated must not be mailed.
+        # who has since opted out, been deactivated or cleared their
+        # email must not be mailed. The address is re-read after the claim,
+        # so a member who changed it in that window (say, off a compromised
+        # account) is mailed at the new one, never the one read with the
+        # chunk.
         #
         # The UPDATE must stay on one table. A join (`user__is_active`) makes
         # Django rewrite it as `id IN (SELECT ... JOIN user ...)`, and then
@@ -190,9 +234,7 @@ class Command(BaseCommand):
         # two emails. `user_id__in` is a join-free subquery, so the marker
         # stays in the outer WHERE on the locked row.
         previous = profile.last_digest_sent_at
-        active_account = get_user_model().objects.filter(
-            pk=profile.user_id, is_active=True
-        )
+        active_account = mailable_accounts().filter(pk=profile.user_id)
         with transaction.atomic():
             claimed = ForumProfile.objects.filter(
                 pk=profile.pk,
@@ -202,10 +244,19 @@ class Command(BaseCommand):
             ).update(last_digest_sent_at=now)
             if not claimed:
                 return None
+            email = active_account.values_list("email", flat=True).first()
+            if not email:
+                # Cleared or deactivated between the claim and this read.
+                transaction.set_rollback(True)
+                return None
+            digest.user.email = email
             # A strict bool (todo 585): a falsy non-bool from a send is a
             # failure, never a silent "neither sent nor failed".
-            sent = bool(send_digest(digest))
-            if not sent:
+            result = send_digest(digest)
+            sent = DIGEST_SUPPRESSED if result == DIGEST_SUPPRESSED else bool(result)
+            if sent is not True:
+                # Suppressed as well as failed: no stamp, so the member is
+                # not recorded as sent a digest that never went out.
                 # Nothing went out: undo the claim so the member stays due.
                 transaction.set_rollback(True)
         return sent

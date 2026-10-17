@@ -527,11 +527,16 @@ RAG_REPORT_QUESTION_PREVIEW_CHARS = 80
 # returns "no information" WITHOUT an LLM call. Read off this module at call
 # time (constants.RAG_SIMILARITY_FLOOR) so tests and ops can patch it.
 #
-# 0.35 is a starting point for text-embedding-3-small, NOT a measured value:
-# the corpus this ships against is empty. rag_retrieval.py logs the top score
-# per index on every question ([RAG] lines) so todo 330 can tune it from real
-# traffic before enabling the feature.
-RAG_SIMILARITY_FLOOR = 0.35
+# 0.45, measured (todo 330, 2026-10-17): 8 prod questions against the 59-article
+# corpus. The 5 covered questions answered with a top BlogChunks score of
+# 0.56-0.81; 3 off-corpus ones (air plants, tomato fertilizer, outdoor fig)
+# scored 0.40-0.53. At the old 0.35 starting point every question had 6+
+# candidates above the floor, so none got "no information" and each off-corpus
+# one paid for an LLM call that then declined. 0.45 refuses the clearly
+# off-topic one without a call and keeps an 0.11 margin under the weakest
+# answer. rag_retrieval.py logs the top score per index on every question
+# ([RAG] lines); re-check against those as the corpus grows.
+RAG_SIMILARITY_FLOOR = 0.45
 
 # Per-index overfetch: each index returns this many scored chunks before the
 # floor, the visibility refetch and the per-source dedupe thin them out.
@@ -615,6 +620,21 @@ RAG_INDEX_RETRY_DELAY = 30
 # thundering herd docs/rules/celery.md warns about.
 NOTIFICATION_BATCH_MAX_RETRIES = 3
 NOTIFICATION_BATCH_RETRY_DELAY = 30
+
+# When send_forum_push_batch stops on Firebase credentials errors, the
+# recipients it had not tried yet go out in ONE follow-up batch after this many
+# seconds (owner decision 2026-10-11, todo 606). The follow-up never re-enqueues
+# again, so a real project-wide outage cannot loop.
+FORUM_PUSH_REQUEUE_DELAY = 300
+
+# Reply coalescing (todo 624, owner decision 2026-10-12): replies on one
+# topic within this window reach a member as ONE email and ONE push. The
+# first reply goes out at once; a later one that arrives while the member's
+# last message about that topic on that channel is younger than this window
+# is held until that message's time + the window, then goes out folding
+# every reply still waiting ("3 new replies"), as pacing.py describes.
+# Mentions, quotes and accepted answers are not delayed.
+REPLY_COALESCE_SECONDS = 10 * 60
 
 # Grounded-generation prompt. TWO untrusted slots, both fenced: the QUESTION is
 # user input, and the PASSAGES are user-authored forum text and blog copy that

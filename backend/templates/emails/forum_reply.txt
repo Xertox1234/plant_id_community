@@ -1,12 +1,13 @@
 {% autoescape off %}{{ site_name }} - New Reply in Forum
 
-{{ author_name }} replied to a topic you're following:
+{% if reply_count > 1 %}{{ reply_count }} new replies on a topic you're following. The latest, from {{ author_name }}:{% else %}{{ author_name }} replied to a topic you're following:{% endif %}
 
 {{ topic_title }}
 
 {{ post_excerpt }}
 
-Read the full discussion: {{ topic_url }}
+Read the reply: {% firstof post_url topic_url %}
+View topic to unfollow: {{ topic_url }}
 
 ---
 Manage forum notifications: {{ preferences_url }}

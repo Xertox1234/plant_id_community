@@ -70,6 +70,17 @@ function renderPage() {
   );
 }
 
+// Board 5 resolves to a board of its own name, so a test can wait for the
+// switch to finish -- the fetch resolved and the page re-rendered with it --
+// rather than for the fetch to start (todo 634).
+function serveBoardFive() {
+  vi.mocked(forumService.fetchCategory).mockImplementation(async (id) =>
+    Number(id) === 5
+      ? { id: '5', name: 'Pests', slug: 'pests', created_at: '' }
+      : { id: '3', name: 'Plant Care', slug: 'plant-care', created_at: '' }
+  );
+}
+
 describe('NewThreadPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -849,14 +860,115 @@ describe('NewThreadPage', () => {
     );
   });
 
+  it("resets the poll close time and choices per voter when a ?category= change loads the new board's draft (todo 615)", async () => {
+    vi.spyOn(forumService, 'createThread').mockResolvedValue({
+      id: '12',
+      slug: 'my-topic',
+      status: 'published',
+    });
+    saveDraft(
+      draftKey('new-thread', '5-pests'),
+      JSON.stringify({ title: 'Pest question', body: '<p>aphids</p>', tags: '' })
+    );
+    const view = renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.click(screen.getByRole('checkbox', { name: /add a poll/i }));
+    await userEvent.type(screen.getByLabelText(/poll question/i), 'Best soil?');
+    await userEvent.type(screen.getByLabelText('Poll option 1'), 'Peat');
+    await userEvent.type(screen.getByLabelText('Poll option 2'), 'Coir');
+    await userEvent.selectOptions(screen.getByLabelText(/choices per voter/i), '2');
+    fireEvent.change(screen.getByLabelText(/closes/i), { target: { value: '2099-01-01T10:00' } });
+    expect(screen.getByLabelText(/choices per voter/i)).toHaveValue('2');
+    expect(screen.getByLabelText(/closes/i)).toHaveValue('2099-01-01T10:00');
+
+    vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+      new URLSearchParams('category=5-pests'),
+      vi.fn(),
+    ]);
+    view.rerender(
+      <MemoryRouter>
+        <AnnouncerProvider>
+          <NewThreadPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue('Pest question'));
+
+    // Re-enabled and filled again with two options, the poll posts with the
+    // defaults: a kept max-choices of 2 would still apply to two filled
+    // options, and a kept close time would be sent.
+    await userEvent.click(screen.getByRole('checkbox', { name: /add a poll/i }));
+    expect(screen.getByLabelText(/closes/i)).toHaveValue('');
+    await userEvent.type(screen.getByLabelText(/poll question/i), 'Pest seen?');
+    await userEvent.type(screen.getByLabelText('Poll option 1'), 'Aphids');
+    await userEvent.type(screen.getByLabelText('Poll option 2'), 'Mites');
+    expect(screen.getByLabelText(/choices per voter/i)).toHaveValue('1');
+
+    await userEvent.click(screen.getByRole('button', { name: /post thread/i }));
+    await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
+    expect(vi.mocked(forumService.createThread).mock.calls[0][0].poll).toEqual({
+      question: 'Pest seen?',
+      options: ['Aphids', 'Mites'],
+    });
+  });
+
+  it('keeps the poll when a ?category= change goes to a board with no stored draft (todo 615)', async () => {
+    vi.spyOn(forumService, 'createThread').mockResolvedValue({
+      id: '12',
+      slug: 'my-topic',
+      status: 'published',
+    });
+    serveBoardFive();
+    const view = renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'Board A');
+    await userEvent.type(screen.getByLabelText('body'), 'hello');
+    await userEvent.click(screen.getByRole('checkbox', { name: /add a poll/i }));
+    await userEvent.type(screen.getByLabelText(/poll question/i), 'Best soil?');
+    await userEvent.type(screen.getByLabelText('Poll option 1'), 'Peat');
+    await userEvent.type(screen.getByLabelText('Poll option 2'), 'Coir');
+    await userEvent.selectOptions(screen.getByLabelText(/choices per voter/i), '2');
+
+    vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+      new URLSearchParams('category=5-pests'),
+      vi.fn(),
+    ]);
+    view.rerender(
+      <MemoryRouter>
+        <AnnouncerProvider>
+          <NewThreadPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+    // Wait for the switch to finish, not just start: a reset that landed in a
+    // later tick (after the fetch resolves) would pass a wait on the call.
+    await screen.findByText('Pests');
+    // No draft to load: the text stays (owner decision 2026-10-11), and the
+    // poll stays with it.
+    expect(screen.getByLabelText(/title/i)).toHaveValue('Board A');
+    expect(screen.getByRole('checkbox', { name: /add a poll/i })).toBeChecked();
+    expect(screen.getByLabelText(/poll question/i)).toHaveValue('Best soil?');
+    expect(screen.getByLabelText('Poll option 1')).toHaveValue('Peat');
+    expect(screen.getByLabelText('Poll option 2')).toHaveValue('Coir');
+    expect(screen.getByLabelText(/choices per voter/i)).toHaveValue('2');
+
+    await userEvent.click(screen.getByRole('button', { name: /post thread/i }));
+    await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
+    expect(vi.mocked(forumService.createThread).mock.calls[0][0].poll).toEqual({
+      question: 'Best soil?',
+      options: ['Peat', 'Coir'],
+      max_choices: 2,
+    });
+  });
+
   it.each([
-    ['null', 'null'],
-    ['a number', '5'],
-    ['an array', '[]'],
-    ['a non-string title and tags', '{"title":1,"tags":[],"body":"<p>kept</p>"}'],
+    ['null', 'null', ''],
+    ['a number', '5', ''],
+    ['an array', '[]', ''],
+    ['a non-string title and tags', '{"title":1,"tags":[],"body":"<p>kept</p>"}', '<p>kept</p>'],
   ])(
     'reads a stored draft that is %s as blank fields, without crashing (todo 597)',
-    async (_label, raw) => {
+    async (_label, raw, body) => {
       const key = draftKey('new-thread', '3-plant-care');
       saveDraft(key, raw);
       renderPage();
@@ -864,6 +976,8 @@ describe('NewThreadPage', () => {
 
       expect(screen.getByLabelText(/title/i)).toHaveValue('');
       expect(screen.getByLabelText(/tags/i)).toHaveValue('');
+      // The body is read on its own: a bad title or tags does not blank it.
+      expect(screen.getByLabelText('body')).toHaveValue(body);
       // Untouched, the stored value stays exactly as it was (todo 538).
       expect(loadDraft(key)).toBe(raw);
       await userEvent.type(screen.getByLabelText(/title/i), 'Fixed');
@@ -1082,6 +1196,41 @@ describe('NewThreadPage', () => {
       await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
       expect(forumService.createThread).toHaveBeenCalledWith(
         expect.not.objectContaining({ identification: expect.anything() })
+      );
+    });
+
+    it('keeps the attachment when a ?category= change goes to a board with no stored draft (todo 615)', async () => {
+      vi.spyOn(forumService, 'createThread').mockResolvedValue({
+        id: '12',
+        slug: 'my-topic',
+        status: 'published',
+      });
+      serveBoardFive();
+      const view = renderWithHandoff(HANDOFF);
+      await screen.findByText('Plant Care');
+      await userEvent.type(screen.getByLabelText('body'), 'hello');
+
+      vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+        new URLSearchParams('category=5-pests'),
+        vi.fn(),
+      ]);
+      view.rerender(
+        <MemoryRouter initialEntries={[{ pathname: '/forum/new-thread', state: HANDOFF }]}>
+          <AnnouncerProvider>
+            <NewThreadPage />
+          </AnnouncerProvider>
+        </MemoryRouter>
+      );
+      // The switch finished, not just started (todo 634).
+      await screen.findByText('Pests');
+      // No draft to load: the text stays, and the photo that goes with it.
+      expect(screen.getByLabelText(/title/i)).toHaveValue('Is this Swiss cheese plant?');
+      expect(screen.getByText(/identification attached/i)).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole('button', { name: /post thread/i }));
+      await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
+      expect(forumService.createThread).toHaveBeenCalledWith(
+        expect.objectContaining({ identification: HANDOFF.identification })
       );
     });
 

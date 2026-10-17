@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AxiosError, CanceledError, type InternalAxiosRequestConfig } from 'axios';
-import { NETWORK_ERROR_MESSAGE, httpErrorMessage, toHttpError } from './httpError';
+import { NETWORK_ERROR_MESSAGE, httpErrorMessage, httpStatusOf, toHttpError } from './httpError';
 
 const config = { headers: {} } as InternalAxiosRequestConfig;
 
@@ -86,5 +86,19 @@ describe('toHttpError', () => {
   it('returns a non-axios error unchanged', () => {
     const own = new Error('Could not load your profile.');
     expect(toHttpError(own)).toBe(own);
+  });
+});
+
+describe('httpStatusOf (todo 651)', () => {
+  it('reads the status through toHttpError and from a raw axios error', () => {
+    const throttled = withResponse(429, { message: 'Request was throttled.' });
+    expect(httpStatusOf(toHttpError(throttled))).toBe(429);
+    expect(httpStatusOf(throttled)).toBe(429);
+  });
+
+  it('is undefined without a response', () => {
+    expect(httpStatusOf(new Error('plain'))).toBeUndefined();
+    expect(httpStatusOf(new AxiosError('down', 'ERR_NETWORK'))).toBeUndefined();
+    expect(httpStatusOf('nope')).toBeUndefined();
   });
 });

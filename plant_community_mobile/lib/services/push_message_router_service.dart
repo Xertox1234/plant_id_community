@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/routing/app_router.dart';
+import '../features/garden/providers/garden_focus_provider.dart';
+import '../features/garden/providers/garden_provider.dart';
 import 'auth_service.dart';
 
 /// Registered via `FirebaseMessaging.onBackgroundMessage` in `main.dart`,
@@ -32,7 +34,8 @@ Future<void> pushBackgroundMessageHandler(RemoteMessage message) async {
 /// Routes a tapped push notification: a forum push to its topic (and
 /// highlights the post, when the payload carries one) — todo 311; a care
 /// reminder (`event: care_task_due`, sent by `garden_calendar`'s reminder
-/// sweep, todo 410) to the garden — todo 386.
+/// sweep, todo 410) to the garden — todo 386 — focused on the task it names,
+/// or on the due list when it covers several (todo 621).
 ///
 /// A sibling to `PushRegistrationService`, not an extension of it: token
 /// registration is scoped to login/logout, tap-routing is scoped to the
@@ -69,7 +72,11 @@ Future<void> pushBackgroundMessageHandler(RemoteMessage message) async {
 /// in the app, and forcing a detour through home would discard whatever
 /// screen they were on.
 class PushMessageRouterService {
-  PushMessageRouterService(this.routerAccessor, {this.awaitAuthRestore}) {
+  PushMessageRouterService(
+    this.routerAccessor, {
+    this.awaitAuthRestore,
+    this.onCareFocus,
+  }) {
     _openedAppSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
       (message) => _route(message, isColdStart: false),
     );
@@ -89,6 +96,11 @@ class PushMessageRouterService {
   /// signed-in user to `/login` (then on to `/profile`) instead of the
   /// garden. Null — no wait — for callers with no auth to restore.
   final Future<void> Function()? awaitAuthRestore;
+
+  /// Hands a care tap's target to the garden ([gardenFocusProvider]): the
+  /// garden highlights the task, or says it is no longer due. Null — no
+  /// focus, the plain garden — for callers that do not wire it.
+  final void Function(GardenFocus? focus)? onCareFocus;
 
   /// Test seam, mirroring `PushRegistrationService.messaging`: a lazy
   /// getter so constructing this service in a unit test never touches
@@ -122,12 +134,18 @@ class PushMessageRouterService {
     }
   }
 
+  /// Routes a tap on the in-app foreground banner (todo 621): the app is
+  /// running, so it is a warm tap.
+  void routeTap(RemoteMessage message) => _route(message, isColdStart: false);
+
   void _route(RemoteMessage message, {required bool isColdStart}) {
     // A care reminder carries `care_task_uuid`/`plant_uuid`/`count` and no
     // `topic_id`, so it must be recognised before the forum parse below
     // discards it as unroutable.
     if (message.data['event'] == careTaskDueEvent) {
-      unawaited(_routeCareReminder(isColdStart: isColdStart));
+      unawaited(
+        _routeCareReminder(careFocusOf(message.data), isColdStart: isColdStart),
+      );
       return;
     }
 
@@ -150,7 +168,10 @@ class PushMessageRouterService {
     );
   }
 
-  Future<void> _routeCareReminder({required bool isColdStart}) async {
+  Future<void> _routeCareReminder(
+    GardenFocus? focus, {
+    required bool isColdStart,
+  }) async {
     // Warm resume: the session was restored long ago (or the user is
     // signed out, and the login redirect is the right answer).
     final wait = awaitAuthRestore;
@@ -165,12 +186,17 @@ class PushMessageRouterService {
       }
       if (epoch != _epoch) return;
     }
+    // Before navigating, so a garden that is already open (or about to
+    // build) sees it. A signed-out tap still sets it: the login redirect
+    // applies, and the garden is not built until someone signs in; the
+    // focus is cleared on any account change (gardenFocusProvider).
+    onCareFocus?.call(focus);
     final router = routerAccessor();
     if (isColdStart) {
       router.go(AppRoutes.home);
     } else if (_showsGarden(router)) {
       // Already open: pushing again would stack a second GardenScreen
-      // (todo 570 #6).
+      // (todo 570 #6). The focus above reaches the open one.
       return;
     }
     router.push(AppRoutes.garden);
@@ -196,6 +222,24 @@ class PushMessageRouterService {
 /// `backend/apps/garden_calendar/constants.py`).
 const String careTaskDueEvent = 'care_task_due';
 
+/// The garden target of a care-reminder payload (todo 621): the due list
+/// when it covers several tasks, the task when it names one well-formed
+/// uuid, otherwise null (the plain garden). The uuid is only a hint: the
+/// garden shows it only if it is one of the signed-in user's pending tasks.
+GardenFocus? careFocusOf(Map<String, dynamic> data) {
+  final count = int.tryParse('${data['count'] ?? ''}');
+  if (count != null && count > 1) return const GardenFocus.dueList();
+  final raw = data['care_task_uuid'];
+  if (raw is String && _uuidPattern.hasMatch(raw)) {
+    return GardenFocus.task(raw.toLowerCase());
+  }
+  return null;
+}
+
+final RegExp _uuidPattern = RegExp(
+  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+);
+
 /// Parses an FCM data-payload value as an int. FCM data values are always
 /// strings, but a missing key must be treated as absent — not as an empty
 /// string that happens to fail the same parse — so this checks for `null`
@@ -215,6 +259,12 @@ final pushMessageRouterServiceProvider = Provider<PushMessageRouterService>((
   final service = PushMessageRouterService(
     () => ref.read(appRouterProvider),
     awaitAuthRestore: ref.read(authRestoreWaiterProvider),
+    onCareFocus: (focus) {
+      ref.read(gardenFocusProvider.notifier).set(focus);
+      // The tap says something is due: show the server's current list,
+      // not one cached from before the task fell due.
+      ref.invalidate(gardenProvider);
+    },
   );
   ref.onDispose(service.detach);
   return service;

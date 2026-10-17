@@ -1395,6 +1395,7 @@ def main():
 
     residue_tests()
     bookkeeping_tests()
+    regression_medium_tests()
     rename_quoting_test()
     reverify_tests()
     reverify_grouping_tests()
@@ -1462,12 +1463,33 @@ def runbook_tests():
     check("601: ... rebuilding a conflicted todo file from origin/main, never concatenating both sides",
           "rebuild from origin/main, never concatenate both sides" in dirty
           and "\"ours\" is the branch and \"theirs\" is origin/main" in " ".join(dirty.split())
-          and "show origin/main:<path>" in dirty and "re-apply this branch's own changes" in dirty
+          and "show origin/main:<main path>" in dirty and "re-apply this branch's own changes" in dirty
           and "keep both sides" not in dirty, dirty)
     check("601: ... disarming auto-merge before blocking the group on a non-mechanical conflict",
           "gh pr merge <n> --repo $GH_REPO --disable-auto" in dirty and "auto-merge disarmed" in dirty, dirty)
     check("601: ... stopping even a clean merge before it commits",
           "merge --no-commit --no-ff origin/main" in dirty and "stops even a clean merge" in dirty, dirty)
+    flat = " ".join(dirty.split())
+    check("616 #1/#5: the DIRTY merge commit skips kimi and records `kimi: skipped` (owner decision 2026-10-11)",
+          "SKIP_KIMI_REVIEW=1 /usr/bin/git -C $WT commit --no-edit" in dirty and "`kimi: skipped`" in dirty
+          and "fixer rewrote files" in flat and "A hook failure no fixer resolves stops the group" in flat, dirty)
+    check("616 #2: step 4 runs every criterion's command and stops the group, never pushing, when a gate fails",
+          "whose files the merge touched" not in flat and "so run them all" in flat
+          and "If any gate fails" in flat and "never commit or push it" in flat, dirty)
+    check("616 #4: a conflicted todo keeps the branch's side and reads origin/main at its pre-archive path, "
+          "into a scratch file first",
+          "show origin/main:<main path> > $TMPDIR/<name>.main" in dirty
+          and "pre-archive `pending` name" in flat and "show origin/main:<path> > $WT/<path>" not in dirty, dirty)
+    # Todo 637 #1: two placeholders, the branch side read from HEAD (stage :2 is at the completed name only when
+    # git saw a rename) and the save checked, so an empty .branch copy never stands in for the branch's ticks.
+    check("637 #1: the branch side is saved from HEAD at its own path and checked non-empty, never from :2:",
+          "show HEAD:<branch path> > $TMPDIR/<name>.branch" in dirty and "test -s $TMPDIR/<name>.branch" in dirty
+          and "show :2:<path>" not in dirty, dirty)
+    check("637 #5: a fixer-only pre-commit rewrite in step 4 is staged and re-run, not a gate failure",
+          "only rewrote a resolved file, which is not a failure" in flat and "run it again" in flat, dirty)
+    check("637 #3: the recovery's kimi skip has a recorded home the wrap-up counts, and names the hand-resolved hunks",
+          "--field kimi_recovery=skipped" in flat and "hunks resolved by hand" in flat
+          and "`kimi_recovery=skipped`" in " ".join(skill.split("## Wrap-up", 1)[1].split()), dirty)
     sandbox_off = skill.split("**Sandbox-off steps**", 1)[1].split("\n## ", 1)[0]
     check("601: the DIRTY recovery merge is listed among the sandbox-off steps", "`DIRTY`" in sandbox_off,
           sandbox_off)
@@ -1666,6 +1688,60 @@ def review_result(**over):
             "residue": None, "repair": None, "verdict": None, **over}
 
 
+def regression_medium_tests():
+    """Todo 617: a medium the reviewer flagged as a regression against origin/main blocks in round 2 and is never
+    stored as a follow-up; a medium without the flag is a follow-up and the round is clean."""
+    def medium(line, regression=None):
+        f = {"severity": "medium", "file": "g.py", "line": line, "summary": "main flags it, the PR is quiet",
+             "suggested_fix": ""}
+        return f if regression is None else {**f, "regression": regression}
+
+    run = pr_open_run()
+    check("617: round 1 with only a plain medium is clean", ingest(run, [review_result(findings=[medium(1)])], 1)
+          == {"g1": "clean"}, run["todos"]["1"])
+    reg = dict(medium(7, True), also=[])
+    got = ingest(run, [review_result(findings=[medium(7, True), medium(8, False)], blocking=[reg])], 2)
+    entry = run["todos"]["1"]
+    followups = run["groups"]["g1"]["followups"]
+    check("617 AC2: round 2: a medium regression blocks the group (ingest-review -> blocked)",
+          got == {"g1": "blocked"} and entry["stage"] == "blocked"
+          and entry["reason"].startswith("1 blocking findings after round 2")
+          and entry.get("blocked_by") == "review round 2", (got, entry))
+    check("617 AC2: the medium regression is not stored as a follow-up; the unflagged mediums are",
+          not any(line.startswith("medium: g.py:7 ") for line in followups)
+          and any(line.startswith("medium: g.py:8 ") for line in followups)
+          and any(line.startswith("medium: g.py:1 ") for line in followups), followups)
+    run = pr_open_run()
+    ingest(run, [review_result()], 1)
+    got = ingest(run, [review_result(findings=[medium(9)])], 2)
+    check("617 AC2: round 2 with only an unflagged medium is clean, the medium a follow-up",
+          got == {"g1": "clean"} and run["todos"]["1"]["stage"] == "reviewed"
+          and run["groups"]["g1"]["followups"] == ["medium: g.py:9 main flags it, the PR is quiet"], run)
+    for round_no in (1, 2):
+        run = pr_open_run()
+        if round_no == 2:
+            ingest(run, [review_result()], 1)
+        dismissed = dict(medium(7, True), also=[], refutations=["no", "no"])
+        got = ingest(run, [review_result(findings=[medium(7, True)], refuted=[dismissed])], round_no)
+        check(f"617 repair: round {round_no}: a medium regression both refuters dismissed is clean, not held",
+              got == {"g1": "clean"} and run["todos"]["1"]["stage"] == ("pr_open", "reviewed")[round_no - 1]
+              and state._open_criticals(state._group_entries(run, "g1")) == [], (got, run["todos"]["1"]))
+        check(f"617 review: round {round_no}: a dismissed medium regression is kept as an ordinary medium follow-up",
+              any(line.startswith(f"medium: g.py:7 {state.REFUTED_REGRESSION_TAG} ")
+                  for line in run["groups"]["g1"]["followups"]),
+              run["groups"]["g1"].get("followups"))
+    check("617 repair: a refuted line with no severity label still holds (fail closed); a labelled critical does",
+          state._holds("g.py:7 x") and state._holds("critical: g.py:7 x")
+          and not state._holds("medium: g.py:7 x") and not state._holds("high: g.py:7 x"))
+    check("617 review: a labelled high never holds, even at a negative line or with no file:line",
+          not state._holds("high: g.py:-1 x") and not state._holds("high: no location here")
+          and state._holds("critical: no location here"))
+    check("617: is_blocking is critical, high, or a medium with regression=True only",
+          [state.is_blocking(f) for f in ({"severity": "critical"}, {"severity": "high"}, medium(1, True),
+                                          medium(1), medium(1, False), {"severity": "low", "regression": True},
+                                          medium(1, "yes"))] == [True, True, True, False, False, False, False])
+
+
 def bookkeeping_tests():
     """Todos 473, 478 and 482: what the run file keeps about a review, and what `finish` may delete."""
     def finding(file, line=2, summary="nit", severity="low"):
@@ -1736,6 +1812,34 @@ def bookkeeping_tests():
         out = subprocess.run([sys.executable, state.STATE_PY, "finish", str(runfile)], capture_output=True, text=True)
         check("482: finish still removes the run file when every todo is terminal and none is held",
               out.returncode == 0 and not runfile.exists(), (out.returncode, out.stdout, out.stderr))
+
+    # Todo 647 #2/#3 (owner decision 2026-10-12): state.py, not the model reading the run file, reports the groups a
+    # DIRTY recovery annotated kimi_recovery=skipped -- once per group -- and finish prints them before it deletes it.
+    with tempfile.TemporaryDirectory() as tmp:
+        run = {"run_id": "r", "groups": {"g1": {"ids": ["1", "2"]}, "g2": {"ids": ["3"]}, "g3": {"ids": ["4"]}},
+               "todos": {"1": {"stage": "archived", "group": "g1"}, "2": {"stage": "archived", "group": "g1"},
+                         "3": {"stage": "archived", "group": "g2"}, "4": {"stage": "blocked", "group": "g3"}}}
+        state.annotate(run, "g1", kimi_recovery="skipped")
+        state.annotate(run, "g3", kimi_recovery="skipped")
+        _, err = expect(lambda: state.annotate(run, "g2", kimi_recovery="skiped"))
+        check("647 #2: annotate refuses a kimi_recovery value other than `skipped` (a typo would under-report)",
+              "kimi_recovery takes only `skipped`" in str(err) and "kimi_recovery" not in run["todos"]["3"], err)
+        check("647 #2/#3: kimi_skipped_groups lists each annotated group once, however many todos it holds",
+              state.kimi_skipped_groups(run) == ["g1", "g3"], state.kimi_skipped_groups(run))
+        runfile = Path(tmp) / "run.json"
+        state.save(run, runfile)
+        out = subprocess.run([sys.executable, state.STATE_PY, "kimi-skipped", str(runfile)], capture_output=True,
+                             text=True)
+        check("647 #2/#3: `state.py kimi-skipped` prints the groups as JSON",
+              out.returncode == 0 and json.loads(out.stdout) == ["g1", "g3"], (out.returncode, out.stdout, out.stderr))
+        out = subprocess.run([sys.executable, state.STATE_PY, "finish", str(runfile)], capture_output=True, text=True)
+        check("647 #2/#3: finish prints the kimi_recovery=skipped groups, then removes the run file",
+              out.returncode == 0 and out.stdout.splitlines()[0] == "kimi_recovery=skipped: 2 group(s): g1, g3"
+              and "run file removed" in out.stdout and not runfile.exists(), (out.returncode, out.stdout, out.stderr))
+        state.save({"run_id": "r", "groups": {}, "todos": {"1": {"stage": "archived", "group": "g1"}}}, runfile)
+        out = subprocess.run([sys.executable, state.STATE_PY, "finish", str(runfile)], capture_output=True, text=True)
+        check("647 #2/#3: ... and says 0 when no group was annotated",
+              out.returncode == 0 and out.stdout.splitlines()[0] == "kimi_recovery=skipped: 0 group(s)", out.stdout)
 
     # Todo 473: a todo that landed after a blocked attempt still lists that attempt's worktree.
     run = {"todos": {"1": {"stage": "archived", "worktree": "/wt/landed", "previous": [{"worktree": "/wt/blocked"}]},
@@ -3228,6 +3332,43 @@ def todo_541_tests():
             os.chdir(cwd)
         check("541 #982-7: a relative --main-root and --worktree-root record absolute paths",
               os.path.isabs(rel[0]["worktree"]) and os.path.isabs(rel[0]["main_root"]), rel)
+
+    # Todo 640 #9: a --worktree-root outside .claude/worktrees/ makes worktrees where the git guard never lets a
+    # worker stage, so execute-args refuses it before anything runs.
+    with tempfile.TemporaryDirectory() as tmp:
+        main = Path(tmp) / "repo"
+        ok = [main / ".claude" / "worktrees", main / ".claude" / "worktrees" / "sub", Path(tmp) / ".claude" / "worktrees"]
+        bad = [Path(tmp) / "wts", Path(tmp) / "other" / ".claude" / "worktrees", main / "worktrees"]
+        refused = []
+        for root in ok + bad:
+            try:
+                state.check_worktree_root(root, main)
+            except state.TransitionError:
+                refused.append(root)
+        check("640 #9: a root at or under a .claude/worktrees at or above the main root is accepted, others refused",
+              refused == bad, refused)
+        pilot = main / ".claude" / "worktrees" / "pilot"
+        try:
+            state.check_worktree_root(main / ".claude" / "worktrees", pilot)
+            pilot_ok = True
+        except state.TransitionError:
+            pilot_ok = False
+        check("640 #9: the pilot layout (main root under REPO/.claude/worktrees) may use REPO's worktrees dir", pilot_ok)
+        runfile = Path(tmp) / "run.json"
+        state.save({"run_id": "r", "groups": {}, "todos": {}, "waves": []}, runfile)
+        before = runfile.read_text()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = state.main(["execute-args", str(runfile), "--wave", "0", "--main-root", str(main),
+                             "--worktree-root", str(Path(tmp) / "wts")])
+        check("640 #9: execute-args refuses such a --worktree-root (exit 2, naming the guard) and saves nothing",
+              rc == 2 and "worktree of this repository" in err.getvalue() and runfile.read_text() == before,
+              (rc, err.getvalue()))
+        help_text = io.StringIO()
+        with contextlib.redirect_stdout(help_text), contextlib.suppress(SystemExit):
+            state.main(["execute-args", "--help"])
+        check("640 #9: execute-args --help says where the worktree root must be",
+              "guard lets a worker stage only there" in " ".join(help_text.getvalue().split()), help_text.getvalue())
 
     # #982-10: anchored, negated, `..` and symlinked .worktreeinclude entries never raise, and never copy a link.
     with tempfile.TemporaryDirectory() as tmp:

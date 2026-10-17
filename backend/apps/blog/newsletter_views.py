@@ -29,6 +29,7 @@ from django_ratelimit.decorators import ratelimit
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
+    OpenApiResponse,
     extend_schema,
     inline_serializer,
 )
@@ -125,9 +126,31 @@ def newsletter_subscribe(request: Request) -> Response:
     serializer = NewsletterSubscribeSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     transaction.on_commit(
-        partial(send_newsletter_confirmation.delay, serializer.validated_data["email"])
+        partial(_enqueue_confirmation, serializer.validated_data["email"])
     )
     return Response({"detail": SUBSCRIBE_DETAIL}, status=status.HTTP_202_ACCEPTED)
+
+
+def _enqueue_confirmation(email: str) -> None:
+    """Queue the confirmation task. A broker failure must neither turn the
+    202 into a 500 nor lose the request (todo 619): the address gets a
+    durable outbox row that reconciliation re-drives once the broker is
+    back. Only exception types are logged, never the address."""
+    try:
+        send_newsletter_confirmation.delay(email)
+    except Exception as exc:
+        logger.error(
+            "[EMAIL] could not queue a newsletter confirmation: %s; "
+            "recording it for reconciliation",
+            type(exc).__name__,
+        )
+        try:
+            newsletter.record_confirmation_intent(email)
+        except Exception as record_exc:
+            logger.error(
+                "[EMAIL] could not record the newsletter confirmation either: %s",
+                type(record_exc).__name__,
+            )
 
 
 # POST only: mail scanners fetch every GET link, and a GET that confirmed
@@ -166,10 +189,26 @@ def newsletter_unsubscribe(request: Request) -> Response:
     return Response({"subscribed": False})
 
 
+_ONE_CLICK_TOKEN = OpenApiParameter("token", str, OpenApiParameter.QUERY, required=True)
+
+
 @extend_schema(
+    methods=["POST"],
     request=None,
-    parameters=[OpenApiParameter("token", str, OpenApiParameter.QUERY, required=True)],
+    parameters=[_ONE_CLICK_TOKEN],
     responses={200: _STATE, 400: _TOKEN_ERROR, 429: RATE_LIMITED},
+)
+# A GET only redirects, and is not rate-limited: it documents no 429 (todo 607
+# item 8).
+@extend_schema(
+    methods=["GET"],
+    request=None,
+    parameters=[_ONE_CLICK_TOKEN],
+    responses={
+        302: OpenApiResponse(
+            description="Redirect to the web page /newsletter/unsubscribe, which asks first."
+        )
+    },
 )
 @api_view(["GET", "POST"])
 @authentication_classes([])

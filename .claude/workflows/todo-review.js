@@ -4,7 +4,7 @@ export const meta = {
   whenToUse: 'Called by the completing-todos engine with args {round, prs} from `state.py review-args`',
   phases: [
     { title: 'Review', detail: 'every PR: three bug-lens reviewers, plus every domain reviewer the orchestrator routes to' },
-    { title: 'Refute', detail: 'two skeptics per critical/high finding; it stops blocking only if both refute it' },
+    { title: 'Refute', detail: 'two skeptics per critical/high finding and per medium regression; it stops blocking only if both refute it' },
     { title: 'Repair', detail: 'round 1 only: a residue check, then todo-worker in the PR worktree, then todo-verifier' },
   ],
 }
@@ -107,6 +107,9 @@ const FINDINGS = {
           // died on the schema retry cap (live run, PR #873), and a dead reviewer forces a rerun.
           summary: { type: 'string', maxLength: 600 },
           suggested_fix: { type: 'string', maxLength: 600 },
+          // Todo 617: the PR head behaves worse than origin/main on the same input. A medium with it blocks
+          // like a high. Optional, so a reviewer that leaves it out is not refused (and dies on the retry cap).
+          regression: { type: 'boolean' },
         },
         required: ['severity', 'file', 'line', 'summary', 'suggested_fix'],
       },
@@ -177,6 +180,10 @@ const VERDICT = {
 const round = args && args.round
 const prs = (args && args.prs) || []
 const BLOCKING = new Set(['critical', 'high'])
+// Todo 617: a medium that is a NEW regression against origin/main holds the PR too. In round 1 it is refuted
+// and repaired like a high; in round 2 (and 3) it blocks the group, so the owner sees it through `hand-round`.
+const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low']
+const isBlocking = f => BLOCKING.has(f.severity) || (f.severity === 'medium' && f.regression === true)
 
 function diffRange(p) {
   return `/usr/bin/git -C '${p.worktree}' diff origin/main...HEAD`
@@ -208,7 +215,11 @@ const LANDED = 'Land has already flipped the verified boxes to `[x]` and archive
   'ORIGIN_PATHS are the pending paths at the merge-base.'
 
 const SEVERITY = 'critical/high = would ship a bug, a security hole or data loss; medium = a real but contained ' +
-  'defect; style and nits are low. Keep each summary and suggested_fix under 300 characters.'
+  'defect; style and nits are low. Keep each summary and suggested_fix under 300 characters. ' +
+  'Set regression=true only when the PR head behaves worse than origin/main on the same input (a check, ' +
+  'detection, guard or behaviour main has that the PR loses or breaks), and put the probe in summary: the ' +
+  'input, what main does and what the PR does. Otherwise leave it false. A medium with regression=true ' +
+  'blocks the PR like a high.'
 // Todo 478: a domain reviewer's "high" for a pattern it prefers blocked the PR, and refuters could not
 // dismiss it because the deviation is real. A checklist item with no concrete failure is at most medium.
 const CHECKLIST_CAP = 'A checklist or pattern-library deviation is at most medium unless you can name the concrete ' +
@@ -268,11 +279,14 @@ function refutePrompt(p, f) {
       `in todo group ${p.group} (PR #${p.pr}). Try to refute them.`,
     `Worktree ${p.worktree}; the change is exactly: ${diffRange(p)}. Read the code, not just the hunk. Do not use gh.`,
     ...claims.map((c, i) => `${i + 1}. ${c}`),
+    // Only a medium is refuted as a regression; a high or critical keeps its own gate (todo 617 round 2).
+    f.severity === 'medium' && f.regression === true ? 'The reviewer flagged this as a regression against origin/main: it is wrong only if main ' +
+      'behaves the same on that input, or the PR does not behave worse.' : '',
     'These may be one bug in different words or different bugs on the same line; judge each. ' +
       'Set refuted=true only if you can show EVERY one is wrong: the code does not do that, the input cannot ' +
       'reach it, or something already handles it. If any holds, or you cannot tell, set refuted=false. Give the ' +
       'reason in under 300 characters.',
-  ].join('\n')
+  ].filter(Boolean).join('\n')
 }
 
 function residuePrompt(p) {
@@ -355,10 +369,13 @@ function byLocation(findings, worktree) {
     const key = JSON.stringify([f.file, f.line])
     const g = groups.get(key)
     if (!g) { groups.set(key, { ...f, also: [] }); continue }
-    // A critical takes over as the representative; its own words leave `also` (todo 478: they could repeat).
-    const [keep, other] = f.severity === 'critical' && g.severity !== 'critical'
+    // The more severe finding takes over as the representative; its own words leave `also` (todo 478: they
+    // could repeat). Todo 617: a medium regression never stands for a high at the same line.
+    const [keep, other] = SEVERITY_ORDER.indexOf(f.severity) < SEVERITY_ORDER.indexOf(g.severity)
       ? [{ ...f, also: g.also.filter(s => s !== f.summary) }, g] : [g, f]
     if (other.summary !== keep.summary && !keep.also.includes(other.summary)) keep.also.push(other.summary)
+    // A merged medium regression keeps the location a regression only while a medium represents it.
+    if (keep.severity === 'medium' && other.regression === true) keep.regression = true
     groups.set(key, keep)
   }
   return [...groups.values()]
@@ -407,7 +424,7 @@ const results = await pipeline(
   async (rev, p) => {
     // Different reviewers can report the same finding; count it once. Then each blocking finding
     // faces two skeptics, and stops blocking only if both refute it (a dead skeptic refutes nothing).
-    const candidates = rev.reviewers_ok ? byLocation(rev.findings.filter(f => BLOCKING.has(f.severity)), p.worktree) : []
+    const candidates = rev.reviewers_ok ? byLocation(rev.findings.filter(isBlocking), p.worktree) : []
     const judged = await parallel(candidates.map(f => () => parallel([0, 1].map(n => () => agent(refutePrompt(p, f),
       { label: `refute-${n}:${p.group}:${f.file}:${f.line}`, phase: 'Refute', agentType: 'todo-reviewer', schema: REFUTATION })))))
     const blocking = [], refuted = []

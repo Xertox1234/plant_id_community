@@ -114,11 +114,28 @@ def unsubscribe_links(user) -> dict | None:
         return None
 
 
+def mailable_accounts():
+    """Active accounts with an address that the host's
+    ``DIGEST_RECIPIENT_FILTER`` allows (todo 620). One queryset for both the
+    recipient query and the per-member claim, so the two cannot drift."""
+    from django.contrib.auth import get_user_model
+
+    accounts = get_user_model().objects.filter(is_active=True).exclude(email="")
+    path = get_setting("DIGEST_RECIPIENT_FILTER")
+    if path:
+        # Not caught: a broken policy hook must stop the run, never fall back
+        # to mailing everyone it was written to hold back.
+        accounts = accounts.filter(import_string(path)())
+    return accounts
+
+
 def digest_recipients(frequency: str = DigestFrequency.WEEKLY):
     """Profiles opted in at `frequency` whose account can receive mail."""
     return (
-        ForumProfile.objects.filter(digest_frequency=frequency, user__is_active=True)
-        .exclude(user__email="")
+        ForumProfile.objects.filter(
+            digest_frequency=frequency,
+            user_id__in=mailable_accounts().values("pk"),
+        )
         .select_related("user")
         .order_by("pk")
     )
@@ -225,7 +242,17 @@ def render_digest(
     return subject, text, html
 
 
-def send_digest(digest: Digest) -> bool:
+# What send_digest returns when the mail backend sent nothing although the
+# member has an address: a host backend dropped a suppressed recipient (the
+# host's bounce/complaint list, todo 625). Neither sent nor failed: the
+# command does not stamp the member and does not count a failure.
+DIGEST_SUPPRESSED = "suppressed"
+# Marks the digest as optional mail for a host backend that classifies
+# messages, even when the unsubscribe hook gave no List-Unsubscribe headers.
+OPTIONAL_MAIL_HEADER = "X-Optional-Mail"
+
+
+def send_digest(digest: Digest) -> bool | str:
     """Send one digest. A render/send failure is logged with the `[EMAIL]`
     prefix and reported as False so a batch keeps going. Raises only a
     worker's soft time limit and a Warning (a RemovedInDjango70Warning is an
@@ -240,10 +267,13 @@ def send_digest(digest: Digest) -> bool:
             from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
             to=[digest.user.email],
             # RFC 2369/8058: the mail client's own unsubscribe button.
-            headers=dict(links.get("headers") or {}),
+            headers={
+                **dict(links.get("headers") or {}),
+                OPTIONAL_MAIL_HEADER: "1",
+            },
         )
         message.attach_alternative(html, "text/html")
-        message.send()
+        sent_count = message.send()
     except Warning:
         # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
         # and Warning subclasses Exception: never log it as a failed send
@@ -258,6 +288,13 @@ def send_digest(digest: Digest) -> bool:
             raise
         logger.exception("[EMAIL] forum digest failed for user=%s", digest.user.pk)
         return False
+    if not sent_count:
+        logger.info(
+            "[EMAIL] forum digest not sent to user=%s: the backend dropped the "
+            "recipient (suppressed)",
+            digest.user.pk,
+        )
+        return DIGEST_SUPPRESSED
     logger.info(
         "[EMAIL] forum digest sent to user=%s watched=%d trending=%d",
         digest.user.pk,

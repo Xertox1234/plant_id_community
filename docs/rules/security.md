@@ -529,3 +529,13 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   turned a 2.56 MB photo into a 5.76 MB PNG after the 2 MB check had passed.
   Map `MPO` to `JPEG`, raise on an unknown format, and compare the encoded
   bytes against the upload limit (`backend/apps/users/avatars.py`, PR #1028).
+- **Log a template-render failure by its type only, and build an email apart from
+  sending it.** A Django template error can quote a context value, and mail
+  contexts carry signed unsubscribe and confirm links. Wrap building the link,
+  rendering and assembling the message in one `try` that logs
+  `type(e).__name__`. Put `message.send()` in its own `try` that keeps
+  `logger.exception`, because SMTP errors never quote the template context and
+  the traceback is what diagnoses a delivery failure. One `try` around both
+  either leaks the token or loses the SMTP detail. Check every mail path:
+  `send_email`, the newsletter confirmation and the digest each needed it
+  (todo 649, PR #1121; `docs/LEARNINGS.md` 2026-10-13).

@@ -335,6 +335,23 @@ abstract class ForumApi {
   /// Highest-trust active members with their `online` presence flag
   /// (`GET /forum/users/experts/`, public).
   Future<List<ForumExpert>> fetchExperts();
+
+  /// The viewer's digest cadence and per-event push/email matrix
+  /// (`GET /forum/me/profile/`, auth required; todo 620). The same fields
+  /// web Settings edits.
+  Future<ForumNotificationSettings> fetchNotificationSettings();
+
+  /// PATCH only what changed: a digest cadence and/or a PARTIAL matrix
+  /// (`{'reply': {'email': false}}`), which the server merges into the stored
+  /// overrides. Resolves with the full, updated settings.
+  Future<ForumNotificationSettings> updateNotificationSettings({
+    String? digestFrequency,
+    Map<String, Map<String, bool>>? preferences,
+    bool? quietHoursEnabled,
+    String? quietHoursStart,
+    String? quietHoursEnd,
+    String? timeZone,
+  });
 }
 
 /// A report reason the backend accepts (`Report.REASON_CHOICES`), with its
@@ -870,6 +887,41 @@ class HttpForumApi implements ForumApi {
         .whereType<Map<String, dynamic>>()
         .map(ForumExpert.fromJson)
         .toList(growable: false);
+  }
+
+  @override
+  Future<ForumNotificationSettings> fetchNotificationSettings() async {
+    final resp = await _api.get('/forum/me/profile/');
+    return ForumNotificationSettings.fromJson(
+      resp.data as Map<String, dynamic>,
+    );
+  }
+
+  @override
+  Future<ForumNotificationSettings> updateNotificationSettings({
+    String? digestFrequency,
+    Map<String, Map<String, bool>>? preferences,
+    bool? quietHoursEnabled,
+    String? quietHoursStart,
+    String? quietHoursEnd,
+    String? timeZone,
+  }) async {
+    // A PATCH is naturally idempotent (it sets, never adds), so no
+    // Idempotency-Key, like markNotificationsRead.
+    final resp = await _api.patch(
+      '/forum/me/profile/',
+      data: {
+        'digest_frequency': ?digestFrequency,
+        'notification_preferences': ?preferences,
+        'quiet_hours_enabled': ?quietHoursEnabled,
+        'quiet_hours_start': ?quietHoursStart,
+        'quiet_hours_end': ?quietHoursEnd,
+        'time_zone': ?timeZone,
+      },
+    );
+    return ForumNotificationSettings.fromJson(
+      resp.data as Map<String, dynamic>,
+    );
   }
 }
 

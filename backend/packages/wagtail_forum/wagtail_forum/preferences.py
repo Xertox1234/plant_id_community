@@ -30,11 +30,13 @@ from .conf import DEFAULTS, get_setting
 # NotificationVerb values (pinned by test_preference_verbs_track_notification_
 # verbs); kept literal so this module stays importable before the app
 # registry is ready (host tasks import it at module level).
+# Email for mentions, quotes and accepted answers is wired since todo 624:
+# optional and OFF by default (owner decision 2026-10-12, no silent opt-in).
 NOTIFICATION_MATRIX: dict[str, tuple[str, ...]] = {
     "reply": ("push", "email"),
-    "mention": ("push",),
-    "quote": ("push",),
-    "solution": ("push",),
+    "mention": ("push", "email"),
+    "quote": ("push", "email"),
+    "solution": ("push", "email"),
 }
 NOTIFICATION_VERBS: tuple[str, ...] = tuple(NOTIFICATION_MATRIX)
 NOTIFICATION_CHANNELS: tuple[str, ...] = ("push", "email")

@@ -17,10 +17,14 @@ An account is deleted only when ALL of these hold:
 - **It is older than** ``UNVERIFIED_ACCOUNT_EXPIRY_DAYS``.
 - **It never signed in after registering.** ``last_login`` is empty or falls
   within ``UNVERIFIED_ACCOUNT_SIGNUP_MARGIN_SECONDS`` of ``date_joined``, and
-  no refresh token was issued after that margin. The refresh view issues a
-  new token on every rotation, so a user who kept the registration session
-  alive counts as active although ``last_login`` never moved. Nothing runs
-  ``flushexpiredtokens``; if something ever does, ``last_login`` still holds.
+  the account has not refreshed a token since that margin. The refresh view
+  stamps ``last_token_refresh`` on every rotation (todo 485), so a user who
+  kept the registration session alive counts as active. That stamp is what
+  survives ``flushexpiredtokens``, which ``forum-prune-cron`` runs just
+  before this command and which deletes rotated token rows once they expire.
+  A refresh token issued after the margin also counts, for rotations older
+  than the stamp. ``last_login`` is not the stamp: Django's password-reset
+  token hashes it, so moving it on every refresh would void reset links.
 - **It wrote nothing in the forum**: no post, no topic, no Wagtail revision.
 - **It holds nothing registration did not create.** Registration's access
   token works for 15 minutes, so a user can post, message, comment or run a
@@ -66,6 +70,9 @@ SIGNUP_ROWS = {
     "account.EmailAddress": 1,
     "users.UserPlantCollection": 1,
 }
+# Delivery bookkeeping, not the user's data (todo 619): the outbox rows a
+# verification mail or a resend leaves behind. They cascade with the account.
+NOT_USER_DATA = {"core.DeliveryIntent"}
 
 
 def _candidates(now):
@@ -89,6 +96,7 @@ def _candidates(now):
             Q(last_login__isnull=True) | Q(last_login__lte=F("date_joined") + margin)
         )
         .exclude(password="")
+        .exclude(last_token_refresh__gt=F("date_joined") + margin)
         .exclude(Exists(later_token))
         .exclude(Exists(SocialAccount.objects.filter(user=OuterRef("pk"))))
         .exclude(
@@ -113,6 +121,8 @@ def _extra_data(user):
             if model._meta.auto_created:
                 continue
             label = model._meta.label
+            if label in NOT_USER_DATA:
+                continue
             rows = model._base_manager.filter(**{field.field.name: user})
             if rows.count() > SIGNUP_ROWS.get(label, 0):
                 return label

@@ -29,7 +29,7 @@ import logging
 from apps.core.services.email_service import EmailService
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django.conf import settings
-from django.utils.html import escape
+from django.template.loader import render_to_string
 from rest_framework_simplejwt.token_blacklist.models import (
     BlacklistedToken,
     OutstandingToken,
@@ -100,34 +100,31 @@ def password_reset_url() -> str:
 def deliver_provider_linked_notice(user, provider: str) -> bool:
     """Send the notice now. Called by the Celery task only."""
     name = PROVIDER_NAMES.get(provider, "Another")
-    account = user.username
-    reset = password_reset_url()
-    if reset:
-        text_reset = f"reset the password now:\n\n{reset}\n\n"
-        html_reset = f'<a href="{escape(reset)}">reset the password now</a>.'
-    else:
-        text_reset = (
-            "reset the password now (Forgot password? on the sign-in page).\n\n"
+    # Templates, not f-strings (todo 622): the shared mail-safe layout, a
+    # text part of its own, and autoescape for the username.
+    service = EmailService()
+    context = {
+        "site_name": service.site_name,
+        "provider_name": name,
+        "account": user.username,
+        "reset_url": password_reset_url(),
+    }
+    # A render failure is a failed send (todo 639): False lets the task retry
+    # and, at the end, log its [EMAIL] give-up, never escape the task raw.
+    try:
+        text = render_to_string("emails/provider_linked.txt", context)
+        html = render_to_string("emails/provider_linked.html", context)
+    except Exception as exc:
+        # The exception's type only, never its text (todo 649): a template
+        # error can echo a context value, and the context holds a signed link.
+        logger.error(
+            f"[EMAIL] Could not render the sign-in link notice for "
+            f"{log_safe_user_context(user)}: {type(exc).__name__}"
         )
-        html_reset = "reset the password now (Forgot password? on the sign-in page)."
-    text = (
-        f'{name} sign-in was just connected to the Houseplant MD account "{account}".\n\n'
-        "As a precaution, its other devices and browsers were signed out. If "
-        "this was you, there is nothing else to do.\n\n"
-        "If it wasn't you, someone may know the account's password: "
-        f"{text_reset}"
-    )
-    html = (
-        f"<p>{escape(name)} sign-in was just connected to the Houseplant MD account "
-        f"<strong>{escape(account)}</strong>.</p>"
-        "<p>As a precaution, its other devices and browsers were signed out. If "
-        "this was you, there is nothing else to do.</p>"
-        "<p>If it wasn't you, someone may know the account's password: "
-        f"{html_reset}</p>"
-    )
-    return EmailService().send_transactional_email(
+        return False
+    return service.send_transactional_email(
         recipient=user,
-        subject=f"{name} sign-in was connected to your Houseplant MD account",
+        subject=f"{name} sign-in was connected to your {service.site_name} account",
         message=text,
         html_message=html,
     )

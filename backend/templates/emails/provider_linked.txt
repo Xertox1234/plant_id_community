@@ -1,0 +1,11 @@
+{% autoescape off %}{{ provider_name }} sign-in was just connected to the {{ site_name }} account "{{ account }}".
+
+As a precaution, its other devices and browsers were signed out. If this was you, there is nothing else to do.
+
+If it wasn't you, someone may know the account's password: {% if reset_url %}reset the password now:
+
+{{ reset_url }}{% else %}reset the password now (Forgot password? on the sign-in page).{% endif %}
+
+---
+{{ site_name }}: this is a security message about your account. It is sent whatever your email preferences are.
+{% endautoescape %}

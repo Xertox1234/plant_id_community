@@ -578,7 +578,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SITE_ID = 1
 
 # Wagtail settings
-WAGTAIL_SITE_NAME = "Houseplant-MD"
+WAGTAIL_SITE_NAME = "Houseplant MD"
 WAGTAIL_FRONTEND_LOGIN_URL = "/accounts/login/"
 # WAGTAILIMAGES_IMAGE_MODEL = 'core.CustomImage'  # Uncomment after creating core app
 
@@ -1049,6 +1049,11 @@ WAGTAILFORUM_SPAM_BACKEND = config(
 # The weekly digest's signed unsubscribe link + List-Unsubscribe headers
 # (todo 416): the package asks the host to mint them.
 WAGTAILFORUM_DIGEST_UNSUBSCRIBE = "apps.users.email_unsubscribe.digest_unsubscribe"
+# The account-wide master switches gate the digest too (todo 620): either
+# User.email_notifications or User.forum_notifications off means no digest.
+WAGTAILFORUM_DIGEST_RECIPIENT_FILTER = (
+    "apps.users.notification_policy.digest_recipient_filter"
+)
 # This API's own public origin (e.g. https://api.houseplant-md.com). SITE_URL
 # is the WEB app's. Set, every list email carries an RFC 8058 one-click
 # List-Unsubscribe URL on this origin plus List-Unsubscribe-Post; unset, the
@@ -1191,11 +1196,23 @@ VAPID_CLAIMS_EMAIL = config(
     "VAPID_CLAIMS_EMAIL", default=parseaddr(DEFAULT_FROM_EMAIL)[1]
 )
 
+# Email provider feedback (todo 625). The signing secret of the Resend webhook
+# (Resend dashboard -> Webhooks, a `whsec_...` value) that posts to
+# /api/v1/email/webhooks/resend/. Empty = the webhook answers 503 and no
+# bounce or complaint is recorded. Policy: docs/operations/notification-baseline.md.
+RESEND_WEBHOOK_SECRET = config("RESEND_WEBHOOK_SECRET", default="")
+# First-party click attribution (owner decision 2026-10-12): forum email
+# content links go through a signed redirect on API_PUBLIC_URL. Off when
+# API_PUBLIC_URL is unset, or with this kill switch. Opens are never tracked.
+EMAIL_CLICK_TRACKING_ENABLED = config(
+    "EMAIL_CLICK_TRACKING_ENABLED", default=True, cast=bool
+)
+
 # Not deprecated by MAILERS (a message setting, not a connection one).
 EMAIL_USE_LOCALTIME = config("EMAIL_USE_LOCALTIME", default=False, cast=bool)
 
 # Site configuration for email templates
-SITE_NAME = config("SITE_NAME", default="Houseplant-MD")
+SITE_NAME = config("SITE_NAME", default="Houseplant MD")
 SITE_URL = config("SITE_URL", default="https://plantcommunity.com")
 
 # Logging configuration
@@ -1319,11 +1336,18 @@ if not ENABLE_FILE_LOGGING:
 # Sentry Error Tracking
 SENTRY_DSN = config("SENTRY_DSN", default="")
 if SENTRY_DSN and not DEBUG:
+    from plant_community_backend.sentry_config import before_send as _sentry_before_send
+    from plant_community_backend.sentry_config import (
+        sentry_integrations as _sentry_integrations,
+    )
+
     sentry_sdk.init(
         dsn=SENTRY_DSN,
-        integrations=[
-            # Auto-configured integrations for Django and Celery
-        ],
+        # Django + Celery, with Cron Monitors for every beat entry (todo 623;
+        # plant_community_backend/sentry_config.py says what they alert on).
+        integrations=_sentry_integrations(),
+        # Drops frame variables from the operational-alert events only.
+        before_send=_sentry_before_send,
         traces_sample_rate=config("SENTRY_TRACES_SAMPLE_RATE", default=0.1, cast=float),
         send_default_pii=False,  # Don't send personally identifiable information
         environment=config("ENVIRONMENT", default="production"),
@@ -1386,6 +1410,18 @@ CELERY_BEAT_SCHEDULE = {
     "care-task-reminders": {
         "task": "apps.garden_calendar.tasks.send_due_care_task_reminders",
         "schedule": crontab(minute="*/15"),
+    },
+    # Todo 619: the delivery outbox. Re-drives forum email/browser-push and
+    # account-mail deliveries whose enqueue was lost, whose transient failure
+    # is due again, or whose worker died (apps/core/delivery.py).
+    "delivery-reconcile": {
+        "task": "apps.core.tasks.reconcile_deliveries",
+        "schedule": crontab(minute="*/5"),
+    },
+    # Todo 625: email click rows and provider events are kept 90 days.
+    "email-feedback-prune": {
+        "task": "apps.core.tasks.prune_email_feedback",
+        "schedule": crontab(hour=3, minute=40),
     },
 }
 

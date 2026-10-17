@@ -1000,6 +1000,7 @@ def test_576_item2_a_client_that_closes_before_sending_gets_nothing():
 
     assert received == b""
     assert not server.thread.is_alive()
+    assert server.left_before_request == "eof"
     assert not server.hung_up
 
 
@@ -1022,7 +1023,10 @@ def test_598_a_client_that_resets_before_sending_is_not_a_hang_up():
             client = socket_module.create_connection(
                 ("127.0.0.1", server.port), timeout=2
             )
-            time.sleep(0.2)  # several accept polls: the server is in recv()
+            # Reset only once the server has accepted (todo 611): a RST that
+            # beat accept() left the thread polling accept() until stop(),
+            # and the asserts below passed without reaching recv().
+            accepted = server.accepted.wait(2)
             # SO_LINGER 0: close() sends a RST, not a FIN.
             client.setsockopt(
                 socket_module.SOL_SOCKET,
@@ -1031,10 +1035,16 @@ def test_598_a_client_that_resets_before_sending_is_not_a_hang_up():
             )
             client.close()
             server.thread.join(2)
+            # Checked before stop(): the reset itself ended the thread.
+            ended_by_the_reset = not server.thread.is_alive()
     finally:
         server.stop(timeout=2)
 
-    assert not server.thread.is_alive()
+    assert accepted
+    assert ended_by_the_reset
+    # The first recv() raised: the reset reached the pre-request
+    # ``except OSError``, not a clean EOF.
+    assert server.left_before_request == "reset"
     assert not server.hung_up
     assert raised == []
 

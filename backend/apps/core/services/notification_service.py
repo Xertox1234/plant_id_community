@@ -13,7 +13,7 @@ from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_conte
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from .email_service import EmailService, EmailType
+from .email_service import EmailOutcome, EmailService, EmailType
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -268,8 +268,17 @@ class NotificationService:
         reply_author: str,
         reply_excerpt: str,
         topic_url: str,
+        post_url: Optional[str] = None,
+        count: int = 1,
     ) -> bool:
         """Send forum reply notification.
+
+        ``count`` > 1 is a coalesced send (todo 624): that many replies on
+        the topic in one message, the excerpt and author being the newest.
+
+        ``post_url`` is the reply's own link (the topic at ``#post-<id>``);
+        the email's main button opens it and falls back to ``topic_url``
+        (todo 622).
 
         THE WORDING IS NOT HERE (todo 287). Subject and body come from
         ``apps/forum_host/notification_copy.py``, which both backend surfaces
@@ -300,9 +309,13 @@ class NotificationService:
             "author_name": reply_author,
             "post_excerpt": reply_excerpt,
             "topic_url": topic_url,
+            "post_url": post_url or topic_url,
+            "reply_count": count,
         }
 
-        copy = email_content("reply_added", topic_title=topic_title, actor=reply_author)
+        copy = email_content(
+            "reply_added", topic_title=topic_title, actor=reply_author, count=count
+        )
         if copy is None:
             # Unreachable while the table carries a reply_added email arm, but
             # NOT merely defensive: send_forum_email_batch's retry config is
@@ -310,6 +323,9 @@ class NotificationService:
             # and an unpacking TypeError here would abort the batch mid-loop,
             # silently skipping every remaining recipient with no retry.
             logger.error("[EMAIL] No forum email copy for 'reply_added'; skipping send")
+            # Never reached send_email: say why, or the outbox would read the
+            # unset outcome as a transport failure and retry it (todo 652).
+            self.email_service.last_outcome = EmailOutcome.PERMANENT
             return False
         subject, message = copy
 
@@ -321,6 +337,60 @@ class NotificationService:
             context=context,
         )
 
+        return results.get("email", False)
+
+    def send_forum_event_notification(
+        self,
+        user: User,
+        event: str,
+        topic_title: str,
+        actor_name: str,
+        post_excerpt: str,
+        topic_url: str,
+        post_url: Optional[str] = None,
+        author_name: Optional[str] = None,
+    ) -> bool:
+        """Send the optional important-event email (todo 624): a mention, a
+        quote of the member's post, or their answer accepted. Off unless the
+        member turned that cell on (``wagtail_forum.preferences``); the
+        caller (``send_forum_email_batch``) checks it, and this email's
+        signed unsubscribe link turns off exactly that cell.
+
+        Wording comes from ``apps/forum_host/notification_copy.py``, like the
+        reply email's. ``actor_name`` is who did it (for an accepted answer,
+        the acceptor) and goes in the event line; ``author_name`` labels the
+        excerpt and defaults to ``actor_name``. Returns False, never raises, for an event with no
+        email arm (``send_forum_email_batch``'s retry safety relies on it).
+        """
+        from apps.forum_host.notification_copy import email_content
+
+        email_type = {
+            "mention": EmailType.FORUM_MENTION,
+            "quote": EmailType.FORUM_QUOTE,
+            "answer_accepted": EmailType.FORUM_SOLUTION,
+        }.get(str(event))
+        copy = email_content(str(event), topic_title=topic_title, actor=actor_name)
+        if email_type is None or copy is None:
+            logger.error("[EMAIL] No forum email arm for %r; skipping send", event)
+            self.email_service.last_outcome = EmailOutcome.PERMANENT  # todo 652
+            return False
+        subject, message = copy
+        context = {
+            "topic_title": topic_title,
+            "author_name": actor_name if author_name is None else author_name,
+            "post_excerpt": post_excerpt,
+            "topic_url": topic_url,
+            "post_url": post_url or topic_url,
+            "event_line": message,
+        }
+        results = self.send_notification(
+            notification_type=email_type,
+            recipient=user,
+            title=subject,
+            message=message,
+            context=context,
+            template_name="forum_event",
+        )
         return results.get("email", False)
 
     def send_identification_result_notification(

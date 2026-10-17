@@ -1,200 +1,134 @@
 {% extends "emails/base.html" %}
 
-{% block title %}📚 New Blog Post: {{ post.title }} - Houseplant-MD{% endblock %}
+{% comment %}
+No live caller (todo 622). Mail-safe layout since todo 639: presentation
+tables only, no flexbox, every link colored inline. app_url comes from
+EmailService's base context with no trailing slash. The web blog page has no
+comments section, so there is no "#comments" link to keep.
+{% endcomment %}
 
-{% block preheader %}{{ post.excerpt|truncatechars:100 }}{% endblock %}
+{% block title %}New on the blog: {{ post.title }} - {{ site_name }}{% endblock %}
+
+{% block preheader %}{{ post.excerpt|default:post.summary|truncatechars:100 }}{% endblock %}
 
 {% block header_subtitle %}
-<p style="margin: 8px 0 0 0; color: #ffffff; opacity: 0.9; font-size: 16px;">
-    New Plant Knowledge Available
-</p>
+<p style="margin: 8px 0 0 0; font-size: 16px; color: #ffffff;">New plant knowledge available</p>
 {% endblock %}
 
 {% block content %}
-<div style="text-align: center; margin-bottom: 32px;">
-    <div style="font-size: 48px; margin-bottom: 16px;">📚</div>
-    <h1 style="color: #10B981; font-size: 28px; font-weight: 700; margin: 0;">
-        Fresh Plant Knowledge
-    </h1>
-    <p style="color: #6B7280; font-size: 16px; margin: 12px 0 0 0;">
-        A new article has been published on our blog
-    </p>
-</div>
+<h1 style="margin: 0 0 8px 0; font-size: 28px; font-weight: 700; color: #2c5f41; text-align: center;">
+    Fresh plant knowledge
+</h1>
+<p style="margin: 0 0 32px 0; font-size: 16px; color: #6c757d; text-align: center;">A new article has been published on our blog</p>
 
-<p style="margin-bottom: 24px;">Hi {{ user.first_name|default:user.username }},</p>
+<p style="margin: 0 0 16px 0; color: #333333;">Hi {{ user.first_name|default:user.username }},</p>
 
-<p style="margin-bottom: 32px;">
-    We've just published a new article that we think you'll love! Our plant experts have shared insights
+<p style="margin: 0 0 24px 0; color: #333333;">
+    We've just published a new article that we think you'll love. Our plant experts have shared insights
     that could help you become an even better plant parent.
 </p>
 
-<!-- Featured Post Card -->
-<div style="background-color: #FFFFFF; border: 2px solid #10B981; border-radius: 16px; padding: 32px; margin: 32px 0; text-align: center;">
-    {% if post.featured_image %}
-    <div style="margin-bottom: 24px;">
-        <img src="{{ post.featured_image }}" alt="{{ post.title }}" style="max-width: 100%; height: auto; border-radius: 12px; border: 1px solid #E5E7EB;" />
-    </div>
-    {% endif %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border: 2px solid #2c5f41; border-radius: 8px; margin: 0 0 32px 0;">
+    <tr>
+        <td align="center" style="padding: 24px;">
+            {% if post.featured_image %}
+            <img src="{{ post.featured_image }}" alt="{{ post.title }}" width="520" style="display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto 24px auto; border: 1px solid #e3e9e5; border-radius: 8px;" />
+            {% endif %}
 
-    <h2 style="color: #1F2937; font-size: 24px; font-weight: 700; margin: 0 0 16px 0;">
-        {{ post.title }}
-    </h2>
+            <h2 style="margin: 0 0 16px 0; font-size: 24px; font-weight: 700; color: #1f2937;">{{ post.title }}</h2>
 
-    {% if post.category %}
-    <div style="margin-bottom: 16px;">
-        <span style="background-color: #10B981; color: white; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
-            {{ post.category.name }}
-        </span>
-    </div>
-    {% endif %}
-
-    <p style="color: #4B5563; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
-        {{ post.excerpt|default:post.summary }}
-    </p>
-
-    <div style="display: flex; justify-content: center; align-items: center; gap: 16px; margin-bottom: 24px; font-size: 14px; color: #6B7280;">
-        {% if post.author %}
-        <div style="display: flex; align-items: center; gap: 6px;">
-            <span>✍️</span>
-            <span>{{ post.author.get_full_name|default:post.author.username }}</span>
-        </div>
-        {% endif %}
-        <div style="display: flex; align-items: center; gap: 6px;">
-            <span>📅</span>
-            <span>{{ post.published_date|date:"M d, Y" }}</span>
-        </div>
-        {% if post.reading_time %}
-        <div style="display: flex; align-items: center; gap: 6px;">
-            <span>⏱️</span>
-            <span>{{ post.reading_time }} min read</span>
-        </div>
-        {% endif %}
-    </div>
-
-    <a href="{{ app_url }}#!/blog/{{ post.slug }}"
-       style="background-color: #10B981; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block; font-size: 16px;">
-        📖 Read Full Article
-    </a>
-</div>
-
-<!-- Key Takeaways -->
-{% if post.key_points %}
-<div style="background-color: #F0FDF4; border-left: 4px solid #10B981; padding: 24px; margin: 32px 0; border-radius: 8px;">
-    <h3 style="color: #059669; font-size: 18px; font-weight: 600; margin: 0 0 16px 0;">
-        💡 Key Takeaways
-    </h3>
-    <ul style="margin: 0; padding-left: 20px; color: #047857;">
-        {% for point in post.key_points %}
-        <li style="margin-bottom: 8px; line-height: 1.5;">{{ point }}</li>
-        {% endfor %}
-    </ul>
-</div>
-{% endif %}
-
-<!-- Related Tags -->
-{% if post.tags %}
-<div style="margin: 32px 0;">
-    <h3 style="color: #374151; font-size: 16px; font-weight: 600; margin: 0 0 12px 0;">
-        🏷️ Topics Covered:
-    </h3>
-    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-        {% for tag in post.tags %}
-        <span style="background-color: #F3F4F6; color: #4B5563; padding: 6px 12px; border-radius: 16px; font-size: 12px; font-weight: 500; border: 1px solid #E5E7EB;">
-            {{ tag.name }}
-        </span>
-        {% endfor %}
-    </div>
-</div>
-{% endif %}
-
-<!-- Engagement Section -->
-<div style="background-color: #F8FAFC; border-radius: 12px; padding: 24px; margin: 32px 0; text-align: center;">
-    <h3 style="color: #374151; font-size: 18px; font-weight: 600; margin: 0 0 16px 0;">
-        💬 Join the Conversation
-    </h3>
-    <p style="color: #6B7280; font-size: 14px; margin: 0 0 20px 0;">
-        Have questions about this article? Want to share your own experience?
-        Our community is here to help!
-    </p>
-    <div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 12px;">
-        <a href="{{ app_url }}#!/blog/{{ post.slug }}#comments"
-           style="background-color: #3B82F6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 500; display: inline-block; font-size: 14px;">
-            💭 Leave a Comment
-        </a>
-        <a href="{{ app_url }}#!/forum"
-           style="background-color: #10B981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 500; display: inline-block; font-size: 14px;">
-            🌱 Discuss in Forums
-        </a>
-    </div>
-</div>
-
-<!-- More Articles -->
-{% if related_posts %}
-<div style="background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 12px; padding: 24px; margin: 32px 0;">
-    <h3 style="color: #1F2937; font-size: 18px; font-weight: 600; margin: 0 0 16px 0;">
-        📰 You Might Also Like
-    </h3>
-    {% for related in related_posts %}
-    <div style="display: flex; align-items: center; gap: 12px; padding: 12px 0; {% if not forloop.last %}border-bottom: 1px solid #F3F4F6;{% endif %}">
-        <div style="background-color: #F3F4F6; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-            <span style="font-size: 14px;">📄</span>
-        </div>
-        <div style="flex: 1; min-width: 0;">
-            <h4 style="margin: 0; font-size: 14px; font-weight: 500; color: #1F2937;">
-                <a href="{{ app_url }}#!/blog/{{ related.slug }}" style="color: #1F2937; text-decoration: none;">
-                    {{ related.title|truncatechars:60 }}
-                </a>
-            </h4>
-            {% if related.category %}
-            <p style="margin: 2px 0 0 0; font-size: 12px; color: #6B7280;">
-                {{ related.category.name }}
+            {% if post.category %}
+            <p style="margin: 0 0 16px 0;">
+                <span style="display: inline-block; padding: 6px 12px; border-radius: 12px; background-color: #2c5f41; color: #ffffff; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">{{ post.category.name }}</span>
             </p>
             {% endif %}
-        </div>
-    </div>
-    {% endfor %}
 
-    <div style="text-align: center; margin-top: 16px;">
-        <a href="{{ app_url }}#!/blog"
-           style="color: #10B981; text-decoration: none; font-size: 14px; font-weight: 500;">
-            → Browse All Articles
-        </a>
-    </div>
-</div>
+            <p style="margin: 0 0 24px 0; font-size: 16px; color: #4b5563;">{{ post.excerpt|default:post.summary }}</p>
+
+            <p style="margin: 0 0 24px 0; font-size: 14px; color: #6c757d;">
+                {% if post.author %}{{ post.author.get_full_name|default:post.author.username }} &middot; {% endif %}{{ post.published_date|date:"M d, Y" }}{% if post.reading_time %} &middot; {{ post.reading_time }} min read{% endif %}
+            </p>
+
+            <a href="{{ app_url }}/blog/{{ post.slug }}" class="email-button" style="display: inline-block; padding: 14px 28px; border-radius: 6px; background-color: #2c5f41; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none;">Read the full article</a>
+        </td>
+    </tr>
+</table>
+
+{% if post.key_points %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f0f7f2; border-left: 4px solid #2c5f41; margin: 0 0 32px 0;">
+    <tr>
+        <td style="padding: 16px 24px;">
+            <h3 style="margin: 0 0 12px 0; font-size: 18px; font-weight: 600; color: #2c5f41;">Key takeaways</h3>
+            <ul style="margin: 0; padding-left: 20px; color: #333333;">
+                {% for point in post.key_points %}
+                <li style="margin: 0 0 8px 0;">{{ point }}</li>
+                {% endfor %}
+            </ul>
+        </td>
+    </tr>
+</table>
 {% endif %}
 
-<!-- Newsletter Subscription Prompt -->
+{% if post.tags %}
+<p style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600; color: #374151;">Topics covered</p>
+<p style="margin: 0 0 32px 0; font-size: 12px; line-height: 2.4;">
+    {% for tag in post.tags %}<span style="display: inline-block; padding: 4px 12px; margin: 0 4px 0 0; border: 1px solid #e3e9e5; border-radius: 12px; background-color: #f3f4f6; color: #4b5563; font-weight: 500;">{{ tag.name }}</span>{% endfor %}
+</p>
+{% endif %}
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8f9fa; border-radius: 8px; margin: 0 0 32px 0;">
+    <tr>
+        <td align="center" style="padding: 24px;">
+            <h3 style="margin: 0 0 12px 0; font-size: 18px; font-weight: 600; color: #374151;">Join the conversation</h3>
+            <p style="margin: 0 0 20px 0; font-size: 14px; color: #6c757d;">
+                Have a question about this article, or your own experience to share? Our community is here to help.
+            </p>
+            <a href="{{ app_url }}/forum" class="email-button" style="display: inline-block; padding: 10px 20px; border-radius: 6px; background-color: #2c5f41; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none;">Discuss in the forums</a>
+        </td>
+    </tr>
+</table>
+
+{% if related_posts %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border: 1px solid #e3e9e5; border-radius: 8px; margin: 0 0 32px 0;">
+    <tr>
+        <td style="padding: 24px;">
+            <h3 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 600; color: #1f2937;">You might also like</h3>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                {% for related in related_posts %}
+                <tr>
+                    <td style="padding: 12px 0;{% if not forloop.last %} border-bottom: 1px solid #f3f4f6;{% endif %}">
+                        <a href="{{ app_url }}/blog/{{ related.slug }}" style="color: #1f2937; font-size: 14px; font-weight: 500; text-decoration: none;">{{ related.title|truncatechars:60 }}</a>
+                        {% if related.category %}<br><span style="font-size: 12px; color: #6c757d;">{{ related.category.name }}</span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+            <p style="margin: 16px 0 0 0; text-align: center;">
+                <a href="{{ app_url }}/blog" style="color: #2c5f41; font-size: 14px; font-weight: 500; text-decoration: none;">Browse all articles</a>
+            </p>
+        </td>
+    </tr>
+</table>
+{% endif %}
+
 {% if not user.newsletter_subscription %}
-<div style="background: linear-gradient(135deg, #DBEAFE 0%, #BFDBFE 100%); border-radius: 16px; padding: 24px; margin: 32px 0; text-align: center;">
-    <h3 style="color: #1E40AF; font-size: 18px; font-weight: 600; margin: 0 0 12px 0;">
-        📬 Want More Plant Tips?
-    </h3>
-    <p style="color: #1E3A8A; font-size: 14px; margin: 0 0 16px 0;">
-        Get our weekly newsletter with curated articles, plant care tips, and community highlights!
-    </p>
-    <a href="{{ app_url }}#!/settings/email-preferences"
-       style="background-color: #1D4ED8; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 500; display: inline-block; font-size: 14px;">
-        📧 Subscribe to Newsletter
-    </a>
-</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #dbeafe; border-radius: 8px; margin: 0 0 32px 0;">
+    <tr>
+        <td align="center" style="padding: 24px;">
+            <h3 style="margin: 0 0 12px 0; font-size: 18px; font-weight: 600; color: #1e40af;">Want more plant tips?</h3>
+            <p style="margin: 0 0 16px 0; font-size: 14px; color: #1e3a8a;">
+                Get our weekly newsletter with curated articles, plant care tips and community highlights.
+            </p>
+            <a href="{{ preferences_url }}" class="email-button" style="display: inline-block; padding: 12px 24px; border-radius: 6px; background-color: #1d4ed8; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none;">Subscribe to the newsletter</a>
+        </td>
+    </tr>
+</table>
 {% endif %}
 
-<p style="margin-top: 32px; margin-bottom: 16px; color: #6B7280; font-size: 14px;">
-    Thank you for being part of our plant-loving community! We hope this article helps you on your plant journey.
+<p style="margin: 0 0 16px 0; font-size: 14px; color: #6c757d;">
+    Thank you for being part of our plant-loving community. We hope this article helps you on your plant journey.
 </p>
 
-<p style="margin-bottom: 8px; color: #10B981; font-weight: 600;">
-    Happy growing! 🌱<br>
-    The Houseplant-MD Editorial Team
-</p>
-
-<hr style="border: none; border-top: 1px solid #E5E7EB; margin: 32px 0;">
-
-<div style="text-align: center;">
-    <p style="color: #9CA3AF; font-size: 12px; margin: 0;">
-        You're receiving this because you're subscribed to blog notifications.<br>
-        <a href="{{ preferences_url }}" style="color: #6B7280; text-decoration: none;">Manage your email preferences</a> |
-        <a href="{{ unsubscribe_url }}" style="color: #6B7280; text-decoration: none;">Unsubscribe from blog updates</a>
-    </p>
-</div>
+<p style="margin: 0 0 8px 0; color: #333333;">Happy growing!</p>
+<p style="margin: 0; font-weight: 600; color: #2c5f41;">The {{ site_name }} editorial team</p>
 {% endblock %}

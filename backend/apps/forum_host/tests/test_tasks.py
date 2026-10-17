@@ -760,17 +760,31 @@ def _batch_recipients(prefix, count):
 
 
 def _run_batch(users, send):
+    mock_fcm, single, _requeue = _run_batch_with_requeue(users, send)
+    return mock_fcm, single
+
+
+def _run_batch_with_requeue(users, send, requeued=False, ids=None):
+    """Also patches the once-only re-enqueue of a credentials stop (todo 606),
+    so no test puts a real message on the broker."""
     mock_fcm = MagicMock()
     mock_fcm.send.side_effect = send
     with patch(
         "apps.core.firebase_config.is_firebase_available", return_value=True
     ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm), patch(
         "apps.forum_host.tasks.send_forum_push.delay"
-    ) as single:
+    ) as single, patch(
+        "apps.forum_host.tasks.send_forum_push_batch.apply_async"
+    ) as requeue:
         from apps.forum_host.tasks import send_forum_push_batch
 
-        send_forum_push_batch("reply_added", [u.pk for u in users], {"topic_id": "1"})
-    return mock_fcm, single
+        send_forum_push_batch(
+            "reply_added",
+            ids if ids is not None else [u.pk for u in users],
+            {"topic_id": "1"},
+            requeued=requeued,
+        )
+    return mock_fcm, single, requeue
 
 
 @pytest.mark.django_db
@@ -852,6 +866,85 @@ def test_credentials_errors_after_a_success_do_not_stop_the_batch():
     mock_fcm, _single = _run_batch(users, send)
 
     assert mock_fcm.send.call_count == 5
+
+
+@pytest.mark.django_db
+def test_a_credentials_stop_re_enqueues_the_untried_recipients_once(caplog):
+    """Todo 606 item 1 (owner decision 2026-10-11): the stop can be a few bad
+    devices at the head of the batch, so the recipients not tried yet go out
+    in one follow-up batch. The users that already failed are not in it, and
+    neither are the ones this batch would never have sent to (opted out,
+    muted, tokenless): the count in the ERROR names only real losses."""
+    import logging
+
+    from apps.forum_host import constants
+    from firebase_admin import messaging
+
+    users = _batch_recipients("requeue", 6)
+    opted_out, tokenless = users[3], users[4]
+    opted_out.forum_notifications = False
+    opted_out.save()
+    ForumProfile.objects.filter(user=tokenless).update(fcm_token="")
+    # Passed in reverse: the batch orders by user id, so the failing head is
+    # the three lowest ids whatever order the caller used.
+    ids = [u.pk for u in reversed(users)]
+
+    with caplog.at_level(logging.ERROR, logger="forum_host.tasks"):
+        mock_fcm, single, requeue = _run_batch_with_requeue(
+            users, messaging.ThirdPartyAuthError("apns auth"), ids=ids
+        )
+
+    assert mock_fcm.send.call_count == 3
+    sent_tokens = [c.kwargs["token"] for c in mock_fcm.Message.call_args_list]
+    assert sent_tokens == [f"requeue-token-{i}" for i in range(3)]
+    single.assert_not_called()
+    requeue.assert_called_once_with(
+        args=("reply_added", [users[5].pk], {"topic_id": "1"}),
+        kwargs={"requeued": True},
+        countdown=constants.FORUM_PUSH_REQUEUE_DELAY,
+    )
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1, errors
+    assert "1 recipient(s) not tried" in errors[0]
+    assert "re-enqueued once" in errors[0]
+
+
+@pytest.mark.django_db
+def test_a_re_enqueued_batch_that_stops_does_not_enqueue_again(caplog):
+    """Todo 606 item 1: the follow-up batch is the last one, so a real
+    project-wide credentials outage cannot loop."""
+    import logging
+
+    from firebase_admin import messaging
+
+    users = _batch_recipients("requeued", 5)
+
+    with caplog.at_level(logging.ERROR, logger="forum_host.tasks"):
+        mock_fcm, _single, requeue = _run_batch_with_requeue(
+            users, messaging.SenderIdMismatchError("wrong project"), requeued=True
+        )
+
+    assert mock_fcm.send.call_count == 3
+    requeue.assert_not_called()
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1, errors
+    assert "2 recipient(s) not tried" in errors[0]
+    assert "already the re-enqueue" in errors[0]
+
+
+@pytest.mark.django_db
+def test_a_credentials_stop_with_nobody_left_does_not_re_enqueue():
+    """Todo 606 item 1: nothing untried, nothing to send later."""
+    from firebase_admin import messaging
+
+    users = _batch_recipients("nobody-left", 3)
+
+    mock_fcm, _single, requeue = _run_batch_with_requeue(
+        users, messaging.ThirdPartyAuthError("apns auth")
+    )
+
+    assert mock_fcm.send.call_count == 3
+    requeue.assert_not_called()
 
 
 # --- todo 457 item 3: a dead device token is cleared -------------------------
@@ -1160,3 +1253,91 @@ def test_the_digest_run_lock_outlives_the_task_but_not_by_much():
 
     ttl = get_setting("DIGEST_RUN_LOCK_SECONDS")
     assert tasks.DIGEST_TIME_LIMIT < ttl <= tasks.DIGEST_TIME_LIMIT + 5 * 60
+
+
+@pytest.mark.django_db
+def test_a_re_enqueue_the_broker_refuses_still_logs_the_credentials_error(caplog):
+    """Todo 631 #1/#3: the re-enqueue ran unguarded before the single ERROR,
+    so a broker outage (kombu's OperationalError, outside autoretry_for)
+    failed the task and the ERROR naming the stop was never logged. Now the
+    task returns, and the one ERROR says the untried recipients were dropped."""
+    import logging
+
+    from firebase_admin import messaging
+    from kombu.exceptions import OperationalError as BrokerError
+
+    users = _batch_recipients("broker-down", 5)
+    mock_fcm = MagicMock()
+    mock_fcm.send.side_effect = messaging.ThirdPartyAuthError("apns auth")
+
+    with caplog.at_level(logging.ERROR, logger="forum_host.tasks"), patch(
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm), patch(
+        "apps.forum_host.tasks.send_forum_push.delay"
+    ), patch(
+        "apps.forum_host.tasks.send_forum_push_batch.apply_async",
+        side_effect=BrokerError("broker down"),
+    ) as requeue:
+        from apps.forum_host.tasks import send_forum_push_batch
+
+        send_forum_push_batch("reply_added", [u.pk for u in users], {"topic_id": "1"})
+
+    requeue.assert_called_once()
+    assert mock_fcm.send.call_count == 3
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1, errors
+    assert "2 recipient(s) not tried" in errors[0]
+    assert "re-enqueue failed (OperationalError)" in errors[0]
+    # Todo 643 #2: the type only, never the broker's message, which can carry
+    # its host or URL into the logs and Sentry.
+    assert "broker down" not in errors[0]
+    assert "2 recipient(s) dropped" in errors[0]
+    assert "re-enqueued once" not in errors[0]
+
+
+@pytest.mark.django_db
+def test_a_single_hand_off_the_broker_refuses_does_not_abort_the_batch(caplog):
+    """Todo 643 #1: the transient path's ``send_forum_push.delay`` ran
+    unguarded, so a broker outage raised kombu's OperationalError mid-batch:
+    the rest of the batch was never tried and the credentials ERROR never
+    logged. Now the failed hand-off is logged (its type only, #2) and the
+    batch goes on. Recipient 0 fails transiently, 1-3 on credentials."""
+    import logging
+
+    from firebase_admin import exceptions as fb_exceptions
+    from firebase_admin import messaging
+    from kombu.exceptions import OperationalError as BrokerError
+
+    users = _batch_recipients("handoff-down", 5)
+    mock_fcm = MagicMock()
+    mock_fcm.send.side_effect = [
+        fb_exceptions.UnavailableError("FCM backend down"),
+        messaging.ThirdPartyAuthError("apns auth"),
+        messaging.ThirdPartyAuthError("apns auth"),
+        messaging.ThirdPartyAuthError("apns auth"),
+    ]
+
+    with caplog.at_level(logging.ERROR, logger="forum_host.tasks"), patch(
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch("apps.core.firebase_config.get_fcm_client", return_value=mock_fcm), patch(
+        "apps.forum_host.tasks.send_forum_push.delay",
+        side_effect=BrokerError("redis://secret-host:6379 refused"),
+    ) as single, patch(
+        "apps.forum_host.tasks.send_forum_push_batch.apply_async"
+    ) as requeue:
+        from apps.forum_host.tasks import send_forum_push_batch
+
+        send_forum_push_batch("reply_added", [u.pk for u in users], {"topic_id": "1"})
+
+    single.assert_called_once_with("reply_added", users[0].pk, {"topic_id": "1"})
+    assert mock_fcm.send.call_count == 4
+    requeue.assert_called_once()
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 2, errors
+    assert f"re-enqueue single failed (user={users[0].pk}): OperationalError" in (
+        errors[0]
+    )
+    assert "1 device(s) dropped" in errors[0]
+    assert "credentials error for 3 recipient(s)" in errors[1]
+    assert "1 recipient(s) not tried" in errors[1]
+    assert all("secret-host" not in e for e in errors), errors

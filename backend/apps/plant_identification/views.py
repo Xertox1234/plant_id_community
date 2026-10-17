@@ -145,6 +145,10 @@ class PlantDiseaseRequestViewSet(viewsets.ModelViewSet):
     Handles image-based disease identification with plant.health API integration.
     """
 
+    # Actions under @method_decorator(ratelimit(...)): the OpenAPI hook documents
+    # their 429 (plant_community_backend.api_schema, todo 607 item 7).
+    _throttled_actions = frozenset({"create"})
+
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 

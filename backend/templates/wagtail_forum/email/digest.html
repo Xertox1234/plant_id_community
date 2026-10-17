@@ -1,0 +1,54 @@
+{% extends "emails/base.html" %}
+{% comment %}
+Host shadow of the package's wagtail_forum/email/digest.html (todo 622): the
+weekly forum digest in the shared mail-safe layout every other live message
+uses. The package copy stays as the package's own fallback; the plain-text
+part is still the package's digest.txt. Context comes from
+wagtail_forum.digest.render_digest, which has no site_name or preferences_url,
+so the footer is this template's own.
+{% endcomment %}
+
+{% block title %}Your weekly forum digest{% endblock %}
+
+{% block preheader %}What happened on the forum since {{ since|date:"j M" }}{% endblock %}
+
+{% block header_subtitle %}
+<p style="margin: 8px 0 0 0; color: #e8f5e8; font-size: 16px;">Weekly forum digest</p>
+{% endblock %}
+
+{% block content %}
+<p style="margin: 0 0 16px 0; color: #333333;">Hi {{ display_name }},</p>
+<p style="margin: 0 0 24px 0; color: #555555;">Here is what happened on the forum since {{ since|date:"j M" }}.</p>
+{% if watched %}
+<h2 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 600; color: #2c5f41;">New replies on topics you follow</h2>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 24px 0;">
+    {% for t in watched %}
+    <tr>
+        <td style="padding: 8px 0; border-top: 1px solid #e9ecef;">
+            <a href="{{ t.url }}" style="color: #2c5f41; font-weight: 600; text-decoration: underline;">{{ t.title }}</a><br>
+            <span style="font-size: 14px; color: #6c757d;">{{ t.new_replies }} new {{ t.new_replies|pluralize:"reply,replies" }} · {{ t.board_title }}</span>
+        </td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+{% if trending %}
+<h2 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 600; color: #2c5f41;">Active topics you have not seen</h2>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 24px 0;">
+    {% for t in trending %}
+    <tr>
+        <td style="padding: 8px 0; border-top: 1px solid #e9ecef;">
+            <a href="{{ t.url }}" style="color: #2c5f41; font-weight: 600; text-decoration: underline;">{{ t.title }}</a><br>
+            <span style="font-size: 14px; color: #6c757d;">{{ t.reply_count }} {{ t.reply_count|pluralize:"reply,replies" }} · {{ t.board_title }}</span>
+        </td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+{% endblock %}
+
+{% block footer %}
+<p style="margin: 0; font-size: 12px; color: #6c757d;">You receive this because your forum digest is set to weekly.
+    <a href="{{ settings_url }}" style="color: #2c5f41; text-decoration: underline;">Change or turn it off</a>.{% if unsubscribe_url %}
+    <a href="{{ unsubscribe_url }}" style="color: #2c5f41; text-decoration: underline;">Unsubscribe from this digest</a>.{% endif %}</p>
+{% endblock %}

@@ -1,0 +1,69 @@
+---
+status: completed
+priority: p4
+issue_id: "639"
+tags: [email, templates, follow-ups]
+dependencies: []
+triage: ready
+triaged: 2026-10-12
+owner_decision: "Finding 8: use SITE_NAME in both subject and body (fix the SITE_NAME default to 'Houseplant MD'). Finding 6: fix blog_post.html links and convert its layout to the table layout the no-flex tests cover. Fix the other findings (2026-10-12)"
+---
+
+# Follow-ups from PR #1088 (todo 622, email links, text parts and layout)
+
+## Problem
+
+Todo-sweep run 2026-10-12-1637 merged PR #1088 (todo 622, email links, text parts and layout). The non-blocking review findings are below. The curator merged duplicates and checked each one against main. The refuter then tried to refute what was left. The findings that survived are listed.
+
+## Findings
+
+PR #1088 (todo sweep run 2026-10-12-1637, group g1, todos 622); follow-ups: verified.
+
+1. **low** `backend/apps/core/services/email_service.py:49` html_to_text() drops head/style/script/title but keeps the hidden preheader div that base.html puts first in `<body>`, so every fallback text part (no .txt) opens with the inbox-preview line, e.g. 'Stay connected with your plant community'. | also: html_to_text() keeps the hidden preheader div from base.html, so a fallback text part (e.g. identification_result.html, which has a preheader and no .txt) opens with the inbox-preview line as body text.
+2. **low** `backend/apps/users/email_verification.py:201` deliver_verification_email and deliver_provider_linked_notice call render_to_string outside any try; a template error raises out of the Celery task, skipping_retry_or_give_up and its '[EMAIL]' give-up logging. | also: render_to_string now runs outside any try. A template error raises out of deliver_verification_email (and deliver_provider_linked_notice) instead of returning False, so send_verification_email_task never reaches its_retry_or_give_up path or its [EMAIL] failure log.
+3. **low** `backend/apps/core/tests/test_email_service_silent_failures.py:28` FALLBACK_RENDERABLE_TEMPLATES still lists welcome_email, which now ships welcome_email.txt, so the missing-.txt fallback tests no longer cover it; comments ('strip_tags(html) body', 'forum_reply is the one EmailType with a real .txt') are stale.
+4. **low** `backend/apps/users/tests/test_email_presentation.py:297` test_required_mail_ignores_optional_mail_preferences: the integration loop does not exercise the _should_send_email reorder (send_transactional_email never checks preferences; send_welcome_email passes respect_preferences=False). Only the direct _should_send_email asserts test the change.
+5. **low** `backend/apps/forum_host/tasks.py:598` settings.SITE_URL.rstrip('/') raises AttributeError if SITE_URL is None, unlike email_service's `(site_url or "")` guard; in the Celery batch task that fails the whole reply-email batch with a permanent error that retrying won't fix. | also: settings.SITE_URL.rstrip('/') raises AttributeError if SITE_URL is None. email_service's base context guards with `or ''`, but this Celery task does not, so a misconfigured env fails every batch (and may retry a permanent error). | settings.SITE_URL.rstrip('/') assumes SITE_URL is a non-empty str, while email_service guards with (site_url or ''). A None or unset value would raise AttributeError and abort the whole reply-email batch.
+6. **low** `backend/templates/emails/blog_post.html:74` app_url is concatenated with `/blog/...` (trailing-slash risk); the 'Leave a Comment' link lost its #comments anchor. | also: blog_post.html gets only link fixes. It still has display:flex and inline-flex layout and the old non-presentation structure, and the new families' layout and no-flex tests do not cover it. It is documented as having no live caller, so the risk is contained.
+7. **low** `backend/apps/core/services/email_service.py:32` The _LINK pattern's \bhref also matches data-href= (a '-' gives a word boundary), so `<a data-href=x href=y>` would print x as the link URL.
+8. **low** `backend/templates/emails/email_verification.txt:1` Verification and provider-linked bodies use {{ site_name }} (SITE_NAME, default "Houseplant-MD"), while their subjects hardcode "Houseplant MD", so one message names the product two ways; no test checks the body name.
+
+3 more location(s) were dropped by the cap of 10 (the most severe are kept).
+
+Dropped by curation (fixed on main, refuted, or not a reported location):
+
+- low: backend/templates/account/email/password_reset_key_message.html:8 Template uses `{% if username %}`, but allauth's password-reset context may supply only `user` (username is set only for some auth-method configs), so the account name could silently never render. (refuted: Main sets ACCOUNT_LOGIN_METHODS={'username','email'}. allauth 65 adds context['username'] when USERNAME is among LOGIN_METHODS (from my knowledge of allauth, not checked in this repo), so {% if username %} renders.)
+
+## Acceptance Criteria
+
+- [x] Each finding above is fixed with a test where it is a behaviour change, or recorded in the Work Log as
+      declined with a reason (or as already fixed on main, with the evidence).
+
+## Work Log
+
+### 2026-10-12 - Filed from the PR #1088 review (todo sweep run 2026-10-12-1637)
+
+Filed by the closing step of the run from `state.py followups-md g1`.
+
+### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-1938)
+
+- Findings 1 and 7 (`backend/apps/core/services/email_service.py`): `html_to_text()` now drops a div hidden with an inline `display: none` (the base.html preheader), and the link pattern needs whitespace before `href`, so `data-href=` is never read as the URL. Tests in `backend/apps/core/tests/test_email_links_and_text.py`.
+- Findings 2, 5 and 8: the verification and sign-in link notices return False (with an `[EMAIL]` error log) when a template fails to render, so the Celery task retries and logs its give-up. `send_forum_email_batch` and `unsubscribe_url()` (`backend/apps/users/email_unsubscribe.py`, the same `SITE_URL.rstrip` pattern) guard an unset `SITE_URL` with `or ""`. Per the owner decision, `SITE_NAME` defaults to "Houseplant MD" and both notice subjects, plus the welcome subject, which had the same mismatch, read `site_name`. The base and security-footer template fallbacks now say "Houseplant MD" too. `WAGTAIL_SITE_NAME`, the feeds and the hardcoded names in other legacy templates are unchanged.
+- Finding 6: `backend/templates/emails/blog_post.html` now uses presentation tables with no flexbox and no gradient, colors every link inline, takes its name from `site_name`, and drops its own footer, whose "Unsubscribe from blog updates" link had an empty href because `blog_post` has no unsubscribe list. The base footer already links the preferences page. Trailing slash: already fixed on main, because `EmailService._get_base_context` strips it from `app_url` (todo 622). `#comments`: declined. `web/src` has no comments section or `id="comments"` anchor (grep finds none), so the "Leave a Comment" button is gone and "Discuss in the forums" remains. New `BlogPostLayoutTests` sends the template through `EmailService` and applies the no-flex and link checks.
+- Findings 3 and 4: `FALLBACK_RENDERABLE_TEMPLATES` no longer lists `welcome_email`, which ships a .txt. `generic_notification` stays the fallback case, because `forum_mention` cannot render from the base context alone. The stale `strip_tags` and "one real .txt" comments are corrected. A new test sends the required types through `send_email(respect_preferences=True)` for an opted-out user, which exercises the `_should_send_email` reorder end to end.
+
+### 2026-10-12 - Verified by the todo sweep (run 2026-10-12-1938)
+
+- AC 1: `python3 scripts/todos/slot_env.py --main-root . 2 -- backend/venv/bin/python -m pytest backend/apps/core/tests/test_email_links_and_text.py backend/apps/core/tests/test_email_service_silent_failures.py backend/apps/users/tests/test_email_presentation.py backend/apps/forum_host/tests/test_reply_email_links.py --create-db -p no:cacheprovider -v` — evidence `.sweep-evidence/g2/639-ac0.txt` (not committed), last lines:
+
+  ```text
+  ============================== ENVIRONMENT DRIFT ===============================
+  backend/venv does not match backend/requirements.txt — these results describe a tree CI does not run.
+    mismatched: pyjwt (pinned 2.15.0, installed 2.13.0), urllib3 (pinned 2.8.0, installed 2.7.0)
+  Fix: pip install -r backend/requirements.txt (see todo 378).
+  ============== 63 passed, 3 warnings, 8 subtests passed in 17.72s ==============
+  ```
+
+### 2026-10-12 - Completed by the todo sweep (run 2026-10-12-1938)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

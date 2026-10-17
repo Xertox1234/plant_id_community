@@ -7,8 +7,10 @@ the per-row checks (password, extra data, the locked re-check) show up as
 individually testable although the extra-data backstop overlaps several.
 """
 
+import importlib
 import io
 import logging
+import uuid
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -26,11 +28,16 @@ from apps.users.signup import (
     create_default_plant_collection,
     join_forum_members_group,
 )
+from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import DatabaseError
+from django.db.models import QuerySet
+from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
@@ -272,6 +279,200 @@ def test_a_refresh_after_registering_is_not_a_candidate():
 
     summary(expire(), candidates=0, kept=0, deleted=0)
     assert exists(user)
+
+
+@pytest.mark.django_db
+def test_a_refresh_survives_flushexpiredtokens():
+    """forum-prune-cron runs flushexpiredtokens just before this command
+    (todo 485). Once the rotated tokens expire and are flushed, the refresh
+    view's last_token_refresh stamp is what still marks the user as active."""
+    cache.clear()  # the refresh endpoint is rate limited per IP
+    user = stale_account()
+    response = _refresh(user)
+    assert response.status_code == 200, response.content
+    OutstandingToken.objects.filter(user=user).update(
+        expires_at=timezone.now() - timedelta(days=1)
+    )
+    call_command("flushexpiredtokens")
+    assert not OutstandingToken.objects.filter(user=user).exists()
+
+    summary(expire(), candidates=0, kept=0, deleted=0)
+    assert exists(user)
+
+
+def _refresh(user, token=None):
+    client = APIClient(enforce_csrf_checks=True)
+    csrf = client.get("/api/v1/auth/csrf/").cookies["csrftoken"].value
+    client.cookies["csrftoken"] = csrf
+    return client.post(
+        "/api/v1/auth/token/refresh/",
+        {"refresh": token or str(RefreshToken.for_user(user))},
+        HTTP_X_CSRFTOKEN=csrf,
+    )
+
+
+@pytest.mark.django_db
+def test_a_refresh_stamps_last_token_refresh_but_not_last_login():
+    """Todo 485: Django's password-reset token hashes last_login, so a
+    refresh that moved it would void every reset link already sent."""
+    cache.clear()
+    user = stale_account()
+    reset_token = default_token_generator.make_token(user)
+    before = user.last_login
+
+    assert _refresh(user).status_code == 200
+
+    user.refresh_from_db()
+    assert user.last_token_refresh is not None, "todo 485: refresh must stamp"
+    assert user.last_login == before, "todo 485: refresh must not move last_login"
+    assert default_token_generator.check_token(user, reset_token)
+
+
+@pytest.mark.django_db
+def test_a_failed_refresh_does_not_stamp():
+    cache.clear()
+    user = stale_account()
+
+    assert _refresh(user, token="not-a-token").status_code == 401
+
+    user.refresh_from_db()
+    assert user.last_token_refresh is None
+
+
+@pytest.fixture
+def own_cache():
+    """The refresh endpoint is rate limited per IP: give the test an empty
+    in-memory cache. Never cache.clear(), which flushes dev Redis."""
+    locmem = {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": f"expiry-refresh-test-{uuid.uuid4()}",
+    }
+    with override_settings(CACHES={"default": locmem, "renditions": locmem}):
+        yield
+
+
+@pytest.mark.django_db
+def test_a_refresh_moves_an_older_stamp_forward(own_cache):
+    user = stale_account()
+    older = timezone.now() - timedelta(days=3)
+    User.objects.filter(pk=user.pk).update(last_token_refresh=older)
+
+    assert _refresh(user).status_code == 200
+
+    user.refresh_from_db()
+    assert user.last_token_refresh > older, "todo 627 item 4: a 200 must restamp"
+
+
+@pytest.mark.django_db
+def test_a_replayed_refresh_token_does_not_restamp(own_cache):
+    user = stale_account()
+    token = str(RefreshToken.for_user(user))
+    assert _refresh(user, token=token).status_code == 200
+    user.refresh_from_db()
+    first = user.last_token_refresh
+
+    assert _refresh(user, token=token).status_code == 401
+
+    user.refresh_from_db()
+    assert (
+        user.last_token_refresh == first
+    ), "todo 627 item 4: a blacklisted token must not move the stamp"
+
+
+@pytest.mark.django_db
+def test_a_failed_stamp_is_logged_and_does_not_fail_the_refresh(own_cache):
+    """Todo 627 item 3: a failed stamp is logged and the refresh still
+    succeeds (the web client logs out on any non-2xx refresh); the next
+    successful refresh restamps."""
+    user = stale_account()
+    real_update = QuerySet.update
+
+    def failing_stamp(self, **kwargs):
+        if "last_token_refresh" in kwargs:
+            raise DatabaseError("stamp down")
+        return real_update(self, **kwargs)
+
+    with (
+        patch.object(QuerySet, "update", autospec=True, side_effect=failing_stamp),
+        patch("apps.users.views.logger") as logger,
+    ):
+        response = _refresh(user)
+
+    assert response.status_code == 200, response.content
+    assert any(
+        "last_token_refresh stamp failed" in str(c) for c in logger.error.call_args_list
+    ), "todo 627 item 3: logged"
+    user.refresh_from_db()
+    assert user.last_token_refresh is None, "todo 627 item 3: nothing stamped"
+    assert _refresh(user).status_code == 200
+    user.refresh_from_db()
+    assert (
+        user.last_token_refresh is not None
+    ), "todo 627 item 3: the next refresh restamps"
+
+
+@pytest.mark.django_db
+def test_a_failed_blacklist_rolls_the_stamp_back(own_cache):
+    """Todo 641 item 1: the stamp runs before the blacklist, so a blacklist
+    failure (503, no tokens issued) must not leave the account stamped as
+    active. Stamp and blacklist share one transaction."""
+    user = stale_account()
+    older = timezone.now() - timedelta(days=3)
+    User.objects.filter(pk=user.pk).update(last_token_refresh=older)
+
+    with patch(
+        "rest_framework_simplejwt.tokens.RefreshToken.blacklist",
+        side_effect=DatabaseError("blacklist down"),
+    ):
+        response = _refresh(user)
+
+    assert response.status_code == 503, response.content
+    user.refresh_from_db()
+    assert (
+        user.last_token_refresh == older
+    ), "todo 641 item 1: a 503 refresh must not move the stamp"
+
+
+@pytest.mark.django_db
+def test_a_token_refresh_stamp_after_the_margin_is_not_a_candidate():
+    user = stale_account()
+    User.objects.filter(pk=user.pk).update(
+        last_token_refresh=user.date_joined + MARGIN + timedelta(seconds=1)
+    )
+
+    summary(expire(), candidates=0, kept=0, deleted=0)
+    assert exists(user)
+
+
+@pytest.mark.django_db
+def test_a_token_refresh_stamp_inside_the_margin_is_not_a_sign_in():
+    user = stale_account()
+    User.objects.filter(pk=user.pk).update(last_token_refresh=user.date_joined + MARGIN)
+
+    summary(expire(), candidates=1, kept=0, deleted=1)
+    assert not exists(user)
+
+
+@pytest.mark.django_db
+def test_migration_0021_backfills_refreshes_made_before_the_field():
+    """Before 0021 a refresh left only a token row, which the flush deletes."""
+    migration = importlib.import_module(
+        "apps.users.migrations.0021_user_last_token_refresh"
+    )
+    came_back = stale_account(username="back", email="back@example.com")
+    later = came_back.date_joined + MARGIN + timedelta(hours=1)
+    token = RefreshToken.for_user(came_back)
+    OutstandingToken.objects.filter(jti=token["jti"]).update(created_at=later)
+    never = stale_account(username="never", email="never@example.com")
+    token_within_margin(never)
+    User.objects.update(last_token_refresh=None)
+
+    migration.backfill_from_tokens(django_apps, None)
+
+    came_back.refresh_from_db()
+    never.refresh_from_db()
+    assert came_back.last_token_refresh == later
+    assert never.last_token_refresh is None
 
 
 @pytest.mark.django_db

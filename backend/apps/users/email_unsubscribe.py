@@ -8,7 +8,10 @@ A list is registered only when its unsubscribe flips a preference the web
 Settings page can flip back — otherwise "unsubscribe" would be a one-way door.
 That is why ``forum_reply`` turns off the reply EMAIL cell of the forum
 notification matrix (todo 343), and not ``User.forum_notifications`` (which
-also silences push) or ``User.email_notifications`` (no UI re-enables it).
+also silences push). A link turns off ONE list, never the account-wide
+``User.email_notifications`` master switch, which web Settings and the mobile
+profile both show since todo 620 (docs/notifications-policy.md). With that
+master switch off, no list's email is sent, whatever the list says.
 """
 
 from dataclasses import dataclass
@@ -56,25 +59,35 @@ def _forum_overrides(user):
     )
 
 
-def _forum_reply_subscribed(user) -> bool:
-    from wagtail_forum.preferences import wants_channel
+def _forum_email_subscribed(verb: str) -> Callable[["User"], bool]:
+    """Whether the member's email cell for ``verb`` is on."""
 
-    return bool(wants_channel(_forum_overrides(user), "reply_added", "email"))
+    def is_subscribed(user) -> bool:
+        from wagtail_forum.preferences import wants_channel
+
+        return bool(wants_channel(_forum_overrides(user), verb, "email"))
+
+    return is_subscribed
 
 
-def _forum_reply_unsubscribe(user) -> None:
-    from wagtail_forum.models import ForumProfile
-    from wagtail_forum.preferences import merge_preferences
+def _forum_email_unsubscribe(verb: str) -> Callable[["User"], None]:
+    """Turn off the member's email cell for ``verb``, and nothing else."""
 
-    # Same merge the Settings grid's PATCH uses, under a row lock so a
-    # concurrent Settings save cannot drop this cell (or this drop theirs).
-    with transaction.atomic():
-        profile_pk = ForumProfile.for_user(user).pk
-        profile = ForumProfile.objects.select_for_update().get(pk=profile_pk)
-        profile.notification_preferences = merge_preferences(
-            profile.notification_preferences, {"reply": {"email": False}}
-        )
-        profile.save(update_fields=["notification_preferences"])
+    def unsubscribe(user) -> None:
+        from wagtail_forum.models import ForumProfile
+        from wagtail_forum.preferences import merge_preferences
+
+        # Same merge the Settings grid's PATCH uses, under a row lock so a
+        # concurrent Settings save cannot drop this cell (or this drop theirs).
+        with transaction.atomic():
+            profile_pk = ForumProfile.for_user(user).pk
+            profile = ForumProfile.objects.select_for_update().get(pk=profile_pk)
+            profile.notification_preferences = merge_preferences(
+                profile.notification_preferences, {verb: {"email": False}}
+            )
+            profile.save(update_fields=["notification_preferences"])
+
+    return unsubscribe
 
 
 def _forum_digest_subscribed(user) -> bool:
@@ -107,8 +120,25 @@ class EmailList:
 LISTS: dict[str, EmailList] = {
     "forum_reply": EmailList(
         label="Email for replies to topics you follow",
-        is_subscribed=_forum_reply_subscribed,
-        unsubscribe=_forum_reply_unsubscribe,
+        is_subscribed=_forum_email_subscribed("reply"),
+        unsubscribe=_forum_email_unsubscribe("reply"),
+    ),
+    # Optional important-event email (todo 624): each link turns off its
+    # own email cell, which the Settings grid (web and mobile) turns back on.
+    "forum_mention": EmailList(
+        label="Email when someone mentions you",
+        is_subscribed=_forum_email_subscribed("mention"),
+        unsubscribe=_forum_email_unsubscribe("mention"),
+    ),
+    "forum_quote": EmailList(
+        label="Email when someone quotes your post",
+        is_subscribed=_forum_email_subscribed("quote"),
+        unsubscribe=_forum_email_unsubscribe("quote"),
+    ),
+    "forum_solution": EmailList(
+        label="Email when your answer is accepted",
+        is_subscribed=_forum_email_subscribed("solution"),
+        unsubscribe=_forum_email_unsubscribe("solution"),
     ),
     "forum_digest": EmailList(
         label="The weekly forum digest",
@@ -156,7 +186,8 @@ def unsubscribe_url(user, list_id: str, token: str | None = None) -> str:
     """The web app's unsubscribe page for this user and list (``SITE_URL`` is
     the web app's origin, as for every other link in our email)."""
     query = urlencode({"token": token or make_token(user, list_id)})
-    return f"{settings.SITE_URL.rstrip('/')}/unsubscribe?{query}"
+    site_url = (getattr(settings, "SITE_URL", "") or "").rstrip("/")
+    return f"{site_url}/unsubscribe?{query}"
 
 
 def one_click_url(user, list_id: str, token: str | None = None):

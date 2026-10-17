@@ -11,10 +11,10 @@ import axios from 'axios';
 import apiClient from '../utils/httpClient';
 import { toHttpError } from '../utils/httpError';
 import type {
+  AccountUpdate,
   DashboardActivityItem,
   DashboardForumStats,
   DashboardStats,
-  ProfileUpdate,
   UserProfile,
 } from '../types/auth';
 
@@ -40,7 +40,7 @@ export async function fetchProfile(): Promise<UserProfile> {
   }
 }
 
-export async function updateProfile(changes: ProfileUpdate): Promise<UserProfile> {
+export async function updateProfile(changes: AccountUpdate): Promise<UserProfile> {
   try {
     const response = await apiClient.patch<{ message: string; user: UserProfile }>(
       `${AUTH_BASE}/user/update/`,

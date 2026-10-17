@@ -1,15 +1,19 @@
 // web/src/pages/SettingsPage.test.tsx
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, act, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { BrowserRouter } from 'react-router-dom';
 import { ThemeProvider } from '../contexts/ThemeContext';
 import SettingsPage, {
+  AccountNotificationSwitchesSection,
   EmailDigestSection,
   NotificationPreferencesSection,
   MyForumImagesSection,
 } from './SettingsPage';
 import * as forumService from '../services/forumService';
+import * as profileService from '../services/profileService';
+import type { UserProfile } from '../types/auth';
 import type {
   ForumMyProfile,
   NotificationChannel,
@@ -18,6 +22,22 @@ import type {
 } from '../types/forum';
 
 vi.mock('../services/forumService');
+vi.mock('../services/profileService');
+
+// GET /auth/user/ as the account-wide switches section reads it (todo 620).
+const accountProfile: UserProfile = {
+  id: 1,
+  username: 'jane',
+  email: 'jane@example.com',
+  first_name: 'Jane',
+  last_name: 'Doe',
+  display_name: 'Jane Doe',
+  bio: '',
+  location: '',
+  website: '',
+  email_notifications: true,
+  forum_notifications: true,
+};
 
 // MyForumImagesSection (todo 374) renders on the settings page, so EVERY
 // whole-page test now hits listMyForumImages. `mockReset: true` wipes values
@@ -28,6 +48,9 @@ beforeEach(() => {
     items: [],
     meta: { count: 0, next: null, previous: null },
   });
+  // The account-wide switches section (todo 620) also renders on every
+  // whole-page test.
+  vi.mocked(profileService.fetchProfile).mockResolvedValue({ ...accountProfile });
 });
 
 // The resolved matrix as the API sends it (todo 343): ONLY the cells with a
@@ -98,6 +121,7 @@ const renderPageSettled = async () => {
   expect(await screen.findByLabelText('Frequency')).toHaveValue('off');
   expect(await screen.findByRole('checkbox', { name: 'Push for Mentions' })).toBeInTheDocument();
   expect(await screen.findByTestId('forum-images-empty')).toBeInTheDocument();
+  expect(await screen.findByRole('switch', { name: /^Email notifications/ })).toBeChecked();
 };
 
 describe('SettingsPage theme controls', () => {
@@ -678,6 +702,199 @@ describe('NotificationPreferencesSection (todo 343)', () => {
   );
 });
 
+describe('Important-event email and quiet hours (todo 624)', () => {
+  // The matrix a todo-624 backend sends: email exists for every event, and
+  // is off by default for mentions, quotes and accepted answers.
+  const fullMatrix: NotificationPreferences = {
+    reply: { push: true, email: true },
+    mention: { push: true, email: false },
+    quote: { push: true, email: false },
+    solution: { push: true, email: false },
+  };
+  const quietProfile: ForumMyProfile = {
+    ...profileBase,
+    notification_preferences: fullMatrix,
+    quiet_hours_enabled: false,
+    quiet_hours_start: '22:00',
+    quiet_hours_end: '07:00',
+    time_zone: '',
+  };
+
+  beforeEach(() => {
+    vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(
+      () =>
+        ({
+          resolvedOptions: () => ({ timeZone: 'America/Denver' }),
+        }) as unknown as Intl.DateTimeFormat
+    );
+  });
+  afterEach(() => {
+    vi.mocked(Intl.DateTimeFormat).mockRestore();
+  });
+
+  it('offers mention, quote and accepted-answer email, off, and saves one cell', async () => {
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({ ...quietProfile });
+    vi.mocked(forumService.updateMyForumProfile).mockResolvedValue({
+      ...quietProfile,
+      notification_preferences: { ...fullMatrix, mention: { push: true, email: true } },
+    });
+
+    render(<NotificationPreferencesSection />);
+
+    const mentionEmail = await screen.findByRole('checkbox', { name: 'Email for Mentions' });
+    expect(mentionEmail).not.toBeChecked();
+    expect(
+      screen.getByRole('checkbox', { name: 'Email for Quotes of your posts' })
+    ).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Email for Answer accepted' })).not.toBeChecked();
+    expect(screen.getAllByRole('checkbox')).toHaveLength(8);
+    expect(screen.queryByText('—')).toBeNull();
+    expect(
+      screen.getByText(/a mention in a topic you follow sends one email/i)
+    ).toBeInTheDocument();
+
+    await userEvent.click(mentionEmail);
+
+    expect(vi.mocked(forumService.updateMyForumProfile).mock.calls).toStrictEqual([
+      [{ notification_preferences: { mention: { email: true } } }],
+    ]);
+    await waitFor(() => expect(mentionEmail).toBeChecked());
+  });
+
+  it('shows quiet hours off, with the zone in effect, and the times disabled', async () => {
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({ ...quietProfile });
+
+    render(<NotificationPreferencesSection />);
+
+    const toggle = await screen.findByRole('switch', { name: 'Quiet hours' });
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByLabelText('From')).toHaveValue('22:00');
+    expect(screen.getByLabelText('Until')).toHaveValue('07:00');
+    expect(screen.getByLabelText('From')).toBeDisabled();
+    // No zone stored yet: the server uses UTC, and the page says so.
+    expect(screen.getByText(/Times are in UTC\./)).toBeInTheDocument();
+    expect(screen.getByText(/security email always sends/i)).toBeInTheDocument();
+  });
+
+  it('turning quiet hours on reports this device zone, then edits a time', async () => {
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({ ...quietProfile });
+    const on = { ...quietProfile, quiet_hours_enabled: true, time_zone: 'America/Denver' };
+    vi.mocked(forumService.updateMyForumProfile)
+      .mockResolvedValueOnce(on)
+      .mockResolvedValueOnce({ ...on, quiet_hours_start: '21:30' });
+
+    render(<NotificationPreferencesSection />);
+    await userEvent.click(await screen.findByRole('switch', { name: 'Quiet hours' }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Times are in America\/Denver\./)).toBeInTheDocument()
+    );
+    expect(screen.getByRole('switch', { name: 'Quiet hours' })).toBeChecked();
+    const from = screen.getByLabelText('From');
+    expect(from).toBeEnabled();
+
+    // A native time input changes once per segment: the hour, then the
+    // minutes. Nothing saves until the field is left, and it keeps focus and
+    // stays enabled throughout (review round 1, PR #1132).
+    from.focus();
+    fireEvent.change(from, { target: { value: '21:00' } });
+    fireEvent.change(from, { target: { value: '21:30' } });
+    expect(from).toHaveFocus();
+    expect(from).toBeEnabled();
+    expect(vi.mocked(forumService.updateMyForumProfile)).toHaveBeenCalledTimes(1);
+
+    fireEvent.blur(from);
+
+    await waitFor(() => expect(from).toHaveValue('21:30'));
+    expect(vi.mocked(forumService.updateMyForumProfile).mock.calls).toStrictEqual([
+      [{ quiet_hours_enabled: true, time_zone: 'America/Denver' }],
+      [{ quiet_hours_start: '21:30', time_zone: 'America/Denver' }],
+    ]);
+  });
+
+  it('keeps the switch focused during a save and sends a time left mid-save after it', async () => {
+    const on = { ...quietProfile, quiet_hours_enabled: true, time_zone: 'America/Denver' };
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({ ...quietProfile });
+    let land: (value: ForumMyProfile) => void = () => {};
+    vi.mocked(forumService.updateMyForumProfile)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            land = resolve;
+          })
+      )
+      .mockResolvedValueOnce({ ...on, quiet_hours_end: '06:30' });
+
+    render(<NotificationPreferencesSection />);
+    const toggle = await screen.findByRole('switch', { name: 'Quiet hours' });
+    toggle.focus();
+    await userEvent.click(toggle);
+
+    // In flight: still focusable and focused, announced as unavailable, and a
+    // second click sends nothing (review round 2, PR #1132).
+    expect(toggle).toHaveAttribute('aria-disabled', 'true');
+    expect(toggle).toBeEnabled();
+    expect(toggle).toHaveFocus();
+    fireEvent.click(toggle);
+    expect(vi.mocked(forumService.updateMyForumProfile)).toHaveBeenCalledTimes(1);
+
+    // A time left while that save is in flight is kept, then sent.
+    const until = screen.getByLabelText('Until');
+    fireEvent.change(until, { target: { value: '06:30' } });
+    fireEvent.blur(until);
+    expect(until).toHaveValue('06:30');
+    expect(vi.mocked(forumService.updateMyForumProfile)).toHaveBeenCalledTimes(1);
+
+    await act(async () => land(on));
+
+    await waitFor(() =>
+      expect(vi.mocked(forumService.updateMyForumProfile).mock.calls).toStrictEqual([
+        [{ quiet_hours_enabled: true, time_zone: 'America/Denver' }],
+        [{ quiet_hours_end: '06:30', time_zone: 'America/Denver' }],
+      ])
+    );
+    await waitFor(() => expect(until).toHaveValue('06:30'));
+  });
+
+  it('a time left unchanged, or out of range, saves nothing', async () => {
+    const on = { ...quietProfile, quiet_hours_enabled: true, time_zone: 'America/Denver' };
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue(on);
+
+    render(<NotificationPreferencesSection />);
+    const until = await screen.findByLabelText('Until');
+    fireEvent.change(until, { target: { value: '07:00' } });
+    fireEvent.blur(until);
+    fireEvent.change(until, { target: { value: '' } });
+    fireEvent.blur(until);
+
+    expect(until).toHaveValue('07:00');
+    expect(vi.mocked(forumService.updateMyForumProfile)).not.toHaveBeenCalled();
+  });
+
+  it('reverts quiet hours and shows the error when the save fails', async () => {
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({ ...quietProfile });
+    vi.mocked(forumService.updateMyForumProfile).mockRejectedValue(new Error('Request failed'));
+
+    const { container } = render(<NotificationPreferencesSection />);
+    const toggle = await screen.findByRole('switch', { name: 'Quiet hours' });
+    await userEvent.click(toggle);
+
+    const region = container.querySelector('#notification-preferences-status');
+    await waitFor(() => expect(region).toHaveTextContent('Request failed'));
+    expect(toggle).not.toBeChecked();
+    expect(toggle).toBeEnabled();
+  });
+
+  it('offers no quiet hours to a backend that predates them', async () => {
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({ ...myProfile });
+
+    render(<NotificationPreferencesSection />);
+    await screen.findByRole('checkbox', { name: 'Push for Mentions' });
+
+    expect(screen.queryByRole('switch', { name: 'Quiet hours' })).toBeNull();
+  });
+});
+
 describe('SettingsPage composes the profile-backed sections', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -914,5 +1131,159 @@ describe('MyForumImagesSection (todo 374)', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Load more/i }));
     expect(await screen.findByText('nope')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^Delete photo/ })).toHaveLength(1);
+  });
+});
+
+describe('AccountNotificationSwitchesSection (todo 620)', () => {
+  const emailSwitch = () => screen.findByRole('switch', { name: /^Email notifications/ });
+  const forumSwitch = () => screen.findByRole('switch', { name: /^Forum notifications/ });
+
+  it('shows both master switches as stored, with what "off" does', async () => {
+    vi.mocked(profileService.fetchProfile).mockResolvedValue({
+      ...accountProfile,
+      forum_notifications: false,
+    });
+
+    render(<AccountNotificationSwitchesSection />);
+
+    expect(await emailSwitch()).toBeChecked();
+    expect(await forumSwitch()).not.toBeChecked();
+    expect(screen.getByText(/the weekly digest included/)).toBeInTheDocument();
+    expect(screen.getByText(/Security email .* always sends/)).toBeInTheDocument();
+    // A master switch off explains why the choices below may not deliver.
+    expect(screen.getByText(/some of the choices below will not be delivered/)).toBeInTheDocument();
+  });
+
+  it('saves only the toggled field and announces "Saved"', async () => {
+    vi.mocked(profileService.updateProfile).mockResolvedValue({
+      ...accountProfile,
+      email_notifications: false,
+    });
+    const { container } = render(<AccountNotificationSwitchesSection />);
+    const region = container.querySelector('#account-switches-status');
+    expect(region).not.toBeNull();
+
+    await userEvent.click(await emailSwitch());
+
+    await waitFor(() =>
+      expect(profileService.updateProfile).toHaveBeenCalledWith({ email_notifications: false })
+    );
+    await waitFor(() => expect(region).toHaveTextContent('Saved'));
+    expect(container.querySelector('#account-switches-status')).toBe(region);
+    expect(await emailSwitch()).not.toBeChecked();
+    expect(await emailSwitch()).toBeEnabled();
+    expect(await emailSwitch()).toHaveFocus();
+  });
+
+  it('reverts to the last saved value and shows the error when the save fails', async () => {
+    vi.mocked(profileService.updateProfile).mockRejectedValue(new Error('Server unavailable'));
+
+    render(<AccountNotificationSwitchesSection />);
+    await userEvent.click(await forumSwitch());
+
+    expect(await screen.findByText('Server unavailable')).toBeInTheDocument();
+    expect(await forumSwitch()).toBeChecked(); // back to the stored value
+    expect(await forumSwitch()).toBeEnabled();
+  });
+
+  it('a 429 rolls the switch back and says to try again later (todo 651)', async () => {
+    // What profileService rethrows through toHttpError: the server's message,
+    // with the axios error (and its status) kept as the cause.
+    const config = { headers: {} } as InternalAxiosRequestConfig;
+    const throttled = new AxiosError(
+      '429',
+      AxiosError.ERR_BAD_REQUEST,
+      config,
+      {},
+      {
+        data: { message: 'Request was throttled. Expected available in 1200 seconds.' },
+        status: 429,
+        statusText: '',
+        headers: {},
+        config,
+      }
+    );
+    vi.mocked(profileService.updateProfile).mockRejectedValue(
+      new Error('Request was throttled. Expected available in 1200 seconds.', { cause: throttled })
+    );
+
+    render(<AccountNotificationSwitchesSection />);
+    await userEvent.click(await emailSwitch());
+
+    expect(
+      await screen.findByText('Too many changes. Try again in a few minutes.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/throttled/)).toBeNull();
+    expect(await emailSwitch()).toBeChecked(); // rolled back to the stored value
+    expect(await emailSwitch()).toBeEnabled();
+
+    await userEvent.click(await forumSwitch());
+    expect(
+      await screen.findByText('Too many changes. Try again in a few minutes.')
+    ).toBeInTheDocument();
+    expect(await forumSwitch()).toBeChecked();
+  });
+
+  it('a save whose response omits a switch keeps that switch (todo 651)', async () => {
+    // Deploy skew: the update answers without forum_notifications.
+    const { forum_notifications: _f, ...partial } = accountProfile;
+    vi.mocked(profileService.updateProfile).mockResolvedValue({
+      ...partial,
+      email_notifications: false,
+    });
+
+    render(<AccountNotificationSwitchesSection />);
+    await userEvent.click(await emailSwitch());
+
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument());
+    expect(await emailSwitch()).not.toBeChecked();
+    expect(await forumSwitch()).toBeChecked(); // still rendered, as stored
+  });
+
+  it('shows the persisted value after a reload, whichever client changed it', async () => {
+    // Saved off here, then the page is reloaded: the server's state wins.
+    vi.mocked(profileService.updateProfile).mockResolvedValue({
+      ...accountProfile,
+      forum_notifications: false,
+    });
+    const first = render(<AccountNotificationSwitchesSection />);
+    await userEvent.click(await forumSwitch());
+    await waitFor(() => expect(profileService.updateProfile).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    vi.mocked(profileService.fetchProfile).mockResolvedValue({
+      ...accountProfile,
+      forum_notifications: false,
+    });
+    const second = render(<AccountNotificationSwitchesSection />);
+    expect(await forumSwitch()).not.toBeChecked();
+    second.unmount();
+
+    // Mobile turned it back on meanwhile; the next load shows that.
+    vi.mocked(profileService.fetchProfile).mockResolvedValue({ ...accountProfile });
+    render(<AccountNotificationSwitchesSection />);
+    expect(await forumSwitch()).toBeChecked();
+  });
+
+  it('a backend without the fields is a load problem with Retry, not a guessed switch', async () => {
+    const { email_notifications: _e, forum_notifications: _f, ...legacy } = accountProfile;
+    vi.mocked(profileService.fetchProfile).mockResolvedValueOnce(legacy);
+
+    render(<AccountNotificationSwitchesSection />);
+
+    expect(await screen.findByText('Account switches are not available yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('switch')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await emailSwitch()).toBeChecked();
+  });
+
+  it('a failed load offers Retry', async () => {
+    vi.mocked(profileService.fetchProfile).mockRejectedValueOnce(new Error('Offline'));
+
+    render(<AccountNotificationSwitchesSection />);
+
+    expect(await screen.findByText('Offline')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await forumSwitch()).toBeChecked();
   });
 });

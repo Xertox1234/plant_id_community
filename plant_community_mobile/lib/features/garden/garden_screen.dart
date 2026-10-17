@@ -7,6 +7,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../services/api_service.dart';
 import 'models/models.dart';
+import 'providers/garden_focus_provider.dart';
 import 'providers/garden_provider.dart';
 import 'services/garden_api_service.dart';
 
@@ -15,7 +16,8 @@ import 'services/garden_api_service.dart';
 /// Built on the houseplant core of `apps/garden_calendar` only — plants
 /// without beds, CareTasks and the CareLog (owner decision 2026-09-24). A
 /// pending task that falls due is pushed to the device by the server's
-/// reminder sweep (todo 410), and tapping that push opens this screen.
+/// reminder sweep (todo 410), and tapping that push opens this screen,
+/// highlighting the task it named (todo 621, via [gardenFocusProvider]).
 ///
 /// Auth-only: the route is in the router's `protectedRoutes`.
 class GardenScreen extends ConsumerWidget {
@@ -54,7 +56,9 @@ class GardenScreen extends ConsumerWidget {
                 ),
               ],
             ),
-            data: (data) => _GardenList(data: data),
+            // Settled: not mid-reload, so a push's target is checked
+            // against the list the server has now.
+            data: (data) => _GardenList(data: data, settled: !garden.isLoading),
           ),
         ),
       ),
@@ -62,13 +66,75 @@ class GardenScreen extends ConsumerWidget {
   }
 }
 
-class _GardenList extends ConsumerWidget {
-  const _GardenList({required this.data});
+class _GardenList extends ConsumerStatefulWidget {
+  const _GardenList({required this.data, required this.settled});
 
   final GardenData data;
+  final bool settled;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_GardenList> createState() => _GardenListState();
+}
+
+/// Shown when a tapped reminder names a task that is not among the user's
+/// pending ones: done or skipped since, deleted, or not theirs (todo 621).
+const String gardenTaskGoneNotice = 'That care task is no longer due.';
+
+class _GardenListState extends ConsumerState<_GardenList> {
+  /// The task a tapped reminder pointed at, once found in the list.
+  String? _highlighted;
+
+  /// Bumped by each reminder that names a task, so a repeat tap scrolls back
+  /// to it. [_revealedSeq] is the last one a tile claimed: a lazily rebuilt
+  /// tile reuses this list's last widget, token included, so the claim (not
+  /// the widget) is what stops it yanking the list mid-drag.
+  int _revealSeq = 0;
+  int _revealedSeq = 0;
+
+  bool _claimReveal(int seq) {
+    if (seq == _revealedSeq) return false;
+    _revealedSeq = seq;
+    return true;
+  }
+
+  /// Applies a pending [GardenFocus] once the list is settled, then clears
+  /// it, so it is acted on once.
+  void _consume(GardenFocus focus) {
+    // Already consumed by an earlier frame's callback, or replaced.
+    if (!mounted || ref.read(gardenFocusProvider) != focus) return;
+    ref.read(gardenFocusProvider.notifier).clear();
+    final id = focus.taskId;
+    if (id == null) {
+      // The due list: it heads the screen already.
+      setState(() => _highlighted = null);
+      return;
+    }
+    final found = widget.data.tasks.any((t) => t.id.toLowerCase() == id);
+    if (!found) {
+      setState(() => _highlighted = null);
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(const SnackBar(content: Text(gardenTaskGoneNotice)));
+      return;
+    }
+    // The tile scrolls itself into view once, for this reminder.
+    setState(() {
+      _highlighted = id;
+      _revealSeq++;
+    });
+    // A tile built this frame claims the reveal first. One not built yet
+    // (past the cache extent) never claims it later, mid-drag.
+    final seq = _revealSeq;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _claimReveal(seq));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = widget.data;
+    final focus = ref.watch(gardenFocusProvider);
+    if (focus != null && widget.settled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _consume(focus));
+    }
     final ext =
         Theme.of(context).extension<GreenThumbExtension>() ??
         GreenThumbExtension.fallback;
@@ -103,8 +169,17 @@ class _GardenList extends ConsumerWidget {
             style: muted,
           )
         else
+          // The same key and parent highlighted or not, so a highlight never
+          // discards a tile's state: an in-flight Mark done or Skip keeps its
+          // buttons disabled (todo 650 #1).
           for (final task in data.tasks)
-            _TaskTile(key: ValueKey(task.id), task: task),
+            _TaskTile(
+              key: ValueKey(task.id),
+              task: task,
+              highlighted: task.id.toLowerCase() == _highlighted,
+              revealSeq: task.id.toLowerCase() == _highlighted ? _revealSeq : 0,
+              claimReveal: _claimReveal,
+            ),
         SizedBox(height: ext.gapY * 2),
         Text('YOUR PLANTS', style: eyebrow),
         SizedBox(height: ext.gapY),
@@ -123,9 +198,23 @@ class _GardenList extends ConsumerWidget {
 /// one request, not two (todo 386 review; the server also refuses the
 /// loser, but a disabled button never sends it).
 class _TaskTile extends ConsumerStatefulWidget {
-  const _TaskTile({super.key, required this.task});
+  const _TaskTile({
+    super.key,
+    required this.task,
+    this.highlighted = false,
+    this.revealSeq = 0,
+    this.claimReveal,
+  });
 
   final CareTask task;
+
+  /// The task a tapped reminder named (todo 621).
+  final bool highlighted;
+
+  /// The reminder this tile was highlighted by (0: none). It scrolls into
+  /// view only if [claimReveal] grants that value, which happens once.
+  final int revealSeq;
+  final bool Function(int seq)? claimReveal;
 
   @override
   ConsumerState<_TaskTile> createState() => _TaskTileState();
@@ -133,6 +222,33 @@ class _TaskTile extends ConsumerStatefulWidget {
 
 class _TaskTileState extends ConsumerState<_TaskTile> {
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _maybeReveal();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TaskTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.revealSeq != oldWidget.revealSeq) _maybeReveal();
+  }
+
+  /// Scrolls this tile into view after the frame that highlighted it, once
+  /// per reminder.
+  void _maybeReveal() {
+    final seq = widget.revealSeq;
+    if (seq == 0 || !(widget.claimReveal?.call(seq) ?? false)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0.2,
+        duration: const Duration(milliseconds: 250),
+      );
+    });
+  }
 
   Future<void> _mutate(
     Future<Object?> Function() action, {
@@ -153,7 +269,14 @@ class _TaskTileState extends ConsumerState<_TaskTile> {
     final cs = Theme.of(context).colorScheme;
     final due = _dueLabel(task);
     return Card(
+      shape: widget.highlighted
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: cs.primary, width: 2),
+            )
+          : null,
       child: ListTile(
+        selected: widget.highlighted,
         title: Text(task.title.isEmpty ? task.taskTypeDisplay : task.title),
         subtitle: Text(
           '${task.plantName} · $due',

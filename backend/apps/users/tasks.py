@@ -40,6 +40,29 @@ def _load_user(user_id):
     return user
 
 
+def _address_suppressed(user) -> bool:
+    """The provider hard-bounced this address (todo 625): the mail is dropped
+    for good, never retried. Only the send is skipped; the flow that asked
+    for it (allowance, lockout, its response) already ran unchanged."""
+    from apps.core.email_feedback import is_suppressed
+
+    if is_suppressed(user.email, optional=False):
+        logger.info(f"[EMAIL] Account {user.pk}'s address is suppressed; mail dropped")
+        return True
+    return False
+
+
+def _release(rows):
+    """Hand claimed rows back untouched, without raising: a row left claimed
+    is re-driven after its lease, the documented at-least-once window."""
+    from apps.core import delivery
+
+    try:
+        delivery.release(rows)
+    except OperationalError:
+        logger.warning("[EMAIL] Could not release a claimed mail row")
+
+
 def _retry_or_give_up(task, kind, user_id):
     """Retry a send that reported failure, with backoff; log the final one."""
     if task.request.retries >= task.max_retries:
@@ -56,13 +79,143 @@ def _retry_or_give_up(task, kind, user_id):
 
 @shared_task(**_TASK_OPTIONS)
 def send_verification_email_task(self, user_id: int) -> None:
+    """Send the verification mail ``send_verification_email`` recorded.
+
+    Outbox (todo 619): the task claims the account's pending
+    ``verification_email`` row before sending and records the outcome, so a
+    duplicate task (a re-drive racing a slow first enqueue) finds nothing
+    to claim and sends nothing. A failed send goes back to pending and is
+    retried here with backoff, and by reconciliation if this task's own
+    retry is lost; the last failure is terminal. An account with no row at
+    all was queued before the outbox existed and is sent as before.
+    """
+    from apps.core import delivery
+
     from .email_verification import deliver_verification_email, is_email_verified
 
+    kind = delivery.Kind.VERIFICATION_EMAIL
     user = _load_user(user_id)
-    if user is None or not user.email or is_email_verified(user):
+    if user is None:
         return
-    if not deliver_verification_email(user):
-        _retry_or_give_up(self, "Verification", user_id)
+    # Every read before the claim (todo 652): an OperationalError autoretry
+    # must never find this run's own claim in its way and drop the mail as
+    # a duplicate until the lease runs out.
+    not_needed = not user.email or is_email_verified(user)
+    address_suppressed = not not_needed and _address_suppressed(user)
+    intent = delivery.claim_one(kind, recipient_id=user_id)
+    if intent is None and delivery.has_any(kind, user_id):
+        logger.info(
+            f"[EMAIL] Verification mail for account {user_id} already sent or "
+            f"in progress; duplicate dropped"
+        )
+        return
+    rows = [intent.pk] if intent is not None else []
+    if not_needed:
+        delivery.mark_suppressed(rows, "not_needed")
+        return
+    if address_suppressed:
+        delivery.mark_suppressed(rows, "address_suppressed")
+        return
+    try:
+        sent = deliver_verification_email(user)
+    except OperationalError:
+        # Raised before the send (deliver_verification_email swallows the
+        # send's own errors): hand the row back so the autoretry can claim
+        # it, then let the autoretry run.
+        _release(rows)
+        raise
+    if sent:
+        delivery.mark_sent(rows)
+        return
+    if self.request.retries >= self.max_retries:
+        delivery.mark_failed(rows, "send_failed")
+    else:
+        delivery.mark_retry(rows, "send_failed")
+    _retry_or_give_up(self, "Verification", user_id)
+
+
+def redrive_verification_emails(rows) -> None:
+    """Reconciliation's redriver (todo 619): re-enqueue the task for each
+    account with a due verification row. Charges no allowance."""
+    for row in rows:
+        send_verification_email_task.delay(row.recipient_id)
+
+
+@shared_task(**_TASK_OPTIONS)
+def send_lockout_email_task(self, user_id: int, intent_id: int | None = None) -> None:
+    """Tell an account it was locked out (todo 619: off the login request).
+
+    ``SecurityMonitor._lock_account`` enqueues this after the lockout is
+    already enforced in the cache, so neither a slow SMTP server nor a
+    broker outage changes what a login answers. The details (attempt count,
+    client IPs, lock time) are read from the lockout record in the cache,
+    never carried in the task's arguments: a lockout that has already
+    expired has nothing left to warn about, and the mail is dropped. A
+    failed send is retried with backoff, then logged and dropped.
+    ``intent_id`` is the outbox row reconciliation re-drives when the
+    enqueue itself failed.
+    """
+    from apps.core import delivery
+    from apps.core.constants import LOCKOUT_STATUS_KEY
+    from apps.core.security import SecurityMonitor
+    from django.core.cache import cache
+
+    # Every read before the claim (todo 652, as in the verification task):
+    # an OperationalError autoretry must never find this run's own claim in
+    # its way and drop the mail until the lease runs out.
+    user = _load_user(user_id)
+    no_destination = user is None or not user.email
+    lockout_data = (
+        None
+        if no_destination
+        else cache.get(LOCKOUT_STATUS_KEY.format(username=user.username))
+    )
+    address_suppressed = bool(lockout_data) and _address_suppressed(user)
+    # Claimed on every attempt, and put back to pending before each retry
+    # (below): a row left CLAIMED across a retry countdown would be re-driven
+    # by reconcile once its lease ran out, and both tasks would send.
+    if intent_id is not None:
+        if delivery.claim_one(intent_id=intent_id) is None:
+            return  # another worker holds it, or it is finished
+    rows = [intent_id] if intent_id is not None else []
+    if no_destination:
+        delivery.mark_suppressed(rows, "no_destination")
+        return
+    if not lockout_data:
+        logger.info(f"[EMAIL] Lockout for account {user_id} is over; mail dropped")
+        delivery.mark_suppressed(rows, "lockout_over")
+        return
+    if address_suppressed:
+        delivery.mark_suppressed(rows, "address_suppressed")
+        return
+    from apps.core.email_feedback import SUPPRESSED
+
+    # Catches every error itself, a DB fault included, and returns False:
+    # that is retried below through mark_retry.
+    result = SecurityMonitor._send_lockout_notification(user.username, lockout_data)
+    if result is None:
+        # Nobody to send to: the account or its address went away after the
+        # check above. Finished, never retried (todo 652).
+        delivery.mark_suppressed(rows, "no_destination")
+        return
+    if result == SUPPRESSED:
+        delivery.mark_suppressed(rows, "address_suppressed")
+        return
+    if result:
+        delivery.mark_sent(rows)
+        return
+    if self.request.retries >= self.max_retries:
+        delivery.mark_failed(rows, "send_failed")
+    else:
+        delivery.mark_retry(rows, "send_failed")
+    _retry_or_give_up(self, "Lockout", user_id)
+
+
+def redrive_lockout_emails(rows) -> None:
+    """Reconciliation's redriver (todo 619) for lockout mail whose enqueue
+    failed."""
+    for row in rows:
+        send_lockout_email_task.delay(row.recipient_id, intent_id=row.pk)
 
 
 @shared_task(**_TASK_OPTIONS)
@@ -70,7 +223,7 @@ def send_welcome_email_task(self, user_id: int) -> None:
     from apps.core.services.email_service import EmailService
 
     user = _load_user(user_id)
-    if user is None:
+    if user is None or _address_suppressed(user):
         return
     if not EmailService().send_welcome_email(user):
         _retry_or_give_up(self, "Welcome", user_id)
@@ -81,7 +234,7 @@ def send_provider_linked_notice_task(self, user_id: int, provider: str) -> None:
     from .account_links import deliver_provider_linked_notice
 
     user = _load_user(user_id)
-    if user is None or not user.email:
+    if user is None or not user.email or _address_suppressed(user):
         return
     if not deliver_provider_linked_notice(user, provider):
         _retry_or_give_up(self, "Sign-in link notice", user_id)

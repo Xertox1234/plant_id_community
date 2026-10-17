@@ -468,12 +468,15 @@ function StreamFieldBlock({
 /**
  * A video with no player URL, as a thumbnail link card (todo 344). Its name
  * is its content: `title` (from `embedDisplay`) plus "Watch on PROVIDER" or
- * "Open link". An UNTITLED card shows only the short address, so it keeps
- * the link card's full-URL affordances (owner decision 2026-10-10, todo
- * 563): the full URL as the hover `title`, and an `aria-describedby` hint
- * ("Opens in a new tab") so that `title` is never read aloud as the
- * description (docs/rules/react.md). The hint sits OUTSIDE the anchor: the
- * anchor has no `aria-label`, so a hint inside it would join its name.
+ * "Open link". An UNTITLED card with an http(s) URL shows only the short
+ * address, so it keeps the link card's full-URL affordances (owner decision
+ * 2026-10-10, todo 563): the full URL as the hover `title`, and an
+ * `aria-describedby` hint ("Opens in a new tab") so that `title` is never
+ * read aloud as the description (docs/rules/react.md). Any other card gets
+ * neither: a titled card, and an untitled mailto: or relative URL, which
+ * shows its raw URL (the mobile parity gate, todo 592). The hint sits
+ * OUTSIDE the anchor: the anchor has no `aria-label`, so a hint inside it
+ * would join its name.
  */
 function EmbedFallbackCard({ value, title }: { value: EmbedBlockValue; title: string }) {
   const hintId = useId();

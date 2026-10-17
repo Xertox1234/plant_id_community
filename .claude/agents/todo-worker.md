@@ -85,7 +85,9 @@ origin/main...HEAD`, take the last line, drop its leading `^`.
   `note: "already checked"` — do not re-run anything for it. A box that is `[x]` in the current file but
   was `[ ]` at the merge-base is one Land already flipped for a prior verified run: it is not "already
   checked" — run it and record real evidence like any other open criterion.
-- A re-pointed criterion (`→ todo NNN`, `-> todo NNN`, or "re-pointed … todo NNN") gets `pass: false`,
+- A re-pointed criterion (`→ todo NNN`, `-> todo NNN`, "re-pointed … todo NNN" within one short clause,
+  or "re-pointed DATE; … todo NNN": the forms `REPOINT_RE` in `scripts/check_archived_todo_status.py`
+  accepts; "todo NNN … re-pointed" is not one) gets `pass: false`,
   `command: ""`, `evidence_path: ""`, `note: "re-pointed"`, text copied verbatim. It is never checked.
 - A criterion the owner already confirmed (todo 492: `BRIEF.confirmed[<todo>]`, or the prompt's `CONFIRMED:`
   line, lists its `index`) gets `pass: false`, `command: ""`, `evidence_path: ""`, `note: "owner-confirmed"`.
@@ -112,9 +114,11 @@ Log names a home path, and CI's archived-todo tripwire fails on one.
 ## Finish
 
 1. `/usr/bin/git -C WT add -A` — except in `MODE: repair` (todo 483): there, stage only the paths you
-   changed, `/usr/bin/git -C WT add -- <path>...` (and `git rm` / `git mv` for a delete or a move), list every
-   one in `files_changed`, and never stage, edit or delete a path in the prompt's `UNTRACKED_BEFORE`: those
-   were untracked before the review round, and staging one would commit it into the PR.
+   changed, `/usr/bin/git -C WT add -- <path>...` (and `/usr/bin/git -C WT rm` / `mv` for a delete or a move),
+   list every one in `files_changed`, and never stage, edit or delete a path in the prompt's `UNTRACKED_BEFORE`:
+   those were untracked before the review round, and staging one would commit it into the PR. Write `WT` out
+   as the literal absolute path (todo 618): the git guard denies `git add`/`mv`/`rm` after a `cd`, with a
+   relative `-C`, or with `-C "$WT"`.
 2. Run pre-commit on what you staged (todo 540, owner decision 2026-10-10), so Land's commit never stops on a
    fixer: `/usr/bin/git -C WT diff --cached --name-only --diff-filter=d -z | (cd WT && SKIP=kimi-review xargs -0
    pre-commit run --files)`. When a fixer rewrote files (Black, isort, prettier, trailing whitespace, …),

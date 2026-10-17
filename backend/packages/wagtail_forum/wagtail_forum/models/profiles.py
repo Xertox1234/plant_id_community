@@ -1,3 +1,5 @@
+import datetime
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import models
@@ -40,9 +42,11 @@ class ForumProfile(models.Model):
     )
     bio = models.TextField(blank=True)
     signature = models.CharField(max_length=255, blank=True)
-    # FCM device token — registered by the mobile app on login. Used by
-    # forum_host/tasks.py to deliver push notifications. Nullable: a user
-    # who has never registered a token (web-only) simply receives no pushes.
+    # FCM device token — registered by the mobile app on login. Blank for a
+    # user who has never registered one (web-only). One token per account:
+    # a host that supports several devices keeps them elsewhere and treats
+    # this column as the legacy single-device registration (this project:
+    # apps.core.PushDevice, todo 621, mirrored from writes here).
     fcm_token = models.CharField(max_length=255, blank=True, default="")
     # Forum "user title" (cf. Discourse): a role label shown beside the name
     # ("Head moderator", "Master gardener"). Admin-set only — deliberately NOT
@@ -69,6 +73,15 @@ class ForumProfile(models.Model):
     # (`preferences.resolve_preferences`), so a host default change reaches
     # every member who never touched that cell. `{}` == all defaults.
     notification_preferences = models.JSONField(default=dict, blank=True)
+    # Quiet hours (todo 624): opt-in. While on, a push or email that would
+    # reach the member inside the window is held and released when it ends
+    # (``quiet_hours.quiet_release``). The window is wall-clock time in
+    # ``time_zone``, an IANA name the client reports; blank (or a name this
+    # server cannot resolve) means UTC. Start == end is an empty window.
+    quiet_hours_enabled = models.BooleanField(default=False)
+    quiet_hours_start = models.TimeField(default=datetime.time(22, 0))
+    quiet_hours_end = models.TimeField(default=datetime.time(7, 0))
+    time_zone = models.CharField(max_length=64, blank=True, default="")
     # Per-user fallback baseline for "unread" (todo 253 slice 5, H10): a
     # topic is unread if its last_post_at is newer than this, UNLESS a more
     # specific TopicRead row exists for that exact topic. Plain default (not

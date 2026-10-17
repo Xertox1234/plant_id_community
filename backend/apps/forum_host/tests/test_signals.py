@@ -894,9 +894,11 @@ def test_reply_mentioning_a_user_creates_mention_notification(
     mention_pushes = [c for c in mock_push.call_args_list if mentioned.pk in c.args[1]]
     assert len(mention_pushes) == 1
     assert mention_pushes[0].args[0] == "mention"
-    # No other subscribers exist in this fixture, and mentioned users get
-    # bell + push only, never email, this slice — email must not fire at all.
-    mock_email.assert_not_called()
+    # No other subscribers exist in this fixture, so no reply email batch.
+    # The mentioned member's own email batch is enqueued (todo 624); the
+    # task sends it only if they turned mention email on (off by default).
+    assert [c.args[0] for c in mock_email.call_args_list] == ["mention"]
+    assert mock_email.call_args.args[1] == [mentioned.pk]
 
 
 @pytest.mark.django_db
@@ -950,13 +952,14 @@ def test_reply_mention_suppresses_duplicate_subscriber_notification(
     pushes_to_both = [c for c in mock_push.call_args_list if both.pk in c.args[1]]
     assert len(pushes_to_both) == 1
     assert pushes_to_both[0].args[0] == "mention"
-    # `both` is suppressed into the mention-only path (no email); the plain
-    # subscriber is untouched by suppression and still gets emailed. The reply
-    # email is one batched enqueue, so union its recipient list(s).
-    emailed = set()
+    # `both` is suppressed into the mention path: not in the reply email
+    # batch, but in the mention one (todo 624), whose task sends ONE email:
+    # the mention email if they want it, else the reply email they follow
+    # the topic for. The plain subscriber is untouched by suppression.
+    emailed = {}
     for c in mock_email.call_args_list:
-        emailed.update(c.args[1])
-    assert emailed == {plain_subscriber.pk}
+        emailed.setdefault(c.args[0], set()).update(c.args[1])
+    assert emailed == {"reply_added": {plain_subscriber.pk}, "mention": {both.pk}}
 
 
 @pytest.mark.django_db

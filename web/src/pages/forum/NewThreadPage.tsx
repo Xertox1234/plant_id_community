@@ -285,6 +285,11 @@ export default function NewThreadPage() {
     const base = baselineRef.current;
     if (base.key !== newThreadDraftKey) {
       const stored = loadDraft(newThreadDraftKey);
+      // A board with no stored draft keeps the whole form as it is: the
+      // text (owner decision 2026-10-11, todo 575) and with it the poll and
+      // the identification attachment, which still go with that text (todo
+      // 615). Only loading another draft replaces the text, so only then do
+      // the poll and the attachment reset (below).
       if (stored === null) {
         baselineRef.current = {
           key: newThreadDraftKey,

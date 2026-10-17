@@ -16,13 +16,18 @@ MAIL_TASKS = (
     tasks.send_verification_email_task,
     tasks.send_welcome_email_task,
     tasks.send_provider_linked_notice_task,
+    tasks.send_lockout_email_task,
 )
 
 
 @pytest.fixture(autouse=True)
 def run_mail_tasks_inline():
     patches = [
-        patch.object(task, "delay", side_effect=lambda *a, _t=task: _t.apply(args=a))
+        patch.object(
+            task,
+            "delay",
+            side_effect=lambda *a, _t=task, **kw: _t.apply(args=a, kwargs=kw),
+        )
         for task in MAIL_TASKS
     ]
     for p in patches:

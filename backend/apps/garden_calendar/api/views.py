@@ -57,6 +57,7 @@ from ..models import (
     WeatherAlert,
 )
 from ..permissions import IsCareTaskOwner, IsGardenOwner, IsPlantOwner
+from .audit_actor import AuditActorMixin
 from .serializers import (
     CareLogSerializer,
     CareTaskCreateUpdateSerializer,
@@ -86,6 +87,10 @@ class CommunityEventViewSet(viewsets.ModelViewSet):
 
     Provides CRUD operations plus RSVP functionality and location-based filtering.
     """
+
+    # Actions under @method_decorator(ratelimit(...)): the OpenAPI hook documents
+    # their 429 (plant_community_backend.api_schema, todo 607 item 7).
+    _throttled_actions = frozenset({"create", "rsvp"})
 
     queryset = CommunityEvent.objects.all()
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
@@ -632,7 +637,7 @@ class WeatherAlertViewSet(viewsets.ReadOnlyModelViewSet):
         tags=["Garden Beds"],
     ),
 )
-class GardenBedViewSet(viewsets.ModelViewSet):
+class GardenBedViewSet(AuditActorMixin, viewsets.ModelViewSet):
     """
     ViewSet for managing garden beds.
 
@@ -643,6 +648,10 @@ class GardenBedViewSet(viewsets.ModelViewSet):
         - prefetch_related('plants') for detail view
         - Annotates plant_count for list view
     """
+
+    # Actions under @method_decorator(ratelimit(...)): the OpenAPI hook documents
+    # their 429 (plant_community_backend.api_schema, todo 607 item 7).
+    _throttled_actions = frozenset({"create", "update", "partial_update", "destroy"})
 
     queryset = GardenBed.objects.all()
     permission_classes = [IsGardenOwner]
@@ -958,7 +967,7 @@ class GardenBedViewSet(viewsets.ModelViewSet):
         tags=["Plants"],
     ),
 )
-class PlantViewSet(viewsets.ModelViewSet):
+class PlantViewSet(AuditActorMixin, viewsets.ModelViewSet):
     """
     ViewSet for managing plants.
 
@@ -968,6 +977,10 @@ class PlantViewSet(viewsets.ModelViewSet):
         - select_related('garden_bed', 'plant_species')
         - prefetch_related('images', 'care_tasks') for detail view
     """
+
+    # Actions under @method_decorator(ratelimit(...)): the OpenAPI hook documents
+    # their 429 (plant_community_backend.api_schema, todo 607 item 7).
+    _throttled_actions = frozenset({"create", "update", "partial_update", "destroy"})
 
     queryset = Plant.objects.all()
     permission_classes = [IsPlantOwner]
@@ -1437,7 +1450,7 @@ def _skip_refusal(task: CareTask) -> Optional[Response]:
         tags=["Care Tasks"],
     ),
 )
-class CareTaskViewSet(viewsets.ModelViewSet):
+class CareTaskViewSet(AuditActorMixin, viewsets.ModelViewSet):
     """
     ViewSet for managing care tasks.
 
@@ -1446,6 +1459,10 @@ class CareTaskViewSet(viewsets.ModelViewSet):
     Performance:
         - select_related('plant', 'plant__garden_bed')
     """
+
+    # Actions under @method_decorator(ratelimit(...)): the OpenAPI hook documents
+    # their 429 (plant_community_backend.api_schema, todo 607 item 7).
+    _throttled_actions = frozenset({"create", "complete", "skip"})
 
     queryset = CareTask.objects.all()
     permission_classes = [IsCareTaskOwner]
@@ -1719,7 +1736,7 @@ class CareTaskViewSet(viewsets.ModelViewSet):
             return "#3B82F6"  # Blue
 
 
-class CareLogViewSet(viewsets.ModelViewSet):
+class CareLogViewSet(AuditActorMixin, viewsets.ModelViewSet):
     """
     ViewSet for managing care logs.
 
@@ -1753,7 +1770,7 @@ class CareLogViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
 
 
-class HarvestViewSet(viewsets.ModelViewSet):
+class HarvestViewSet(AuditActorMixin, viewsets.ModelViewSet):
     """
     ViewSet for managing harvest records.
 

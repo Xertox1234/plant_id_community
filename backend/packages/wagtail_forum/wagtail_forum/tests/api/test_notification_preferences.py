@@ -16,11 +16,14 @@ from wagtail_forum.preferences import (
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
+# Todo 624 wired email for mentions, quotes and accepted answers, OFF by
+# default, so what a member with no overrides receives is still the pre-343
+# behaviour: those email cells exist now, and are off.
 PRE_343_BEHAVIOUR = {
     "reply": {"push": True, "email": True},
-    "mention": {"push": True},
-    "quote": {"push": True},
-    "solution": {"push": True},
+    "mention": {"push": True, "email": False},
+    "quote": {"push": True, "email": False},
+    "solution": {"push": True, "email": False},
 }
 
 
@@ -40,12 +43,12 @@ def test_defaults_are_the_pre_343_behaviour_and_fully_resolved_on_read():
     assert data["notification_preferences"] == PRE_343_BEHAVIOUR
     assert ForumProfile.for_user(user).notification_preferences == {}
     assert set(data["notification_preferences"]) == set(NOTIFICATION_VERBS)
-    # Only wired cells exist: email for replies, push everywhere.
+    # Only wired cells exist: push and email everywhere since todo 624.
     assert {v: tuple(row) for v, row in data["notification_preferences"].items()} == {
         "reply": ("push", "email"),
-        "mention": ("push",),
-        "quote": ("push",),
-        "solution": ("push",),
+        "mention": ("push", "email"),
+        "quote": ("push", "email"),
+        "solution": ("push", "email"),
     }
 
 
@@ -59,7 +62,10 @@ def test_partial_patch_merges_and_stores_only_the_overrides():
         format="json",
     )
     assert first.status_code == 200, first.data
-    assert first.data["notification_preferences"]["mention"] == {"push": False}
+    assert first.data["notification_preferences"]["mention"] == {
+        "push": False,
+        "email": False,
+    }
     assert first.data["notification_preferences"]["reply"] == PRE_343_BEHAVIOUR["reply"]
     assert ForumProfile.for_user(user).notification_preferences == {
         "mention": {"push": False}
@@ -87,7 +93,6 @@ def test_partial_patch_merges_and_stores_only_the_overrides():
         ({"digest": {"push": False}}, "Unknown notification event"),
         ({"moderation": {"push": False}}, "Unknown notification event"),
         ({"reply": {"sms": False}}, "Unknown notification channel"),
-        ({"mention": {"email": True}}, "Email is not available for mention"),
         ({"reply": {"push": "no"}}, "true or false"),
         ({"reply": True}, "must be an object"),
         (["reply"], "must be an object"),
@@ -102,6 +107,27 @@ def test_unknown_verb_channel_or_non_boolean_is_a_400(payload, fragment):
 
     assert resp.status_code == 400
     assert fragment in str(resp.data)
+    assert ForumProfile.for_user(user).notification_preferences == {}
+
+
+@pytest.mark.django_db
+def test_a_cell_the_matrix_does_not_wire_is_a_400():
+    # Every verb has an email cell since todo 624, so the unwired-cell branch
+    # is reached through a matrix with a push-only verb (review round 1).
+    from unittest.mock import patch
+
+    from wagtail_forum import preferences
+
+    user, client = _client("unwired")
+    with patch.dict(preferences.NOTIFICATION_MATRIX, {"mention": ("push",)}):
+        resp = client.patch(
+            "/forum/me/profile/",
+            {"notification_preferences": {"mention": {"email": True}}},
+            format="json",
+        )
+
+    assert resp.status_code == 400
+    assert "Email is not available for mention" in str(resp.data)
     assert ForumProfile.for_user(user).notification_preferences == {}
 
 
@@ -121,12 +147,12 @@ def test_a_host_default_change_reaches_every_untouched_cell():
     ):
         prefs = client.get("/forum/me/profile/").data["notification_preferences"]
         assert prefs["reply"] == {"push": False, "email": False}
-        # The member's own cell wins; the host's unwired quote email cell is
-        # not a cell at all.
-        assert prefs["quote"] == {"push": False}
+        # The member's own cell wins; the host's quote email default (a
+        # wired cell since todo 624) applies to the cell they left alone.
+        assert prefs["quote"] == {"push": False, "email": True}
         # A cell the host left out falls back to the PACKAGE default for that
         # cell — never a literal (django review).
-        assert prefs["mention"] == {"push": True}
+        assert prefs["mention"] == {"push": True, "email": False}
     with override_settings(
         WAGTAILFORUM_NOTIFICATION_DEFAULTS={"reply": {"push": False}}
     ):
@@ -141,12 +167,13 @@ def test_a_host_default_change_reaches_every_untouched_cell():
 
     with (
         patch.dict(
-            preferences.DEFAULTS["NOTIFICATION_DEFAULTS"], {"mention": {"push": False}}
+            preferences.DEFAULTS["NOTIFICATION_DEFAULTS"],
+            {"mention": {"push": False, "email": False}},
         ),
         override_settings(WAGTAILFORUM_NOTIFICATION_DEFAULTS={"reply": {"push": True}}),
     ):
         prefs = client.get("/forum/me/profile/").data["notification_preferences"]
-        assert prefs["mention"] == {"push": False}
+        assert prefs["mention"] == {"push": False, "email": False}
 
 
 def test_resolve_ignores_junk_in_stored_data_and_wants_channel_gates_only_known_events():
@@ -154,14 +181,14 @@ def test_resolve_ignores_junk_in_stored_data_and_wants_channel_gates_only_known_
         "reply": {"push": "no", "email": False, "sms": True},
         "bogus": {"push": False},
         "mention": 3,
-        "quote": {"email": False},  # an unwired cell in stored data is ignored
+        "quote": {"fax": False},  # an unwired cell in stored data is ignored
     }
     resolved = resolve_preferences(junk)
     assert resolved["reply"] == {"push": True, "email": False}
     assert (
         "bogus" not in resolved and resolved["mention"] == PRE_343_BEHAVIOUR["mention"]
     )
-    assert resolved["quote"] == {"push": True}
+    assert resolved["quote"] == PRE_343_BEHAVIOUR["quote"]
     assert resolve_preferences(None) == PRE_343_BEHAVIOUR
     # A junk-valued stored verb is replaced by a merge, never dereferenced.
     assert merge_preferences({"reply": "oops"}, {"reply": {"push": False}}) == {
@@ -180,7 +207,9 @@ def test_resolve_ignores_junk_in_stored_data_and_wants_channel_gates_only_known_
         wants_channel({"reply": {"push": False}}, "moderation_decided", "push") is True
     )
     assert wants_channel({"reply": {"push": False}}, "reply_added", "sms") is True
-    assert wants_channel({"mention": {"push": False}}, "mention", "email") is True
+    # Mention email is a wired cell since todo 624, off by default.
+    assert wants_channel({"mention": {"push": False}}, "mention", "email") is False
+    assert wants_channel({"mention": {"email": True}}, "mention", "email") is True
 
 
 @pytest.mark.django_db

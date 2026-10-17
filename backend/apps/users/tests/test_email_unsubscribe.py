@@ -187,8 +187,8 @@ class UnsubscribeEndpointTests(TestCase):
         self.user.refresh_from_db()
         self.assertFalse(_reply_email_on(self.user))
         # Push is a separate choice on the Settings grid — an EMAIL link must
-        # not silence the phone too, and the account-wide switches (which no
-        # web UI can turn back on) stay untouched.
+        # not silence the phone too, and the account-wide master switches
+        # (web Settings and mobile show them since todo 620) stay untouched.
         self.assertTrue(_reply_push_on(self.user))
         self.assertTrue(self.user.email_notifications)
         self.assertTrue(self.user.forum_notifications)

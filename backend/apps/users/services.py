@@ -11,13 +11,14 @@ from typing import Any, Dict, Optional
 import requests
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from .constants import (
     WEB_PUSH_GONE_STATUSES,
     WEB_PUSH_TIMEOUT_SECONDS,
     WEB_PUSH_TTL_SECONDS,
 )
+from .web_push import push_service
 
 # External dependency for Web Push (requires: pip install pywebpush)
 try:
@@ -29,6 +30,25 @@ except ImportError:
     WebPushException = Exception
 
 logger = logging.getLogger(__name__)
+
+# The partial unique constraint behind the endpoint race (todo 602 item 3).
+ONE_ACTIVE_ENDPOINT_CONSTRAINT = "push_sub_one_active_endpoint"
+
+
+class PushEndpointConflict(IntegrityError):
+    """A subscribe lost the endpoint race to other accounts twice running.
+
+    Raised only for the one-active-row-per-endpoint constraint, so the views
+    can answer it with a retryable 409 while any other IntegrityError (a bad
+    FK, a NOT NULL) stays a logged 500 (todo 641 item 2). Subclasses
+    IntegrityError, so a caller that catches that still catches this.
+    """
+
+
+def _is_endpoint_race(exc: IntegrityError) -> bool:
+    """True when ``exc`` is the one-active-endpoint constraint refusing a row."""
+    diag = getattr(exc.__cause__, "diag", None)
+    return getattr(diag, "constraint_name", None) == ONE_ACTIVE_ENDPOINT_CONSTRAINT
 
 
 def vapid_claims_email() -> str:
@@ -222,9 +242,50 @@ class NotificationService:
         release and the upsert land together (PR #852 round-2 note)."""
         from .models import PushSubscription
 
-        # One browser endpoint belongs to one account: a shared browser where
-        # another user subscribed last must not keep getting their
-        # notifications (PR #852 review).
+        defaults = {
+            "p256dh_key": keys.get("p256dh", ""),
+            "auth_key": keys.get("auth", ""),
+            "user_agent": user_agent,
+            "device_name": NotificationService._extract_device_name(user_agent),
+            "is_active": True,
+        }
+        # The partial unique constraint (one active row per endpoint, todo 602
+        # item 3) refuses an upsert that raced a concurrent subscribe of the
+        # same endpoint by another account. That account's row is committed
+        # by then, so one more release sees it and the retry goes through.
+        for attempt in range(2):
+            NotificationService._release_endpoint(user, endpoint)
+            try:
+                with transaction.atomic():
+                    subscription, created = PushSubscription.objects.update_or_create(
+                        user=user, endpoint=endpoint, defaults=defaults
+                    )
+                break
+            except IntegrityError as exc:
+                if not _is_endpoint_race(exc):
+                    raise
+                if attempt:
+                    raise PushEndpointConflict(str(exc)) from exc
+                logger.info(
+                    f"[PUSH] Endpoint taken concurrently; releasing again for "
+                    f"{log_safe_user_context(user)}"
+                )
+
+        logger.info(
+            f"[PUSH] Push subscription {'created' if created else 'updated'} for {log_safe_user_context(user)}"
+        )
+        return subscription
+
+    @staticmethod
+    def _release_endpoint(user, endpoint: Optional[str]) -> None:
+        """Deactivate other accounts' active rows on ``endpoint``.
+
+        One browser endpoint belongs to one account: a shared browser where
+        another user subscribed last must not keep getting their notifications
+        (PR #852 review).
+        """
+        from .models import PushSubscription
+
         released = (
             PushSubscription.objects.filter(endpoint=endpoint, is_active=True)
             .exclude(user=user)
@@ -235,23 +296,6 @@ class NotificationService:
                 f"[PUSH] Released {released} subscription(s) on this endpoint "
                 f"held by another account, for {log_safe_user_context(user)}"
             )
-
-        subscription, created = PushSubscription.objects.update_or_create(
-            user=user,
-            endpoint=endpoint,
-            defaults={
-                "p256dh_key": keys.get("p256dh", ""),
-                "auth_key": keys.get("auth", ""),
-                "user_agent": user_agent,
-                "device_name": NotificationService._extract_device_name(user_agent),
-                "is_active": True,
-            },
-        )
-
-        logger.info(
-            f"[PUSH] Push subscription {'created' if created else 'updated'} for {log_safe_user_context(user)}"
-        )
-        return subscription
 
     @staticmethod
     def resubscribe_push(
@@ -270,6 +314,14 @@ class NotificationService:
         released rows for other accounts on the same endpoint, with the same
         secret, and none of those may be revived.
 
+        Hardening (todo 602, owner decision 2026-10-11): the new endpoint must
+        be on the same push service as the old one (FCM to FCM, Mozilla to
+        Mozilla), so a row cannot be moved to an arbitrary push URL, and a
+        disabled or banned account's row is never refreshed. Accepted
+        residual risk: whoever holds a row's endpoint + auth pair (a page
+        script, or a past user of a shared browser who kept ``toJSON()``) can
+        still move that row to another endpoint on the same push service.
+
         ``subscription_data`` must already be through ``clean_subscription``.
         Returns the new row, or None when nothing matched.
         """
@@ -279,9 +331,14 @@ class NotificationService:
             return None
         if not old_endpoint or not old_auth:
             return None
+        service = push_service(old_endpoint)
+        if service is None or service != push_service(subscription_data["endpoint"]):
+            return None
         with transaction.atomic():
+            # of=("self",): lock the subscription row only, not the joined
+            # auth user row, which a login's last_login write needs (item 6).
             old = (
-                PushSubscription.objects.select_for_update()
+                PushSubscription.objects.select_for_update(of=("self",))
                 .filter(endpoint=old_endpoint, is_active=True)
                 .select_related("user")
                 .first()
@@ -289,6 +346,8 @@ class NotificationService:
             if old is None or not hmac.compare_digest(
                 old.auth_key.encode(), old_auth.encode()
             ):
+                return None
+            if not old.user.is_active:
                 return None
             if old.endpoint != subscription_data["endpoint"]:
                 old.deactivate()

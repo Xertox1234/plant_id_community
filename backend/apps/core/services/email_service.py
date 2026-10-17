@@ -5,9 +5,16 @@ Provides a unified interface for sending emails with tracking, preferences,
 and template rendering capabilities.
 """
 
+import html
 import logging
+import re
+import smtplib
+import uuid
+from email.utils import parseaddr
 from typing import Any, Dict, List, Optional, Union
 
+from apps.core import email_feedback
+from apps.core.constants import EMAIL_TRACKED_LINK_KEYS
 from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_context
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -20,6 +27,159 @@ from django.utils.html import strip_tags
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
+# html_to_text() patterns (todo 622). The plain-text part of a message whose
+# template ships no .txt: never the stylesheet, never a lost button URL.
+_NON_CONTENT = re.compile(
+    r"<(head|style|script|title)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL
+)
+_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+# The opening tag of a div hidden with an inline display:none: base.html's
+# preheader, the inbox preview line, which is not body text (todo 639). Each
+# quote style is its own branch, so a style value holding the other quote
+# (font-family:'x'; display:none) still matches (todo 649).
+_HIDDEN_DIV_OPEN = re.compile(
+    r"""<div\b[^>]*\bstyle\s*=\s*(?:"[^"]*?display\s*:\s*none[^"]*"|'[^']*?display\s*:\s*none[^']*')[^>]*>""",
+    re.IGNORECASE,
+)
+_DIV_TAG = re.compile(r"<(/?)div\b[^>]*>", re.IGNORECASE)
+# \s before href: an attribute always follows whitespace, so data-href= (where
+# "-" makes a word boundary) is never read as the link (todo 639).
+_LINK = re.compile(
+    r"""<a\b[^>]*?\shref\s*=\s*(["'])(?P<url>.*?)\1[^>]*>(?P<label>.*?)</a\s*>""",
+    re.IGNORECASE | re.DOTALL,
+)
+_LINE_BREAK = re.compile(
+    r"<br\s*/?>|</(p|div|h[1-6]|li|tr|table|ul|ol|blockquote)\s*>", re.IGNORECASE
+)
+_SPACES = re.compile(r"[ \t\r\f\v]+")
+_BLANK_LINES = re.compile(r"\n{3,}")
+
+
+def _strip_hidden_divs(text: str) -> str:
+    """Remove each display:none div with everything in it, up to its own
+    closing tag: nested divs are counted, so a hidden div that holds one
+    never leaks its remainder (todo 649). An unclosed one loses only its
+    opening tag, so a template slip never empties the text part."""
+    while match := _HIDDEN_DIV_OPEN.search(text):
+        depth, end = 1, match.end()
+        for tag in _DIV_TAG.finditer(text, match.end()):
+            depth += -1 if tag.group(1) else 1
+            if depth == 0:
+                end = tag.end()
+                break
+        text = text[: match.start()] + text[end:]
+    return text
+
+
+def html_to_text(html_content: str) -> str:
+    """A readable plain-text alternative for an HTML email that has no .txt.
+
+    Drops the head, stylesheet, scripts, comments and the hidden preheader
+    (todo 639); keeps every link as ``label (url)`` so the action survives;
+    ends blocks with a line break; then strips the remaining tags and decodes
+    entities. A fallback only: every live message family ships its own .txt
+    (todo 622).
+    """
+    text = _COMMENT.sub("", _NON_CONTENT.sub("", html_content))
+    text = _strip_hidden_divs(text)
+
+    def _link(match: "re.Match[str]") -> str:
+        url = match.group("url").strip()
+        label = " ".join(strip_tags(match.group("label")).split())
+        if not url or url.startswith("#") or url == label:
+            return label or url
+        return f"{label} ({url})" if label else url
+
+    text = _LINK.sub(_link, text)
+    text = _LINE_BREAK.sub("\n", text)
+    text = html.unescape(strip_tags(text))
+    lines = [_SPACES.sub(" ", line).strip() for line in text.split("\n")]
+    return _BLANK_LINES.sub("\n\n", "\n".join(lines)).strip() + "\n"
+
+
+class EmailOutcome:
+    """Why ``EmailService.send_email`` returned what it did (todo 619).
+
+    A bool cannot tell an opt-out from a dead SMTP connection, and a caller
+    that retries must: an opt-out retried is a privacy bug, a transport
+    failure dropped is a lost message. ``send_email`` records one of these on
+    ``EmailService.last_outcome`` every time it returns.
+    """
+
+    SENT = "sent"
+    # Preferences said no. Never retried.
+    SUPPRESSED = "suppressed"
+    # Retrying cannot help: a template that does not render, no deliverable
+    # recipient, a 5xx SMTP rejection of this recipient or message
+    # (``classify_send_error``).
+    PERMANENT = "permanent"
+    # Worth another attempt: connection, timeout, a 4xx SMTP reply.
+    TRANSIENT = "transient"
+
+
+# ``EmailService.last_suppression_reason``: why a send was SUPPRESSED, in the
+# outbox's own words (``DeliveryIntent.last_error``).
+SUPPRESSED_PREFERENCE = "preference_off"
+SUPPRESSED_ADDRESS = "address_suppressed"
+
+
+# An RFC 3463 enhanced status code at the start of an SMTP reply's text,
+# e.g. b"5.1.1 <a@x>: Recipient address rejected" -> class 5, subject 1.
+_ENHANCED_STATUS = re.compile(rb"^\s*([245])\.(\d{1,3})\.\d{1,3}\b")
+# Subjects that are about this recipient or this message (RFC 3463 3.1):
+# addressing, mailbox, the destination mail system, message content. The
+# others, above all 5.7.x security or policy ("relay denied", "sending
+# paused"), are about our relay or account.
+_RECIPIENT_FAULT_SUBJECTS = frozenset({1, 2, 3, 6})
+
+
+def _refuses_this_message(code, reply) -> bool:
+    """A 5xx reply at RCPT or DATA that retrying cannot get past (todo 652).
+
+    With an enhanced code, only a class-5 recipient or content subject. With
+    none, any 5xx but 554: 554 is SMTP's catch-all "transaction failed",
+    which is what a relay answers for blank credentials (``554 relay
+    denied`` at RCPT) or a paused account (``554 Message rejected: Sending
+    paused`` at DATA). A real rejection classed TRANSIENT costs at most
+    ``DELIVERY_MAX_ATTEMPTS`` retries; the reverse fails every queued row."""
+    try:
+        code = int(code)
+    except (TypeError, ValueError):
+        return False
+    if code < 500:
+        return False
+    if isinstance(reply, str):
+        reply = reply.encode("utf-8", "replace")
+    enhanced = _ENHANCED_STATUS.match(reply or b"")
+    if enhanced:
+        return (
+            enhanced.group(1) == b"5"
+            and int(enhanced.group(2)) in _RECIPIENT_FAULT_SUBJECTS
+        )
+    return code != 554
+
+
+def classify_send_error(exc: BaseException) -> str:
+    """PERMANENT only when this message or its recipient was refused for
+    good: every recipient refused, or the message data refused, with a reply
+    that names the recipient or the message (``_refuses_this_message``).
+    TRANSIENT for anything else: a connection or timeout error, a 4xx reply,
+    a disconnect, a 5xx about the session rather than the message (auth
+    535/530, sender refused, HELO), and a RCPT or DATA refusal that is about
+    our relay or account (5.7.x, a bare 554). Those are relay credential or
+    config faults: during such an outage every queued row would otherwise be
+    failed for good, so they wait out the outbox backoff."""
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        replies = list(exc.recipients.values())
+        if replies and all(_refuses_this_message(*reply) for reply in replies):
+            return EmailOutcome.PERMANENT
+        return EmailOutcome.TRANSIENT
+    if isinstance(exc, smtplib.SMTPDataError) and _refuses_this_message(
+        exc.smtp_code, exc.smtp_error
+    ):
+        return EmailOutcome.PERMANENT
+    return EmailOutcome.TRANSIENT
+
 
 class EmailType:
     """Email type constants for categorization and preferences."""
@@ -30,6 +190,9 @@ class EmailType:
     # Forum related emails
     FORUM_REPLY = "forum_reply"
     FORUM_MENTION = "forum_mention"
+    # Optional important-event email (todo 624), off by default.
+    FORUM_QUOTE = "forum_quote"
+    FORUM_SOLUTION = "forum_solution"
     FORUM_DIGEST = "forum_digest"
 
     # Newsletter and content
@@ -46,10 +209,24 @@ class EmailType:
     COMMUNITY_UPDATE = "community_update"
 
 
+# Account mail: always sent, whatever the optional-mail preferences say, and
+# held back only by a hard bounce, never by a spam complaint (todo 625).
+SYSTEM_EMAIL_TYPES = frozenset(
+    {
+        EmailType.ACCOUNT_VERIFICATION,
+        EmailType.PASSWORD_RESET,
+        EmailType.SECURITY_ALERT,
+    }
+)
+
+
 # Email type -> the list its unsubscribe link leaves (a key of
 # apps.users.email_unsubscribe.LISTS). A type with no entry carries no link.
 UNSUBSCRIBE_LISTS = {
     EmailType.FORUM_REPLY: "forum_reply",
+    EmailType.FORUM_MENTION: "forum_mention",
+    EmailType.FORUM_QUOTE: "forum_quote",
+    EmailType.FORUM_SOLUTION: "forum_solution",
     EmailType.FORUM_DIGEST: "forum_digest",
 }
 
@@ -64,7 +241,12 @@ class EmailService:
         self.from_email = getattr(
             settings, "DEFAULT_FROM_EMAIL", "noreply@plantcommunity.com"
         )
-        self.site_name = getattr(settings, "SITE_NAME", "Houseplant-MD")
+        self.site_name = getattr(settings, "SITE_NAME", "Houseplant MD")
+        # The EmailOutcome of the last send_email call (todo 619).
+        self.last_outcome: Optional[str] = None
+        # Why it was SUPPRESSED, for an outbox to record (todo 625):
+        # SUPPRESSED_PREFERENCE or SUPPRESSED_ADDRESS, else None.
+        self.last_suppression_reason: Optional[str] = None
 
     def send_email(
         self,
@@ -76,11 +258,15 @@ class EmailService:
         from_email: Optional[str] = None,
         attachments: Optional[List] = None,
         priority: str = "normal",
-        track_opens: bool = True,
         respect_preferences: bool = True,
     ) -> bool:
         """
-        Send an email with full tracking and preference checking.
+        Send an email with preference and suppression checks.
+
+        Opens are never tracked (no pixel; owner decision 2026-10-12, todo
+        625). The content links named by ``EMAIL_TRACKED_LINK_KEYS`` go
+        through a signed first-party click redirect when ``API_PUBLIC_URL``
+        is set (``apps.core.email_feedback.click_url``).
 
         Args:
             email_type: Type of email from EmailType constants
@@ -91,12 +277,14 @@ class EmailService:
             from_email: Sender email (defaults to site default)
             attachments: List of file attachments
             priority: Email priority ('low', 'normal', 'high')
-            track_opens: Whether to track email opens
             respect_preferences: Whether to check user preferences
 
         Returns:
-            bool: True if email was sent successfully
+            bool: True if email was sent successfully. Why it was not is on
+            ``self.last_outcome`` (an ``EmailOutcome``).
         """
+        self.last_outcome = None
+        self.last_suppression_reason = None
         # Normalize recipient
         if isinstance(recipient, User):
             user = recipient
@@ -117,16 +305,42 @@ class EmailService:
             logger.info(
                 f"[EMAIL] Email {email_type} skipped for {log_safe_email(recipient_email)} due to user preferences"
             )
+            self.last_outcome = EmailOutcome.SUPPRESSED
+            self.last_suppression_reason = SUPPRESSED_PREFERENCE
             return False
+
+        # The provider reported this address as undeliverable, or its owner
+        # as complaining (todo 625). Terminal: retrying cannot help.
+        if email_feedback.is_suppressed(
+            recipient_email, optional=email_type not in SYSTEM_EMAIL_TYPES
+        ):
+            logger.info(
+                f"[EMAIL] Email {email_type} to {log_safe_email(recipient_email)} "
+                "not sent: the address is suppressed"
+            )
+            self.last_outcome = EmailOutcome.SUPPRESSED
+            self.last_suppression_reason = SUPPRESSED_ADDRESS
+            return False
+
+        # The row's uuid exists before the send: it names the click redirects
+        # and the Message-ID the provider's feedback is matched on (todo 625).
+        notification_uuid = uuid.uuid4()
+        message_id = self._message_id(notification_uuid, from_email)
 
         # Prepare context
         context = context or {}
         context.update(self._get_base_context(user, email_type))
+        for key in EMAIL_TRACKED_LINK_KEYS:
+            if isinstance(context.get(key), str):
+                context[key] = email_feedback.click_url(
+                    notification_uuid, key, context[key]
+                )
 
         # Render email content. The .html body is REQUIRED — a missing/broken
-        # .html is a hard failure. The .txt alternative is OPTIONAL: most
-        # EmailType templates ship only .html, so a missing .txt falls back to a
-        # stripped-tags version of the HTML rather than silently dropping the
+        # .html is a hard failure. The .txt alternative is OPTIONAL: a missing
+        # .txt falls back to html_to_text() of the HTML (todo 622: never raw
+        # strip_tags, which kept the stylesheet and lost every button URL)
+        # rather than silently dropping the
         # whole email (todo 267, finding 2 — before this, a missing .txt raised
         # TemplateDoesNotExist that was caught into a silent `return False`, so
         # e.g. every new-user welcome email no-op'd at the render step).
@@ -136,32 +350,38 @@ class EmailService:
             logger.error(
                 f"[EMAIL] Email template not found: {template_name}.html - {e}"
             )
+            self.last_outcome = EmailOutcome.PERMANENT
             return False
         except Exception as e:
+            # The type only: a template error can quote a context value, such
+            # as the signed unsubscribe link (todo 649 finding 1).
             logger.error(
-                f"[EMAIL] Failed to render email template {template_name}.html: {e}"
+                f"[EMAIL] Failed to render email template {template_name}.html: "
+                f"{type(e).__name__}"
             )
+            self.last_outcome = EmailOutcome.PERMANENT
             return False
 
         try:
             text_content = render_to_string(f"emails/{template_name}.txt", context)
         except TemplateDoesNotExist:
-            # Expected for the many .html-only templates — derive plain text
+            # Expected for the legacy .html-only templates — derive plain text
             # from the HTML that already rendered.
-            text_content = strip_tags(html_content)
+            text_content = html_to_text(html_content)
         except Exception as e:
             # A genuine .txt render bug shouldn't drop an email whose .html is
             # fine; fall back to the stripped HTML but surface the bug in logs.
             logger.warning(
                 f"[EMAIL] Failed to render email template {template_name}.txt "
-                f"(falling back to stripped HTML): {e}"
+                f"(falling back to stripped HTML): {type(e).__name__}"
             )
-            text_content = strip_tags(html_content)
+            text_content = html_to_text(html_content)
 
         # Create email message. List-Unsubscribe (RFC 2369, plus RFC 8058
         # one-click when API_PUBLIC_URL is set) puts a signed link in the mail
         # client's own "Unsubscribe" button (todo 416).
         headers = dict(context.get("unsubscribe_headers") or {})
+        headers["Message-ID"] = message_id
         email = EmailMultiAlternatives(
             subject=subject,
             body=text_content,
@@ -191,10 +411,20 @@ class EmailService:
                     f"[EMAIL] Email {email_type} to {log_safe_email(recipient_email)} "
                     "reached 0 recipients — not marking as sent"
                 )
+                if recipient_email:
+                    # A real address that reached nobody: the mail backend's
+                    # suppression backstop dropped it (suppressed after the
+                    # check above). Terminal, and recorded as such (todo 625).
+                    self.last_outcome = EmailOutcome.SUPPRESSED
+                    self.last_suppression_reason = SUPPRESSED_ADDRESS
+                else:
+                    self.last_outcome = EmailOutcome.PERMANENT
                 return False
 
             # Track email sending
             self._track_email_sent(
+                notification_uuid=notification_uuid,
+                message_id=message_id,
                 email_type=email_type,
                 recipient_email=recipient_email,
                 user=user,
@@ -206,6 +436,7 @@ class EmailService:
             logger.info(
                 f"[EMAIL] Email {email_type} sent successfully to {log_safe_email(recipient_email)}"
             )
+            self.last_outcome = EmailOutcome.SENT
             return True
 
         except Warning:
@@ -215,13 +446,19 @@ class EmailService:
             raise
         except ConnectionError as e:
             logger.error(
-                f"[EMAIL] Email connection failed for {email_type} to {log_safe_email(recipient_email)}: {e}"
+                f"[EMAIL] Email connection failed for {email_type} to "
+                f"{log_safe_email(recipient_email)}: {type(e).__name__}"
             )
+            self.last_outcome = EmailOutcome.TRANSIENT
             return False
         except Exception as e:
             logger.error(
-                f"[EMAIL] Failed to send email {email_type} to {log_safe_email(recipient_email)}: {e}"
+                # The type only: an SMTP refusal's text quotes the raw
+                # recipient address (todo 619).
+                f"[EMAIL] Failed to send email {email_type} to "
+                f"{log_safe_email(recipient_email)}: {type(e).__name__}"
             )
+            self.last_outcome = classify_send_error(e)
             return False
 
     def send_bulk_email(
@@ -295,6 +532,12 @@ class EmailService:
         Returns:
             bool: True if email should be sent
         """
+        # System emails (security, verification) always send: no optional-mail
+        # preference, the master toggle included, may hold them back (todo
+        # 622 — the toggle used to be checked first and did).
+        if email_type in SYSTEM_EMAIL_TYPES:
+            return True
+
         # Check master email toggle (using direct user model attributes)
         if not user.email_notifications:
             return False
@@ -304,19 +547,11 @@ class EmailService:
             EmailType.DISEASE_ALERT: user.plant_id_notifications,
             EmailType.FORUM_REPLY: user.forum_notifications,
             EmailType.FORUM_MENTION: user.forum_notifications,
+            EmailType.FORUM_QUOTE: user.forum_notifications,
+            EmailType.FORUM_SOLUTION: user.forum_notifications,
             EmailType.FORUM_DIGEST: user.forum_notifications,
             EmailType.IDENTIFICATION_RESULT: user.plant_id_notifications,
         }
-
-        # System emails (security, verification) always send
-        system_emails = {
-            EmailType.ACCOUNT_VERIFICATION,
-            EmailType.PASSWORD_RESET,
-            EmailType.SECURITY_ALERT,
-        }
-
-        if email_type in system_emails:
-            return True
 
         # Check specific preference or default to True
         return email_preference_map.get(email_type, True)
@@ -334,7 +569,10 @@ class EmailService:
         Returns:
             Dict: Base context variables
         """
+        # No trailing slash: every template appends a path that starts with
+        # "/", so "https://web.example/" would build "//identify" (todo 622).
         site_url = getattr(settings, "SITE_URL", "https://plantcommunity.com")
+        site_url = (site_url or "").rstrip("/")
 
         context = {
             "site_name": self.site_name,
@@ -347,7 +585,7 @@ class EmailService:
 
         # The web app's Settings page holds every email choice a user can
         # change (todo 408; the old "#!/settings/..." PWA fragment led nowhere).
-        context["preferences_url"] = f"{site_url.rstrip('/')}/settings"
+        context["preferences_url"] = f"{site_url}/settings"
 
         # A signed one-user, one-list link — only for an email type that has a
         # list to leave. No link beats one that 500s or does nothing.
@@ -366,8 +604,21 @@ class EmailService:
 
         return context
 
+    def _message_id(
+        self, notification_uuid: uuid.UUID, from_email: Optional[str]
+    ) -> str:
+        """The RFC 5322 Message-ID for a tracked email, on the sender's own
+        domain, so Resend's ``data.message_id`` names the row (todo 625)."""
+        sender = parseaddr(from_email or self.from_email)[1]
+        # Lowercased: the feedback lookup compares a normalized id
+        # (``email_feedback.normalize_message_id``).
+        domain = sender.rpartition("@")[2].lower() or "localhost"
+        return f"<hpmd.{notification_uuid.hex}@{domain}>"
+
     def _track_email_sent(
         self,
+        notification_uuid: uuid.UUID,
+        message_id: str,
         email_type: str,
         recipient_email: str,
         user: Optional[User],
@@ -383,6 +634,8 @@ class EmailService:
             from apps.core.models import EmailNotification
 
             EmailNotification.objects.create(
+                uuid=notification_uuid,
+                message_id=message_id,
                 email_type=email_type,
                 recipient_email=recipient_email,
                 user=user,
@@ -420,17 +673,42 @@ class EmailService:
         else:
             recipient_email = recipient
 
+        # Account mail: only a hard bounce holds it back (todo 625). The
+        # caller's flow (tokens, allowance, its response) is unchanged.
+        self.last_outcome = None
+        self.last_suppression_reason = None
+        if email_feedback.is_suppressed(recipient_email, optional=False):
+            logger.info(
+                f"[EMAIL] Transactional email to {log_safe_email(recipient_email)} "
+                "not sent: the address is suppressed"
+            )
+            self.last_outcome = EmailOutcome.SUPPRESSED
+            self.last_suppression_reason = SUPPRESSED_ADDRESS
+            return False
+
         try:
-            send_mail(
+            sent_count = send_mail(
                 subject=subject,
                 message=message,
                 from_email=self.from_email,
                 recipient_list=[recipient_email],
                 html_message=html_message,
             )
+            if not sent_count:
+                # The mail backend's suppression backstop dropped the only
+                # recipient (an address suppressed after the check above),
+                # or there was no address: not a send (todo 625).
+                logger.warning(
+                    f"[EMAIL] Transactional email to {log_safe_email(recipient_email)} "
+                    "reached 0 recipients — not marking as sent"
+                )
+                self.last_outcome = EmailOutcome.SUPPRESSED
+                self.last_suppression_reason = SUPPRESSED_ADDRESS
+                return False
             logger.info(
                 f"[EMAIL] Transactional email sent to {log_safe_email(recipient_email)}"
             )
+            self.last_outcome = EmailOutcome.SENT
             return True
         except Warning:
             # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
@@ -461,7 +739,7 @@ class EmailService:
         return self.send_email(
             email_type=EmailType.ACCOUNT_VERIFICATION,
             recipient=user,
-            subject=f"🎉 Welcome to Houseplant-MD, {user.first_name or user.username}!",
+            subject=f"🎉 Welcome to {self.site_name}, {user.first_name or user.username}!",
             template_name="welcome_email",
             context=context,
             priority="high",

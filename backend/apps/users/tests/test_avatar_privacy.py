@@ -202,6 +202,33 @@ class WideGamutTests(_AvatarTestCase):
 
         self.assert_converted_to_srgb(self._stored_pixel())
 
+    def test_a_tagged_png_keeps_its_trns_colour_key(self) -> None:
+        # Todo 607 item 1: an RGB PNG with a tRNS key and an ICC profile came
+        # back opaque, because the profile conversion to RGBA dropped the key.
+        image = Image.new("RGB", (64, 64), (1, 2, 3))
+        image.putpixel((0, 0), P3_ORANGE)
+        buf = io.BytesIO()
+        image.save(
+            buf,
+            format="PNG",
+            transparency=(1, 2, 3),
+            icc_profile=_display_p3_profile(),
+        )
+
+        self._upload(SimpleUploadedFile("me.png", buf.getvalue()))
+
+        name = self.user.avatar.name
+        assert name is not None, "no avatar stored"
+        with default_storage.open(name, "rb") as stored:
+            with Image.open(io.BytesIO(stored.read())) as out:
+                rgba = out.convert("RGBA")
+                keyed = rgba.getpixel((10, 10))
+                opaque = rgba.getpixel((0, 0))
+        assert isinstance(keyed, tuple) and isinstance(opaque, tuple)
+        self.assertEqual(keyed[3], 0)
+        self.assertEqual(opaque[3], 255)
+        self.assert_converted_to_srgb(opaque)
+
     def test_an_untagged_photo_keeps_its_pixels(self) -> None:
         buf = io.BytesIO()
         Image.new("RGB", (64, 64), P3_ORANGE).save(buf, format="PNG")

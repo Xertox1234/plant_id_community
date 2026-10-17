@@ -360,6 +360,23 @@ class FakeForumApi implements ForumApi {
   int fetchExpertsCalls = 0;
   ApiException? failExpertsWith;
 
+  /// The server's stored notification settings (todo 620): a successful
+  /// update merges into it, so a later fetch (a "reload") sees the write.
+  ForumNotificationSettings notificationSettings =
+      const ForumNotificationSettings(
+        digestFrequency: 'off',
+        preferences: {
+          'reply': {'push': true, 'email': true},
+          'mention': {'push': true},
+          'quote': {'push': true},
+          'solution': {'push': true},
+        },
+      );
+  int fetchNotificationSettingsCalls = 0;
+  ApiException? failNotificationSettingsWith;
+  final List<Map<String, Object?>> notificationSettingsUpdates = [];
+  ApiException? failNotificationSettingsUpdateWith;
+
   @override
   Future<List<ForumBoard>> fetchBoards() async => boards;
 
@@ -950,6 +967,54 @@ class FakeForumApi implements ForumApi {
     final fail = failMyStatsWith;
     if (fail != null) throw fail;
     return stats;
+  }
+
+  @override
+  Future<ForumNotificationSettings> fetchNotificationSettings() async {
+    fetchNotificationSettingsCalls++;
+    final fail = failNotificationSettingsWith;
+    if (fail != null) throw fail;
+    return notificationSettings;
+  }
+
+  @override
+  Future<ForumNotificationSettings> updateNotificationSettings({
+    String? digestFrequency,
+    Map<String, Map<String, bool>>? preferences,
+    bool? quietHoursEnabled,
+    String? quietHoursStart,
+    String? quietHoursEnd,
+    String? timeZone,
+  }) async {
+    notificationSettingsUpdates.add({
+      'digest_frequency': ?digestFrequency,
+      'notification_preferences': ?preferences,
+      'quiet_hours_enabled': ?quietHoursEnabled,
+      'quiet_hours_start': ?quietHoursStart,
+      'quiet_hours_end': ?quietHoursEnd,
+      'time_zone': ?timeZone,
+    });
+    final fail = failNotificationSettingsUpdateWith;
+    if (fail != null) throw fail;
+    var next = notificationSettings;
+    if (digestFrequency != null) next = next.withDigest(digestFrequency);
+    final quiet = next.quietHours;
+    if (quiet != null) {
+      next = next.withQuietHours(
+        quiet.copyWith(
+          enabled: quietHoursEnabled,
+          start: quietHoursStart,
+          end: quietHoursEnd,
+          timeZone: timeZone,
+        ),
+      );
+    }
+    for (final row in (preferences ?? const {}).entries) {
+      for (final cell in row.value.entries) {
+        next = next.withCell(row.key, cell.key, cell.value);
+      }
+    }
+    return notificationSettings = next;
   }
 
   @override

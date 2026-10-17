@@ -81,18 +81,19 @@ def clear_dead_fcm_token(user_id: int, token: str) -> int:
     """Forget a dead device token, so later sends stop targeting it (todo 457).
 
     Matches on the token as well as the user: if the device re-registered a new
-    token after this send was built, the new one is kept. Best-effort: a
-    database error is logged, not raised, because it runs inside a send
-    failure handler and must not turn one dead token into a task retry that
-    re-sends to everyone else. Returns the number of profiles cleared.
+    token after this send was built, the new one is kept, and the account's
+    other devices are never touched (todo 621: ``PushDevice`` rows and the
+    legacy ``ForumProfile.fcm_token`` both). Best-effort: a database error is
+    logged, not raised, because it runs inside a send failure handler and must
+    not turn one dead token into a task retry that re-sends to everyone else.
+    Returns the number of registrations cleared.
     """
     from django.db import DatabaseError
-    from wagtail_forum.models import ForumProfile
+
+    from .push_devices import forget_device_token
 
     try:
-        return ForumProfile.objects.filter(user_id=user_id, fcm_token=token).update(
-            fcm_token=""
-        )
+        return forget_device_token(user_id, token)
     except DatabaseError:
         logger.exception("[FCM] could not clear a dead token (user=%s)", user_id)
         return 0

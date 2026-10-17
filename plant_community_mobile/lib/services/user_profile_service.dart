@@ -86,7 +86,10 @@ class UserProfileService extends _$UserProfileService {
           '[USER_PROFILE ERROR] Failed to fetch profile: ${e.message}',
         );
       }
-      throw UserProfileException('Failed to load profile: ${e.message}');
+      throw UserProfileException(
+        'Failed to load profile: ${e.message}',
+        statusCode: e.statusCode,
+      );
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[USER_PROFILE ERROR] Unexpected error: $e');
@@ -186,7 +189,13 @@ class UserProfileService extends _$UserProfileService {
         );
       }
 
-      throw UserProfileException('Failed to update profile: ${e.message}');
+      throw UserProfileException(
+        'Failed to update profile: ${e.message}',
+        statusCode: e.statusCode,
+        // Only a message one of our views wrote is fit to show a user; a
+        // proxy's HTML page is not (todo 651 review).
+        apiMessage: e.unstructured || e.statusCode == null ? null : e.message,
+      );
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[USER_PROFILE ERROR] Unexpected error: $e');
@@ -226,7 +235,10 @@ class UserProfileService extends _$UserProfileService {
       if (kDebugMode) {
         debugPrint('[USER_PROFILE ERROR] Avatar upload failed: ${e.message}');
       }
-      throw UserProfileException('Failed to upload photo: ${e.message}');
+      throw UserProfileException(
+        'Failed to upload photo: ${e.message}',
+        statusCode: e.statusCode,
+      );
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[USER_PROFILE ERROR] Unexpected avatar error: $e');
@@ -254,7 +266,10 @@ class UserProfileService extends _$UserProfileService {
       if (kDebugMode) {
         debugPrint('[USER_PROFILE ERROR] Avatar removal failed: ${e.message}');
       }
-      throw UserProfileException('Failed to remove photo: ${e.message}');
+      throw UserProfileException(
+        'Failed to remove photo: ${e.message}',
+        statusCode: e.statusCode,
+      );
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[USER_PROFILE ERROR] Unexpected avatar removal error: $e');
@@ -286,7 +301,16 @@ class UserProfileService extends _$UserProfileService {
 class UserProfileException implements Exception {
   final String message;
 
-  UserProfileException(this.message);
+  /// The HTTP status of the failed request, when there was one: a caller
+  /// tells a 429 (the shared `profile_updates` throttle) from other failures
+  /// by it (todo 651).
+  final int? statusCode;
+
+  /// The API's own message, fit to show a user, when the failure came from one
+  /// of our views; null otherwise (todo 651 review).
+  final String? apiMessage;
+
+  UserProfileException(this.message, {this.statusCode, this.apiMessage});
 
   @override
   String toString() => 'UserProfileException: $message';

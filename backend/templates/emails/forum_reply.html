@@ -1,53 +1,45 @@
 {% extends "emails/base.html" %}
 
-{% block title %}New reply in: {{ topic_title }} - {{ site_name }}{% endblock %}
+{% block title %}{{ notification_title }} - {{ site_name }}{% endblock %}
 
-{% block preheader %}{{ author_name }} replied to a topic you're following{% endblock %}
+{% block preheader %}{{ notification_message }}{% endblock %}
 
 {% block header_subtitle %}
-<p style="margin: 8px 0 0 0; color: #e8f5e8; font-size: 16px; opacity: 0.9;">
-    Forum Notification
-</p>
+<p style="margin: 8px 0 0 0; color: #e8f5e8; font-size: 16px;">Forum notification</p>
 {% endblock %}
 
 {% block content %}
-<div style="text-align: center; margin-bottom: 32px;">
-    <span style="font-size: 48px;">💬</span>
-    <h2 style="margin: 16px 0 8px 0; color: #2c5f41;">
-        New Reply in Forum
-    </h2>
-    <p style="font-size: 16px; color: #6c757d; margin: 0;">
-        Someone replied to a topic you're following
-    </p>
-</div>
+{% if reply_count > 1 %}
+<h2 style="margin: 0 0 8px 0; font-size: 24px; font-weight: 600; color: #2c5f41;">{{ reply_count }} new replies in the forum</h2>
+<p style="margin: 0 0 24px 0; font-size: 16px; color: #6c757d;">There are {{ reply_count }} new replies on a topic you're following. The latest:</p>
+{% else %}
+<h2 style="margin: 0 0 8px 0; font-size: 24px; font-weight: 600; color: #2c5f41;">New reply in the forum</h2>
+<p style="margin: 0 0 24px 0; font-size: 16px; color: #6c757d;">Someone replied to a topic you're following.</p>
+{% endif %}
 
-<div style="background-color: #f8f9fa; border-left: 4px solid #2c5f41; padding: 20px; margin: 24px 0;">
-    <h3 style="margin: 0 0 12px 0; color: #2c5f41;">{{ topic_title }}</h3>
-    <p style="margin: 0 0 16px 0; font-size: 14px; color: #6c757d;">
-        <strong>{{ author_name }}</strong> replied:
-    </p>
-    <div style="background-color: #ffffff; border-radius: 6px; padding: 16px; margin: 12px 0;">
-        <p style="margin: 0; color: #333;">{{ post_excerpt }}</p>
-    </div>
-</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8f9fa; border-left: 4px solid #2c5f41; margin: 0 0 24px 0;">
+    <tr>
+        <td style="padding: 20px;">
+            <h3 style="margin: 0 0 12px 0; font-size: 20px; font-weight: 600; color: #2c5f41;">{{ topic_title }}</h3>
+            <p style="margin: 0 0 12px 0; font-size: 14px; color: #6c757d;"><strong>{{ author_name }}</strong> replied:</p>
+            <p style="margin: 0; padding: 16px; background-color: #ffffff; border-radius: 6px; color: #333333;">{{ post_excerpt }}</p>
+        </td>
+    </tr>
+</table>
 
-<div style="text-align: center; margin: 32px 0;">
-    <a href="{{ topic_url }}" class="btn btn-primary" style="display: inline-block; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; text-align: center; background-color: #2c5f41; color: #ffffff;">
-        Read Full Discussion
-    </a>
-</div>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin: 0 auto 24px auto;">
+    <tr>
+        <td align="center">
+            <a href="{% firstof post_url topic_url %}" class="btn btn-primary" style="display: inline-block; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; text-align: center; background-color: #2c5f41; color: #ffffff;">Read the reply</a>
+        </td>
+    </tr>
+</table>
 
-<div style="background-color: #e7f3ff; border-radius: 8px; padding: 20px; margin: 24px 0;">
-    <h4 style="margin: 0 0 12px 0; color: #0066cc;">💡 Forum Tip</h4>
-    <p style="margin: 0; color: #0066cc;">
-        You can reply directly to this topic or adjust your notification preferences in your profile settings.
-    </p>
-</div>
+<p style="margin: 0 0 24px 0; font-size: 14px; color: #6c757d; text-align: center;">
+    <a href="{{ topic_url }}" style="color: #2c5f41; text-decoration: underline;">View topic to unfollow</a> or read the whole discussion.
+</p>
 
-<div style="text-align: center; margin-top: 32px;">
-    <p style="font-size: 14px; color: #6c757d;">
-        <a href="{{ preferences_url }}" style="color: #2c5f41; text-decoration: none;">Manage Forum Notifications</a>
-        | <a href="{{ topic_url }}" style="color: #6c757d; text-decoration: none;">View topic to unfollow</a>
-    </p>
-</div>
+<p style="margin: 0; font-size: 14px; color: #6c757d; text-align: center;">
+    <a href="{{ preferences_url }}" style="color: #2c5f41; text-decoration: underline;">Manage forum notifications</a>
+</p>
 {% endblock %}

@@ -20,19 +20,18 @@ import 'package:plant_community_mobile/services/push_registration_service.dart';
 /// token for a Django JWT against the live dev backend (`API_BASE_URL`), and
 /// its post-exchange hook runs `PushRegistrationService.syncAfterLogin()` —
 /// real notification permission, real FCM `getToken()` (needs a Play-services
-/// device/emulator), real `PATCH /forum/me/profile/`.
+/// device/emulator), real `POST /push-devices/` (todo 621).
 ///
-/// The test asserts the in-app half (JWT exchange completes). The PATCHed
-/// `fcm_token` is write-only by design and never readable from the API, so
-/// the registration itself is verified host-side after the run:
+/// The test asserts the in-app half (JWT exchange completes). The token is
+/// write-only by design and never readable from the API, so the
+/// registration itself is verified host-side after the run:
 ///
 /// ```bash
 /// cd backend && ./venv/bin/python manage.py shell -c \
 ///   "from django.contrib.auth import get_user_model; \
-///    from wagtail_forum.models import ForumProfile; \
+///    from apps.core.models import PushDevice; \
 ///    u = get_user_model().objects.get(email='<E2E_AUTH_EMAIL>'); \
-///    t = ForumProfile.for_user(u).fcm_token; \
-///    print('fcm_token set:', bool(t), 'len:', len(t))"
+///    print('devices:', PushDevice.objects.filter(user=u).count())"
 /// ```
 ///
 /// ## How it is gated

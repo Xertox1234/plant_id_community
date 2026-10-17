@@ -56,7 +56,10 @@ Lint (flake8/black/isort) is **pre-commit only**, not enforced in CI (≈3k pre-
 `backend/pytest.ini` turns `RemovedInDjango70Warning` into an error (todo 364),
 and CI runs pytest. `python manage.py test` does NOT read `pytest.ini`, so a
 first-party deprecation only warns there: run `pytest` before pushing mail,
-ORM or settings changes. The two third-party exemptions are tracked by todo 452.
+ORM or settings changes. There are no third-party exemptions: the django-taggit
+and Wagtail admin mail call sites are shimmed in `apps/core/django70_compat.py`
+(todo 452), and `apps/core/tests/test_django70_compat.py` fails once an upgrade
+makes a shim unnecessary or moves past its version ceiling.
 
 ## Gotcha: stale test DB after migration changes
 

@@ -31,6 +31,7 @@ from datetime import timedelta
 
 from allauth.account.models import EmailAddress
 from allauth.account.signals import email_confirmed
+from apps.core.notification_ops import log_broker_failure
 from apps.core.services.email_service import EmailService
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from apps.users.constants import VERIFICATION_EMAIL_CAP, VERIFICATION_EMAIL_WINDOW_DAYS
@@ -39,8 +40,8 @@ from django.contrib.auth import get_user_model
 from django.core import signing
 from django.db import IntegrityError, transaction
 from django.db.models import Case, F, Q, Value, When
+from django.template.loader import render_to_string
 from django.utils import timezone
-from django.utils.html import escape
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,17 @@ def send_verification_email(user) -> bool:
     so concurrent resends cannot overshoot the cap; a window that has passed
     restarts at this mail. The mail itself is sent by a Celery task after the
     transaction commits, so SMTP latency never lands on the request (item 11).
+
+    The slot and a durable outbox row are written in one transaction (todo
+    619). If the broker then refuses the task, reconciliation re-drives the
+    row and the mail still goes out, without the user asking again and
+    without charging another slot: recovery belongs to the request that paid
+    for it. A slot is never refunded, because a refused enqueue is not proof
+    that nothing was queued. Requests that pile up while the broker is down
+    share one pending row, so they recover as one mail.
     """
+    from apps.core import delivery
+
     if not user.email or is_email_verified(user):
         return False
     User = get_user_model()
@@ -147,20 +158,23 @@ def send_verification_email(user) -> bool:
     new_window = Q(verification_window_started_at__isnull=True) | Q(
         verification_window_started_at__lt=_window_opened_before(now)
     )
-    claimed = (
-        User.objects.filter(pk=user.pk)
-        .filter(new_window | Q(verification_emails_sent__lt=VERIFICATION_EMAIL_CAP))
-        .update(
-            verification_emails_sent=Case(
-                When(new_window, then=Value(1)),
-                default=F("verification_emails_sent") + 1,
-            ),
-            verification_window_started_at=Case(
-                When(new_window, then=Value(now)),
-                default=F("verification_window_started_at"),
-            ),
+    with transaction.atomic():
+        claimed = (
+            User.objects.filter(pk=user.pk)
+            .filter(new_window | Q(verification_emails_sent__lt=VERIFICATION_EMAIL_CAP))
+            .update(
+                verification_emails_sent=Case(
+                    When(new_window, then=Value(1)),
+                    default=F("verification_emails_sent") + 1,
+                ),
+                verification_window_started_at=Case(
+                    When(new_window, then=Value(now)),
+                    default=F("verification_window_started_at"),
+                ),
+            )
         )
-    )
+        if claimed:
+            delivery.record_one(delivery.Kind.VERIFICATION_EMAIL, recipient_id=user.pk)
     if not claimed:
         logger.warning(
             f"[AUTH] Verification mail cap reached for {log_safe_user_context(user)}"
@@ -190,30 +204,30 @@ def deliver_verification_email(user) -> bool:
     """Send the verification mail now. Called by the Celery task only, which
     skips an address verified meanwhile: a False here means the send failed
     and is retried."""
-    url = verification_url(user)
-    account = user.username
-    text = (
-        f'Someone created the Houseplant MD account "{account}" with this email '
-        "address.\n\n"
-        f'If that was you, sign in as "{account}" and open this link to confirm '
-        f"the address:\n\n{url}\n\n"
-        "The link works for 3 days, and only while signed in to that account.\n\n"
-        "If it wasn't you, don't open the link. Nobody can use this address to sign "
-        "in with Google until the account's owner confirms it.\n"
-    )
-    html = (
-        f"<p>Someone created the Houseplant MD account <strong>{escape(account)}</strong> "
-        "with this email address.</p>"
-        f"<p>If that was you, sign in as <strong>{escape(account)}</strong> and open "
-        "this link to confirm the address:</p>"
-        f'<p><a href="{escape(url)}">Confirm my email</a></p>'
-        "<p>The link works for 3 days, and only while signed in to that account.</p>"
-        "<p>If it wasn't you, don't open the link. Nobody can use this address to sign "
-        "in with Google until the account's owner confirms it.</p>"
-    )
-    return EmailService().send_transactional_email(
+    # Templates, not f-strings (todo 622): the shared mail-safe layout, a
+    # text part of its own, and autoescape for the username.
+    service = EmailService()
+    context = {
+        "site_name": service.site_name,
+        "account": user.username,
+        "verify_url": verification_url(user),
+    }
+    # A render failure is a failed send (todo 639): False lets the task retry
+    # and, at the end, log its [EMAIL] give-up, never escape the task raw.
+    try:
+        text = render_to_string("emails/email_verification.txt", context)
+        html = render_to_string("emails/email_verification.html", context)
+    except Exception as exc:
+        # The exception's type only, never its text (todo 649): a template
+        # error can echo a context value, and the context holds a signed link.
+        logger.error(
+            f"[EMAIL] Could not render the verification mail for "
+            f"{log_safe_user_context(user)}: {type(exc).__name__}"
+        )
+        return False
+    return service.send_transactional_email(
         recipient=user,
-        subject="Confirm your email for Houseplant MD",
+        subject=f"Confirm your email for {service.site_name}",
         message=text,
         html_message=html,
     )
@@ -234,8 +248,13 @@ def enqueue_on_commit(task_name, *args, context=""):
 
         try:
             getattr(tasks, task_name).delay(*args)
-        except Exception as exc:
-            logger.error(f"[EMAIL] Could not queue {task_name} for {context}: {exc}")
+        except Exception:
+            # The type only, and no bound exception: a broker error's message
+            # can carry its host or URL, and a frame local would carry it to
+            # Sentry (todo 623).
+            log_broker_failure(
+                logger, "[EMAIL] Could not queue %s for %s", task_name, context
+            )
 
     transaction.on_commit(_enqueue)
 

@@ -142,6 +142,11 @@ RATE_LIMIT_NEWSLETTER_TOKEN = "30/h"
 # rotating IPs cannot flood someone else's inbox. A skipped resend
 # still answers 202, so the throttle is no oracle either.
 NEWSLETTER_CONFIRMATION_RESEND_SECONDS = 60 * 60
+# A confirmation whose send failed is retried after 1, 2 and 4 minutes, then
+# logged and dropped (todo 619). A retry is never throttled: the failed send
+# gave its stamp back.
+NEWSLETTER_CONFIRMATION_MAX_RETRIES = 3
+NEWSLETTER_CONFIRMATION_RETRY_DELAY = 60
 # A confirmation link is short-lived; each new one also voids the last.
 NEWSLETTER_CONFIRM_MAX_AGE_SECONDS = 3 * 24 * 60 * 60
 # An unsubscribe link rides in every newsletter, so it lives like 408's.

@@ -34,7 +34,14 @@ export interface UserProfile {
   bio: string;
   location: string;
   website: string;
+  /** Account-wide master switches (todo 620, docs/notifications-policy.md).
+   * Optional: a backend on another deploy may not send them. */
+  email_notifications?: boolean;
+  forum_notifications?: boolean;
 }
+
+/** The two account-wide notification master switches (todo 620). */
+export type MasterNotificationSwitch = 'email_notifications' | 'forum_notifications';
 
 /**
  * The fields the web profile page may change via PATCH /api/v1/auth/user/update/.
@@ -44,6 +51,10 @@ export interface UserProfile {
 export type ProfileUpdate = Partial<
   Pick<UserProfile, 'first_name' | 'last_name' | 'bio' | 'location' | 'website'>
 >;
+
+/** Every field PATCH /api/v1/auth/user/update/ takes from the web: the profile
+ * form's, plus the Settings page's master switches (todo 620). */
+export type AccountUpdate = ProfileUpdate & Partial<Record<MasterNotificationSwitch, boolean>>;
 
 /**
  * The signed-in user's forum totals from GET /api/v1/auth/me/dashboard-stats/.

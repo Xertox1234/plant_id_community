@@ -21,6 +21,7 @@ import logging
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
+from apps.core.email_feedback import SUPPRESSED
 from django.conf import settings
 from django.core import signing
 from django.core.mail import EmailMultiAlternatives
@@ -172,6 +173,15 @@ def unsubscribe_headers(subscriber: BlogNewsletter, token: str | None = None) ->
     return {"List-Unsubscribe": f"<{unsubscribe_url(subscriber, token)}>"}
 
 
+# request_confirmation_outcome() results (todo 619).
+CONFIRMATION_SENT = "sent"
+CONFIRMATION_SKIPPED = "skipped"  # already subscribed, or sent too recently
+CONFIRMATION_FAILED = "failed"  # nothing went out; the stamp is given back
+# The mail backend dropped a suppressed address (todo 625): the stamp is
+# given back and nothing is retried.
+CONFIRMATION_SUPPRESSED = "suppressed"
+
+
 def request_confirmation(email: str) -> bool:
     """Mail a confirmation link to `email` unless that is pointless or too soon.
 
@@ -181,17 +191,23 @@ def request_confirmation(email: str) -> bool:
     its previous stamp back, so a retry is not throttled by an email that
     never arrived.
     """
+    return request_confirmation_outcome(email) == CONFIRMATION_SENT
+
+
+def request_confirmation_outcome(email: str) -> str:
+    """``request_confirmation``, telling a skip from a failure (todo 619): the
+    task retries a failure and never a skip."""
     email = normalize_email(email)
     now = timezone.now()
     with transaction.atomic():
         subscriber = _lock_or_create(email)
         if subscriber.is_subscribed:
-            return False
+            return CONFIRMATION_SKIPPED
         previous = subscriber.confirmation_sent_at
         if previous and now - previous < timedelta(
             seconds=NEWSLETTER_CONFIRMATION_RESEND_SECONDS
         ):
-            return False
+            return CONFIRMATION_SKIPPED
         subscriber.confirmation_sent_at = now
         subscriber.save(update_fields=["confirmation_sent_at"])
 
@@ -201,10 +217,30 @@ def request_confirmation(email: str) -> bool:
         # A re-raised Warning (todo 537) gives the stamp back too.
         _release_confirmation_stamp(subscriber, now, previous)
         raise
-    if sent:
-        return True
+    if sent is True:
+        return CONFIRMATION_SENT
     _release_confirmation_stamp(subscriber, now, previous)
-    return False
+    return CONFIRMATION_SUPPRESSED if sent == SUPPRESSED else CONFIRMATION_FAILED
+
+
+def record_confirmation_intent(email: str) -> None:
+    """A durable intent for a confirmation whose enqueue failed (todo 619).
+
+    The signup view enqueues the task after its response is decided; when
+    the broker refuses, this writes the subscriber row (as the task would
+    have) and a pending outbox row naming it by pk, never by address, so
+    reconciliation sends the confirmation once the broker is back, without
+    the reader asking again.
+    """
+    from apps.core import delivery
+
+    with transaction.atomic():
+        subscriber = _lock_or_create(normalize_email(email))
+        if subscriber.is_subscribed:
+            return
+        delivery.record_one(
+            delivery.Kind.NEWSLETTER_CONFIRMATION, subject_key=str(subscriber.pk)
+        )
 
 
 def _lock_or_create(email: str) -> BlogNewsletter:
@@ -239,7 +275,7 @@ def _release_confirmation_stamp(
     )
 
 
-def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
+def _send_confirmation_email(subscriber: BlogNewsletter) -> bool | str:
     """Send one confirmation email. A failure is logged and returns False.
     Raises only a Warning: a RemovedInDjango70Warning is an error under
     pytest.ini (todo 454), and request_confirmation then restores the
@@ -247,7 +283,7 @@ def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
     try:
         # Inside the try: a failure building the link must still undo the
         # stamp, or the address stays throttled with nothing sent.
-        site_name = getattr(settings, "SITE_NAME", "Houseplant-MD")
+        site_name = getattr(settings, "SITE_NAME", "Houseplant MD")
         context = {
             "site_name": site_name,
             "confirm_url": confirm_url(subscriber),
@@ -262,16 +298,36 @@ def _send_confirmation_email(subscriber: BlogNewsletter) -> bool:
         message.attach_alternative(
             render_to_string(CONFIRM_HTML_TEMPLATE, context), "text/html"
         )
-        message.send()
     except Warning:
         # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
         # and Warning subclasses Exception: never log it as a failed send
         # (todo 454).
+        raise
+    except Exception as e:
+        # The type only: a template error can quote the signed confirm link
+        # (todo 649 finding 1). A send failure below keeps its traceback.
+        logger.error(
+            "[EMAIL] newsletter confirmation could not be built for subscriber=%s: %s",
+            subscriber.pk,
+            type(e).__name__,
+        )
+        return False
+    try:
+        sent_count = message.send()
+    except Warning:
         raise
     except Exception:
         logger.exception(
             "[EMAIL] newsletter confirmation failed for subscriber=%s", subscriber.pk
         )
         return False
+    if not sent_count:
+        # The mail backend's backstop dropped a hard-bounced address.
+        logger.info(
+            "[EMAIL] newsletter confirmation not sent to subscriber=%s: "
+            "the address is suppressed",
+            subscriber.pk,
+        )
+        return SUPPRESSED
     logger.info("[EMAIL] newsletter confirmation sent to subscriber=%s", subscriber.pk)
     return True

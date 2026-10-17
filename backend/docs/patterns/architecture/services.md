@@ -977,3 +977,47 @@ def test_real_users_verified_is_not_reachable_from_the_cli():
 Reference: `backend/apps/blog/management/commands/seed_demo_blog.py`,
 `backend/apps/forum_host/management/commands/seed_demo_content.py`
 (PR #540 review). See also `docs/rules/security.md`.
+
+## Shimming a Third-Party Call to a Deprecated Django API
+
+When a dependency's latest release still calls an API that the next Django
+removes, and the test suite turns that deprecation into an error, shim the call
+site in our code instead of exempting it from the warning gate
+(`apps/core/django70_compat.py`, todo 452, PR #1125).
+
+Rules that each came from a review finding:
+
+- **Replace the call with what the deprecated API already delegates to.** In
+  Django 6.1, `SQLCompiler.quote_name_unless_alias()` warns and returns
+  `self.quote_name(name)`, so a shim that calls `quote_name()` emits
+  byte-identical SQL. Read the deprecated function's body before claiming that.
+- **Bound Django from below, never from above.** Apply the shim from the first
+  Django release where the replacement is exactly equivalent (6.1 here; before
+  it, `quote_name_unless_alias()` left aliases unquoted). An upper bound of
+  `< 7.0` turns the shim off exactly when the upstream call starts failing.
+- **Guard on the package, twice.** Apply the shim only while the package is at
+  or below the newest release known to need it, and while its own source still
+  makes the deprecated call. When either guard is false, skip the shim and log a
+  warning.
+- **A probe must never stop startup.** `install()` runs in `AppConfig.ready()`
+  in every process. `inspect.getsource` raises `OSError` or `TypeError` on a
+  bytecode-only install, so wrap it and treat a failure as "not needed".
+- **Match the source probe precisely.** Use a bare-call regex such as
+  `(?<![.\w])get_connection\(`, not a substring that a docstring or
+  `mailers.get_connection(` would keep alive after upstream is fixed.
+- **Tests fail when the shim is no longer needed.** Assert that each package's
+  source still makes the deprecated call and is within the ceiling. The test
+  then tells whoever upgrades to delete the shim or re-check and bump the ceiling.
+
+```python
+def _django_needs_shims() -> bool:
+    return django.VERSION[:2] >= (6, 1)  # no upper bound
+
+
+def _source(obj) -> str:
+    try:
+        return inspect.getsource(obj)
+    except (OSError, TypeError):
+        logger.warning("[COMPAT] no source for %r", obj)
+        return ""
+```

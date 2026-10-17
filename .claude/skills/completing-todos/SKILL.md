@@ -187,7 +187,9 @@ With `--limit N`, execute only the first ⌈N / workers⌉ waves and list the de
 
 Steps 1–8 run with the sandbox off (see **Sandbox**).
 
-1. `WT=$(python3 scripts/todos/state.py ensure-worktree $RUN G --scratch $SCRATCH/worktrees)`
+1. `WT=$(python3 scripts/todos/state.py ensure-worktree $RUN G --scratch REPO/.claude/worktrees)`
+   (`--scratch` is where a lost worktree is re-added. Keep it under `.claude/worktrees/`: the worker git guard
+   denies a repair worker's `git add` anywhere else, todo 618.)
 2. `/usr/bin/git -C $WT diff --cached --stat` — the only view of the change you take.
 3. For each todo id in G: `python3 scripts/todos/land.py flip-acs --run $RUN --id <id> --repo $WT --date $TODAY`.
    If `remaining` has a criterion that is not a re-point, stop this group:
@@ -238,7 +240,13 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    → `python3 scripts/todos/state.py ingest-review $RUN --output <file> --round 1`.
    Read `review-args`' `residue` key first (todo 484): a group listed there still holds what an earlier attempt
    at this round left, so it was left out of `prs` and gets no review. Handle each one per step 5.
-   - `clean` → round 2.
+   - `clean` → round 2. First, the regression fallback (todo 617; owner decision 2026-10-11 KEEPS this manual
+     read as a fallback, it is not dropped): a reviewer sets `regression` on a medium that is a new regression
+     against origin/main, and that medium then blocks like a high, but a reviewer can fail to set it. So skim
+     the group's stored mediums (`followups` in the run file) for wording like "vs main", "regression" or
+     "flagged on main but quiet here". Skip one that starts `(refuted as a regression; …)`: both refuters already
+     dismissed it as a regression, and it stays only as a plain medium. Treat a real one as blocking: fix it in the PR worktree with a test
+     before round 2, committed and pushed as for `repair-staged`.
    - `repair-staged` → `ensure-worktree`, `git -C $WT diff --cached --stat`, commit `fix: address review round 1 (todo <id>)`,
      `ensure-worktree` again, push, then round 2.
    - `rerun` → run round 1 again once. The run file counts it (`review_reruns`, todo 478), so a second
@@ -264,9 +272,10 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    `rerun` and `residue`, first post the refuter-dismissed findings: run `state.py refuted-comment $RUN G --out
    $SCRATCH/refuted-G.md`. If it prints a path, run `gh pr comment <n> --body-file <that path>`. Never
    build `--body` from the findings: they are LLM text, and this step runs with the sandbox off.
-   `clean` → then arm it (see **Arming auto-merge**). The round-2 reviewers read the full
-   diff in fresh contexts; that is the "review before arming" step. You read `--stat` and their verdicts
-   only.
+   `clean` → run the step-1 regression fallback over the round-2 mediums; on a real regression do NOT arm,
+   and report the PR to the owner with that finding. Otherwise arm it (see **Arming auto-merge**). The
+   round-2 reviewers read the full diff in fresh contexts; that is the "review before arming" step. You read
+   `--stat` and their verdicts only.
    `held` → a critical finding was dismissed only by the refuters (in either round). `ingest-review` has
    already blocked the group. Do NOT arm. Report the PR to the owner as held. Only the owner can clear a
    critical. When they do, run `state.py clear-hold $RUN G --decision "<their words, dated>"`, which moves the
@@ -295,7 +304,8 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    (`routing_failed: true`); the round counts as complete only when no changed `.py` outside `apps/blog/` could
    need wagtail-reviewer by content. The router greps through `git -C WT grep` over a pathspec, so no changed
    file's name reaches a shell. No subagent can spawn subagents (pilot P8), so all fan-out is in the workflow
-   script. Each critical/high file:line then faces two refuters and stops blocking only if both refute every
+   script. Each critical/high file:line, and each medium a reviewer flagged
+   `regression` (todo 617), then faces two refuters and stops blocking only if both refute every
    phrasing reported there. A dead reviewer makes the round `rerun`, never a partial pass. The run file keeps each
    todo's `refuted` findings whole (`<severity>: file:line summary | also: …`, never capped, one line per severity
    and file:line across both rounds). List them in the wrap-up, so the owner can see what the refuters dismissed.
@@ -317,11 +327,14 @@ Steps 1–8 run with the sandbox off (see **Sandbox**).
    - For each group, `state.py followups-md $RUN G --out $SCRATCH/followups-G.md` writes its Findings: each
      item with its severity, the cap's dropped count, and the refuted lines under their own heading so the
      owner can re-judge them.
-   - One follow-up todo file per PR with follow-ups or `refuted` lines (a group with only refuted lines gets
-     no curation but still gets one, from `followups-md`): next free id, `p4`, the PR number and that Findings text, all
-     committed together in a closing `chore(todos): follow-ups from run $RUN_ID` PR. A group still held or
-     blocked is an owner hand-off in the wrap-up, not a p4 follow-up. Its dismissed criticals are already on
-     the PR and in its block reason.
+   - **No p4 follow-up todos** (owner decision 2026-10-12). After each review round, append a dated
+     `Review round N: non-blocking findings …` section to the archived todo's Work Log in the PR worktree:
+     each finding either fixed by hand (with a test, and a mutation check when the fix is a guard) or declined
+     with a one-line reason. Commit it, `annotate … tree_id`, `ensure-worktree`, push. A finding that is a
+     regression the PR itself introduced is fixed, not declined. File a new todo only for a P0–P2 finding, and
+     then skip the curation steps above for every other group. Filing every PR's lows as p4s made the 2026-10-12
+     sweeps close 38 P4s while filing 20 new ones. A group still held or blocked is an owner hand-off in the
+     wrap-up. Its dismissed criticals are already on the PR and in its block reason.
 5. `residue` (todo 480): an agent of the review changed the PR worktree, so the reviewers did not all read what
    ships, and a round-1 repair's `git add -A` would have committed it. `review-args` records a baseline per
    round (HEAD, plus every path `git add -A` would take, with its content hash). The workflow checks it before
@@ -374,9 +387,19 @@ Treat `DIRTY` as a stop, never as "still waiting", and recover it as below.
 3. Resolve the conflicts. Only these are mechanical:
    - `todos/` files — rebuild from origin/main, never concatenate both sides (that leaves duplicate `status:`
      keys and doubled criteria and Work Log lines). In this merge "ours" is the branch and "theirs" is
-     origin/main: write origin/main's version (`/usr/bin/git -C $WT show origin/main:<path> > $WT/<path>`),
-     then re-apply this branch's own changes to it by hand — its criteria ticks, its Work Log entries, its
-     archive move;
+     origin/main. Two paths are in play, and they differ when this branch archived the todo: `<branch path>`
+     is the todo's path on this branch (the archived `completed` name), `<main path>` its path on origin/main
+     (the pre-archive `pending` name, which is the only one origin/main has). First save the branch's side, so
+     a tick or Work Log entry missed below is never lost, and check the save before going on:
+     `/usr/bin/git -C $WT show HEAD:<branch path> > $TMPDIR/<name>.branch` must exit 0, and
+     `test -s $TMPDIR/<name>.branch` must pass. Read it from `HEAD`, not stage `:2:`: HEAD is the branch side
+     either way, while `:2:` is at the `completed` name only when git saw the archive as a rename (a heavy
+     archive edit makes it a modify/delete at the `pending` name instead), and a failed `show` still leaves an
+     empty file behind the `>` (todo 637). Then write origin/main's version to a scratch file, and only once
+     that `show` succeeded copy it over the conflicted file:
+     `/usr/bin/git -C $WT show origin/main:<main path> > $TMPDIR/<name>.main`.
+     Then re-apply this branch's own changes from the saved copy by hand — its criteria ticks, its Work Log
+     entries, its archive move;
    - append-only docs (`docs/LEARNINGS.md`, `docs/rules/*.md`) — keep both entries, origin/main's first;
    - `.secrets.baseline` — only its `generated_at` and the `line_number` values: take origin/main's
      `generated_at`, and fix each line number against the merged file. The baseline is hand-maintained;
@@ -387,12 +410,29 @@ Treat `DIRTY` as a stop, never as "still waiting", and recover it as below.
    `/usr/bin/git -C $WT merge --abort`, then
    `state.py set-group $RUN G blocked --field reason="merge conflict with origin/main: <paths>"`, and report
    the PR in the wrap-up as blocked with auto-merge disarmed. Never resolve a source conflict by hand.
-4. Re-run the group's gates on the merged tree: the `command` of every criterion in its `ac.json` whose
-   files the merge touched, and `pre-commit run --files <resolved paths>` (`SKIP=kimi-review`; the commit runs
-   the kimi gate).
+4. Re-run the group's gates on the merged tree: the non-empty `command` of every criterion in its `ac.json`
+   (a criterion does not name the files it covers, so run them all), and `pre-commit run --files <resolved
+   paths>` (`SKIP=kimi-review`). `pre-commit` also exits 1 when a fixer (`trailing-whitespace`,
+   `end-of-file-fixer`) only rewrote a resolved file, which is not a failure: stage the paths it rewrote
+   (`/usr/bin/git -C $WT add -- <rewritten paths>`) and run it again. It fails only when a hook still fails on
+   that second run with nothing left to rewrite (todo 637). If any gate fails, the merge broke the group: never
+   commit or push it, since auto-merge is still armed and would merge it with no one looking. Stop the group as
+   for a non-mechanical conflict above (disarm, `merge --abort`, `set-group $RUN G blocked`), with the failing
+   command in `reason`.
 5. `/usr/bin/git -C $WT add -- <resolved paths>`, then record the merged tree before anything checks it:
    `state.py annotate $RUN G --field tree_id=$(/usr/bin/git -C $WT write-tree)`.
-6. Commit the merge: `/usr/bin/git -C $WT commit --no-edit` (`timeout: 600000`, as in Stage D step 6).
+6. Commit the merge with the kimi gate skipped, and record it: `state.py annotate $RUN G --field
+   kimi_recovery=skipped` (no other value is accepted), which `finish` reports once per group for the wrap-up's
+   `kimi: skipped` total (todo 647), since the PR body is already
+   written (owner decision 2026-10-11, todo 616): mid-merge the staged diff is everything origin/main brought
+   in, already reviewed in its own PRs, so a CRITICAL or a timeout there would block the recovery on code this
+   PR never wrote. The skip also covers the hunks resolved by hand in step 3 (the `todos/` rebuilds, the
+   `.secrets.baseline` line numbers, todo 637): those follow the fixed rules of step 3, and detect-secrets and
+   the other hooks still run on them.
+   `SKIP_KIMI_REVIEW=1 /usr/bin/git -C $WT commit --no-edit` (`timeout: 600000`, as in Stage D step 6). The
+   other pre-commit hooks still run. If a fixer rewrote files, the commit aborted: stage exactly the paths it
+   rewrote (as in Stage D step 6), re-run the gates (step 4) and record the tree again (step 5), then commit
+   again. A hook failure no fixer resolves stops the group as in step 4.
 7. `ensure-worktree` again, then `/usr/bin/git -C $WT push origin <branch>` (no `-u`, no `--force`).
 8. Confirm auto-merge is still armed (`gh pr view <n> --repo $GH_REPO --json autoMergeRequest,mergeStateStatus`)
    and arm it again if not (see **Arming auto-merge**). Then go back to waiting.
@@ -403,12 +443,15 @@ Treat `DIRTY` as a stop, never as "still waiting", and recover it as below.
    earlier blocked attempts included, and a landed todo's earlier blocked attempts too (todo 473: cleanup
    removes only the worktree that landed; the others are left for the owner). Put each in the summary.
    `finish` deletes RUN, and with it the only record of where that staged work is.
-2. `python3 scripts/todos/state.py finish $RUN` removes the run file only when every todo is terminal, and
+2. `python3 scripts/todos/state.py finish $RUN` first prints `kimi_recovery=skipped: N group(s): …`, each group
+   annotated `kimi_recovery=skipped` once (todo 647; `state.py kimi-skipped $RUN` prints the same list as JSON
+   without finishing). It then removes the run file only when every todo is terminal, and
    refuses (exit 1, naming them) while any group is held for the owner (todo 482): `clear-hold` needs the run
    file. Leave it in place and report the held PRs.
 
 The summary lists: merged PRs, blocked todos with reasons, skipped todos, the worktrees from step 1,
-owner hand-offs (prod, device and vendor steps are never attempted), the `kimi: skipped` count,
+owner hand-offs (prod, device and vendor steps are never attempted), the `kimi: skipped` count (Stage D
+step 6 timeouts plus the N groups annotated `kimi_recovery=skipped` by a DIRTY recovery, as `finish` printed them),
 findings the refuters dismissed (per PR), deferred groups (`--limit`), and the follow-ups PR.
 
 ## Safety rails
@@ -420,7 +463,8 @@ findings the refuters dismissed (per PR), deferred groups (`--limit`), and the f
 2. **External verification leaves evidence in the file:** the date and the observed result, quoted.
    "Verified" alone is not evidence.
 3. **No destructive recovery.** Never reset, force-push, delete or `git checkout --` to recover. Stop and report.
-4. **Two review rounds.** Round 2 never repairs; non-blocking findings become follow-up todos.
+4. **Two review rounds.** Round 2 never repairs; non-blocking findings go in the todo's Work Log, fixed or
+   declined, and only a P0–P2 finding becomes a new todo (owner decision 2026-10-12).
 5. **One committer.** Workflows never commit, push or call `gh`; `guard-todo-worker-git.sh` enforces it for
    workers and verifiers. `guard-todo-worker-edit.sh` keeps a worker's edits inside a worktree (todo 541).
 6. **Never read production.** A todo needing prod data is `blocked-prod` and an owner hand-off.

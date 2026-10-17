@@ -228,6 +228,66 @@ def main():
         fm11 = todofile.read_frontmatter(repo / "todos/11-pending-p3-x.md")
         check("600: ... while one skipped without an answer keeps the triager's class and blocked_on",
               fm11["triage"] == "needs-design" and fm11["blocked_on"] == "needs the layout call", fm11)
+        # Todo 614 #1/#5: a blocked-* class answered ready is unblocked too ...
+        (repo / "todos/12-pending-p3-x.md").write_text(head.format(s="pending", i="12"))
+        (repo / "todos/13-pending-p3-x.md").write_text(head.format(s="pending", i="13"))
+        (repo / "todos/14-pending-p3-x.md").write_text(head.format(s="pending", i="14"))
+        later = state.new_run("r4g", "next", 1, [todo("12"), todo("13"), todo("14")], ["12", "13", "14"])
+        state.record_triage(later, [rec("12", "blocked-external", "Vendor ready?", "waits on the vendor"),
+                                    rec("13", "needs-design", "Which layout?", "needs the layout call"),
+                                    rec("14", "needs-research", "", "")])
+        state.decide(later, "12", "ready", decision="Unblocked: the vendor shipped (2026-10-12)")
+        state.decide(later, "13", "ready", decision="Use the two-column layout (2026-10-12)")
+        state.decide(later, "14", "ready")
+        state.confirm(later, "14", 0, "I saw it in prod", "2026-10-12")
+        # ... the `next` Land path: apply-triage runs in the worker's worktree when the todo is already verified.
+        for stage in ("executing", "staged", "verified"):
+            state.transition(later, "13", stage)
+        state.apply_triage(later, repo, "2026-10-12")
+        fm12, fm13, fm14 = (todofile.read_frontmatter(repo / f"todos/{i}-pending-p3-x.md") for i in ("12", "13", "14"))
+        check("614 #5: a blocked-* todo the owner answered ready is written triage: ready with no blocked_on",
+              fm12["triage"] == "ready" and "blocked_on" not in fm12, fm12)
+        check("614 #1: a needs-design todo answered ready is written triage: ready when apply-triage runs at Land "
+              "(stage verified, selector next)", fm13["triage"] == "ready" and "blocked_on" not in fm13, fm13)
+        check("614 #1: a needs-research todo decided plain ready, then a criterion confirmed, keeps its class",
+              fm14["triage"] == "needs-research" and "confirmed by the owner" in fm14["owner_decision"], fm14)
+        # Todo 637 #2/#4: leaving triage with no owner_decision is not an answer. `decide ready --reset-stranded`
+        # with no --decision answers the stranded question only, and `state.py set <id> ready` (a bare
+        # transition) answers nothing, so both keep the triager's class and blocked_on. Both failed before.
+        (repo / "todos/15-pending-p3-x.md").write_text(head.format(s="pending", i="15"))
+        (repo / "todos/16-pending-p3-x.md").write_text(head.format(s="pending", i="16"))
+        bare = state.new_run("r4h", "sweep", 3, [todo("15"), todo("16")], ["15", "16"])
+        state.record_triage(bare, [rec("15", "needs-design", "Which layout?", "needs the layout call"),
+                                   rec("16", "blocked-external", "Vendor ready?", "waits on the vendor")])
+        state.decide(bare, "15", "ready", reset_stranded=True)
+        state.transition(bare, "16", "ready")
+        state.apply_triage(bare, repo, "2026-10-12")
+        fm15, fm16 = (todofile.read_frontmatter(repo / f"todos/{i}-pending-p3-x.md") for i in ("15", "16"))
+        check("637 #2: a needs-design todo decided ready --reset-stranded with no decision keeps its class and "
+              "blocked_on", fm15["triage"] == "needs-design" and fm15["blocked_on"] == "needs the layout call", fm15)
+        check("637 #4: a blocked-* todo moved to ready by a bare `set` keeps its class and blocked_on",
+              fm16["triage"] == "blocked-external" and fm16["blocked_on"] == "waits on the vendor", fm16)
+        # Todo 647 #1: confirm (and clear-hold, release-incomplete, hand-round) append to owner_decision, and none
+        # of them answers the triage question, so a todo moved by a bare `set` and then confirmed keeps its class.
+        (repo / "todos/17-pending-p3-x.md").write_text(head.format(s="pending", i="17"))
+        (repo / "todos/18-pending-p3-x.md").write_text(head.format(s="pending", i="18"))
+        appended = state.new_run("r4i", "sweep", 3, [todo("17"), todo("18")], ["17", "18"])
+        state.record_triage(appended, [rec("17", "needs-design", "Which layout?", "needs the layout call"),
+                                       rec("18", "blocked-external", "Vendor ready?", "waits on the vendor")])
+        state.transition(appended, "17", "ready")
+        state.confirm(appended, "17", 0, "I saw it in prod", "2026-10-12")
+        state.decide(appended, "18", "ready", reset_stranded=True)
+        appended["todos"]["18"]["owner_decision"] = "hold cleared: ship it"  # what clear_hold appends
+        state.apply_triage(appended, repo, "2026-10-12")
+        fm17, fm18 = (todofile.read_frontmatter(repo / f"todos/{i}-pending-p3-x.md") for i in ("17", "18"))
+        check("647 #1: a needs-design todo moved by a bare `set ready`, then confirmed, keeps its class and blocked_on",
+              fm17["triage"] == "needs-design" and fm17["blocked_on"] == "needs the layout call"
+              and "confirmed by the owner" in fm17["owner_decision"], fm17)
+        check("647 #1: a blocked-* todo with only a clear-hold decision keeps its class and blocked_on",
+              fm18["triage"] == "blocked-external" and fm18["blocked_on"] == "waits on the vendor", fm18)
+        check("647 #1: decide with a decision records it as the triage answer",
+              unblocked["todos"]["11"].get("triage_answer") == "Use the two-column layout (2026-10-11)"
+              and "triage_answer" not in appended["todos"]["17"], unblocked["todos"]["11"])
 
         import scan  # noqa: E402 -- scan imports state, so only here
         picked, _ = scan.select(scan.load_todos(repo / "todos"), selector="sweep", inflight=set(),

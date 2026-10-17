@@ -197,11 +197,18 @@ DEFAULTS = {
     # Set, the digest shows the link and sends the headers; unset, only the
     # manage link. The host owns token minting and header policy (todo 416).
     "DIGEST_UNSUBSCRIBE": None,
+    # Dotted path to a host callable() -> Q over the user model, or None.
+    # Set, a member is mailed a digest only while their account matches it,
+    # both when the run selects recipients and when it claims each one. The
+    # host owns its account-wide email policy, e.g. a master email switch
+    # (todo 620); the package never names host user fields.
+    "DIGEST_RECIPIENT_FILTER": None,
     "EMAIL_SITE_URL": None,  # absolute origin for email links; None = settings.SITE_URL
     # Per-channel notification preferences (todo 343): the matrix a member
     # gets when they have not chosen otherwise. In-app is always on and is
     # NOT a preference. Only cells with a real delivery path exist (see
-    # preferences.NOTIFICATION_MATRIX): email is wired for replies only, and
+    # preferences.NOTIFICATION_MATRIX): email is wired for every event (todo
+    # 624; off by default except replies), and
     # the moderation push is a tray-silent client sync with no in-app row,
     # so it is not a preference at all. These defaults ARE the pre-343
     # behaviour, so an existing member with no overrides notices no change.
@@ -211,9 +218,11 @@ DEFAULTS = {
     "DM_GROUP_MAX_PARTICIPANTS": 8,
     "NOTIFICATION_DEFAULTS": {
         "reply": {"push": True, "email": True},
-        "mention": {"push": True},
-        "quote": {"push": True},
-        "solution": {"push": True},
+        # Important-event email (todo 624): off until the member turns it
+        # on, so nobody is silently subscribed to new mail.
+        "mention": {"push": True, "email": False},
+        "quote": {"push": True, "email": False},
+        "solution": {"push": True, "email": False},
     },
 }
 

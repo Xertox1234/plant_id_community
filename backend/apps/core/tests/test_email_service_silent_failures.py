@@ -17,7 +17,9 @@ from django.test import TestCase
 User = get_user_model()
 
 # .html-only templates that render cleanly from the base context alone — used to
-# prove the strip_tags(html) fallback for a missing .txt (finding 2). Templates
+# prove the html_to_text(html) fallback for a missing .txt (finding 2; todo 622
+# replaced raw strip_tags). welcome_email ships its own .txt since todo 622, so
+# it no longer belongs here (todo 639). Templates
 # that need bespoke context vars (blog_post→`post`) or a `{% url %}` namespace
 # not present here (forum_digest→`forum`,
 # disease_alert→`diagnosis`) are intentionally excluded: those .html render
@@ -26,7 +28,6 @@ User = get_user_model()
 # handled non-silently by the .html hard-failure path either way. See the todo's
 # Work Log.
 FALLBACK_RENDERABLE_TEMPLATES = [
-    "welcome_email",
     "generic_notification",
 ]
 
@@ -83,7 +84,7 @@ class TxtFallbackTests(TestCase):
                 )
                 # These templates ship no .txt; before finding 2 they raised
                 # TemplateDoesNotExist → silent `return False`. Now they send,
-                # with a strip_tags(html) plain-text body.
+                # with an html_to_text(html) plain-text body.
                 self.assertTrue(result, f"{name} failed to send")
                 self.assertEqual(len(mail.outbox), 1, f"{name} did not reach outbox")
                 self.assertTrue(
@@ -91,9 +92,9 @@ class TxtFallbackTests(TestCase):
                 )
 
     def test_forum_reply_uses_its_real_txt_template(self):
-        # forum_reply is the one EmailType with a real .txt sibling — it must
-        # still render that, not the fallback (guards against the fallback
-        # shadowing a real .txt).
+        # forum_reply ships a real .txt sibling (as every live family does
+        # since todo 622) — it must still render that, not the fallback
+        # (guards against the fallback shadowing a real .txt).
         user = User.objects.create_user(username="freply", email="fr@example.com")
         result = EmailService().send_email(
             email_type=EmailType.FORUM_REPLY,
@@ -121,8 +122,9 @@ class TxtFallbackTests(TestCase):
 
 
 class WelcomeEmailCanaryTests(TestCase):
-    """Finding 2 canary: welcome_email has no .txt, so it used to silently
-    no-op at the render step for every newly verified user."""
+    """Finding 2 canary: welcome_email once had no .txt, so it silently
+    no-op'd at the render step for every newly verified user (it ships
+    welcome_email.txt since todo 622)."""
 
     def test_send_welcome_email_actually_delivers(self):
         user = User.objects.create_user(
