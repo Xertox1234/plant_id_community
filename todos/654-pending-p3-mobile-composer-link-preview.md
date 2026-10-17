@@ -74,7 +74,7 @@ Todo 428 left this out as its optional item 4 ("slice E").
    428's rule is unchanged).
 2. **Preview what readers will get.** Mirror the server's split rule from
    todo 655 in Dart: a composer **line** that is one sole `http(s)` URL, not
-   inside a `-` list item or inline-code markers, and not a video.
+   inside a list item (a line starting "- ") or inline-code markers, and not a video.
    - Show the card for the **first** such line, plus a "+N more links will
      show as cards" hint for the rest, counted up to the server's real
      ceiling. That is `MAX_LINK_PREVIEWS_PER_BODY` (5), or the spam limit
