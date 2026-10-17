@@ -4,6 +4,9 @@ priority: p3
 issue_id: "654"
 tags: [forum, mobile, link-preview]
 dependencies: []
+triage: ready
+triaged: 2026-10-17
+owner_decision: "Simulator counts: an iOS simulator run against the local backend satisfies the on-device criterion (2026-10-17)"
 ---
 
 # The mobile composer shows no link preview while writing
