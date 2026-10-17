@@ -1582,6 +1582,60 @@ def test_655_a_split_past_the_block_cap_is_refused():
 
 
 @pytest.mark.django_db
+@_fetcher("fake_fetcher")
+@pytest.mark.parametrize(
+    "html",
+    [
+        # One paragraph of 101 URL lines.
+        "<br>".join(f"https://site{n}.example/" for n in range(101)),
+        # 50 link lines, each between lines of text.
+        "<br>".join(
+            line
+            for n in range(50)
+            for line in (f"Site {n}:", f"https://site{n}.example/")
+        )
+        + "<br>The end.",
+    ],
+)
+def test_655_a_wall_of_link_lines_still_saves(html):
+    """A wall of links saved as one block before the split existed, so the
+    split must never turn it into a 400: only the link lines that can still
+    become a card are split out (the first five distinct), the rest stay
+    lines of their paragraph."""
+    resp = _create(_client(_member()), _board(), [_paragraph(html)])
+
+    assert resp.status_code == 201, resp.data
+    stored = _stored()
+    assert len(stored) <= 12
+    cards = [value["url"] for kind, value in stored if kind == "link_preview"]
+    assert cards == [f"https://site{n}.example/" for n in range(5)]
+    assert sorted(CALLS) == sorted(cards)
+
+
+def test_655_a_repeated_or_over_cap_link_line_is_not_split_out():
+    from wagtail_forum.api.sanitize import _split_link_paragraphs
+
+    urls = [f"https://site{n}.example/" for n in range(6)]
+    split = _split_link_paragraphs(
+        [
+            {"type": "link_preview", "value": {"url": urls[0]}},
+            {"type": "paragraph", "value": "<br>".join(["Intro", *urls, urls[1]])},
+        ]
+    )
+
+    # urls[0] is already a card and urls[5] is past the cap of five, so both
+    # stay lines of a run; the repeat of urls[1] does too.
+    assert [block["value"] for block in split[1:]] == [
+        f"Intro<br>{urls[0]}",
+        urls[1],
+        urls[2],
+        urls[3],
+        urls[4],
+        f"{urls[5]}<br>{urls[1]}",
+    ]
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("written", "resent"),
     [

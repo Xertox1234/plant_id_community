@@ -265,6 +265,23 @@ count.
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-10-17 - Repaired by the todo sweep (run 2026-10-17-1622)
+
+- Round-1 review (medium, regression): a legacy body of one paragraph with
+  101 URL lines, or about 50 link lines between text, saved on main as one
+  block but 400'd after the split ("too many blocks"), so it could not be
+  edited at all.
+- `_split_link_paragraphs` (`backend/packages/wagtail_forum/wagtail_forum/api/sanitize.py`)
+  now splits out only link lines that can still become a card or embed: the
+  first `MAX_LINK_PREVIEWS_PER_BODY` distinct card URLs and the first
+  `MAX_EMBED_URLS_PER_BODY` distinct video URLs, counting the body's own
+  cards and embeds first. Repeats and links past the cap stay lines of
+  their run, so the split adds only a handful of blocks.
+- The post-split `MAX_BODY_BLOCKS` check (AC 5) is kept: 99 paragraphs plus
+  one that splits into three is still refused. New tests pin a wall of 101
+  link lines and 50 interleaved link lines saving with five cards, and the
+  repeat/over-cap rule; the README "Link previews" section says so.
+
 ## Notes
 
 - P3 to match todo 654: readers already get a card for a lone link; this

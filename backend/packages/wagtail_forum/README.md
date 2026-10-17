@@ -579,7 +579,13 @@ already shows is still kept when its post is edited (reuse needs no fetch). The 
   is a single link, is stored exactly as before. So
   `<p>Intro</p><p>https://example.com/a</p><p>Outro</p>` and the mobile
   shape `Intro<br>https://example.com/a<br>Outro` are both stored as
-  paragraph, `link_preview`, paragraph. The block cap
+  paragraph, `link_preview`, paragraph. Only a link line that can still
+  become a card or an embed is split out: the first
+  `MAX_LINK_PREVIEWS_PER_BODY` distinct card URLs and the first
+  `MAX_EMBED_URLS_PER_BODY` distinct video URLs, counting the body's own
+  cards and embeds first. A repeat or a link past its cap stays a line of
+  its paragraph, so a wall of links adds only a handful of blocks and a
+  body that saved before the split still saves. The block cap
   (`Post body has too many blocks.`) is checked again after the split.
   Already-stored posts are not rewritten; one is split the next time it is
   edited and saved. A client resending a split post, whether merged back

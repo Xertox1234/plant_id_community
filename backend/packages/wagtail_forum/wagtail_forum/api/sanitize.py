@@ -250,25 +250,28 @@ class _LinkLineSplitter(HTMLParser):
         self._emit(html.escape(data, quote=False), data, in_code=excluded)
 
 
-def _is_link_line(line):
-    """Whether one line is a link posted on its own: its whole text is one
-    URL that could be a card (or a video, which the conversion below then
-    embeds), not written as code."""
+def _link_line_url(line):
+    """The URL when one line is a link posted on its own: its whole text is
+    one URL that could be a card (or a video, which the conversion below
+    then embeds), not written as code. Else ``None``."""
     if line["code"]:
-        return False
+        return None
     token = "".join(line["text"]).strip()
     if not token or any(ch.isspace() for ch in token):
-        return False
-    return is_card_url(_trim_url(token))
+        return None
+    url = _trim_url(token)
+    return url if is_card_url(url) else None
 
 
-def _split_link_lines(block):
+def _split_link_lines(block, take=None):
     """``block`` (a ``paragraph``) as a list of blocks: each link line its
     own paragraph, the runs of other lines between them paragraphs with
     their markup as written (todo 655). A link on its own line between
     paragraphs of text can then become a card, or a video embed, like a link
     that is the whole post. A paragraph with no link line, or one that IS a
-    single link, comes back unchanged, byte for byte."""
+    single link, comes back unchanged, byte for byte. ``take(url)``, when
+    given, is asked once per link line in order; a line it declines stays
+    an ordinary line of its run."""
     parser = _LinkLineSplitter()
     parser.feed(
         nh3.clean(
@@ -287,12 +290,13 @@ def _split_link_lines(block):
             entries.append((index, "opaque", "".join(segment["html"]), False, False))
             continue
         for line in segment["lines"]:
+            url = _link_line_url(line)
             entries.append(
                 (
                     index,
                     segment["kind"],
                     "".join(line["html"]),
-                    _is_link_line(line),
+                    url is not None and (take is None or take(url)),
                     not "".join(line["text"]).strip(),
                 )
             )
@@ -340,11 +344,43 @@ def _split_link_lines(block):
 
 
 def _split_link_paragraphs(value):
-    """Every ``paragraph`` block through ``_split_link_lines``, in order."""
+    """Every ``paragraph`` block through ``_split_link_lines``, in order.
+
+    Only a link line that can still become a card or an embed is split out:
+    the first ``MAX_LINK_PREVIEWS_PER_BODY`` distinct card URLs and the first
+    ``MAX_EMBED_URLS_PER_BODY`` distinct video URLs (when the host embeds),
+    counting the body's own ``link_preview`` and embed blocks first. A
+    repeat, or a link past its cap, would only ever be a link, so it stays a
+    line of its run. That bounds what the split adds to a handful of blocks:
+    a wall of links that saved before splitting existed (one paragraph of 101
+    URL lines) still saves, as a few cards and a paragraph of links.
+    """
+    embeds_on = get_setting("ALLOW_EMBED_BLOCKS")
+    caps = {
+        "card": get_setting("MAX_LINK_PREVIEWS_PER_BODY"),
+        "video": get_setting("MAX_EMBED_URLS_PER_BODY"),
+    }
+    seen = {"card": set(), "video": set()}
+    for block in value:
+        block_value = block.get("value")
+        if block["type"] == "embed" and isinstance(block_value, str):
+            seen["video"].add(block_value)
+        elif block["type"] == "link_preview" and isinstance(block_value, dict):
+            url = block_value.get("url")
+            if isinstance(url, str):
+                seen["card"].add(url.strip())
+
+    def take(url):
+        kind = "video" if embeds_on and is_supported_url(url) else "card"
+        if url in seen[kind] or len(seen[kind]) >= caps[kind]:
+            return False
+        seen[kind].add(url)
+        return True
+
     split = []
     for block in value:
         if block["type"] == "paragraph" and isinstance(block.get("value"), str):
-            split.extend(_split_link_lines(block))
+            split.extend(_split_link_lines(block, take))
         else:
             split.append(block)
     return split

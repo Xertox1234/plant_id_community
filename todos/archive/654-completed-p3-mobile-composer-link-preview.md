@@ -248,6 +248,13 @@ Todo 428 left this out as its optional item 4 ("slice E").
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-10-17 - Repaired by the todo sweep (run 2026-10-17-1622)
+
+- No change to this todo's code: the round-1 finding was in todo 655's
+  server split (`backend/packages/wagtail_forum/wagtail_forum/api/sanitize.py`),
+  which now splits out only link lines within the card and embed caps.
+- Evidence for every open criterion was re-run against the repaired tree.
+
 ## Notes
 
 - P3: no reader-facing gap; it's a composer convenience.
