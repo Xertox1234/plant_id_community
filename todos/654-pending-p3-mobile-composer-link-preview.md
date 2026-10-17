@@ -6,7 +6,7 @@ tags: [forum, mobile, link-preview]
 dependencies: ["655"]
 triage: ready
 triaged: 2026-10-17
-owner_decision: "Simulator counts: an iOS simulator run against the local backend satisfies the on-device criterion (2026-10-17)"
+owner_decision: "Run after 655 in the same run; the hint caps at 5 per 655's spam-limit decision (2026-10-17)"
 ---
 
 # The mobile composer shows no link preview while writing

@@ -4,6 +4,9 @@ priority: p3
 issue_id: "655"
 tags: [forum, backend, mobile, link-preview]
 dependencies: []
+triage: ready
+triaged: 2026-10-17
+owner_decision: "1a: raise the package default SPAM_MAX_LINKS to 5, matching MAX_LINK_PREVIEWS_PER_BODY; a prod CMS spam_max_links override is the owner's to raise (2026-10-17)"
 ---
 
 # A link on its own line never becomes a card when the post has other text
