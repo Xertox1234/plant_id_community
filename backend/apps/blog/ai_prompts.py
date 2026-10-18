@@ -27,7 +27,8 @@ class PlantAIPrompts:
         Returns:
             Formatted AI prompt string
         """
-        base_prompt = f"""Write a concise, engaging description for {plant_name} that would appeal to home gardeners and plant enthusiasts.
+        base_prompt = f"""Write a concise, engaging description for {plant_name} \
+that would appeal to home gardeners and plant enthusiasts.
 
 The description should include:
 - Key identifying characteristics (leaves, flowers, growth habit)
@@ -57,7 +58,7 @@ Style guidelines:
                 additional_context.append(f"Blooms: {existing_data['bloom_time']}")
 
             if additional_context:
-                base_prompt += f"\n\nPlant details to reference:\n" + "\n".join(
+                base_prompt += "\n\nPlant details to reference:\n" + "\n".join(
                     additional_context
                 )
 
@@ -176,7 +177,7 @@ Write encouraging, practical advice that helps ensure success.""",
                 context_info.append(f"Plant type: {existing_data['plant_type']}")
 
             if context_info:
-                base_prompt += f"\n\nPlant characteristics to consider:\n" + "\n".join(
+                base_prompt += "\n\nPlant characteristics to consider:\n" + "\n".join(
                     context_info
                 )
 
@@ -313,7 +314,10 @@ def get_ai_prompt_for_block(block_type: str, field_name: str, context: Dict) -> 
             )
 
     # Fallback generic prompt
-    return f"Write helpful, accurate content about {field_name} for {plant_name}. Keep it practical and encouraging for home gardeners."
+    return (
+        f"Write helpful, accurate content about {field_name} for {plant_name}. "
+        "Keep it practical and encouraging for home gardeners."
+    )
 
 
 def get_available_ai_prompts() -> Dict[str, List[str]]:

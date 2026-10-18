@@ -1,13 +1,12 @@
 name: Backend CI
 
-# Lint scope decision (todo 132): flake8/black/isort are intentionally NOT run
-# here — they stay pre-commit-enforced (.pre-commit-config.yaml pins black 24.1.1,
-# flake8 7.0.0, isort 5.13.2). A full-tree flake8 gate would be red: project code
-# (excluding venv/migrations) carries ~3,179 pre-existing violations, and that debt
-# is explicitly frozen (root setup.cfg: "do not widen these suppressions").
-# pre-commit lints incrementally on changed files; a faithful CI equivalent needs
-# diff-scoped linting. Residual risk: --no-verify bypasses pre-commit. Future path:
-# a diff-scoped lint job, or debt cleanup followed by a full-tree gate.
+# Lint gate (closes the todo-132 gap): black, isort and flake8 run here over
+# every tracked backend/*.py with the SAME pins, args and file scope as
+# .pre-commit-config.yaml, by running those three pre-commit hooks directly.
+# Before this, lint was pre-commit-only and `git commit --no-verify` bypassed
+# it entirely; the full-tree gate became possible once the frozen debt was
+# cleared (179 findings -> 0, PR for this gate). The per-file-ignores in the
+# root setup.cfg still apply and must not widen.
 
 'on':
   push:
@@ -16,6 +15,8 @@ name: Backend CI
       - 'backend/**'
       - '.github/workflows/backend-ci.yml'
       - '.python-version'
+      - '.pre-commit-config.yaml'
+      - 'setup.cfg'
   pull_request:
     branches: [main, develop]
     # No path filter on pull_request: the backend-checks job is a required
@@ -65,6 +66,25 @@ jobs:
 
       - name: Run Django system checks
         run: python manage.py check
+
+      - name: Restore pre-commit hook environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-lint-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Lint (black, isort, flake8 via the pre-commit hooks)
+        # Runs from the repo root, not backend/: flake8 reads setup.cfg from
+        # the cwd, and its per-file-ignores are backend/-prefixed, so running
+        # from backend/ would silently drop every suppression. `pre-commit run`
+        # takes one hook id per call. --all-files applies each hook's `files:`
+        # filter (^backend/.*\.py$), the same scope the local commit hook sees.
+        working-directory: ${{ github.workspace }}
+        run: |
+          python -m pip install pre-commit==4.6.0
+          pre-commit run black --all-files --show-diff-on-failure
+          pre-commit run isort --all-files --show-diff-on-failure
+          pre-commit run flake8 --all-files
 
       - name: Start-script self-test (bin/start.sh supervision rules)
         # The Railway start command runs gunicorn + the Celery worker in one

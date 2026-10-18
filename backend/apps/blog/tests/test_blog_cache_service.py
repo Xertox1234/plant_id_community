@@ -9,17 +9,12 @@ Validates:
 """
 
 import hashlib
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import TestCase
 
-from ..constants import (
-    BLOG_LIST_CACHE_TIMEOUT,
-    BLOG_POST_CACHE_TIMEOUT,
-    CACHE_PREFIX_BLOG_LIST,
-    CACHE_PREFIX_BLOG_POST,
-)
+from ..constants import CACHE_PREFIX_BLOG_LIST, CACHE_PREFIX_BLOG_POST
 from ..services.blog_cache_service import BlogCacheService
 
 
@@ -224,8 +219,8 @@ class BlogCacheServiceTestCase(TestCase):
 
         # Both pages should be gone (if delete_pattern available)
         # Note: This test may behave differently on non-Redis backends
-        result1 = BlogCacheService.get_blog_category("test-category", page=1)
-        result2 = BlogCacheService.get_blog_category("test-category", page=2)
+        BlogCacheService.get_blog_category("test-category", page=1)
+        BlogCacheService.get_blog_category("test-category", page=2)
 
         # On Redis, both should be None
         # On non-Redis, they might still exist (natural expiration)
@@ -267,9 +262,9 @@ class BlogCacheServiceTestCase(TestCase):
 
         # All should be gone (on Redis - on non-Redis, might log warning)
         # We mainly verify it doesn't crash
-        post1 = BlogCacheService.get_blog_post("post-1")
-        post2 = BlogCacheService.get_blog_post("post-2")
-        list1 = BlogCacheService.get_blog_list(page=1, limit=10, filters={})
+        BlogCacheService.get_blog_post("post-1")
+        BlogCacheService.get_blog_post("post-2")
+        BlogCacheService.get_blog_list(page=1, limit=10, filters={})
 
         # Behavior depends on backend, so we don't assert values
         # Just verify method completed without exception

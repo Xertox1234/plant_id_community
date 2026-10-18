@@ -8,8 +8,6 @@ Tests authorization for all custom permission classes:
 - IsOwnerOrReadOnly
 """
 
-from decimal import Decimal
-
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone

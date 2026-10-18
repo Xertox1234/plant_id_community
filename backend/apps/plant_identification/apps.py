@@ -13,7 +13,8 @@ class PlantIdentificationConfig(AppConfig):
 
         if "auditlog" in settings.INSTALLED_APPS:
             try:
-                import apps.plant_identification.auditlog  # Register models for audit trail (GDPR compliance)  # noqa: F401
+                # Register models for audit trail (GDPR compliance)
+                import apps.plant_identification.auditlog  # noqa: F401
             except RuntimeError:
                 # Auditlog models not yet migrated - registration will happen after migrate
                 pass

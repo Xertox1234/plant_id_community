@@ -38,7 +38,6 @@ References:
 """
 
 from django.db import connection, migrations
-from psycopg2 import sql
 
 
 def create_trending_index_concurrently(apps, schema_editor):

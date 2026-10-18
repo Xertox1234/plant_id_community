@@ -17,12 +17,11 @@ load_dotenv(dotenv_path=env_path)
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "simple_settings")
 
-import sys
 
-import django
-from django.conf import settings
-from django.core.management import execute_from_command_line
-from django.core.management.utils import get_random_secret_key
+import django  # noqa: E402
+from django.conf import settings  # noqa: E402
+from django.core.management import execute_from_command_line  # noqa: E402
+from django.core.management.utils import get_random_secret_key  # noqa: E402
 
 # Configure minimal Django settings
 if not settings.configured:

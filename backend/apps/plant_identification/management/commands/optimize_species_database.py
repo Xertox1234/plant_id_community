@@ -15,11 +15,7 @@ from apps.plant_identification.models import PlantIdentificationResult, PlantSpe
 from apps.plant_identification.services.species_lookup_service import (
     SpeciesLookupService,
 )
-from apps.plant_identification.services.trefle_service import TrefleAPIService
-from django.conf import settings
-from django.core.cache import cache
 from django.core.management.base import BaseCommand, CommandError
-from django.db import models, transaction
 from django.db.models import F
 
 logger = logging.getLogger(__name__)

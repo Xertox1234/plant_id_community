@@ -6,7 +6,6 @@ PlantIdentificationRequest, PlantIdentificationResult, and related models.
 """
 
 import io
-import tempfile
 
 import pytest
 from apps.plant_identification.models import (

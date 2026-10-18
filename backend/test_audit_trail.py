@@ -16,9 +16,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "plant_community_backend.settings")
 django.setup()
 
-from apps.plant_identification.models import PlantIdentificationResult, PlantSpecies
-from apps.users.models import User
-from auditlog.models import LogEntry
+from apps.plant_identification.models import PlantSpecies  # noqa: E402
+from apps.users.models import User  # noqa: E402
+from auditlog.models import LogEntry  # noqa: E402
 
 
 def print_section(title):
@@ -154,14 +154,14 @@ def cleanup_test_data():
     # Delete test user (audit logs will remain)
     deleted_users = User.objects.filter(username="test_audit_user").delete()
     if deleted_users[0] > 0:
-        print(f"✓ Deleted test user (audit logs preserved)")
+        print("✓ Deleted test user (audit logs preserved)")
 
     # Delete test species
     deleted_species = PlantSpecies.objects.filter(
         scientific_name="Testus auditlogicus"
     ).delete()
     if deleted_species[0] > 0:
-        print(f"✓ Deleted test species (audit logs preserved)")
+        print("✓ Deleted test species (audit logs preserved)")
 
     print("\nNOTE: Audit log entries are preserved even after objects are deleted.")
     print("This is required for GDPR Article 30 compliance.")

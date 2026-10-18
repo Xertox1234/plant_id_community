@@ -7,7 +7,6 @@ and the key logic works without requiring a full Django setup.
 import ast
 import os
 import sys
-import traceback
 
 
 def validate_python_syntax(file_path):
