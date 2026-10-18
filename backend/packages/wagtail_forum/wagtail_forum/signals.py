@@ -26,10 +26,15 @@ moderation_decided = Signal()
 # A topic's answer was accepted (audit H6). kwargs: topic, post. Fired from the
 # API view, NOT from a model signal — accepting is an explicit user action, and
 # only the view knows who acted (the `actor` kwarg), which a model-level
-# post_save could not recover. Unmarking fires nothing: there is no one to
-# notify that their answer was un-accepted, and a "your answer was rejected"
-# push is a product decision nobody made.
+# post_save could not recover.
 solution_marked = Signal()
+# A topic's accepted answer was cleared. kwargs: topic_id. Sent when a solution
+# actually cleared: the API unmark (after commit), and the clearing rule when
+# the answer is unpublished or deleted (inside that write, like the receivers
+# above). For state listeners such as live updates; push notifications do not
+# listen: a "your answer was un-accepted" push is a product decision nobody
+# made.
+solution_unmarked = Signal()
 # A badge was awarded (todo 348). kwargs: user_id, badge. Fired from
 # wagtail_forum.badges.award_badges_for_user — which itself runs inside
 # transaction.on_commit at every signal-site trigger — so a receiver may
@@ -56,13 +61,20 @@ def notify(signal, **kwargs):
             )
 
 
-def _is_first_publish(instance):
-    # Wagtail stamps both timestamps with the same value on the first publish;
-    # any later re-publish moves only last_published_at.
+def is_first_publish(instance):
+    """Whether this ``published`` signal is the object's first publish.
+
+    Wagtail stamps both timestamps with the same value on the first publish;
+    any later re-publish moves only last_published_at. Public for hosts that
+    must tell a new post from an edit (live updates).
+    """
     return (
         instance.first_published_at is not None
         and instance.first_published_at == instance.last_published_at
     )
+
+
+_is_first_publish = is_first_publish
 
 
 def _refresh_topic_counters(topic_id):
@@ -204,9 +216,13 @@ def _clear_solution_for_post(post_id):
     """
     from .models import Topic
 
-    Topic.objects.filter(solved_post_id=post_id).update(
-        solved_post=None, solved_at=None, updated_at=timezone.now()
-    )
+    solved = Topic.objects.filter(solved_post_id=post_id)
+    topic_ids = list(solved.values_list("pk", flat=True))
+    if not topic_ids:
+        return
+    solved.update(solved_post=None, solved_at=None, updated_at=timezone.now())
+    for topic_id in topic_ids:
+        notify(solution_unmarked, sender=Topic, topic_id=topic_id)
 
 
 def _refresh_for_post(post):
@@ -459,6 +475,15 @@ def _deleting_map():
     if not hasattr(_deleting_topics, "map"):
         _deleting_topics.map = {}
     return _deleting_topics.map
+
+
+def is_topic_deleting(topic_id):
+    """Whether this topic's delete cascade is running on this thread.
+
+    A host receiver on a Post's ``post_delete`` uses it to stay quiet while the
+    whole topic goes (the topic's own delete stands for its posts).
+    """
+    return topic_id in _deleting_map()
 
 
 @receiver(pre_delete, sender="wagtail_forum.Topic")

@@ -139,6 +139,15 @@ def _visible_boards():
     return ForumBoard.objects.live().public()
 
 
+def visible_topics():
+    """Topics the API may expose: live, on a visible board (audit M6/M7).
+
+    The one definition of topic visibility. Public so a host can apply the
+    same rule outside a REST view (the live-updates socket).
+    """
+    return Topic.objects.filter(live=True, board__in=_visible_boards())
+
+
 def _get_visible_post(post_id):
     """Fetch a live, visible post or 404 in a SINGLE query.
 
@@ -163,9 +172,7 @@ def _get_visible_topic(topic_id):
     lookups, and TopicSubscriptionView.post (audit M6/M7, todo 253 slice 3) —
     so the predicate has one shape, not four.
     """
-    return get_object_or_404(
-        Topic.objects.filter(live=True, board__in=_visible_boards()), id=topic_id
-    )
+    return get_object_or_404(visible_topics(), id=topic_id)
 
 
 def _get_board(slug):
@@ -963,10 +970,7 @@ class PostListView(
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return Post.objects.none()
-        topic = get_object_or_404(
-            Topic.objects.filter(live=True, board__in=_visible_boards()),
-            id=self.kwargs["topic_id"],
-        )
+        topic = get_object_or_404(visible_topics(), id=self.kwargs["topic_id"])
         # select_related("topic") so PostSerializer.can_edit/can_delete
         # (Post.edit_block reads obj.topic) adds no per-post query — flat, no N+1
         # for authenticated listers (todo 252).
