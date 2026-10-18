@@ -411,6 +411,10 @@ EMBED_BUDGET_CACHE_KEY = "ai_rate_limit:forum_embed"
 # top of the existing completion budgets, not carved out of them. Deliberate:
 # the point is that embedding load cannot starve completion quota.
 EMBED_BUDGET_LIMIT = 1000
+# Client-level bound on each embedding request. The query embedding runs on the
+# request path (similar topics, ?semantic=1 search) and the OpenAI SDK default
+# is 600 s; uvicorn has no per-request hard kill (live forum replies, slice 1).
+EMBED_TIMEOUT_SECONDS = 10
 
 # ---------------------------------------------------------------------------
 # AI composer assist (todo 275 / M14). Consumed by

@@ -67,6 +67,8 @@ def _build_embedding_transformer():
         provider="openai",
         model=settings.FORUM_EMBED_MODEL,
         api_key=settings.OPENAI_API_KEY,
+        # Forwarded to the OpenAI client: the SDK default is 600 s.
+        timeout=constants.EMBED_TIMEOUT_SECONDS,
     )
     return CachedEmbeddingTransformer(CoreEmbeddingTransformer(llm))
 

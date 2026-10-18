@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from . import view_schemas as vs
 from .account_links import on_first_provider_link
 from .authentication import set_jwt_cookies
+from .constants import OAUTH_PROVIDER_TIMEOUT_SECONDS
 from .email_verification import (
     get_account_by_email,
     is_address_verified,
@@ -274,7 +275,9 @@ def _handle_google_callback(request, code):
             "redirect_uri": redirect_uri,
         }
 
-        token_response = requests.post(token_url, data=token_data)
+        token_response = requests.post(
+            token_url, data=token_data, timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS
+        )
         token_json = token_response.json()
 
         if "access_token" not in token_json:
@@ -283,7 +286,9 @@ def _handle_google_callback(request, code):
 
         # Get user profile
         profile_url = f"https://www.googleapis.com/oauth2/v2/userinfo?access_token={token_json['access_token']}"
-        profile_response = requests.get(profile_url)
+        profile_response = requests.get(
+            profile_url, timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS
+        )
 
         if profile_response.status_code != 200:
             logger.error(f"[AUTH] Google profile fetch failed: {profile_response.text}")
@@ -331,7 +336,10 @@ def _handle_github_callback(request, code):
         }
 
         token_response = requests.post(
-            token_url, data=token_data, headers={"Accept": "application/json"}
+            token_url,
+            data=token_data,
+            headers={"Accept": "application/json"},
+            timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS,
         )
         token_json = token_response.json()
 
@@ -346,7 +354,9 @@ def _handle_github_callback(request, code):
             "Accept": "application/vnd.github.v3+json",
         }
 
-        profile_response = requests.get(profile_url, headers=headers)
+        profile_response = requests.get(
+            profile_url, headers=headers, timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS
+        )
 
         if profile_response.status_code != 200:
             logger.error(f"[AUTH] GitHub profile fetch failed: {profile_response.text}")
@@ -357,7 +367,9 @@ def _handle_github_callback(request, code):
         # Get user email if not public
         if not user_data.get("email"):
             email_url = "https://api.github.com/user/emails"
-            email_response = requests.get(email_url, headers=headers)
+            email_response = requests.get(
+                email_url, headers=headers, timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS
+            )
             if email_response.status_code == 200:
                 emails = email_response.json()
                 # Verified-email invariant (canonical: docs/patterns/security/

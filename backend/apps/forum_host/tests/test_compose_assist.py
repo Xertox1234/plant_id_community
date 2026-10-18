@@ -274,7 +274,8 @@ def test_prompt_frames_the_draft_as_untrusted_data():
 @pytest.mark.django_db
 def test_provider_call_carries_the_hard_deadline():
     """An interactive request with a human waiting: without the inner deadline a
-    hung provider parks the worker for the full gunicorn timeout."""
+    hung provider parks a web thread indefinitely: uvicorn has no per-request
+    hard kill."""
     client = _premium_client()
     with patch(GENERATE, return_value="ok") as mock_gen:
         client.post(ASSIST_URL, {"text": "draft"}, format="json")
