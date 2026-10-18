@@ -304,3 +304,73 @@ def test_routing_import_error_is_loud():
     from plant_community_backend import asgi
 
     assert "except Exception" not in inspect.getsource(asgi)
+
+
+def _stub_app(started, release):
+    """An inner ASGI app that holds each request until ``release`` is set."""
+
+    async def app(scope, receive, send):
+        started.append(scope["type"])
+        if scope["type"] == "http":
+            await release.wait()
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+
+    return app
+
+
+async def _drive_http(app):
+    comm = BaseApplicationCommunicator(
+        app, {"type": "http", "method": "GET", "path": "/", "headers": HOST}
+    )
+    await comm.send_input({"type": "http.request", "body": b""})
+    return comm
+
+
+def test_http_limit_queues_excess_requests():
+    import asyncio
+
+    from plant_community_backend.asgi_middleware import HttpConcurrencyLimit
+
+    async def run():
+        started, release = [], asyncio.Event()
+        app = HttpConcurrencyLimit(_stub_app(started, release), limit=2)
+        comms = [await _drive_http(app) for _ in range(3)]
+        await asyncio.sleep(0.05)
+        in_flight = len(started)
+        release.set()
+        statuses = []
+        for comm in comms:
+            start = await comm.receive_output(timeout=2)
+            statuses.append(start["status"])
+            await comm.receive_output(timeout=2)
+        return in_flight, statuses
+
+    in_flight, statuses = async_to_sync(run)()
+    assert in_flight == 2  # the third waits instead of getting a 503
+    assert statuses == [200, 200, 200]
+
+
+def test_http_limit_does_not_touch_websocket_scopes():
+    import asyncio
+
+    from plant_community_backend.asgi_middleware import HttpConcurrencyLimit
+
+    async def run():
+        started, release = [], asyncio.Event()
+        app = HttpConcurrencyLimit(_stub_app(started, release), limit=0)
+        comm = BaseApplicationCommunicator(app, {"type": "websocket", "path": "/"})
+        await comm.send_input({"type": "websocket.connect"})
+        await asyncio.sleep(0.05)
+        return started
+
+    assert async_to_sync(run)() == ["websocket"]
+
+
+def test_application_bounds_http_with_the_configured_limit():
+    from plant_community_backend import asgi
+    from plant_community_backend.asgi_middleware import HttpConcurrencyLimit
+
+    http_app = asgi.application.application_mapping["http"]
+    assert isinstance(http_app, HttpConcurrencyLimit)
+    assert http_app.limit == settings.WEB_HTTP_CONCURRENCY == 20

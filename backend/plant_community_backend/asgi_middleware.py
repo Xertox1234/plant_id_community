@@ -1,5 +1,6 @@
 """ASGI middleware for the project's socket and HTTP stacks."""
 
+import asyncio
 import logging
 
 from django.conf import settings
@@ -41,3 +42,38 @@ class OptionalOriginValidator:
                     await send({"type": "websocket.close"})
                     return
         return await self.inner(scope, receive, send)
+
+
+class HttpConcurrencyLimit:
+    """Bound in-flight HTTP requests per worker; extra requests wait.
+
+    Under ASGI, Django runs each in-flight request's sync code on its own
+    thread, holding its own DB connection, so in-flight requests are what
+    Postgres connections scale with. Sockets are a different load: an idle
+    one holds no thread. Bounding HTTP here, apart from uvicorn's
+    ``--limit-concurrency`` (which counts sockets too and answers 503), lets
+    open sockets grow without starving requests or the database. Requests
+    over the limit queue rather than fail; uvicorn's cap still bounds the
+    total connections a worker holds.
+
+    Non-HTTP scopes pass straight through. The semaphore is made per event
+    loop (uvicorn runs one per worker; tests start a fresh loop per call).
+    """
+
+    def __init__(self, inner, limit: int):
+        self.inner = inner
+        self.limit = limit
+        self._loop = None
+        self._semaphore = None
+
+    def _get_semaphore(self) -> asyncio.Semaphore:
+        loop = asyncio.get_running_loop()
+        if self._loop is not loop:
+            self._loop, self._semaphore = loop, asyncio.Semaphore(self.limit)
+        return self._semaphore
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.inner(scope, receive, send)
+        async with self._get_semaphore():
+            return await self.inner(scope, receive, send)

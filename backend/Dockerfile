@@ -64,4 +64,4 @@ RUN DEBUG=True JWT_SECRET_KEY=build-only-throwaway-value-not-a-real-key-00000000
 # migrate/seed run in preDeployCommand, static baked above).
 # CMD is a sane fallback for a bare `docker run`; secrets are injected at runtime.
 EXPOSE 8000
-CMD ["uvicorn", "plant_community_backend.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--no-proxy-headers", "--ws-ping-interval", "20", "--ws-ping-timeout", "20", "--timeout-graceful-shutdown", "50", "--limit-concurrency", "20", "--lifespan", "off"]
+CMD ["env", "DB_CONN_MAX_AGE=0", "uvicorn", "plant_community_backend.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--no-proxy-headers", "--ws-ping-interval", "20", "--ws-ping-timeout", "20", "--timeout-graceful-shutdown", "50", "--limit-concurrency", "500", "--ws-max-size", "4096", "--lifespan", "off"]

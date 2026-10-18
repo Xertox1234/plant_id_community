@@ -1147,6 +1147,12 @@ FORUM_COMPOSE_ASSIST_ENABLED = config(
 # IsPremiumUser, the per-user `care_ask` throttle and RAG_BUDGET_LIMIT.
 FORUM_RAG_ENABLED = config("FORUM_RAG_ENABLED", default=False, cast=bool)
 
+# In-flight HTTP requests per uvicorn worker (plant_community_backend.asgi,
+# HttpConcurrencyLimit). Each holds a thread and a Postgres connection, so
+# 2 workers x 20 keeps the web tier near 40 connections; sockets are bounded
+# separately (bin/start.sh --limit-concurrency, the forum live caps).
+WEB_HTTP_CONCURRENCY = config("WEB_HTTP_CONCURRENCY", default=20, cast=int)
+
 # Live forum replies over WebSockets (spec 2026-10-18). Kill switch: off, no
 # event is broadcast and ws/forum/topics/<id>/ closes 4503, which clients treat
 # like their own "Live updates" setting being off. Ships dark; slice 5 turns

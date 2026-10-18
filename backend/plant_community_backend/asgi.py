@@ -11,6 +11,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "plant_community_backend.setting
 
 from channels.auth import AuthMiddlewareStack  # noqa: E402
 from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
+from django.conf import settings  # noqa: E402
 from django.core.asgi import get_asgi_application  # noqa: E402
 
 # Initialize Django ASGI application early to ensure AppRegistry is ready.
@@ -20,7 +21,7 @@ django_asgi_app = get_asgi_application()
 # imported plainly: a broken routing module must fail the boot, never serve
 # zero socket routes in silence.
 from . import routing as project_routing  # noqa: E402
-from .asgi_middleware import OptionalOriginValidator  # noqa: E402
+from .asgi_middleware import HttpConcurrencyLimit, OptionalOriginValidator  # noqa: E402
 from .channels_middleware import JWTAuthMiddleware  # noqa: E402
 
 
@@ -39,7 +40,11 @@ def build_websocket_app(routes):
 
 application = ProtocolTypeRouter(
     {
-        "http": django_asgi_app,
+        # In-flight requests per worker, each holding a thread and a DB
+        # connection: see HttpConcurrencyLimit and bin/start.sh.
+        "http": HttpConcurrencyLimit(
+            django_asgi_app, limit=settings.WEB_HTTP_CONCURRENCY
+        ),
         "websocket": build_websocket_app(project_routing.websocket_urlpatterns),
     }
 )
