@@ -134,6 +134,7 @@ Mobile (Flutter) is the primary platform. Today the mobile thread screen has no 
   - Requirements: it must honour `--proxy-headers` and forwarded IPs the way rate limiting expects (`RATELIMIT_TRUSTED_PROXY_COUNT=2`). `backend/bin/test-start.sh` must still pass.
 - **`CONN_MAX_AGE`:** prod is `DB_CONN_MAX_AGE=600` (`settings.py:362`). Under ASGI, persistent connections are per thread and pile up across `sync_to_async` executor threads. Django's documentation advises `0` under ASGI. Set it to `0` for the ASGI web process. The builder must check the effect on Celery, which shares settings: Celery may keep its own value. Record the choice.
 - Middleware is all sync. That's acceptable: Django adapts it, at some per-request cost. Converting it to async is **not** in scope.
+- **Outbound timeouts:** gunicorn's `--timeout 120` was the backstop for a hung worker; Uvicorn has none. Every outbound HTTP call in `backend/` needs an explicit timeout (slice 1 audits them).
 - **Remove** `daphne` and everything only it pulls in: Twisted, autobahn, txaio, Automat, constantly, hyperlink, incremental, zope.interface. Also pyOpenSSL and service-identity, if nothing else requires them (`pip show` "Required-by" was empty for both on 2026-10-18; re-check).
   - The builder confirms with a fresh install that nothing imports them.
   - This also closes `GHSA-8pqf-f4m5-798g`, a Twisted IMAP ReDoS found 2026-10-18, unreachable, with no fixed release.
@@ -142,7 +143,7 @@ Mobile (Flutter) is the primary platform. Today the mobile thread screen has no 
   - `.railway/railway.ts` keeps `start: "bash bin/start.sh"` and the same healthcheck.
   - A deploy drains for 60 s (`drainingSeconds: 60`), then sockets drop. Clients must reconnect with jitter (anti-goal: storms).
   - Railway supports WebSocket upgrades.
-- **Cloudflare:** on 2026-10-18, `api.houseplant-md.com` responses carried `server: cloudflare` and `cf-ray`, so traffic passes through Cloudflare. That contradicts `backend/docs/deployment/railway.md:22-25` ("DNS-only"); fix the doc.
+- **Cloudflare (unconfirmed):** on 2026-10-18, `api.houseplant-md.com` responses carried `server: cloudflare` and `cf-ray`, while `backend/docs/deployment/railway.md:22-25` says the record is DNS-only. The headers may come from Railway's own Cloudflare-fronted edge rather than the record. Slice 1's plan confirms which, and updates the doc only if the record is proxied.
   - Cloudflare passes WebSockets but closes connections idle for about 100 s.
   - So a heartbeat at an interval under 100 s is required. Uvicorn's protocol ping (`--ws-ping-interval`, default 20 s) covers it if it reaches Cloudflare. The builder verifies against production, or adds an app-level ping.
 
@@ -186,6 +187,8 @@ All of this goes in the host app. No Channels import in `backend/packages/wagtai
 ### 3. Backend: consumer and auth
 
 - **Route:** `ws/forum/topics/<int:topic_id>/` in `plant_community_backend/routing.py`. The consumer lives in `apps/forum_host/`.
+  - Slice 1 adds a catch-all `re_path(r"^ws/", DenyConsumer)` that closes with 4404, because `URLRouter([])` raises on unmatched paths. Real routes go **before** it.
+  - The web `access_token` cookie has `path="/"` (`apps/users/authentication.py:182`), so the browser sends it on the `/ws/...` handshake.
 - **On connect:**
   - Check that the topic exists and is visible with the **same rules as the REST topic read**: live topic, live and public board (`_visible_boards`, `wagtail_forum/api/views.py:132`). Reuse that code; don't copy the rules.
   - If it isn't, close with a 4xxx code; 4404 is suggested.
