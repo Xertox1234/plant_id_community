@@ -16,12 +16,11 @@ from django.core.asgi import get_asgi_application  # noqa: E402
 # Initialize Django ASGI application early to ensure AppRegistry is ready.
 django_asgi_app = get_asgi_application()
 
-# Imported plainly: a broken routing module must fail the boot, never serve
+# Now it is safe to import modules that rely on Django apps. Routing is
+# imported plainly: a broken routing module must fail the boot, never serve
 # zero socket routes in silence.
 from . import routing as project_routing  # noqa: E402
 from .asgi_middleware import OptionalOriginValidator  # noqa: E402
-
-# Now it is safe to import modules that rely on Django apps
 from .channels_middleware import JWTAuthMiddleware  # noqa: E402
 
 
