@@ -8,7 +8,7 @@ DENY_CLOSE_CODE = 4404
 
 
 class DenyConsumer(WebsocketConsumer):
-    """Refuse a /ws/ path that no real route matched, without accepting it.
+    """Refuse a socket path that no real route matched, without accepting it.
 
     ``URLRouter`` raises ``ValueError`` for an unmatched path, which turns every
     scanner probe into a 500 and a logged traceback. This catch-all closes the

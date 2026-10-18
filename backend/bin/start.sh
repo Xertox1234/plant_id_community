@@ -48,12 +48,17 @@ fi
 WORKER_CMD=${WORKER_CMD:-"celery -A plant_community_backend worker -B --schedule=/tmp/celerybeat-schedule --loglevel=info --concurrency=${CELERY_CONCURRENCY} --max-tasks-per-child=500"}
 # uvicorn serves the ASGI app (HTTP plus, from live forum replies on, WebSockets).
 # `env DB_CONN_MAX_AGE=0` scopes connection reuse off to the web process only:
-# Django runs each sync view on a thread-pool thread under ASGI, so persistent
-# connections would pile up per thread. The Celery worker keeps the default.
+# under ASGI Django gives EACH in-flight request its own thread (a fresh
+# ThreadSensitiveContext per request), so a persistent connection would be
+# stranded on a thread that never runs again. The Celery worker keeps 600.
+# --limit-concurrency caps in-flight requests per worker (uvicorn answers 503
+# above it). Nothing else bounds threads or Postgres connections here: 2 workers
+# x 20 keeps the web tier near 40 connections, under Postgres' default 100 with
+# the worker's headroom. WebSockets count toward it too, so slice 2 revisits it.
 # --ws-ping-interval stays under Cloudflare's ~100 s idle cut; graceful shutdown
 # fits inside drainingSeconds (60). Rollback: set WEB_CMD on Railway to
 # "gunicorn plant_community_backend.wsgi:application --bind 0.0.0.0:${PORT} --workers 2 --timeout 120".
-WEB_CMD=${WEB_CMD:-"env DB_CONN_MAX_AGE=0 uvicorn plant_community_backend.asgi:application --host 0.0.0.0 --port ${PORT} --workers 2 --no-proxy-headers --ws-ping-interval 20 --ws-ping-timeout 20 --timeout-graceful-shutdown 50 --lifespan off"}
+WEB_CMD=${WEB_CMD:-"env DB_CONN_MAX_AGE=0 uvicorn plant_community_backend.asgi:application --host 0.0.0.0 --port ${PORT} --workers 2 --no-proxy-headers --ws-ping-interval 20 --ws-ping-timeout 20 --timeout-graceful-shutdown 50 --limit-concurrency 20 --lifespan off"}
 
 worker_pid=""
 web_pid=""

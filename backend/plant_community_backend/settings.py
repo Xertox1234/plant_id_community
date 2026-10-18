@@ -351,7 +351,7 @@ ASGI_APPLICATION = "plant_community_backend.asgi.application"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 # Persistent connections are a production optimisation for a bounded number of
 # long-lived processes, such as the Celery worker. The web process serves the ASGI
-# app with uvicorn, where Django runs each sync view on a thread-pool thread, so
+# app with uvicorn, where Django gives each in-flight request its own thread, so
 # bin/start.sh starts it with DB_CONN_MAX_AGE=0 (live forum replies, slice 1).
 # `runserver` is the extreme case — it spawns a THREAD PER REQUEST, and each thread's
 # connection is kept for CONN_MAX_AGE, so connections accumulate far faster than

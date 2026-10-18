@@ -584,7 +584,8 @@ service firebase.storage {
   uvicorn plant_community_backend.asgi:application \
     --host 0.0.0.0 --port 8000 \
     --workers 2 --no-proxy-headers \
-    --ws-ping-interval 20 --timeout-graceful-shutdown 50 --lifespan off
+    --ws-ping-interval 20 --timeout-graceful-shutdown 50 \
+    --limit-concurrency 20 --lifespan off
   ```
 
 - [ ] **Process manager** configured (systemd, supervisor)

@@ -29,7 +29,7 @@
 
 ## Review Focus
 
-1. **A slow sync view under ASGI.** Django runs sync views on one thread per worker (`thread_sensitive=True`). Concurrency then matches gunicorn's two sync workers, but gunicorn's `--timeout 120` hard kill is gone: a hung Plant.id call now holds a worker indefinitely. Task 1 pins the provider timeouts that already exist; Task 3 measures concurrency.
+1. **A slow sync view under ASGI.** Django gives each in-flight request its own thread (a fresh `ThreadSensitiveContext` per request; corrected after the final review — an earlier draft said one thread per worker). Gunicorn's `--timeout 120` hard kill is gone, so a hung call holds a thread and its Postgres connection until its own timeout. Task 1 pins the provider timeouts and caps in-flight requests with `--limit-concurrency 20` per worker; Task 3 measures concurrency.
 2. **The healthcheck path under ASGI.** `/api/v1/plant-identification/health/` must return 200 from Uvicorn. Railway's `preDeploy` and healthcheck gate the deploy on it, so Task 2 boots the real app locally and checks it.
 3. **SIGTERM reaching Uvicorn through `env`.** `bash -c "env X=0 uvicorn …"` must exec down to Uvicorn, so the held pid is Uvicorn's own. Task 1's self-test case pins it.
 4. **A WebSocket attempt against empty routes.** `URLRouter([])` raises `ValueError` on any socket, which would mean a 500 plus a traceback for every scanner probe. Task 2 adds a 4404 catch-all and tests it, and the token-log test pins that no token is logged.

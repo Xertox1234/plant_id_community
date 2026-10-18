@@ -102,12 +102,12 @@ def test_stray_websocket_path_closes_4404():
 
 
 @pytest.mark.django_db
-def test_non_ws_prefix_socket_is_refused():
-    """Only /ws/ paths are served. Anything else is the router's no-route error,
-    which the server answers by refusing the handshake."""
-
-    with pytest.raises(ValueError, match="No route found"):
-        async_to_sync(ws_connect)("/api/v1/anything/")
+def test_non_ws_prefix_socket_closes_4404():
+    """Scanners probe paths outside /ws/ too. The catch-all matches every path,
+    so no socket reaches URLRouter's no-route ValueError (a logged traceback)."""
+    connected, code = async_to_sync(ws_connect)("/api/v1/anything/")
+    assert connected is False
+    assert code == 4404
 
 
 @pytest.mark.xfail(strict=True, reason="slice 2 removes token logging")
