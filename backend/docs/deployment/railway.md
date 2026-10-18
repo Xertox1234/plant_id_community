@@ -20,11 +20,16 @@ depends on whether API and frontend share a registrable domain.
 4. Set the **environment variables** (Settings → Variables).
 5. **Custom domain** (Settings → Networking → Custom Domain): add
    `api.houseplant-md.com`, note the CNAME target Railway returns, then in
-   Cloudflare DNS add a CNAME record pointing at it — **DNS-only (grey cloud)**,
-   not proxied (proxying can interfere with Railway's cert issuance and adds a
-   Cloudflare hop that desyncs `RATELIMIT_TRUSTED_PROXY_COUNT`).
+   Cloudflare DNS add a CNAME record pointing at it. The live record is
+   **proxied (orange cloud)**: on 2026-10-18 `dig +short api.houseplant-md.com`
+   returned Cloudflare anycast addresses (104.21.49.65, 172.67.142.81). An
+   earlier version of this step said DNS-only; that was never the prod state.
+   Two consequences: Cloudflare closes a WebSocket that is idle for about
+   100 s, so uvicorn pings every 20 s (`--ws-ping-interval 20` in
+   `bin/start.sh`); and Cloudflare is one of the hops
+   `RATELIMIT_TRUSTED_PROXY_COUNT` (2) has to count.
 6. Deploy. The Docker build bakes `collectstatic`; `preDeployCommand` runs
-   migrations + the forum seed; the start command is gunicorn-only (see below).
+   migrations + the forum seed; the start command only starts the server and the worker (see below).
 
 ## Where service config lives — `.railway/railway.ts` (todo 397)
 
@@ -169,7 +174,7 @@ directly-reachable host can't be tricked into thinking plain HTTP is secure).
 ## Background jobs & scheduling — current topology (forum ops, todo 261 / H21 → todo 335)
 
 **Current prod topology (since 2026-09-05, todo 335): the web service runs
-gunicorn AND a Celery worker in the same container** via `bash bin/start.sh`
+the web server AND a Celery worker in the same container** via `bash bin/start.sh`
 (the `start` field in `.railway/railway.ts`), plus the `forum-prune-cron` service for
 `prune_forum_tombstones`. Since todo 340 the worker also **embeds Celery
 beat** (`-B`, schedule file `/tmp/celerybeat-schedule`) for
@@ -183,20 +188,21 @@ task's 25-minute soft limit re-enqueues itself to finish the members still due.
 
 `bin/start.sh` starts `celery -A plant_community_backend worker -B
 --schedule=/tmp/celerybeat-schedule --loglevel=info --concurrency=2
---max-tasks-per-child=500` and gunicorn as siblings and supervises them with
+--max-tasks-per-child=500` and the web server (uvicorn on the ASGI app since
+live forum replies slice 1, 2026-10-18) as siblings and supervises them with
 three rules (self-test `bash backend/bin/test-start.sh`, run by CI in the
 Django-checks job; on macOS run it in Docker — `docker run --rm -v
 "$PWD/bin:/w" -w /w bash:5.2 bash test-start.sh` — because it needs bash 5.1):
 
-- **gunicorn exits on its own → the worker is stopped and the script exits 1**,
+- **the web server exits on its own → the worker is stopped and the script exits 1**,
   so Railway's `ON_FAILURE` policy (5 container restarts, `.railway/railway.ts`)
   restarts the container.
 - **the worker exits on its own (any status, even 0) → restarted in-container**
   after `WORKER_RESTART_DELAY` (5 s), up to `WORKER_MAX_RESTARTS` (5) times,
-  while gunicorn keeps serving; every restart is logged as
+  while the web server keeps serving; every restart is logged as
   `[start] worker exited with status N; restart k/5`. Past the budget the
   script exits 1 and the failure escalates to a container restart. A dead
-  worker must never quietly leave gunicorn serving a queue nobody drains (the
+  worker must never quietly leave the web server serving a queue nobody drains (the
   2026-07 → 2026-09-05 topology in the History section), but one flaky worker
   crash must not spend the bounded container-restart budget either — that
   budget is shared with the web tier, and exhausting it stops the service.
@@ -225,15 +231,15 @@ unset a push with recipients logs an ERROR, todo 623), and
 
 - **Is it alive?** `railway ssh -- celery -A plant_community_backend inspect ping`
   (expect `celery@<host>: OK`), or look for `celery@… ready.` in the service
-  log next to gunicorn's `Booting worker` lines.
-- **Not covered by the healthcheck.** Railway's healthcheck probes gunicorn's
+  log next to uvicorn's `Started server process` lines.
+- **Not covered by the healthcheck.** Railway's healthcheck probes the web server's
   `/health/` only; a worker stuck retrying the broker or wedged on a task is
   invisible to it. Run the ping above after every deploy that touches Celery
   settings or `bin/start.sh`.
 - **Worker-only restart:** `railway ssh -- celery -A plant_community_backend
   control shutdown` makes `start.sh` restart the worker after 5 s (it counts
   against the 5-restart budget until the next container restart). Never
-  `kill` gunicorn to "restart the app" — that is the exit-1 path; use
+  `kill` the web server to "restart the app" — that is the exit-1 path; use
   `railway redeploy`, which also resets the budget.
 - **Beat liveness:** `celery inspect ping` proves the worker is up, not that
   beat is ticking. Check `railway logs` for `beat: Starting...` after every
@@ -290,7 +296,8 @@ unset a push with recipients logs an ERROR, todo 623), and
   in use before the worker; prefork concurrency 2 adds about three Django
   processes. Raise `CELERY_CONCURRENCY` (env) rather than editing the script —
   and count Postgres connections when you do: each prefork child keeps its own
-  connection open for `CONN_MAX_AGE` (600 s in prod), on top of gunicorn's, so
+  connection open for `CONN_MAX_AGE` (600 s in prod), on top of the web process's (which runs with
+  `DB_CONN_MAX_AGE=0`), so
   concurrency N adds N long-lived connections (todo 331 is what exhausting
   them looks like).
 - **A second service instead?** Same repo + root dir, start command from the
