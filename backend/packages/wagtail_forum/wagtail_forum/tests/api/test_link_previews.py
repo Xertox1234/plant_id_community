@@ -1567,18 +1567,95 @@ def test_655_the_first_piece_keeps_the_block_id_and_no_id_is_duplicated():
 
 @pytest.mark.django_db
 @_fetcher("fake_fetcher")
-def test_655_a_split_past_the_block_cap_is_refused():
-    """``MAX_BODY_BLOCKS`` holds for what is STORED: 99 paragraphs plus one
-    that splits into three would store 101 blocks."""
+def test_657_a_near_cap_body_with_a_link_line_saves_whole():
+    """A body that fits ``MAX_BODY_BLOCKS`` saved before the split existed,
+    so the split must never refuse it (todo 657, replacing todo 655's
+    "split past the cap is refused"): 99 paragraphs plus one that would
+    split into three is stored as 100 blocks, that paragraph whole."""
     body = [_paragraph(f"<p>Line {n}</p>") for n in range(99)]
     body.append(_paragraph(MOBILE_SPLIT))
 
     resp = _create(_client(_member()), _board(), body)
 
-    assert resp.status_code == 400
-    assert "Post body has too many blocks." in str(resp.data)
-    assert not Post.objects.exists()
+    assert resp.status_code == 201, resp.data
+    stored = _stored()
+    assert len(stored) == 100
+    assert stored[-1][0] == "paragraph"
+    assert "Intro" in stored[-1][1]
+    assert "https://example.com/a" in stored[-1][1]
+    assert "Outro" in stored[-1][1]
+    assert not any(kind == "link_preview" for kind, _ in stored)
     assert CALLS == []
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+def test_657_editing_a_near_cap_post_to_add_a_link_line_saves():
+    """The todo's case is an edit: a 99-paragraph post gains a link
+    paragraph and is saved again. It fits the cap, so it saves whole."""
+    user = _member()
+    body = [_paragraph(f"<p>Line {n}</p>") for n in range(99)]
+    created = _create(_client(user), _board(), body)
+    assert created.status_code == 201, created.data
+    post = Post.objects.get()
+
+    resp = _client(user).patch(
+        f"/forum/posts/{post.id}/",
+        {"body": body + [_paragraph(MOBILE_SPLIT)]},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.data
+    post.refresh_from_db()
+    stored = _stored(post)
+    assert len(stored) == 100
+    assert stored[-1][0] == "paragraph"
+    assert "https://example.com/a" in stored[-1][1]
+    assert CALLS == []
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
+def test_657_the_split_uses_what_the_cap_leaves_and_no_more():
+    """96 paragraphs leave room for two more blocks: the first link
+    paragraph splits (+2) and its link becomes a card; the second stays
+    whole, its link an ordinary line, and nothing fetches it."""
+    body = [_paragraph(f"<p>Line {n}</p>") for n in range(96)]
+    body.append(_paragraph(MOBILE_SPLIT))
+    body.append(_paragraph("Before<br>https://example.com/b<br>After"))
+
+    resp = _create(_client(_member()), _board(), body)
+
+    assert resp.status_code == 201, resp.data
+    stored = _stored()
+    assert len(stored) == 100
+    assert [kind for kind, _ in stored[96:99]] == [
+        "paragraph",
+        "link_preview",
+        "paragraph",
+    ]
+    assert stored[97][1]["url"] == "https://example.com/a"
+    assert stored[99][0] == "paragraph"
+    assert "https://example.com/b" in stored[99][1]
+    assert CALLS == ["https://example.com/a"]
+
+
+def test_657_split_link_paragraphs_never_exceeds_the_budget():
+    """A declined split frees the slots its links took, so a later sole
+    link line that fits the budget still splits out."""
+    from wagtail_forum.api.sanitize import _split_link_paragraphs
+
+    value = [
+        {"type": "paragraph", "value": MOBILE_SPLIT},
+        {"type": "paragraph", "value": "https://example.com/a<br>Tail"},
+    ]
+    split = _split_link_paragraphs(value, budget=1)
+
+    assert split == [
+        {"type": "paragraph", "value": MOBILE_SPLIT},
+        {"type": "paragraph", "value": "https://example.com/a"},
+        {"type": "paragraph", "value": "Tail"},
+    ]
 
 
 @pytest.mark.django_db
