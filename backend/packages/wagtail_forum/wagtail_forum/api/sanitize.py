@@ -343,7 +343,7 @@ def _split_link_lines(block, take=None):
     ]
 
 
-def _split_link_paragraphs(value):
+def _split_link_paragraphs(value, budget=None):
     """Every ``paragraph`` block through ``_split_link_lines``, in order.
 
     Only a link line that can still become a card or an embed is split out:
@@ -354,7 +354,15 @@ def _split_link_paragraphs(value):
     line of its run. That bounds what the split adds to a handful of blocks:
     a wall of links that saved before splitting existed (one paragraph of 101
     URL lines) still saves, as a few cards and a paragraph of links.
+
+    ``budget`` is how many blocks the split may add (default: what
+    ``MAX_BODY_BLOCKS`` leaves after ``value``). A paragraph whose split
+    would go past it stays whole, its links auto-linked lines, and the card
+    and video slots it would have used stay free (todo 657): the split never
+    turns a body that fits into a "too many blocks" refusal.
     """
+    if budget is None:
+        budget = MAX_BODY_BLOCKS - len(value)
     embeds_on = get_setting("ALLOW_EMBED_BLOCKS")
     caps = {
         "card": get_setting("MAX_LINK_PREVIEWS_PER_BODY"),
@@ -380,7 +388,13 @@ def _split_link_paragraphs(value):
     split = []
     for block in value:
         if block["type"] == "paragraph" and isinstance(block.get("value"), str):
-            split.extend(_split_link_lines(block, take))
+            before = {kind: set(urls) for kind, urls in seen.items()}
+            pieces = _split_link_lines(block, take)
+            if len(pieces) - 1 > budget:
+                seen.update(before)
+                pieces = [block]
+            budget -= len(pieces) - 1
+            split.extend(pieces)
         else:
             split.append(block)
     return split
@@ -1023,10 +1037,9 @@ def validate_forum_body(
     value = [_without_nul(block) for block in value]
     # A link on its own line becomes its own paragraph (todo 655), so the
     # video and card conversions below see it as a link posted on its own.
-    # The block cap holds for what is stored, so it is checked again.
+    # The split stays within what MAX_BODY_BLOCKS leaves, so a body that
+    # passed the cap above never fails it after splitting (todo 657).
     value = _split_link_paragraphs(value)
-    if len(value) > MAX_BODY_BLOCKS:
-        raise serializers.ValidationError(_("Post body has too many blocks."))
 
     # Embed blocks (todo 344): a URL string, only when the host opted in,
     # only from a provider the host's finders accept. Then the ONE network
