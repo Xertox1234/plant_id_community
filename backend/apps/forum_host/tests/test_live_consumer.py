@@ -345,3 +345,63 @@ def test_trusted_client_ip_from_meta_matches_request_helper():
     )
     assert trusted_client_ip_from_meta(request.META) == "198.51.100.9"
     assert get_trusted_client_ip(request) == "198.51.100.9"
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        # A client-sent underscore twin must not stand in for the proxy's header.
+        [
+            (b"x-forwarded-for", b"203.0.113.7, 10.0.0.2"),
+            (b"x_forwarded_for", b"6.6.6.6, 10.0.0.2"),
+        ],
+        # Repeated headers are joined, not last-wins.
+        [(b"x-forwarded-for", b"203.0.113.7"), (b"x-forwarded-for", b"10.0.0.2")],
+    ],
+)
+def test_scope_meta_builds_headers_as_django_does(headers):
+    """Sockets resolve the client IP exactly as the HTTP rate limiter does, so
+    the scope's META view must follow Django's ASGI header rules."""
+    import io
+
+    from apps.forum_host.consumers import _scope_meta
+    from django.core.handlers.asgi import ASGIRequest
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "query_string": b"",
+        "headers": [(b"host", b"localhost")] + headers,
+        "client": ("10.9.9.9", 5000),
+    }
+    django_meta = ASGIRequest(scope, io.BytesIO()).META
+    ours = _scope_meta(scope)
+    for key in ("REMOTE_ADDR", "HTTP_X_FORWARDED_FOR"):
+        assert ours.get(key) == django_meta.get(key), key
+    with override_settings(RATELIMIT_TRUSTED_PROXY_COUNT=2):
+        assert trusted_client_ip_from_meta(ours) == "203.0.113.7"
+
+
+@pytest.mark.django_db
+def test_topic_removed_is_delivered_then_the_socket_closes_4404():
+    """A reader whose topic went away keeps no subscription to it."""
+    topic, _o, author = _thread("ws-removed")
+    removed = build_event("topic.removed", topic.pk)
+
+    async def run():
+        sock = Socket(topic.pk, author)
+        try:
+            assert await sock.open() == ("accepted", None)
+            await get_channel_layer().group_send(
+                topic_group(topic.pk), {"type": EVENT_HANDLER_TYPE, "event": removed}
+            )
+            frame = await sock.receive_json()
+            close = await sock.comm.receive_output(timeout=2)
+            return frame, close
+        finally:
+            await sock.close()
+
+    frame, close = async_to_sync(run)()
+    assert frame == removed
+    assert close == {"type": "websocket.close", "code": 4404}

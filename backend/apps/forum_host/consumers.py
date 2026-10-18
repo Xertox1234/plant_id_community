@@ -35,11 +35,23 @@ logger = logging.getLogger(__name__)
 
 
 def _scope_meta(scope) -> dict:
-    """A META-shaped view of the handshake, for the shared client-IP rule."""
+    """A META-shaped view of the handshake, for the shared client-IP rule.
+
+    Built by Django's own ASGI rules (``ASGIRequest.__init__``): a header
+    name containing ``_`` is dropped, so a client's ``x_forwarded_for`` can't
+    stand in for the proxy's ``X-Forwarded-For``, and a repeated header is
+    joined with ``,`` rather than the last copy winning.
+    """
     meta = {"REMOTE_ADDR": (scope.get("client") or ("",))[0] or ""}
-    for name, value in scope.get("headers", []):
-        key = "HTTP_" + name.decode("latin-1").upper().replace("-", "_")
-        meta[key] = value.decode("latin-1")
+    for raw_name, raw_value in scope.get("headers", []):
+        name = raw_name.decode("latin-1")
+        if "_" in name:
+            continue
+        key = "HTTP_" + name.upper().replace("-", "_")
+        value = raw_value.decode("latin-1")
+        if key in meta:
+            value = meta[key] + "," + value
+        meta[key] = value
     return meta
 
 
@@ -105,7 +117,14 @@ class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
         await super().receive(text_data=text_data, **kwargs)
 
     async def forum_live_event(self, message):
-        await self.send_json(message["event"])
+        event = message["event"]
+        await self.send_json(event)
+        if event.get("type") == "topic.removed":
+            # The topic is gone for everyone: deliver the event, then drop the
+            # subscription so this socket hears nothing more about it.
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+            self.group_name = None
+            await self.close(code=constants.LIVE_CLOSE_NOT_FOUND)
 
     async def _refuse(self, code: int, reason: str) -> None:
         logger.info(
