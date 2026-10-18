@@ -53,8 +53,8 @@ External Storage:
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │                    Web Server Layer                          │  │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │  │
-│  │  │ Gunicorn/    │  │   Daphne     │  │   Static     │      │  │
-│  │  │   WSGI       │  │   (ASGI)     │  │   Files      │      │  │
+│  │  │  Uvicorn     │  │  Channels    │  │   Static     │      │  │
+│  │  │   (ASGI)     │  │ (consumers)  │  │   Files      │      │  │
 │  │  │ (HTTP/REST)  │  │ (WebSockets) │  │ (WhiteNoise) │      │  │
 │  │  └──────┬───────┘  └──────┬───────┘  └──────────────┘      │  │
 │  └─────────┼──────────────────┼──────────────────────────────────┘  │
@@ -352,7 +352,7 @@ Cache Hit Rate Tracking:
 │  └──────────────┘  └──────────────┘  └──────────────┘              │
 │                                                                       │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
-│  │  Daphne 1    │  │  Daphne 2    │  │  Daphne N    │              │
+│  │  Uvicorn 1   │  │  Uvicorn 2   │  │  Uvicorn N   │              │
 │  │  (ASGI)      │  │  (ASGI)      │  │  (ASGI)      │              │
 │  │  - WebSocket │  │  - WebSocket │  │  - WebSocket │              │
 │  └──────────────┘  └──────────────┘  └──────────────┘              │
@@ -414,51 +414,61 @@ Cache Hit Rate Tracking:
 ## Architectural Decision Records (ADR) Summary
 
 ### ADR-001: Multi-App Architecture
+
 **Decision**: Split backend into focused Django apps
 **Rationale**: Separation of concerns, modularity, team scalability
 **Status**: Implemented ✅
 
 ### ADR-002: Dual API Integration
+
 **Decision**: Use both Plant.id and PlantNet for identification
 **Rationale**: Maximize accuracy, control costs, redundancy
 **Status**: Implemented ✅
 
 ### ADR-003: Parallel API Processing
+
 **Decision**: Call external APIs in parallel using ThreadPoolExecutor
 **Rationale**: 60% performance improvement (4-9s → 2-5s)
 **Status**: Implemented ✅ (Week 2)
 
 ### ADR-004: Redis for Caching
+
 **Decision**: Use Redis for API response caching
 **Rationale**: 40% cache hit rate, instant responses on hits
 **Status**: Implemented ✅ (Week 2)
 
 ### ADR-005: PostgreSQL with Advanced Indexes
+
 **Decision**: Use PostgreSQL with GIN indexes and trigrams
 **Rationale**: Full-text search, 100x query performance improvement
 **Status**: Implemented ✅ (Week 2)
 
 ### ADR-006: Django Channels for WebSockets
+
 **Decision**: Use Channels for real-time progress updates
 **Rationale**: Native Django integration, Redis channel layer
 **Status**: Implemented ✅
 
 ### ADR-007: Celery for Background Tasks
+
 **Decision**: Use Celery for long-running identifications
 **Rationale**: Scalable, retry logic, progress tracking
 **Status**: Implemented ✅
 
 ### ADR-008: Wagtail CMS Integration
+
 **Decision**: Use Wagtail for blog and editorial content
 **Rationale**: Rich content modeling, editorial workflow, Django integration
 **Status**: Implemented ✅
 
 ### ADR-009: UUID for External References
+
 **Decision**: Use UUIDs instead of integer IDs in APIs
 **Rationale**: IDOR prevention, security
 **Status**: Implemented ✅
 
 ### ADR-010: Service Layer Pattern
+
 **Decision**: Extract business logic to service classes
 **Rationale**: Testability, reusability, separation from views
 **Status**: Implemented ✅
