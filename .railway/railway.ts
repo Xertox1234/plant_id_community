@@ -22,16 +22,16 @@ export default defineRailway(() => {
     // build this backend (editable -e ./packages/wagtail_forum), so never set
     // RAILPACK or NIXPACKS here, and never rename the Dockerfile.
     //
-    // bin/start.sh co-locates the Celery worker with gunicorn (todo 335) and
+    // bin/start.sh co-locates the Celery worker with uvicorn (todo 335) and
     // materializes FIREBASE_CREDENTIALS_B64 for FCM push (todo 286). A plain
-    // gunicorn start command runs neither, and nothing alarms.
+    // uvicorn start command runs neither, and nothing alarms.
     start: "bash bin/start.sh",
     preDeploy: "python manage.py migrate --noinput && python manage.py seed_default_forum && python manage.py seed_default_badges",
     healthcheck: "/api/v1/plant-identification/health/",
     healthcheckTimeout: 300,
     // restartPolicyType is omitted: ON_FAILURE is Railway's default and is
     // stored as null. The cap of 5 is what matters, since start.sh exits 1
-    // when gunicorn dies and every container restart spends from it.
+    // when the web server dies and every container restart spends from it.
     //
     // limitOverride caps each container at 21 vCPU. It was set in the
     // dashboard, and the first CI plan (PR #805) proposed resetting it because

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Railway start command for the web service: Celery worker + gunicorn in ONE container.
+# Railway start command for the web service: Celery worker + uvicorn in ONE container.
 #
 # Why one container (todo 335 / audit 2026-09-04 H1): five forum tasks are enqueued
 # with `.delay()` on shipped request paths, and until 2026-09-05 nothing consumed
@@ -9,13 +9,13 @@
 # service would mean a second copy of ~50 env vars to keep in sync.
 #
 # Supervision rules (self-test: bin/test-start.sh):
-#   * gunicorn exits on its own (any status) -> stop the worker, exit 1. Railway's
+#   * the web server exits on its own (any status) -> stop the worker, exit 1. Railway's
 #     ON_FAILURE policy restarts the container; the web tier is what matters.
 #   * the worker exits on its own (any status, even 0) -> restart it in-container
 #     after WORKER_RESTART_DELAY seconds, up to WORKER_MAX_RESTARTS times, while
-#     gunicorn keeps serving. Every restart is logged loudly. Past the budget the
+#     the web server keeps serving. Every restart is logged loudly. Past the budget the
 #     script exits 1 so the failure escalates to a container restart — a dead
-#     worker must never quietly leave gunicorn serving a queue nobody drains (that
+#     worker must never quietly leave the web server serving a queue nobody drains (that
 #     was exactly the pre-2026-09-05 topology), but one flaky worker crash must not
 #     spend Railway's bounded container-restart budget either.
 #   * SIGTERM (redeploy, `railway redeploy`) -> forwarded to both children; exit 0
@@ -46,7 +46,14 @@ fi
 # in this single worker; the schedule file lives in /tmp so the read-only
 # app dir is never written.
 WORKER_CMD=${WORKER_CMD:-"celery -A plant_community_backend worker -B --schedule=/tmp/celerybeat-schedule --loglevel=info --concurrency=${CELERY_CONCURRENCY} --max-tasks-per-child=500"}
-WEB_CMD=${WEB_CMD:-"gunicorn plant_community_backend.wsgi:application --bind 0.0.0.0:${PORT} --workers 2 --timeout 120"}
+# uvicorn serves the ASGI app (HTTP plus, from live forum replies on, WebSockets).
+# `env DB_CONN_MAX_AGE=0` scopes connection reuse off to the web process only:
+# Django runs each sync view on a thread-pool thread under ASGI, so persistent
+# connections would pile up per thread. The Celery worker keeps the default.
+# --ws-ping-interval stays under Cloudflare's ~100 s idle cut; graceful shutdown
+# fits inside drainingSeconds (60). Rollback: set WEB_CMD on Railway to
+# "gunicorn plant_community_backend.wsgi:application --bind 0.0.0.0:${PORT} --workers 2 --timeout 120".
+WEB_CMD=${WEB_CMD:-"env DB_CONN_MAX_AGE=0 uvicorn plant_community_backend.asgi:application --host 0.0.0.0 --port ${PORT} --workers 2 --no-proxy-headers --ws-ping-interval 20 --ws-ping-timeout 20 --timeout-graceful-shutdown 50 --lifespan off"}
 
 worker_pid=""
 web_pid=""
@@ -59,8 +66,9 @@ stop_children() {
 trap stop_children TERM INT
 
 # Each command runs through `bash -c` so an override may carry quotes. For a
-# single simple command (the defaults) bash execs it directly, so the pid we
-# hold IS gunicorn / celery and SIGTERM reaches them without an intermediary.
+# single simple command (the defaults) bash execs it directly, and `env` execs
+# its program in turn, so the pid we hold IS uvicorn / celery and SIGTERM
+# reaches them without an intermediary.
 start_worker() { bash -c "$WORKER_CMD" & worker_pid=$!; }
 
 finish_stopped() {
@@ -84,7 +92,7 @@ finish_stopped() {
 # log lines on both branches below: the failure mode this replaces was silence.
 #
 # Done HERE rather than in Django so both children inherit it — the export must
-# happen before the worker (which actually sends) and gunicorn are forked.
+# happen before the worker (which actually sends) and the web server are forked.
 #
 # A malformed value logs loudly and leaves push disabled rather than exiting:
 # these credentials are push-only, and taking the whole web tier down over them
