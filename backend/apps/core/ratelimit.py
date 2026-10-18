@@ -13,7 +13,7 @@ signature, so every decorator that uses the imported name benefits automatically
 import ipaddress
 import logging
 from functools import wraps
-from typing import Optional
+from typing import Mapping, Optional
 
 from apps.core.utils.pii_safe_logging import log_safe_ip
 from django.conf import settings
@@ -106,7 +106,17 @@ def get_trusted_client_ip(request: HttpRequest) -> Optional[str]:
 
     Returns the validated client IP, or ``None`` when it cannot be determined.
     """
-    remote_addr = request.META.get("REMOTE_ADDR", "")
+    return trusted_client_ip_from_meta(request.META)
+
+
+def trusted_client_ip_from_meta(meta: Mapping[str, str]) -> Optional[str]:
+    """``get_trusted_client_ip`` over a bare META-shaped mapping.
+
+    For callers with no ``HttpRequest``: a WebSocket consumer builds ``meta``
+    from its ASGI scope (``REMOTE_ADDR`` plus ``HTTP_*`` headers), so sockets
+    resolve the client exactly as the rate limiter does.
+    """
+    remote_addr = meta.get("REMOTE_ADDR", "")
     meta_key = getattr(settings, "RATELIMIT_CLIENT_IP_META_KEY", "")
     proxy_count = getattr(settings, "RATELIMIT_TRUSTED_PROXY_COUNT", 0)
 
@@ -114,13 +124,13 @@ def get_trusted_client_ip(request: HttpRequest) -> Optional[str]:
 
     if meta_key:
         # (1) Trusted single real-client header (e.g. Railway's Envoy header).
-        candidate = request.META.get(meta_key, "").strip()
+        candidate = meta.get(meta_key, "").strip()
         if _is_valid_ip(candidate):
             result = candidate
     elif proxy_count > 0:
         # (2) Positional X-Forwarded-For. The trusted position only exists if XFF
         # carries at least proxy_count entries; fewer means a missing expected hop.
-        xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
+        xff = meta.get("HTTP_X_FORWARDED_FOR", "")
         parts = [part.strip() for part in xff.split(",") if part.strip()]
         if len(parts) >= proxy_count:
             candidate = parts[-proxy_count]
@@ -145,9 +155,9 @@ def get_trusted_client_ip(request: HttpRequest) -> Optional[str]:
             "x_envoy_external_address=%r x_real_ip=%r meta_key=%r proxy_count=%s "
             "-> resolved=%s",
             log_safe_ip(remote_addr),
-            _log_safe_forwarded(request.META.get("HTTP_X_FORWARDED_FOR")),
-            _log_safe_forwarded(request.META.get("HTTP_X_ENVOY_EXTERNAL_ADDRESS")),
-            _log_safe_forwarded(request.META.get("HTTP_X_REAL_IP")),
+            _log_safe_forwarded(meta.get("HTTP_X_FORWARDED_FOR")),
+            _log_safe_forwarded(meta.get("HTTP_X_ENVOY_EXTERNAL_ADDRESS")),
+            _log_safe_forwarded(meta.get("HTTP_X_REAL_IP")),
             meta_key,
             proxy_count,
             log_safe_ip(result),
