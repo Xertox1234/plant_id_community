@@ -327,6 +327,11 @@ Sizing (write it into the `start.sh` comment): each in-flight HTTP request gets 
 
 ## Out of scope (later slices)
 
+- **Gates before slice 5 turns the flag on** (from the slice 2 final review):
+  - re-check visibility for open sockets (a board going private or restricted, a topic moving boards sends no event today): bound the socket lifetime or re-check on a timer;
+  - a per-IP connect-rate gate before any DB work, plus a concurrent-connect smoke, because connect work is serialised on one thread per worker;
+  - the owner confirms prod `CORS_ALLOWED_ORIGINS` lists every real web origin (apex and www), since the socket Origin check depends on it.
+
 - Web and mobile clients, the setting, both toasts, pull-to-refresh: slices 3 and 4.
 - Turning the flag on, and the Cloudflare 100 s idle check through production with a socket held open: slice 5. With the flag off, prod sockets close 4503 at once, so the idle path can't be observed until then.
 - A `post.updated` for a post the client has already removed (a moderator restoring it): the client handles it in slices 3/4 by fetching and inserting it in place.
