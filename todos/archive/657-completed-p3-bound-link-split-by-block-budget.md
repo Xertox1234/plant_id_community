@@ -118,6 +118,28 @@ that fits into a refusal.
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-10-17 - Review round 1 (PR #1154): clean, non-blocking findings
+
+- AC 3 evidence: the quoted tail above is shutdown logging. The summary
+  line is line 481 of `657-ac2.txt`:
+  `5549 passed, 8 skipped, 27 warnings in 411.34s (0:06:51)`. The verifier's
+  own re-run gave the same 5549 passed, 8 skipped, exit 0.
+- Fixed: the package README still said the block cap is checked again
+  after the split. It now says the split adds only what `MAX_BODY_BLOCKS`
+  leaves.
+- Fixed: added `test_657_editing_a_near_cap_post_to_add_a_link_line_saves`
+  (PATCH of a 99-paragraph post plus a link paragraph: 200, 100 blocks).
+  It fails with a 400 on the todo 655 `sanitize.py`.
+- Declined: putting the post-split `MAX_BODY_BLOCKS` raise back. It can't
+  be reached: the cap is checked before the split, and the split adds at
+  most `MAX_BODY_BLOCKS - len(value)` blocks, which
+  `test_657_split_link_paragraphs_never_exceeds_the_budget` pins. Removing
+  it is what the todo asks for.
+- Declined: splitting part of a paragraph (the first k link lines) when the
+  full split would go over the budget. This only happens within the last
+  few blocks of a 100-block body, and there the paragraph saves whole
+  instead of the 400 it used to get.
+
 ## Notes
 
 - Also raised in those reviews, for the owner: `SPAM_MAX_LINKS` 3 → 5 also

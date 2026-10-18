@@ -585,8 +585,9 @@ already shows is still kept when its post is edited (reuse needs no fetch). The 
   `MAX_EMBED_URLS_PER_BODY` distinct video URLs, counting the body's own
   cards and embeds first. A repeat or a link past its cap stays a line of
   its paragraph, so a wall of links adds only a handful of blocks and a
-  body that saved before the split still saves. The block cap
-  (`Post body has too many blocks.`) is checked again after the split.
+  body that saved before the split still saves. The split adds only as many
+  blocks as `MAX_BODY_BLOCKS` leaves: a paragraph whose split would go past
+  the cap stays whole, its links ordinary lines with no card (todo 657).
   Already-stored posts are not rewritten; one is split the next time it is
   edited and saved. A client resending a split post, whether merged back
   into one paragraph (the web editor) or as `<br>`-joined lines (the mobile

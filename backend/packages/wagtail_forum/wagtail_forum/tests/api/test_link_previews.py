@@ -1590,6 +1590,31 @@ def test_657_a_near_cap_body_with_a_link_line_saves_whole():
 
 @pytest.mark.django_db
 @_fetcher("fake_fetcher")
+def test_657_editing_a_near_cap_post_to_add_a_link_line_saves():
+    """The todo's case is an edit: a 99-paragraph post gains a link
+    paragraph and is saved again. It fits the cap, so it saves whole."""
+    user = _member()
+    body = [_paragraph(f"<p>Line {n}</p>") for n in range(99)]
+    _create(_client(user), _board(), body)
+    post = Post.objects.get()
+
+    resp = _client(user).patch(
+        f"/forum/posts/{post.id}/",
+        {"body": body + [_paragraph(MOBILE_SPLIT)]},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.data
+    post.refresh_from_db()
+    stored = _stored(post)
+    assert len(stored) == 100
+    assert stored[-1][0] == "paragraph"
+    assert "https://example.com/a" in stored[-1][1]
+    assert CALLS == []
+
+
+@pytest.mark.django_db
+@_fetcher("fake_fetcher")
 def test_657_the_split_uses_what_the_cap_leaves_and_no_more():
     """96 paragraphs leave room for two more blocks: the first link
     paragraph splits (+2) and its link becomes a card; the second stays
