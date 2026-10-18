@@ -10,14 +10,13 @@ Tests complete end-to-end workflows:
 """
 
 from datetime import timedelta
-from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from ..models import CareLog, CareTask, GardenBed, Harvest, Plant
+from ..models import CareTask, GardenBed, Plant
 from ..services.care_schedule_service import CareScheduleService
 from ..services.companion_planting_service import CompanionPlantingService
 from ..services.garden_analytics_service import GardenAnalyticsService

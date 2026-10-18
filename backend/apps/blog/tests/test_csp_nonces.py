@@ -5,7 +5,7 @@ This test suite verifies that Content Security Policy (CSP) nonces are properly
 applied to inline scripts and styles in production mode.
 """
 
-from django.template import Context, RequestContext, Template
+from django.template import RequestContext, Template
 from django.test import RequestFactory, TestCase
 
 

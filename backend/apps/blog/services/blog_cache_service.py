@@ -20,7 +20,6 @@ import hashlib
 import logging
 from typing import Any, Dict, Optional
 
-from django.conf import settings
 from django.core.cache import cache
 
 from ..constants import (

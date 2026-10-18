@@ -16,7 +16,6 @@ import logging
 from datetime import datetime, time, timedelta
 from typing import Any, Dict, Optional
 
-from django.core.cache import cache
 from django_redis import get_redis_connection
 from redis import Redis
 

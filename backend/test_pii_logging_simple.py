@@ -11,10 +11,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Import the PII-safe logging utilities directly
-from apps.core.utils.pii_safe_logging import (
+from apps.core.utils.pii_safe_logging import (  # noqa: E402
     log_safe_email,
     log_safe_ip,
-    log_safe_user_context,
     log_safe_username,
 )
 

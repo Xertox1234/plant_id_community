@@ -3,7 +3,6 @@ Basic tests to demonstrate testing infrastructure.
 """
 
 from django.test import TestCase
-from django.urls import reverse
 
 
 class BasicTestCase(TestCase):

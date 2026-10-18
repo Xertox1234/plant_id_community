@@ -7,7 +7,6 @@ from apps.plant_identification.services import (
     PlantNetAPIService,
     TrefleAPIService,
 )
-from django.conf import settings
 from django.core.management.base import BaseCommand
 
 
@@ -34,7 +33,7 @@ class Command(BaseCommand):
         service = options["service"]
         query = options["query"]
 
-        self.stdout.write(self.style.SUCCESS(f"Testing plant identification APIs..."))
+        self.stdout.write(self.style.SUCCESS("Testing plant identification APIs..."))
 
         if service in ["trefle", "all"]:
             self.test_trefle(query)

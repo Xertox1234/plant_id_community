@@ -21,7 +21,6 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from ..constants import (
-    MAX_IMAGE_HEIGHT,
     MAX_IMAGE_WIDTH,
     MAX_IMAGES_PER_PLANT,
     MAX_PLANT_IMAGE_SIZE_BYTES,
