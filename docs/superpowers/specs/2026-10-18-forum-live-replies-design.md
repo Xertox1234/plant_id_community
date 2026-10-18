@@ -143,7 +143,7 @@ Mobile (Flutter) is the primary platform. Today the mobile thread screen has no 
   - `.railway/railway.ts` keeps `start: "bash bin/start.sh"` and the same healthcheck.
   - A deploy drains for 60 s (`drainingSeconds: 60`), then sockets drop. Clients must reconnect with jitter (anti-goal: storms).
   - Railway supports WebSocket upgrades.
-- **Cloudflare (unconfirmed):** on 2026-10-18, `api.houseplant-md.com` responses carried `server: cloudflare` and `cf-ray`, while `backend/docs/deployment/railway.md:22-25` says the record is DNS-only. The headers may come from Railway's own Cloudflare-fronted edge rather than the record. Slice 1's plan confirms which, and updates the doc only if the record is proxied.
+- **Cloudflare (confirmed proxied, 2026-10-18):** `dig +short api.houseplant-md.com` returns `104.21.49.65` and `172.67.142.81`, which are Cloudflare anycast addresses. So the record is proxied (orange), and `backend/docs/deployment/railway.md:22-25` ("DNS-only") is wrong; slice 1 corrects it.
   - Cloudflare passes WebSockets but closes connections idle for about 100 s.
   - So a heartbeat at an interval under 100 s is required. Uvicorn's protocol ping (`--ws-ping-interval`, default 20 s) covers it if it reaches Cloudflare. The builder verifies against production, or adds an app-level ping.
 
