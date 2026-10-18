@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "656"
 tags: [forum, mobile, link-preview, device-check]
@@ -45,11 +45,11 @@ was moved here, to be checked on the next TestFlight build.
 
 ## Acceptance Criteria
 
-- [ ] On a device: pasting a Wikipedia link in the app composer shows the
+- [x] On a device: pasting a Wikipedia link in the app composer shows the
       card before posting. (Moved from todo 654.)
-- [ ] On a device: a post with text and two link lines shows one composer
+- [x] On a device: a post with text and two link lines shows one composer
       card plus "+1 more", and readers on both platforms see two cards.
-- [ ] On a device: editing that post opens fully editable, and an unchanged
+- [x] On a device: editing that post opens fully editable, and an unchanged
       save keeps both cards.
 
 ## Work Log
@@ -58,3 +58,14 @@ was moved here, to be checked on the next TestFlight build.
 
 - The owner moved todo 654's "on a device" criterion here, rather than hold
   the 654/655 PR for a simulator setup the local backend can't support yet.
+
+### 2026-10-17 - Checked on TestFlight build 16
+
+- Build 1.0.0 (16), built from main at c8dd981e (#1150) with
+  `run_archive.sh --next` and uploaded with `run_upload.sh` (delivery
+  4c43acbf-f139-4f35-976b-a85cf3a80d7d).
+- The owner installed it from TestFlight and reported: "all three checks
+  passed on build 16". These are the lone-link card in the composer, one card
+  plus "+1 more" for two link lines with two cards for readers on both
+  platforms, and editing that post fully editable with both cards kept on an
+  unchanged save.
