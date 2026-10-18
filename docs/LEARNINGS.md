@@ -7370,3 +7370,26 @@ left the hash unchanged, while one `static const` inside `class UserProfileServi
 rule still holds (regenerate after editing a provider), and the new `flutter-codegen` pre-commit hook
 (`scripts/check_flutter_codegen.py`) now enforces it locally. It rebuilds whenever a staged file declares a
 `part '*.g.dart'`, because rebuilding is cheaper than deciding whether an edit touched a provider.
+
+## 2026-10-18 — WebSockets: three things that look right and are not (live replies, slice 2)
+
+- **A close code sent before `accept()` never reaches the client.** Channels'
+  `self.close(code=4404)` in `connect()` before accepting becomes a handshake
+  rejection; uvicorn answers HTTP 403, and the browser reports 1006. A refusal
+  the client must act on (expired token vs. hidden topic vs. kill switch) has
+  to accept first, then close with the code.
+- **The JWT middleware sat OUTSIDE channels' `AuthMiddlewareStack`.** It always
+  wrote `scope["user"]`, so `AuthMiddleware.populate_scope` (which only fills a
+  missing user) did nothing and `resolve_scope` set `_wrapped` on a real User:
+  session auth on sockets had never worked. Inverted, the stack also parses
+  `scope["cookies"]`, which retired a hand-written cookie parser.
+- **"Idle sockets hold no thread" cannot be proved under pytest.** In the
+  asgiref harness, `async_to_sync` runs thread-sensitive work back on the
+  test's own thread. It was measured against a real 2-worker uvicorn instead:
+  30 open sockets grew a worker by 2 threads and Postgres by 0 connections.
+  That measurement is what lets `--limit-concurrency` rise to 500 while HTTP
+  keeps its own bound of 20 per worker (`HttpConcurrencyLimit`).
+
+**General rule.** For socket behaviour, assert what the CLIENT receives
+(accept, then close with the code), not what the consumer called; and measure
+threading claims against the real server, not the test harness.
