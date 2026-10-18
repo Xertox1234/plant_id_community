@@ -291,7 +291,7 @@ def test_origin_compare_is_exact(origin):
 def test_origin_compare_ignores_case():
     status, _code = async_to_sync(ws_connect)(
         ECHO_PATH,
-        _origin("HTTPS://Houseplant-MD.com"),
+        _origin("HTTPS://HOUSEPLANT-md.COM"),
         app=build_websocket_app(echo_routes),
     )
     assert status == "accepted"
