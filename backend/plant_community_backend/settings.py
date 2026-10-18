@@ -5,6 +5,7 @@ Plant Community Web App - A comprehensive platform for plant enthusiasts
 Built with Django 5.2 LTS, Wagtail 7.0 LTS, and modern web technologies.
 """
 
+import logging
 import os
 import sys
 from datetime import timedelta
@@ -1000,27 +1001,39 @@ if not ENABLE_FILE_LOGGING:
         pass
 
 # Channels configuration
-# Try Redis channel layer; fall back to in-memory for local smoke tests
+# Redis channel layer. The in-memory fallback is for DEBUG and test runs only:
+# in production each uvicorn worker would get its own in-memory layer, and a
+# live forum event would reach only the sockets on the worker that sent it,
+# silently. So production keeps Redis even when the boot ping fails (Redis
+# may come up after this process) and says so in the log.
+_redis_url = config("REDIS_URL", default="redis://127.0.0.1:6379/1")
+_REDIS_CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [_redis_url],
+        },
+    },
+}
 try:
-    _redis_url = config("REDIS_URL", default="redis://127.0.0.1:6379/1")
     import redis as _redis
 
-    _client = _redis.from_url(_redis_url)
-    _client.ping()
-    CHANNEL_LAYERS = {
-        "default": {
-            "BACKEND": "channels_redis.core.RedisChannelLayer",
-            "CONFIG": {
-                "hosts": [_redis_url],
-            },
-        },
-    }
-except Exception:
-    CHANNEL_LAYERS = {
-        "default": {
-            "BACKEND": "channels.layers.InMemoryChannelLayer",
+    _redis.from_url(_redis_url).ping()
+    CHANNEL_LAYERS = _REDIS_CHANNEL_LAYERS
+except Exception as _exc:
+    if DEBUG or _IS_TEST_RUN:
+        CHANNEL_LAYERS = {
+            "default": {
+                "BACKEND": "channels.layers.InMemoryChannelLayer",
+            }
         }
-    }
+    else:
+        CHANNEL_LAYERS = _REDIS_CHANNEL_LAYERS
+        logging.getLogger(__name__).warning(
+            "[CHANNELS] Redis ping failed at boot (%s); keeping the Redis "
+            "channel layer",
+            type(_exc).__name__,
+        )
 
 # External API settings
 TREFLE_API_KEY = config("TREFLE_API_KEY", default="")
@@ -1133,6 +1146,14 @@ FORUM_COMPOSE_ASSIST_ENABLED = config(
 # BlogChunks`, a named review-queue owner, then this flag. Bounded then by
 # IsPremiumUser, the per-user `care_ask` throttle and RAG_BUDGET_LIMIT.
 FORUM_RAG_ENABLED = config("FORUM_RAG_ENABLED", default=False, cast=bool)
+
+# Live forum replies over WebSockets (spec 2026-10-18). Kill switch: off, no
+# event is broadcast and ws/forum/topics/<id>/ closes 4503, which clients treat
+# like their own "Live updates" setting being off. Ships dark; slice 5 turns
+# it on after the owner's device check.
+FORUM_LIVE_UPDATES_ENABLED = config(
+    "FORUM_LIVE_UPDATES_ENABLED", default=False, cast=bool
+)
 
 # Firebase Admin SDK service-account JSON path — the CANONICAL credentials
 # setting: both the auth token exchange (apps/users) and the FCM sender
