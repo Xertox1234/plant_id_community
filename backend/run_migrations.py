@@ -3,7 +3,6 @@ Run migrations for simple server
 """
 
 import os
-import sys
 
 import django
 
@@ -11,7 +10,7 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "simple_settings")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-from django.conf import settings
+from django.conf import settings  # noqa: E402
 
 if not settings.configured:
     settings.configure(
@@ -39,7 +38,7 @@ if not settings.configured:
 
 django.setup()
 
-from django.core.management import call_command
+from django.core.management import call_command  # noqa: E402
 
 print("Running migrations...")
 call_command("migrate", verbosity=1)

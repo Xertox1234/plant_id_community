@@ -1,7 +1,6 @@
 # Generated manually for PostgreSQL GIN indexes
 # Performance optimization for text search queries (ICONTAINS)
 
-from django.contrib.postgres.operations import TrigramExtension
 from django.db import connection, migrations
 
 

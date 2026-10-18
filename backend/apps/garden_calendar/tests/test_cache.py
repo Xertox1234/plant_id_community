@@ -12,7 +12,6 @@ Verifies:
 - Cache timeouts (TTL)
 """
 
-from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
@@ -24,7 +23,6 @@ from ..constants import (
     CACHE_KEY_GARDEN_ANALYTICS,
     CACHE_KEY_WEATHER_CURRENT,
     CACHE_KEY_WEATHER_FORECAST,
-    CACHE_TIMEOUT_ANALYTICS,
     CACHE_TIMEOUT_WEATHER,
 )
 from ..models import GardenBed, Plant

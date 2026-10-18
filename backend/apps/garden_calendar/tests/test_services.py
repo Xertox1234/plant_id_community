@@ -9,15 +9,13 @@ Tests business logic for:
 """
 
 from datetime import timedelta
-from decimal import Decimal
 from unittest import skip
-from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
-from ..models import CareLog, CareTask, GardenBed, Harvest, Plant
+from ..models import CareTask, GardenBed, Harvest, Plant
 from ..services.care_schedule_service import CareScheduleService
 from ..services.companion_planting_service import CompanionPlantingService
 from ..services.garden_analytics_service import GardenAnalyticsService
@@ -194,7 +192,8 @@ class CareScheduleServiceTest(TestCase):
         )
 
     @skip(
-        "SERVICE BUG: CareScheduleService.generate_initial_tasks_for_plant() creates CareTask without required created_by field"
+        "SERVICE BUG: CareScheduleService.generate_initial_tasks_for_plant() "
+        "creates CareTask without required created_by field"
     )
     def test_generate_initial_tasks_for_plant(self):
         """Test automatic task generation for new plant."""

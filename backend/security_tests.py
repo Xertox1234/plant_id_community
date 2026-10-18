@@ -8,8 +8,7 @@ including static analysis, dependency scanning, and security test cases.
 import json
 import os
 import subprocess
-import sys
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 
 class SecurityTestSuite:
@@ -36,7 +35,7 @@ class SecurityTestSuite:
 
         try:
             # Run bandit on the apps directory
-            result = subprocess.run(
+            subprocess.run(
                 ["bandit", "-r", "apps/", "-f", "json", "-o", "bandit_report.json"],
                 capture_output=True,
                 text=True,
@@ -355,7 +354,7 @@ class SecurityTestSuite:
         print(f"\nOVERALL SECURITY SCORE: {score:.1f}/100 - {grade}")
 
         # Static Analysis Results
-        print(f"\n📊 STATIC ANALYSIS (Bandit):")
+        print("\n📊 STATIC ANALYSIS (Bandit):")
         static = results.get("static_analysis", {})
         if static.get("status") == "completed":
             print(f"   High Severity Issues: {static.get('high_severity', 0)}")
@@ -368,7 +367,7 @@ class SecurityTestSuite:
                 print(f"   Error: {static['error']}")
 
         # Dependency Scan Results
-        print(f"\n🔍 DEPENDENCY SCAN (Safety):")
+        print("\n🔍 DEPENDENCY SCAN (Safety):")
         deps = results.get("dependency_scan", {})
         if deps.get("status") == "clean":
             print("   ✅ No known vulnerabilities found")
@@ -380,7 +379,7 @@ class SecurityTestSuite:
                 print(f"   Error: {deps['error']}")
 
         # Django Security Check
-        print(f"\n🛡️  DJANGO SECURITY CHECK:")
+        print("\n🛡️  DJANGO SECURITY CHECK:")
         django = results.get("django_security", {})
         if django.get("status") == "passed":
             print("   ✅ All security checks passed")
@@ -389,7 +388,7 @@ class SecurityTestSuite:
             print(f"   Warnings: {django.get('warnings', 0)}")
 
         # Secret Files Check
-        print(f"\n🔒 SECRET FILES CHECK:")
+        print("\n🔒 SECRET FILES CHECK:")
         secrets = results.get("secret_files", {})
         if secrets.get("safe", False):
             print("   ✅ No exposed secret files found")
@@ -402,7 +401,7 @@ class SecurityTestSuite:
                     print(f"      - {file}")
 
         # Security Headers
-        print(f"\n📋 SECURITY HEADERS:")
+        print("\n📋 SECURITY HEADERS:")
         headers = results.get("security_headers", {})
         if headers.get("status") == "completed":
             score = headers.get("score", 0)

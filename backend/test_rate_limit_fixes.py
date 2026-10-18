@@ -10,7 +10,7 @@ This script tests:
 
 import os
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import django
 
@@ -19,16 +19,20 @@ sys.path.append("/home/xertox1234/projects/plant_id_community/backend")
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "plant_community_backend.settings")
 django.setup()
 
-import time
+import time  # noqa: E402
 
-from apps.plant_identification.exceptions import RateLimitExceeded
-from apps.plant_identification.models import PlantSpecies
-from apps.plant_identification.services.monitoring_service import APIMonitoringService
-from apps.plant_identification.services.species_lookup_service import (
+from apps.plant_identification.exceptions import RateLimitExceeded  # noqa: E402
+from apps.plant_identification.models import PlantSpecies  # noqa: E402
+from apps.plant_identification.services.monitoring_service import (  # noqa: E402
+    APIMonitoringService,
+)
+from apps.plant_identification.services.species_lookup_service import (  # noqa: E402
     SpeciesLookupService,
 )
-from apps.plant_identification.services.trefle_service import TrefleAPIService
-from django.core.cache import cache
+from apps.plant_identification.services.trefle_service import (  # noqa: E402
+    TrefleAPIService,
+)
+from django.core.cache import cache  # noqa: E402
 
 
 def test_rate_limit_exception():
@@ -109,7 +113,7 @@ def test_local_first_lookup():
         # Clean up test data
         try:
             PlantSpecies.objects.filter(scientific_name="Test species").delete()
-        except:
+        except Exception:
             pass
 
 

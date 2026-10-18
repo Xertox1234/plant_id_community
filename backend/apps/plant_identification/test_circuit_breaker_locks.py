@@ -10,14 +10,12 @@ Tests cover:
 
 import threading
 import time
-from io import BytesIO
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 from apps.core.exceptions import ExternalAPIError
 from apps.plant_identification.services.plant_id_service import PlantIDAPIService
 from django.core.cache import cache
 from django.test import TestCase
-from pybreaker import STATE_CLOSED, STATE_HALF_OPEN, STATE_OPEN, CircuitBreaker
 
 
 def reset_circuit_breaker():

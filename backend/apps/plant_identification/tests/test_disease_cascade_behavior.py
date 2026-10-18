@@ -98,7 +98,7 @@ class DiseaseCascadeBehaviorTest(TestCase):
         request2 = PlantDiseaseRequest.objects.create(
             user=self.user, status="diagnosed", symptoms_description="Second diagnosis"
         )
-        result2 = PlantDiseaseResult.objects.create(
+        PlantDiseaseResult.objects.create(
             request=request2,
             identified_disease=self.disease,
             suggested_disease_name="Powdery Mildew",
@@ -110,7 +110,7 @@ class DiseaseCascadeBehaviorTest(TestCase):
         request3 = PlantDiseaseRequest.objects.create(
             user=self.user, status="diagnosed", symptoms_description="Third diagnosis"
         )
-        result3 = PlantDiseaseResult.objects.create(
+        PlantDiseaseResult.objects.create(
             request=request3,
             identified_disease=self.disease,
             suggested_disease_name="Powdery Mildew",

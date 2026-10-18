@@ -1,7 +1,6 @@
 # Generated migration for adding NOT NULL constraints - Step 1/3
 # This migration adds temporary defaults to allow safe constraint addition
 
-import django.db.models.deletion
 import wagtail.fields
 from django.conf import settings
 from django.db import migrations, models
