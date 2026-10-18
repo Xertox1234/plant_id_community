@@ -19,6 +19,7 @@ import pytest
 from asgiref.sync import async_to_sync
 from asgiref.testing import ApplicationCommunicator as BaseApplicationCommunicator
 from django.conf import settings
+from django.test import override_settings
 from plant_community_backend.asgi import application, build_websocket_app
 
 from .ws_echo import ECHO_PATH, echo_routes
@@ -230,3 +231,76 @@ def test_session_user_survives_without_token(client, django_user_model):
     sessionid = client.cookies[settings.SESSION_COOKIE_NAME].value
     cookie = f"{settings.SESSION_COOKIE_NAME}={sessionid}".encode()
     assert async_to_sync(ws_echo_user)([(b"cookie", cookie)]) == user.pk
+
+
+def _origin(value):
+    return [(b"origin", value.encode())]
+
+
+@pytest.mark.django_db
+@override_settings(CORS_ALLOWED_ORIGINS=["https://houseplant-md.com"])
+def test_disallowed_origin_rejected_before_accept():
+    """Cross-site WebSocket hijacking: a cookie socket from another site."""
+    status, _code = async_to_sync(ws_connect)(
+        ECHO_PATH, _origin("https://evil.example"), app=build_websocket_app(echo_routes)
+    )
+    assert status == "rejected"
+
+
+@pytest.mark.django_db
+@override_settings(CORS_ALLOWED_ORIGINS=["https://houseplant-md.com"])
+def test_allowed_origin_accepted():
+    status, _code = async_to_sync(ws_connect)(
+        ECHO_PATH,
+        _origin("https://houseplant-md.com"),
+        app=build_websocket_app(echo_routes),
+    )
+    assert status == "accepted"
+
+
+@pytest.mark.django_db
+@override_settings(CORS_ALLOWED_ORIGINS=["https://houseplant-md.com"])
+def test_missing_origin_accepted():
+    """Browsers always send Origin on a socket; the mobile app sends none."""
+    status, _code = async_to_sync(ws_connect)(
+        ECHO_PATH, app=build_websocket_app(echo_routes)
+    )
+    assert status == "accepted"
+
+
+@pytest.mark.django_db
+@override_settings(CORS_ALLOWED_ORIGINS=["https://houseplant-md.com"])
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://houseplant-md.com.evil.example",
+        "http://houseplant-md.com",
+        "https://houseplant-md.com:8443",
+        "null",
+    ],
+)
+def test_origin_compare_is_exact(origin):
+    status, _code = async_to_sync(ws_connect)(
+        ECHO_PATH, _origin(origin), app=build_websocket_app(echo_routes)
+    )
+    assert status == "rejected"
+
+
+@pytest.mark.django_db
+@override_settings(CORS_ALLOWED_ORIGINS=["https://houseplant-md.com"])
+def test_origin_compare_ignores_case():
+    status, _code = async_to_sync(ws_connect)(
+        ECHO_PATH,
+        _origin("HTTPS://Houseplant-MD.com"),
+        app=build_websocket_app(echo_routes),
+    )
+    assert status == "accepted"
+
+
+def test_routing_import_error_is_loud():
+    """A broken routing module must fail the boot, not serve zero routes."""
+    import inspect
+
+    from plant_community_backend import asgi
+
+    assert "except Exception" not in inspect.getsource(asgi)

@@ -16,30 +16,31 @@ from django.core.asgi import get_asgi_application  # noqa: E402
 # Initialize Django ASGI application early to ensure AppRegistry is ready.
 django_asgi_app = get_asgi_application()
 
+# Imported plainly: a broken routing module must fail the boot, never serve
+# zero socket routes in silence.
+from . import routing as project_routing  # noqa: E402
+from .asgi_middleware import OptionalOriginValidator  # noqa: E402
+
 # Now it is safe to import modules that rely on Django apps
 from .channels_middleware import JWTAuthMiddleware  # noqa: E402
-
-try:
-    from . import routing as project_routing
-
-    websocket_routes = project_routing.websocket_urlpatterns
-except Exception:
-    websocket_routes = []
 
 
 def build_websocket_app(routes):
     """The full websocket stack around ``URLRouter(routes)``.
 
-    The session stack is OUTSIDE the JWT middleware: it parses
+    The Origin check is outermost, so a cross-site socket is refused before
+    any auth work. The session stack is OUTSIDE the JWT middleware: it parses
     ``scope["cookies"]`` and sets the session user (or anonymous), and the JWT
     middleware replaces that user only when a token validates.
     """
-    return AuthMiddlewareStack(JWTAuthMiddleware(URLRouter(routes)))
+    return OptionalOriginValidator(
+        AuthMiddlewareStack(JWTAuthMiddleware(URLRouter(routes)))
+    )
 
 
 application = ProtocolTypeRouter(
     {
         "http": django_asgi_app,
-        "websocket": build_websocket_app(websocket_routes),
+        "websocket": build_websocket_app(project_routing.websocket_urlpatterns),
     }
 )
