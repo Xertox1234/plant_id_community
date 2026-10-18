@@ -349,16 +349,19 @@ ASGI_APPLICATION = "plant_community_backend.asgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-# Persistent connections are a production optimisation: gunicorn runs a bounded
-# number of worker processes, so at most that many connections are held.
-# `runserver` is the opposite — it spawns a THREAD PER REQUEST, and each thread's
+# Persistent connections are a production optimisation for a bounded number of
+# long-lived processes, such as the Celery worker. The web process serves the ASGI
+# app with uvicorn, where Django gives each in-flight request its own thread, so
+# bin/start.sh starts it with DB_CONN_MAX_AGE=0 (live forum replies, slice 1).
+# `runserver` is the extreme case — it spawns a THREAD PER REQUEST, and each thread's
 # connection is kept for CONN_MAX_AGE, so connections accumulate far faster than
 # they expire. Under a parallel E2E run this exhausts Postgres `max_connections`
 # in seconds and the backend starts 500ing with
 # "FATAL: sorry, too many clients already" (todo 331).
 #
-# So: keep 600s wherever DEBUG is off (Railway, CI), close per-request in local
-# development. `DB_CONN_MAX_AGE` overrides either way.
+# So: default to 600s wherever DEBUG is off (Railway, CI) for the long-lived
+# processes, and close per-request in local development. `DB_CONN_MAX_AGE`
+# overrides either way, which is how the uvicorn web process gets 0.
 DB_CONN_MAX_AGE = config("DB_CONN_MAX_AGE", default=0 if DEBUG else 600, cast=int)
 
 DATABASES = {
@@ -1377,7 +1380,7 @@ CELERY_TASK_SOFT_TIME_LIMIT = config(
     "CELERY_TASK_SOFT_TIME_LIMIT", default=90, cast=int
 )
 CELERY_TASK_ALWAYS_EAGER = config("CELERY_TASK_ALWAYS_EAGER", default=False, cast=bool)
-# The worker is co-located with gunicorn (bin/start.sh, todo 335) and boots in
+# The worker is co-located with uvicorn (bin/start.sh, todo 335) and boots in
 # parallel with it; keep retrying the broker at startup instead of exiting
 # (which would trip the start script's crash coupling and restart the
 # container). Explicit because Celery 5.3+ warns when it is unset.

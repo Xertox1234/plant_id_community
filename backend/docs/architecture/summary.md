@@ -52,6 +52,7 @@
 ## Key Architectural Patterns
 
 ### 1. Service Layer Pattern
+
 Business logic extracted to service classes, not in views:
 
 ```
@@ -69,6 +70,7 @@ Database/Cache/External APIs
 ---
 
 ### 2. Facade Pattern (Dual API Integration)
+
 `CombinedPlantIdentificationService` hides complexity of multiple APIs:
 
 ```python
@@ -84,6 +86,7 @@ results = service.identify_plant(image)
 ---
 
 ### 3. Parallel Processing (Week 2 Optimization)
+
 ThreadPoolExecutor for simultaneous API calls:
 
 ```
@@ -96,6 +99,7 @@ After (Parallel):     max(Plant.id, PlantNet) = 2-5s (60% faster!)
 ---
 
 ### 4. Multi-Level Caching
+
 Redis-backed caching with SHA-256 image hashing:
 
 ```
@@ -111,6 +115,7 @@ Return <10ms      Call API (2-5s)
 ---
 
 ### 5. Database Performance (Week 2 Optimization)
+
 Composite indexes for common query patterns:
 
 ```sql
@@ -129,6 +134,7 @@ CREATE INDEX idx_species_popularity ON species (identification_count, created_at
 ---
 
 ### 6. Real-Time Updates (Django Channels)
+
 WebSocket consumers for progress tracking:
 
 ```
@@ -145,18 +151,21 @@ Celery Task                User's Browser
 ## Architecture Strengths
 
 ### ✅ Clean Code Architecture
+
 - **Separation of Concerns**: 7 focused Django apps
 - **Dependency Rule**: Layers depend only on inner layers
 - **Service Layer**: Business logic isolated from views
 - **SOLID Principles**: Followed throughout
 
 ### ✅ Performance Optimized
+
 - **60% faster**: Parallel API processing (Week 2)
 - **40% cache hit rate**: Redis caching with SHA-256 keys
 - **100x query speedup**: PostgreSQL composite indexes
 - **Real-time updates**: WebSocket progress streaming
 
 ### ✅ Security Hardened
+
 - **Defense in Depth**: Multiple security layers
 - **CSP**: Content Security Policy enforced
 - **IDOR Prevention**: UUIDs for external references
@@ -164,12 +173,14 @@ Celery Task                User's Browser
 - **JWT + OAuth**: Multi-factor authentication
 
 ### ✅ Scalability Ready
+
 - **Stateless Servers**: Sessions in Redis/DB
 - **Horizontal Scaling**: Load balancer compatible
 - **Async Processing**: Celery for background tasks
 - **CDN-Ready**: WhiteNoise static file serving
 
 ### ✅ Maintainability
+
 - **Type Hints**: All service methods annotated
 - **Centralized Constants**: `constants.py` per app
 - **Structured Logging**: Bracketed prefixes for filtering
@@ -180,22 +191,27 @@ Celery Task                User's Browser
 ## Architecture Risks & Recommendations
 
 ### ⚠️ Risk 1: No Circuit Breaker Pattern
+
 **Impact**: Failed API called repeatedly during outages
 **Recommendation**: Implement circuit breaker (e.g., pybreaker)
 
 ### ⚠️ Risk 2: No API Versioning Strategy
+
 **Impact**: Breaking changes affect all clients
 **Recommendation**: Add explicit versioning (e.g., `/api/v1/`)
 
 ### ⚠️ Risk 3: Cache Stampede Vulnerability
+
 **Impact**: Multiple requests can trigger same API call
 **Recommendation**: Use Redis distributed locks during cache population
 
 ### ⚠️ Risk 4: Local Media Storage
+
 **Impact**: Cannot scale horizontally with local filesystem
 **Recommendation**: Migrate to S3/Cloud Storage
 
 ### ⚠️ Risk 5: Single Celery Queue
+
 **Impact**: Long tasks block short tasks
 **Recommendation**: Separate queues by priority (fast/slow lanes)
 
@@ -204,6 +220,7 @@ Celery Task                User's Browser
 ## Scalability Assessment
 
 ### Current Capacity
+
 - **Concurrent Users**: 100-500 (single server)
 - **Requests/Second**: 50-100 (with caching)
 - **Database Queries**: <10ms (with indexes)
@@ -215,16 +232,19 @@ Celery Task                User's Browser
 ### Scaling Strategy
 
 **Phase 1: Vertical Scaling** (1-1,000 users)
+
 - Upgrade server resources
 - Already implemented: connection pooling, caching
 
 **Phase 2: Horizontal Scaling** (1,000-10,000 users)
+
 - Multiple app servers behind load balancer ✅ Ready
 - Redis cluster for cache + channels ✅ Ready
 - PostgreSQL read replicas
 - S3 for media storage ⚠️ Required
 
 **Phase 3: Geographic Distribution** (10,000+ users)
+
 - CDN for static files ✅ Ready (WhiteNoise)
 - Regional databases
 - Edge caching
@@ -235,6 +255,7 @@ Celery Task                User's Browser
 ## Technology Stack Evaluation
 
 ### Core Framework: Django 5.2 LTS ✅ Excellent Choice
+
 - **Maturity**: 20+ years, battle-tested
 - **LTS Support**: 3 years security updates
 - **Ecosystem**: Rich package ecosystem
@@ -242,24 +263,28 @@ Celery Task                User's Browser
 - **Admin**: Built-in admin interface
 
 ### CMS: Wagtail 7.0 LTS ✅ Strong Choice
+
 - **Integration**: Native Django integration
 - **Content Modeling**: Flexible StreamFields
 - **API**: RESTful API out of the box
 - **Editorial Workflow**: Draft/publish, versioning
 
 ### Cache: Redis 5.0+ ✅ Industry Standard
+
 - **Performance**: In-memory, <1ms latency
 - **Features**: Cache + sessions + channels + celery
 - **Scaling**: Cluster mode available
 - **Fallback**: Graceful degradation to LocMem
 
 ### Database: PostgreSQL 18 ✅ Best Choice
+
 - **Full-Text Search**: GIN indexes, trigrams
 - **JSON Support**: Native JSONB column type
 - **Performance**: Query planner, indexes
 - **Reliability**: ACID compliance, replication
 
 ### Task Queue: Celery 5.4 ✅ Proven Solution
+
 - **Reliability**: Retry logic, error handling
 - **Monitoring**: Flower dashboard
 - **Scaling**: Multiple workers, queues
@@ -293,16 +318,19 @@ Celery Task                User's Browser
 ## Code Quality Metrics
 
 ### Type Safety
+
 - ✅ All service methods have return type hints
 - ✅ Type checking compatible (mypy ready)
 - ✅ Editor autocomplete support
 
 ### Test Coverage
+
 - ✅ 20/20 tests passing (plant_identification)
 - ✅ PostgreSQL test database for production parity
 - ⚠️ Coverage metrics not calculated (add pytest-cov to CI)
 
 ### Documentation
+
 - ✅ Inline docstrings for all services
 - ✅ Architecture documentation (this file)
 - ✅ Week 2 performance guide
@@ -310,6 +338,7 @@ Celery Task                User's Browser
 - ✅ Unit test completion summary
 
 ### Code Organization
+
 - ✅ Centralized constants (`constants.py`)
 - ✅ Service layer pattern (no business logic in views)
 - ✅ DRY principle (base classes for API clients)
@@ -322,11 +351,13 @@ Celery Task                User's Browser
 ### Implemented Security Controls
 
 **Network Security**:
+
 - ✅ HTTPS enforcement (`SECURE_SSL_REDIRECT`)
 - ✅ HSTS headers (31536000 seconds = 1 year)
 - ✅ Secure cookies (`SECURE_COOKIE_SECURE`)
 
 **Application Security**:
+
 - ✅ CSRF protection (Django middleware)
 - ✅ XSS prevention (template escaping + CSP)
 - ✅ SQL injection prevention (Django ORM)
@@ -334,18 +365,21 @@ Celery Task                User's Browser
 - ✅ IDOR prevention (UUIDs for external refs)
 
 **Authentication**:
+
 - ✅ Multi-factor (JWT + Session + OAuth)
 - ✅ Token rotation & blacklisting
 - ✅ Password strength validation
 - ✅ OAuth PKCE for Google
 
 **Monitoring**:
+
 - ✅ Sentry error tracking
 - ✅ Request ID tracking
 - ✅ Structured logging (JSON format)
 - ✅ Security event logging
 
 ### Recommended Enhancements
+
 - ⚠️ Add CSP violation reporting endpoint
 - ⚠️ Implement user-based rate limiting (not just IP)
 - ⚠️ Add API key authentication for mobile clients
@@ -358,31 +392,36 @@ Celery Task                User's Browser
 ### Production Checklist
 
 **Infrastructure**:
+
 - ✅ Load balancer configuration (nginx examples)
 - ✅ Database replication setup (PostgreSQL streaming)
 - ✅ Redis cluster configuration (sentinel/cluster mode)
 - ⚠️ Media storage migration (S3/CloudFront)
 
 **Application**:
+
 - ✅ Environment variable validation
 - ✅ Secret key rotation process
 - ✅ Database migrations tested
 - ✅ Static file collection (`collectstatic`)
-- ✅ WSGI/ASGI server configuration (Gunicorn/Daphne)
+- ✅ WSGI/ASGI server configuration (Uvicorn on the ASGI app)
 
 **Monitoring**:
+
 - ✅ Error tracking (Sentry integration)
 - ⚠️ Performance monitoring (add Prometheus/Grafana)
 - ⚠️ Log aggregation (add ELK/CloudWatch)
 - ⚠️ Uptime monitoring (add Pingdom/UptimeRobot)
 
 **Security**:
+
 - ✅ CSP enforced in production
 - ✅ CORS whitelist configured
 - ✅ Rate limiting enabled
 - ⚠️ SSL certificate automation (Let's Encrypt)
 
 **Backup**:
+
 - ⚠️ Database backup strategy (automated daily)
 - ⚠️ Media file backup (S3 versioning)
 - ⚠️ Redis persistence (RDB + AOF)
@@ -392,6 +431,7 @@ Celery Task                User's Browser
 ## Development Workflow
 
 ### Local Development Setup
+
 ```bash
 # 1. Backend server
 cd backend
@@ -407,6 +447,7 @@ createdb plant_community_test
 ```
 
 ### Running Tests
+
 ```bash
 # All plant_identification tests
 python manage.py test apps.plant_identification
@@ -419,6 +460,7 @@ python test_performance.py
 ```
 
 ### Code Review Process
+
 1. Write code following established patterns
 2. Add type hints to all methods
 3. Extract constants to `constants.py`
@@ -431,6 +473,7 @@ python test_performance.py
 ## Migration Guides
 
 ### From SQLite to PostgreSQL
+
 ```bash
 # 1. Export data
 python manage.py dumpdata > backup.json
@@ -446,6 +489,7 @@ python manage.py loaddata backup.json
 ```
 
 ### From Local Storage to S3
+
 ```python
 # settings.py
 DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
@@ -460,6 +504,7 @@ AWS_S3_REGION_NAME = 'us-west-2'
 ### Key Metrics to Track
 
 **Application Metrics**:
+
 - Requests per second
 - Response time (p50, p95, p99)
 - Error rate (5xx responses)
@@ -467,6 +512,7 @@ AWS_S3_REGION_NAME = 'us-west-2'
 - Database query time
 
 **Infrastructure Metrics**:
+
 - CPU/Memory usage
 - Database connections
 - Redis memory usage
@@ -474,6 +520,7 @@ AWS_S3_REGION_NAME = 'us-west-2'
 - Disk I/O
 
 **Business Metrics**:
+
 - Plant identifications per day
 - Active users
 - API usage by provider

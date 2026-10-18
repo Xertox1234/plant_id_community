@@ -76,6 +76,19 @@ kill -TERM "$pid"; wait_exit "$pid" 5
 sleep 0.5
 { pid_alive w4 || pid_alive g4; } && flunk "a child survived SIGTERM" || pass "both children stopped on SIGTERM"
 
+# Case 4b: the default web command is `env DB_CONN_MAX_AGE=0 uvicorn …`. bash -c
+# must exec env and env must exec the program, so the pid start.sh holds (and
+# signals) is the server itself: the child's parent is start.sh, not a shell.
+WORKER_CMD="$(child w6)" WEB_CMD="env FOO=1 sh -c 'echo \$PPID > $tmp/g6.ppid; echo \$\$ > $tmp/g6.pid; exec sleep 30'" \
+  bash "$START" >/dev/null 2>&1 &
+pid=$!; sleep 0.7
+[[ -f $tmp/g6.ppid && $(cat "$tmp/g6.ppid") == "$pid" ]] && pass "an env-prefixed web command runs with start.sh as its direct parent" \
+  || flunk "env-prefixed web command has an intermediary: parent $(cat "$tmp/g6.ppid" 2>/dev/null), start.sh $pid"
+kill -TERM "$pid"; wait_exit "$pid" 5
+[[ $EXIT_STATUS == 0 ]] && pass "SIGTERM through env -> exit 0" || flunk "SIGTERM through env -> expected exit 0, got $EXIT_STATUS"
+sleep 0.5
+{ pid_alive w6 || pid_alive g6; } && flunk "a child survived SIGTERM (env case)" || pass "both children stopped on SIGTERM (env case)"
+
 # Case 5: SIGTERM DURING the restart delay -> exit 0 promptly, nothing left behind.
 WORKER_RESTART_DELAY=5 WORKER_CMD="exit 0" WEB_CMD="$(child g5)" bash "$START" >/dev/null 2>&1 &
 pid=$!; sleep 0.7; kill -TERM "$pid"; wait_exit "$pid" 3
@@ -84,8 +97,22 @@ sleep 0.3; pid_alive g5 && flunk "web child survived SIGTERM during the delay" |
 
 # Case 6: the default commands are built from PORT / CELERY_CONCURRENCY and name the real programs.
 defaults=$(PORT=8123 CELERY_CONCURRENCY=7 bash -c 'source <(sed -n "/^: \"\${PORT/,/^WEB_CMD=/p" "$1"); echo "$WORKER_CMD"; echo "$WEB_CMD"' _ "$START")
-[[ $defaults == *"--concurrency=7"* && $defaults == *"0.0.0.0:8123"* ]] && pass "defaults honour PORT and CELERY_CONCURRENCY" || flunk "defaults wrong: $defaults"
-[[ $defaults == *"celery -A plant_community_backend worker"* && $defaults == *"gunicorn plant_community_backend.wsgi:application"* ]] && pass "defaults name the real worker and web commands" || flunk "defaults changed: $defaults"
+[[ $defaults == *"--concurrency=7"* && $defaults == *"--host 0.0.0.0 --port 8123"* ]] && pass "defaults honour PORT and CELERY_CONCURRENCY" || flunk "defaults wrong: $defaults"
+# The web process serves the ASGI app with uvicorn (live forum replies, slice 1).
+# DB_CONN_MAX_AGE=0 applies to the web process only: under ASGI each sync view
+# runs on a thread-pool thread, so a persistent connection would be held per
+# thread instead of per worker. The co-located Celery worker keeps the default.
+[[ $defaults == *"celery -A plant_community_backend worker"* \
+   && $defaults == *"uvicorn plant_community_backend.asgi:application"* \
+   && $defaults == *"env DB_CONN_MAX_AGE=0 "* \
+   && $defaults == *"--workers 2"* \
+   && $defaults == *"--no-proxy-headers"* \
+   && $defaults == *"--ws-ping-interval 20"* \
+   && $defaults == *"--timeout-graceful-shutdown 50"* \
+   && $defaults == *"--limit-concurrency 20"* \
+   && $defaults != *"gunicorn"* ]] \
+  && pass "defaults name the real worker and the uvicorn ASGI web command" \
+  || flunk "defaults changed: $defaults"
 
 # --- Firebase credential materialization (todo 286) --------------------------
 # Each case boots start.sh with fake children, so the assertions are about what

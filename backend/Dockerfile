@@ -47,11 +47,11 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # collectstatic line below — see that comment for why it's inline and safe.
 RUN DEBUG=True JWT_SECRET_KEY=build-only-throwaway-value-not-a-real-key-000000000000000 DATABASE_URL=sqlite:////tmp/build.sqlite3 python manage.py compilemessages -i venv --verbosity 1  # pragma: allowlist secret
 
-# Collect static assets at BUILD time so the runtime start command is gunicorn-only.
+# Collect static assets at BUILD time so the runtime start command only starts the server.
 # Why: in Railway's runtime container under python:3.13-slim, `collectstatic` copies
 # each file pathologically slowly (~3s/file × 262 ≈ 13min — a filesystem-perf issue,
 # proven by a --verbosity 2 diagnostic deploy), which ate the whole healthcheck window
-# so gunicorn never started. Running it once here (build infra, not healthcheck-gated)
+# so the web server never started. Running it once here (build infra, not healthcheck-gated)
 # moves that cost off the deploy path. The env vars are throwaway, build-only, and
 # inline on RUN (NOT ENV/ARG instructions) → nothing is baked into image layers and the
 # SecretsUsedInArgOrEnv lint is not tripped. DEBUG=True lets settings import without the
@@ -60,8 +60,8 @@ RUN DEBUG=True JWT_SECRET_KEY=build-only-throwaway-value-not-a-real-key-00000000
 RUN DEBUG=True JWT_SECRET_KEY=build-only-throwaway-value-not-a-real-key-000000000000000 DATABASE_URL=sqlite:////tmp/build.sqlite3 python manage.py collectstatic --noinput --verbosity 1  # pragma: allowlist secret
 
 # The Railway service's start command (`.railway/railway.ts`) overrides this at deploy time
-# (`bash bin/start.sh`: gunicorn + the co-located Celery worker, todo 335 —
+# (`bash bin/start.sh`: uvicorn on the ASGI app + the co-located Celery worker, todo 335 —
 # migrate/seed run in preDeployCommand, static baked above).
 # CMD is a sane fallback for a bare `docker run`; secrets are injected at runtime.
 EXPOSE 8000
-CMD ["gunicorn", "plant_community_backend.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120"]
+CMD ["uvicorn", "plant_community_backend.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--no-proxy-headers", "--ws-ping-interval", "20", "--ws-ping-timeout", "20", "--timeout-graceful-shutdown", "50", "--limit-concurrency", "20", "--lifespan", "off"]

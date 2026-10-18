@@ -46,6 +46,10 @@ WEB_PUSH_ENDPOINT_MAX_LENGTH = 500  # PushSubscription.endpoint max_length
 WEB_PUSH_TTL_SECONDS = 24 * 60 * 60
 # Bound on one push-service POST, so a stalled service cannot hold a worker.
 WEB_PUSH_TIMEOUT_SECONDS = 10
+# Bound on each OAuth provider call (token exchange, profile, emails) in the web
+# callback. uvicorn has no per-request hard kill, so without it a stalled
+# provider holds a sync thread indefinitely (live forum replies, slice 1).
+OAUTH_PROVIDER_TIMEOUT_SECONDS = 10
 # The push service answers these when a subscription is gone for good. 413
 # (payload too large) and 429 (rate limited) say nothing about the subscription.
 WEB_PUSH_GONE_STATUSES = (404, 410)
