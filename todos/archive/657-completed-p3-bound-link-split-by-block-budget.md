@@ -140,6 +140,13 @@ that fits into a refusal.
   few blocks of a 100-block body, and there the paragraph saves whole
   instead of the 400 it used to get.
 
+### 2026-10-17 - Review round 2 (PR #1154): clean
+
+- Fixed: the edit test now asserts its 99-paragraph create returned 201
+  before it sends the PATCH.
+- Declined again: putting a post-split cap check (raise or assert) back.
+  The reason is the same as in round 1.
+
 ## Notes
 
 - Also raised in those reviews, for the owner: `SPAM_MAX_LINKS` 3 → 5 also

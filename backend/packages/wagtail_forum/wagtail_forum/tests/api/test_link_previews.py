@@ -1595,7 +1595,8 @@ def test_657_editing_a_near_cap_post_to_add_a_link_line_saves():
     paragraph and is saved again. It fits the cap, so it saves whole."""
     user = _member()
     body = [_paragraph(f"<p>Line {n}</p>") for n in range(99)]
-    _create(_client(user), _board(), body)
+    created = _create(_client(user), _board(), body)
+    assert created.status_code == 201, created.data
     post = Post.objects.get()
 
     resp = _client(user).patch(
