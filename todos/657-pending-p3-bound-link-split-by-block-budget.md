@@ -4,6 +4,8 @@ priority: p3
 issue_id: "657"
 tags: [forum, backend, link-preview]
 dependencies: []
+triage: ready
+triaged: 2026-10-17
 ---
 
 # The link-line split can refuse a post that saved before it
