@@ -61,6 +61,10 @@ import ts from 'typescript';
 export const ALLOWLIST = new Map([
   ['gt-density', 'localStorage key in ThemeContext KEYS, not a class'],
   ['gt-mode', 'localStorage key in ThemeContext KEYS, not a class'],
+  ['gt-live-updates', 'localStorage key in utils/liveUpdatesStore.ts, not a class'],
+  ['gt-live-intro-shown', 'localStorage key in utils/liveUpdatesStore.ts, not a class'],
+  ['gt-live-missing-out-at', 'localStorage key in utils/liveUpdatesStore.ts, not a class'],
+  ['gt-live-missing-out-session', 'sessionStorage key in utils/liveUpdatesStore.ts, not a class'],
 ]);
 
 // One CSS escape: a hex code point with an optional trailing space, or any
