@@ -7370,3 +7370,47 @@ left the hash unchanged, while one `static const` inside `class UserProfileServi
 rule still holds (regenerate after editing a provider), and the new `flutter-codegen` pre-commit hook
 (`scripts/check_flutter_codegen.py`) now enforces it locally. It rebuilds whenever a staged file declares a
 `part '*.g.dart'`, because rebuilding is cheaper than deciding whether an edit touched a provider.
+
+## 2026-10-18 — A "too red to gate" note went unmeasured for months; the real debt was 179, not ~3,179 (#1158)
+
+`backend-ci.yml` carried a header since todo 132 saying a full-tree flake8 gate "would be red" with ~3,179
+pre-existing violations, so lint stayed pre-commit-only and `git commit --no-verify` bypassed it with nothing
+downstream. Measured today with the pre-commit pins (flake8 7.0.0, black 24.1.1, isort 5.13.2) over every tracked
+`backend/*.py`: 179 flake8 findings, 86 of them E501 in seed prose, isort clean, black off by one file. Clearing
+it took three mechanical commits; the gate is now a step in the required `backend-checks` job that runs the three
+pre-commit hooks `--all-files`, so pins, args, scope and the `setup.cfg` per-file-ignores have one source.
+
+**Root cause.** The number was recorded once and never re-measured, and the sentence it justified ("gate is
+impractical") outlived it by months. Same class as the closed-ticket tracking pointer (2026-09-05): a documented
+reason not to act reads as live forever unless something re-checks it.
+
+**Mechanics worth keeping.**
+
+- **flake8 reads `setup.cfg` from the cwd, and the root file's `per-file-ignores` are `backend/`-prefixed.** A CI
+  step inheriting the job's `working-directory: backend` would silently drop every suppression and report a
+  different count than the local hook. Run lint from the repo root (`working-directory: ${{ github.workspace }}`).
+- **The venv's flake8 was 7.3.0; pre-commit pins 7.0.0.** The two disagreed by ten findings on the same tree. The
+  pre-commit hook is the one that gates, so measure with it (`pre-commit run flake8 --all-files`), not the venv.
+- **E501 inside an LLM prompt or seed prose: never reflow, prove identity.** A backslash continuation inside the
+  triple-quoted literal shortens the source line and leaves the value byte-identical; implicit concatenation does
+  the same for single-line strings. Prove it by importing both versions and comparing the constants (seed data) or
+  walking both ASTs in order and comparing every string literal and f-string (prompts). "Looks the same" is not
+  evidence; the first comparison script here reported a mismatch that was its own double-counting of f-string
+  parts, which is the kind of thing a visual check never finds.
+- **F401 cleanup is not blind.** Every removed import was checked by hand for side effects before trusting ruff's
+  fix; the only side-effect import in the set (`apps/plant_identification/apps.py` registering auditlog models)
+  already carried `# noqa: F401`, and kimi's commit-time CRITICAL on the removals was answered with greps, not a
+  bypass.
+- **Under the Bash sandbox, ANY unstaged tracked change kills every pre-commit hook.** pre-commit stashes unstaged
+  files to `~/.cache/pre-commit/patch…`, which the sandbox write-denies, so each hook dies with `PermissionError`
+  and the commit's own log is the only diagnostic. The detect-secrets baseline rewrite is itself such an unstaged
+  change, so four straight commits each moved one `line_number` and failed. Stage everything, loop
+  `pre-commit run detect-secrets` + `git add .secrets.baseline` until Passed, then commit (`/usr/bin/git commit`).
+- **The 2026-09-01 entry above ("`pre-commit run --all-files` is a repo-wide rewrite") was re-confirmed the hard
+  way:** running `pre-commit run black --all-files` to *measure* reformatted `seed_content.py` in the working
+  tree while on `main`. Its root-cause paragraph ("thousands of pre-existing violations") is now historical; the
+  rule (scope the run, or use `--show-diff-on-failure` and read, not write) still stands.
+
+**General rule.** Before accepting a note that says a check is "too red to turn on", re-measure it with the exact
+tool and pins that would gate, from the directory that tool reads its config in. Then decide. See
+`backend/CLAUDE.md` (lint section) and the `backend-ci.yml` header.
