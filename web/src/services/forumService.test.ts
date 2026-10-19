@@ -8,6 +8,7 @@ import {
   fetchThread,
   createThread,
   fetchPosts,
+  fetchPost,
   createPost,
   updatePost,
   deletePost,
@@ -579,6 +580,27 @@ describe('forumService (wagtail_forum API contract)', () => {
     expect(JSON.parse(opts.body)).toEqual({
       body: [{ type: 'paragraph', value: '<p>edited</p>' }],
     });
+  });
+
+  it('fetchPost GETs /posts/{id}/ with credentials and maps it to its topic', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ ...backendPost, id: 7, topic_id: 77 }));
+    const post = await fetchPost('7');
+    expect(post?.id).toBe('7');
+    expect(post?.thread).toBe('77');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/forum\/posts\/7\/$/);
+    expect(opts.credentials).toBe('include');
+    expect(opts.method).toBeUndefined();
+  });
+
+  it('fetchPost resolves to null on 404 (the viewer cannot see it)', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) });
+    await expect(fetchPost('7')).resolves.toBeNull();
+  });
+
+  it('fetchPost rejects on a 500', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) });
+    await expect(fetchPost('7')).rejects.toBeInstanceOf(ForumApiError);
   });
 
   it('deletePost DELETEs /posts/{id}/ (no /delete/ suffix)', async () => {
