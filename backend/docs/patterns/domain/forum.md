@@ -1190,13 +1190,30 @@ Spec: `docs/superpowers/specs/2026-10-18-forum-live-replies-design.md`. Behind
 - **Close codes are accept-then-close** (4401 signed out or expired, 4404 not
   visible, 4429 over a cap, 4503 flag off). A close before `accept()` reaches
   the client as a bare handshake 403 and the code is lost.
-- **The socket stack** is `OptionalOriginValidator(AuthMiddlewareStack(
-  JWTAuthMiddleware(URLRouter)))` (`plant_community_backend/asgi.py`). Origin
+- **The socket stack** is `OptionalOriginValidator(WebsocketConnectRateLimit(
+  AuthMiddlewareStack(JWTAuthMiddleware(URLRouter))))`
+  (`plant_community_backend/asgi.py`). Origin
   must be in `CORS_ALLOWED_ORIGINS` when present; absent passes (mobile).
   Tokens come from `Authorization: Bearer` (mobile) or the `access_token`
   cookie (web), never the query string, and are never logged.
 - **Caps** (10 sockets per user, 50 per IP) are cache counters shared by both
   workers. `disconnect()` gives back only the slots its own `connect()` took.
+- **Connect rate (slice 5):** 60 connects per trusted client IP per 60 s fixed
+  window (`forum_live:rate:<masked ip>:<window>`), checked by
+  `WebsocketConnectRateLimit` **outside** the auth stack, because the session
+  and JWT lookups both query the DB before `connect()` runs. Over the rate:
+  accept, close 4429, zero queries, one log line per IP per window. An
+  unresolvable IP or a cache that answers `None` is admitted (fail open, like
+  the caps). The IP rule is `apps.core.ratelimit.meta_from_asgi_scope` +
+  `trusted_client_ip_from_meta`, shared with the caps.
+- **Visibility re-check (slice 5):** an open socket re-runs the connect-time
+  `visible_topics()` check every 300 s × uniform(0.8, 1.2) and closes 4404 once
+  the topic is gone (board hidden, topic unpublished: changes that send no
+  event). A DB error keeps the socket and is logged once per socket. The timer
+  is cancelled, never awaited, in `disconnect` and on `topic.removed`.
+- **Local smoke (slice 5, 2 uvicorn workers, prod `WEB_CMD`):** 50 sockets
+  open in 0.54 s with health max 0.38 s; connects 51–60 in the same window
+  accepted, 61–65 closed 4429, one rate log line, no token in the log.
 - **Tests** drive the real ASGI app with asgiref's `ApplicationCommunicator`
   (`apps/forum_host/tests/test_live_consumer.py`), not `channels.testing` (it
   imports daphne). Patch `channels.db.close_old_connections` for the whole test,
