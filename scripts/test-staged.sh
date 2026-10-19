@@ -8,6 +8,9 @@
 #   scripts/test-staged.sh web     <web/src/.../x.test.tsx ...>  vitest
 #   scripts/test-staged.sh flutter <plant_community_mobile/test/.../x_test.dart ...>
 #
+# Needs bash >= 4 (mapfile): pre-commit resolves the shebang on PATH, where
+# Homebrew bash lives; macOS /bin/bash is 3.2. Same precedent as bin/test-start.sh.
+#
 # Fail-closed: a missing toolchain fails the commit with a message rather than
 # passing by emptiness. Bypass one commit with SKIP=<hook-id> (for example when
 # another pytest run already holds the test database).
