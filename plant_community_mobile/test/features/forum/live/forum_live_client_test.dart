@@ -267,6 +267,57 @@ void main() {
     await h.client.close();
   });
 
+  testWidgets('a broken socket on ping and drop throws nothing', (
+    tester,
+  ) async {
+    final h = _Harness();
+    h.client.start();
+    await tester.pump();
+    h.connector.last.broken = true;
+
+    await tester.pump(livePingInterval);
+    await tester.pump(livePongTimeout);
+    await tester.pump(const Duration(seconds: 3));
+
+    expect(h.connector.connects, hasLength(2));
+    expect(tester.takeException(), isNull);
+    await h.client.close();
+  });
+
+  testWidgets('a refreshAuth that throws still reconnects once', (
+    tester,
+  ) async {
+    final connector = FakeLiveConnector();
+    final client = ForumLiveClient(
+      connect: connector.fn,
+      uri: Uri.parse('ws://localhost:8000/ws/forum/topics/10/'),
+      token: () => 'tok',
+      refreshAuth: () async => throw StateError('offline'),
+      onEvent: (_) {},
+      onOpen: () {},
+      onStatus: (_) {},
+      random: () => 0.5,
+    );
+    client.start();
+    await tester.pump();
+    connector.last.serverClose(liveCloseUnauthenticated);
+    await tester.pump();
+
+    expect(connector.connects, hasLength(2));
+    expect(tester.takeException(), isNull);
+    await client.close();
+  });
+
+  testWidgets('close() on a broken socket throws nothing', (tester) async {
+    final h = _Harness();
+    h.client.start();
+    await tester.pump();
+    h.connector.last.broken = true;
+
+    await h.client.close();
+    expect(h.status, LiveStatus.off);
+  });
+
   testWidgets('close() stops everything', (tester) async {
     final h = _Harness();
     h.client.start();

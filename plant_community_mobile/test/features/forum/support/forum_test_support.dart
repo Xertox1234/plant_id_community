@@ -1641,11 +1641,19 @@ class FakeLiveChannel implements ForumLiveChannel {
   @override
   Stream<Object?> get frames => _frames.stream;
 
+  /// Makes [send] and [close] throw, as a `dart:io` socket the server just
+  /// closed does.
+  bool broken = false;
+
   @override
-  void send(String text) => sent.add(text);
+  void send(String text) {
+    if (broken) throw StateError('StreamSink is closed');
+    sent.add(text);
+  }
 
   @override
   Future<void> close() async {
+    if (broken) throw StateError('StreamSink is closed');
     // Only records the close: the client cancels its subscription first,
     // so no frame can reach it afterwards.
     closedByClient = true;

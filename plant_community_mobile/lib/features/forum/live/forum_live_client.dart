@@ -90,7 +90,7 @@ class ForumLiveClient {
     final channel = _channel;
     _detach();
     _onStatus(LiveStatus.off);
-    if (channel != null) await channel.close();
+    if (channel != null) await _closeQuietly(channel);
   }
 
   Future<void> _connect() async {
@@ -112,7 +112,7 @@ class ForumLiveClient {
       return;
     }
     if (_closed) {
-      unawaited(channel.close());
+      unawaited(_closeQuietly(channel));
       return;
     }
     _channel = channel;
@@ -136,7 +136,11 @@ class ForumLiveClient {
   }
 
   void _ping() {
-    _channel?.send(_pingFrame);
+    try {
+      _channel?.send(_pingFrame);
+    } catch (_) {
+      // The socket closed under us; its onDone, or the pong timeout, decides.
+    }
     _pongTimer ??= Timer(livePongTimeout, _drop);
   }
 
@@ -147,7 +151,7 @@ class ForumLiveClient {
     final channel = _channel;
     if (channel == null || _closed) return;
     _detach();
-    unawaited(channel.close());
+    unawaited(_closeQuietly(channel));
     _scheduleRetry();
   }
 
@@ -162,7 +166,11 @@ class ForumLiveClient {
       case liveCloseUnauthenticated when !_retriedAuth:
         _retriedAuth = true;
         _onStatus(LiveStatus.connecting);
-        await _refreshAuth();
+        try {
+          await _refreshAuth();
+        } catch (_) {
+          // The reconnect below finds out whether the token works.
+        }
         await _connect();
       case liveCloseUnauthenticated:
         _onStatus(LiveStatus.stopped);
@@ -185,6 +193,14 @@ class ForumLiveClient {
     _pingTimer = null;
     _pongTimer?.cancel();
     _pongTimer = null;
+  }
+
+  static Future<void> _closeQuietly(ForumLiveChannel channel) async {
+    try {
+      await channel.close();
+    } catch (_) {
+      // Already closed by the server or the network.
+    }
   }
 
   void _scheduleRetry() {
