@@ -24,6 +24,7 @@ class TopicLiveState {
     this.status = LiveStatus.off,
     this.pendingCount = 0,
     this.flashIds = const {},
+    this.slideIds = const {},
     this.introSeq = 0,
   });
 
@@ -35,6 +36,11 @@ class TopicLiveState {
   /// Posts to highlight: inserted live, or revealed by the pill.
   final Set<int> flashIds;
 
+  /// The posts in [flashIds] that were inserted live, which also slide
+  /// open. A post the pill revealed doesn't: a card growing from zero height
+  /// would move after the scroll to it.
+  final Set<int> slideIds;
+
   /// Goes up by one when the first-time "Replies now appear live." toast is
   /// due.
   final int introSeq;
@@ -45,11 +51,13 @@ class TopicLiveState {
     LiveStatus? status,
     int? pendingCount,
     Set<int>? flashIds,
+    Set<int>? slideIds,
     int? introSeq,
   }) => TopicLiveState(
     status: status ?? this.status,
     pendingCount: pendingCount ?? this.pendingCount,
     flashIds: flashIds ?? this.flashIds,
+    slideIds: slideIds ?? this.slideIds,
     introSeq: introSeq ?? this.introSeq,
   );
 }
@@ -169,7 +177,10 @@ class TopicLive extends _$TopicLive {
   /// The highlight on [postId] has finished.
   void clearFlash(int postId) {
     if (!state.flashIds.contains(postId)) return;
-    state = state.copyWith(flashIds: {...state.flashIds}..remove(postId));
+    state = state.copyWith(
+      flashIds: {...state.flashIds}..remove(postId),
+      slideIds: {...state.slideIds}..remove(postId),
+    );
   }
 
   ForumLiveClient _newClient() {
@@ -296,7 +307,10 @@ class TopicLive extends _$TopicLive {
     if (posts == null) return;
     if (_atBottom && !posts.hasMore && state.pendingCount == 0) {
       ref.read(topicPostsProvider(topicId).notifier).applyLivePost(post);
-      state = state.copyWith(flashIds: {...state.flashIds, postId});
+      state = state.copyWith(
+        flashIds: {...state.flashIds, postId},
+        slideIds: {...state.slideIds, postId},
+      );
     } else {
       state = state.copyWith(pendingCount: state.pendingCount + 1);
     }

@@ -173,6 +173,7 @@ void main() {
 
     expect(h.ids, [1, 2, 3]);
     expect(h.live.flashIds, {3});
+    expect(h.live.slideIds, {3});
     expect(h.live.pendingCount, 0);
     await h.stop(tester);
   });
@@ -529,6 +530,7 @@ void main() {
     expect(first, 4);
     expect(h.ids, [1, 2, 3, 4, 5]);
     expect(h.live.flashIds, {4, 5});
+    expect(h.live.slideIds, isEmpty);
     expect(h.live.pendingCount, 0);
 
     h.notifier.clearFlash(4);

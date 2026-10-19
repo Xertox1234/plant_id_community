@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -10,18 +11,25 @@ import '../../../services/api_service.dart';
 import '../../../services/auth_service.dart';
 import '../forum_errors.dart';
 import '../forum_format.dart';
+import '../live/live_updates_settings.dart';
+import '../live/topic_live.dart';
+import '../live/topic_missing_out.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
+import '../services/forum_api.dart';
 import '../services/forum_link_launcher.dart';
 import '../widgets/forum_edit_history_sheet.dart';
 import '../widgets/forum_report_sheet.dart';
 import '../widgets/identification_card.dart';
+import '../widgets/live_flash.dart';
 import '../widgets/poll_card.dart';
 import '../widgets/post_card.dart';
 import 'forum_composer_screen.dart';
 
 /// A topic thread: the opening post + replies (oldest-first, cursor "Load
-/// More"), with reactions and a reply action.
+/// More"), with reactions and a reply action. Signed in, with "Live
+/// updates" on, new replies, edits, deletes and topic changes arrive live
+/// ([TopicLive]); pull to refresh works either way.
 class ForumThreadScreen extends ConsumerWidget {
   const ForumThreadScreen({
     super.key,
@@ -45,6 +53,7 @@ class ForumThreadScreen extends ConsumerWidget {
       authServiceProvider.select((s) => s.isAuthenticated),
     );
 
+    final live = ref.watch(topicLiveProvider(topicId));
     final topic = detail.asData?.value;
     final title = topic?.title ?? initialTitle ?? 'Topic';
     final isLocked = topic?.isLocked ?? false;
@@ -57,88 +66,127 @@ class ForumThreadScreen extends ConsumerWidget {
     // Quote pre-fills a reply, so it follows the reply FAB's own gate.
     final canQuote = isAuthenticated && !isLocked && detail.hasValue;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(title),
-        actions: [
-          if (isAuthenticated && detail.hasValue) ...[
-            IconButton(
-              tooltip: isBookmarked ? 'Remove bookmark' : 'Bookmark',
-              // Lucide has no filled bookmark, so the SAVED state is a different
-              // glyph, matching the web's BookmarkCheck/Bookmark pair
-              // (ThreadDetailPage.tsx). Material's filled/outline pair does
-              // not survive the move to an all-outlined icon set.
-              icon: Icon(
-                isBookmarked ? LucideIcons.bookmarkCheck : LucideIcons.bookmark,
+    return _LiveScope(
+      topicId: topicId,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(title),
+          actions: [
+            if (isAuthenticated && detail.hasValue) ...[
+              IconButton(
+                tooltip: isBookmarked ? 'Remove bookmark' : 'Bookmark',
+                // Lucide has no filled bookmark, so the SAVED state is a different
+                // glyph, matching the web's BookmarkCheck/Bookmark pair
+                // (ThreadDetailPage.tsx). Material's filled/outline pair does
+                // not survive the move to an all-outlined icon set.
+                icon: Icon(
+                  isBookmarked
+                      ? LucideIcons.bookmarkCheck
+                      : LucideIcons.bookmark,
+                ),
+                onPressed: () => _toggleBookmark(context, ref),
               ),
-              onPressed: () => _toggleBookmark(context, ref),
-            ),
-            IconButton(
-              tooltip: isSubscribed ? 'Unsubscribe' : 'Subscribe',
-              icon: Icon(
-                isSubscribed ? LucideIcons.bellRing : LucideIcons.bell,
+              IconButton(
+                tooltip: isSubscribed ? 'Unsubscribe' : 'Subscribe',
+                icon: Icon(
+                  isSubscribed ? LucideIcons.bellRing : LucideIcons.bell,
+                ),
+                onPressed: () => _toggleSubscription(context, ref),
               ),
-              onPressed: () => _toggleSubscription(context, ref),
-            ),
+            ],
           ],
-        ],
-      ),
-      body: SafeArea(
-        child: postsAsync.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => _ErrorRetry(
-            message: 'Could not load this thread.',
-            onRetry: () => ref.invalidate(topicPostsProvider(topicId)),
-          ),
-          data: (paged) => _ThreadBody(
-            topicId: topicId,
-            paged: paged,
-            canReact: isAuthenticated,
-            onReact: isAuthenticated
-                ? (postId, type) => ref
-                      .read(topicPostsProvider(topicId).notifier)
-                      .toggleReaction(postId, type)
-                : null,
-            onLoadMore: () =>
-                ref.read(topicPostsProvider(topicId).notifier).loadMore(),
-            onOpenLink: (href) => _openLink(context, ref, href),
-            onEdit: (post) => _openEdit(context, ref, post),
-            onDelete: (post) => _confirmDelete(context, ref, post),
-            onReport: isAuthenticated
-                ? (post) => _reportPost(context, ref, post)
-                : null,
-            onShowHistory: isAuthenticated
-                ? (post) => showForumEditHistorySheet(
-                    context,
-                    postId: post.id,
-                    topicId: topicId,
-                  )
-                : null,
-            solvedPostId: topic?.solvedPostId,
-            onToggleSolution: canMarkSolution
-                ? (post) => _toggleSolution(context, ref, post)
-                : null,
-            highlightPostId: highlightPostId,
-            identification: topic?.identification,
-            poll: topic?.poll,
-            canVote: isAuthenticated,
-            onVote: isAuthenticated
-                ? (optionIds) => _votePoll(context, ref, optionIds)
-                : null,
-            onQuote: canQuote
-                ? (post) => _openReply(context, ref, quoteOf: post)
-                : null,
-          ),
         ),
+        body: SafeArea(
+          child: live.gone
+              ? const _GoneView()
+              : postsAsync.when(
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (error, _) => _ErrorRetry(
+                    message: 'Could not load this thread.',
+                    onRetry: () => ref.invalidate(topicPostsProvider(topicId)),
+                  ),
+                  data: (paged) => _ThreadBody(
+                    topicId: topicId,
+                    paged: paged,
+                    canReact: isAuthenticated,
+                    onReact: isAuthenticated
+                        ? (postId, type) => ref
+                              .read(topicPostsProvider(topicId).notifier)
+                              .toggleReaction(postId, type)
+                        : null,
+                    onLoadMore: () => ref
+                        .read(topicPostsProvider(topicId).notifier)
+                        .loadMore(),
+                    onOpenLink: (href) => _openLink(context, ref, href),
+                    onEdit: (post) => _openEdit(context, ref, post),
+                    onDelete: (post) => _confirmDelete(context, ref, post),
+                    onReport: isAuthenticated
+                        ? (post) => _reportPost(context, ref, post)
+                        : null,
+                    onShowHistory: isAuthenticated
+                        ? (post) => showForumEditHistorySheet(
+                            context,
+                            postId: post.id,
+                            topicId: topicId,
+                          )
+                        : null,
+                    solvedPostId: topic?.solvedPostId,
+                    onToggleSolution: canMarkSolution
+                        ? (post) => _toggleSolution(context, ref, post)
+                        : null,
+                    highlightPostId: highlightPostId,
+                    identification: topic?.identification,
+                    poll: topic?.poll,
+                    canVote: isAuthenticated,
+                    onVote: isAuthenticated
+                        ? (optionIds) => _votePoll(context, ref, optionIds)
+                        : null,
+                    onQuote: canQuote
+                        ? (post) => _openReply(context, ref, quoteOf: post)
+                        : null,
+                    pendingCount: live.pendingCount,
+                    flashIds: live.flashIds,
+                    slideIds: live.slideIds,
+                    onTakePending: () => ref
+                        .read(topicLiveProvider(topicId).notifier)
+                        .takePending(),
+                    onAtBottom: (atBottom) => ref
+                        .read(topicLiveProvider(topicId).notifier)
+                        .setReaderAtBottom(atBottom),
+                    onFlashDone: (postId) => ref
+                        .read(topicLiveProvider(topicId).notifier)
+                        .clearFlash(postId),
+                    onRefresh: () => _refresh(context, ref),
+                  ),
+                ),
+        ),
+        floatingActionButton: (isAuthenticated && !isLocked && !live.gone)
+            ? FloatingActionButton.extended(
+                onPressed: () => _openReply(context, ref),
+                icon: const Icon(LucideIcons.reply),
+                label: const Text('Reply'),
+              )
+            : null,
       ),
-      floatingActionButton: (isAuthenticated && !isLocked)
-          ? FloatingActionButton.extended(
-              onPressed: () => _openReply(context, ref),
-              icon: const Icon(LucideIcons.reply),
-              label: const Text('Reply'),
-            )
-          : null,
     );
+  }
+
+  /// Pull to refresh, whatever the setting: walk every page (which also
+  /// clears and highlights anything behind the pill), then re-read the topic
+  /// with a peek, so no view is counted.
+  Future<void> _refresh(BuildContext context, WidgetRef ref) async {
+    await ref.read(topicLiveProvider(topicId).notifier).takePending();
+    if (!context.mounted) return;
+    try {
+      final fresh = await ref
+          .read(forumApiProvider)
+          .fetchTopicDetail(topicId, peek: true);
+      if (!context.mounted) return;
+      ref.read(topicDetailProvider(topicId).notifier).applyPeek(fresh);
+    } catch (_) {
+      // The thread already refreshed; the topic header keeps what it had.
+    }
   }
 
   /// Open the reply composer; with [quoteOf] (the Quote action, todo 342)
@@ -161,6 +209,23 @@ class ForumThreadScreen extends ConsumerWidget {
         return;
       }
     }
+    // D11: hold live `post.created` events from opening the composer until
+    // the refresh walk settles, so the reader's own reply never shows twice,
+    // counts in the pill, or uses up the intro toast.
+    final live = ref.read(topicLiveProvider(topicId).notifier);
+    live.beginOwnReply();
+    try {
+      await _publishReply(context, ref, quote);
+    } finally {
+      live.endOwnReply();
+    }
+  }
+
+  Future<void> _publishReply(
+    BuildContext context,
+    WidgetRef ref,
+    ForumQuoteDraft? quote,
+  ) async {
     final result = await context.pushNamed<bool>(
       'forumCompose',
       extra: ForumComposeArgs.reply(topicId: topicId, quote: quote),
@@ -450,6 +515,13 @@ class _ThreadBody extends StatefulWidget {
     this.canVote = false,
     this.onVote,
     this.onQuote,
+    this.pendingCount = 0,
+    this.flashIds = const {},
+    this.slideIds = const {},
+    this.onTakePending,
+    this.onAtBottom,
+    this.onFlashDone,
+    this.onRefresh,
   });
 
   final int topicId;
@@ -482,6 +554,24 @@ class _ThreadBody extends StatefulWidget {
   /// Non-null when the viewer may reply (signed in, topic open).
   final void Function(ForumPost post)? onQuote;
 
+  /// Live replies (slice 4): replies behind the "N new replies" pill, the
+  /// posts to highlight, and the pill tap, which walks every page and
+  /// returns the first new reply's id to scroll to.
+  final int pendingCount;
+  final Set<int> flashIds;
+
+  /// The flashed posts that were inserted live, and slide open.
+  final Set<int> slideIds;
+  final Future<int?> Function()? onTakePending;
+
+  /// Reports whether the reader is at the bottom: a live reply slides in
+  /// only then.
+  final void Function(bool atBottom)? onAtBottom;
+  final void Function(int postId)? onFlashDone;
+
+  /// Pull to refresh.
+  final Future<void> Function()? onRefresh;
+
   @override
   State<_ThreadBody> createState() => _ThreadBodyState();
 }
@@ -502,15 +592,21 @@ class _ThreadBodyState extends State<_ThreadBody> {
 
   /// Same single-key discipline for the accepted answer. When the answer IS
   /// the highlighted post, [_highlightKey] wins (a widget takes one key) and
-  /// [_answerKey] resolves to it — see [_keyFor]/[_jumpToAnswer].
+  /// [_keyForId] resolves the answer to it — see [_keyFor]/[_chaseTo].
   final _solutionKey = GlobalKey();
+
+  /// Same single-key discipline for the first reply the pill revealed.
+  final _firstNewKey = GlobalKey();
+  int? _firstNewId;
 
   final _scrollController = ScrollController();
   bool _jumping = false;
+  bool _atBottom = true;
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_reportAtBottom);
     final targetId = widget.highlightPostId;
     if (targetId == null) return;
     // Exactly one best-effort attempt, post-frame so this frame's build()
@@ -543,46 +639,109 @@ class _ThreadBodyState extends State<_ThreadBody> {
   }
 
   @override
+  void didUpdateWidget(covariant _ThreadBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A reply inserted live while the reader sat at the bottom: follow it.
+    final oldLast = oldWidget.paged.items.isEmpty
+        ? null
+        : oldWidget.paged.items.last.id;
+    final newLast = widget.paged.items.isEmpty
+        ? null
+        : widget.paged.items.last.id;
+    if (newLast != null &&
+        newLast != oldLast &&
+        widget.flashIds.contains(newLast) &&
+        _atBottom) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _followToBottom());
+    }
+  }
+
+  @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
   }
 
+  /// Within 48 px of the end counts as the bottom; a list too short to
+  /// scroll is always at the bottom.
+  void _reportAtBottom() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final atBottom = position.pixels >= position.maxScrollExtent - 48;
+    _atBottom = atBottom;
+    widget.onAtBottom?.call(atBottom);
+  }
+
+  void _followToBottom() {
+    if (!mounted || !_scrollController.hasClients) return;
+    final end = _scrollController.position.maxScrollExtent;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _scrollController.jumpTo(end);
+    } else {
+      _scrollController.animateTo(
+        end,
+        duration: liveSlideDuration,
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
   GlobalKey? _keyFor(ForumPost post) {
     if (post.id == widget.highlightPostId) return _highlightKey;
     if (post.id == widget.solvedPostId) return _solutionKey;
+    if (post.id == _firstNewId) return _firstNewKey;
     return null;
   }
 
-  GlobalKey get _answerKey => widget.highlightPostId == widget.solvedPostId
-      ? _highlightKey
-      : _solutionKey;
+  /// The one key [_keyFor] gives [postId], mirroring its precedence.
+  GlobalKey _keyForId(int postId) {
+    if (postId == widget.highlightPostId) return _highlightKey;
+    if (postId == widget.solvedPostId) return _solutionKey;
+    return _firstNewKey;
+  }
 
-  /// `true` once the answer card is built and has been scrolled into view.
+  /// `true` once [postId]'s card is built and has been scrolled into view.
   /// The key's context is read and used with no async gap in between — it
   /// is re-read on every pass of the chase below, never held across one.
-  Future<bool> _revealAnswerIfBuilt() {
-    final answerContext = _answerKey.currentContext;
-    if (answerContext == null) return Future<bool>.value(false);
+  Future<bool> _revealIfBuilt(int postId) {
+    final postContext = _keyForId(postId).currentContext;
+    if (postContext == null) return Future<bool>.value(false);
     return Scrollable.ensureVisible(
-      answerContext,
+      postContext,
       alignment: 0.05,
-      duration: const Duration(milliseconds: 300),
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 300),
     ).then((_) => true);
   }
 
-  /// Scroll the accepted answer into view. A lazy list only attaches the
-  /// key once the card is BUILT (docs/rules/flutter.md), so this walks the
-  /// list a viewport at a time until it is — pulling the next cursor page
-  /// when the answer is not on a loaded one — bounded by [_maxJumpSteps].
   Future<void> _jumpToAnswer() async {
     final solvedId = widget.solvedPostId;
-    if (solvedId == null || _jumping) return;
+    if (solvedId != null) await _chaseTo(solvedId);
+  }
+
+  /// The pill tap: walk every page, then reveal the first new reply.
+  Future<void> _takePending() async {
+    final take = widget.onTakePending;
+    if (take == null) return;
+    final firstNew = await take();
+    if (firstNew == null || !mounted) return;
+    setState(() => _firstNewId = firstNew);
+    await WidgetsBinding.instance.endOfFrame;
+    await _chaseTo(firstNew);
+  }
+
+  /// Scroll [postId] into view. A lazy list only attaches the key once the
+  /// card is BUILT (docs/rules/flutter.md), so this walks the list a
+  /// viewport at a time until it is — pulling the next cursor page when the
+  /// post is not on a loaded one — bounded by [_maxJumpSteps].
+  Future<void> _chaseTo(int postId) async {
+    if (_jumping) return;
     _jumping = true;
     try {
       for (var i = 0; i < _maxJumpSteps && mounted; i++) {
-        if (await _revealAnswerIfBuilt()) return;
-        if (!widget.paged.items.any((p) => p.id == solvedId)) {
+        if (await _revealIfBuilt(postId)) return;
+        if (!widget.paged.items.any((p) => p.id == postId)) {
           // On a later page (or gone): load the next page and re-check.
           if (!widget.paged.hasMore || widget.paged.isLoadingMore) return;
           try {
@@ -611,11 +770,26 @@ class _ThreadBodyState extends State<_ThreadBody> {
 
   @override
   Widget build(BuildContext context) {
+    // After layout, so a fresh list, a short one or one that grew reports
+    // where the reader actually is, not only after a scroll.
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _reportAtBottom();
+    });
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     if (widget.paged.items.isEmpty) {
-      return const Center(child: Text('No posts yet.'));
+      return _refreshable(
+        ListView(
+          controller: _scrollController,
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 200, child: Center(child: Text('No posts yet.'))),
+          ],
+        ),
+      );
     }
     final list = ListView.separated(
       controller: _scrollController,
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.md,
         AppSpacing.md,
@@ -661,20 +835,50 @@ class _ThreadBodyState extends State<_ThreadBody> {
           ),
           onQuote: widget.onQuote == null ? null : () => widget.onQuote!(post),
         );
+        final shown = widget.flashIds.contains(post.id)
+            ? LiveFlash(
+                key: ValueKey('live-flash-${post.id}'),
+                slide: !reduceMotion && widget.slideIds.contains(post.id),
+                onDone: () => widget.onFlashDone?.call(post.id),
+                child: card,
+              )
+            : card;
         // The header cards ride the first item: under it when it is the
         // opening post, above it otherwise (an OP held for moderation).
         return index == 0
-            ? _withHeaderCards(card, leading: !post.isOpeningPost)
-            : card;
+            ? _withHeaderCards(shown, leading: !post.isOpeningPost)
+            : shown;
       },
     );
-    if (widget.solvedPostId == null) return list;
+    final pending = widget.pendingCount;
+    final body = Stack(
+      children: [
+        _refreshable(list),
+        if (pending > 0)
+          Positioned(
+            left: 0,
+            right: 0,
+            // Above the Reply button, so the two never overlap.
+            bottom: 88,
+            child: Center(
+              child: _NewRepliesPill(count: pending, onTap: _takePending),
+            ),
+          ),
+      ],
+    );
+    if (widget.solvedPostId == null) return body;
     return Column(
       children: [
         _SolvedBanner(onJump: _jumpToAnswer),
-        Expanded(child: list),
+        Expanded(child: body),
       ],
     );
+  }
+
+  Widget _refreshable(Widget list) {
+    final onRefresh = widget.onRefresh;
+    if (onRefresh == null) return list;
+    return RefreshIndicator(onRefresh: onRefresh, child: list);
   }
 }
 
@@ -705,6 +909,176 @@ extension on _ThreadBodyState {
       ],
     );
   }
+}
+
+/// The bottom-centre "N new replies" pill (live replies, slice 4).
+class _NewRepliesPill extends StatelessWidget {
+  const _NewRepliesPill({required this.count, required this.onTap});
+
+  final int count;
+  final Future<void> Function() onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.tonalIcon(
+      onPressed: onTap,
+      style: FilledButton.styleFrom(minimumSize: const Size(48, 48)),
+      icon: const Icon(LucideIcons.arrowDown, size: 18),
+      label: Text('$count new repl${count == 1 ? 'y' : 'ies'}'),
+    );
+  }
+}
+
+/// The topic was removed, or is no longer visible to this reader (4404).
+class _GoneView extends StatelessWidget {
+  const _GoneView();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(AppSpacing.lg),
+        child: Text(
+          'This topic is no longer available.',
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+}
+
+/// The thread's live-replies hooks: the app lifecycle (hidden closes the
+/// socket and pauses the signed-out check; shown resumes both) and the two
+/// toasts. Wraps the screen's Scaffold, whose messenger shows them.
+class _LiveScope extends ConsumerStatefulWidget {
+  const _LiveScope({required this.topicId, required this.child});
+
+  final int topicId;
+  final Widget child;
+
+  @override
+  ConsumerState<_LiveScope> createState() => _LiveScopeState();
+}
+
+/// The toasts' shared shape (D14): 10 s, closeable. `persist: false` because
+/// a SnackBar with an action otherwise never times out; with accessible
+/// navigation on, the messenger keeps it up anyway.
+SnackBar _liveToast(Widget content, {SnackBarAction? action}) => SnackBar(
+  content: content,
+  action: action,
+  duration: const Duration(seconds: 10),
+  showCloseIcon: true,
+  persist: false,
+);
+
+class _LiveScopeState extends ConsumerState<_LiveScope> {
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(onHide: _onHide, onShow: _onShow);
+    ref.listenManual(
+      topicLiveProvider(widget.topicId).select((s) => s.introSeq),
+      (previous, next) {
+        if (next > (previous ?? 0)) _showIntro();
+      },
+    );
+    ref.listenManual(topicMissingOutProvider(widget.topicId), (previous, next) {
+      if (next > (previous ?? 0)) _showMissingOut();
+    });
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
+  }
+
+  void _onHide() {
+    ref.read(topicLiveProvider(widget.topicId).notifier).suspend();
+    ref.read(topicMissingOutProvider(widget.topicId).notifier).suspend();
+  }
+
+  void _onShow() {
+    ref.read(topicLiveProvider(widget.topicId).notifier).resume();
+    ref.read(topicMissingOutProvider(widget.topicId).notifier).resume();
+  }
+
+  /// "Replies now appear live." with Turn off, then "Live updates off" with
+  /// Undo. The setting is app-wide (keepAlive), so the actions work even
+  /// after the reader has left the topic.
+  void _showIntro() {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final setting = ref.read(liveUpdatesSettingProvider.notifier);
+    messenger.showSnackBar(
+      _liveToast(
+        const Text('Replies now appear live.'),
+        action: SnackBarAction(
+          label: 'Turn off',
+          onPressed: () {
+            setting.setEnabled(false);
+            messenger.showSnackBar(
+              _liveToast(
+                const Text('Live updates off'),
+                action: SnackBarAction(
+                  label: 'Undo',
+                  onPressed: () => setting.setEnabled(true),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// The signed-out toast. A SnackBar takes one action, so Sign in and
+  /// Sign up are two buttons in its content. Both auth screens return to
+  /// this topic afterwards (`dismissAfterAuth`).
+  void _showMissingOut() {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final linkColor = Theme.of(context).colorScheme.inversePrimary;
+    void go(String route) {
+      messenger.hideCurrentSnackBar();
+      context.pushNamed(route);
+    }
+
+    messenger.showSnackBar(
+      _liveToast(
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'New replies are coming in. Sign in or sign up to follow '
+              'along live.',
+            ),
+            Wrap(
+              spacing: AppSpacing.sm,
+              children: [
+                TextButton(
+                  style: TextButton.styleFrom(foregroundColor: linkColor),
+                  onPressed: () => go('login'),
+                  child: const Text('Sign in'),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(foregroundColor: linkColor),
+                  onPressed: () => go('register'),
+                  child: const Text('Sign up'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// Header strip for a solved topic with the "Jump to answer" affordance.

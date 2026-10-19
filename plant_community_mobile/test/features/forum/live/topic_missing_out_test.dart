@@ -131,6 +131,19 @@ void main() {
     await h.stop(tester);
   });
 
+  testWidgets('signing in stops polling', (tester) async {
+    final h = _Harness();
+    await h.start(tester);
+    await tester.pump(missingOutPollInterval);
+    expect(h.api.peekCalls, 1);
+
+    await h.container.read(authServiceProvider.notifier).signInWithGoogle();
+    await tester.pump(const Duration(minutes: 2));
+
+    expect(h.api.peekCalls, 1);
+    await h.stop(tester);
+  });
+
   testWidgets('a failed read is silent and the next tick retries', (
     tester,
   ) async {
