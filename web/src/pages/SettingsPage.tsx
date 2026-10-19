@@ -36,6 +36,7 @@ import Eyebrow from '../components/ui/Eyebrow';
 import Avatar from '../components/ui/Avatar';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import BrowserNotificationsSection from '../components/settings/BrowserNotificationsSection';
+import LiveUpdatesSection from '../components/settings/LiveUpdatesSection';
 import type {
   BlockedUser,
   MutedUser,
@@ -1246,6 +1247,9 @@ export default function SettingsPage() {
 
       {/* Browser (Web Push) notifications for this device (todo 413) */}
       <BrowserNotificationsSection />
+
+      {/* Live forum updates for this browser (forum live replies, slice 3) */}
+      <LiveUpdatesSection />
 
       {/* Blocked users (todo 284/M9) */}
       <BlockedUsersSection />
