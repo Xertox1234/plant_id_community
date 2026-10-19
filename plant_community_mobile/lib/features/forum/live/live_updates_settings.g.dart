@@ -48,7 +48,7 @@ final class LiveUpdatesSettingProvider
 }
 
 String _$liveUpdatesSettingHash() =>
-    r'6da97e2fe6e4f00f72dda345e6120d9a77235646';
+    r'fec0f12a37b86fbc103b626af23bdecabe985bb4';
 
 /// The per-device "Live updates" switch: on by default, and on whenever the
 /// stored value can't be read. Follows `ThemeModeNotifier`.

@@ -20,21 +20,28 @@ import '../support/forum_test_support.dart';
 
 /// The setting without FlutterSecureStorage.
 class _FakeSetting extends LiveUpdatesSetting {
-  _FakeSetting(this._initial);
+  _FakeSetting(this._initial, {this.loadGate});
   final bool _initial;
+
+  /// Holds the stored value's load, like a slow Keychain read.
+  final Completer<void>? loadGate;
 
   @override
   bool build() => _initial;
+
+  @override
+  Future<void> get loaded => loadGate?.future ?? Future<void>.value();
 
   @override
   void setEnabled(bool on) => state = on;
 }
 
 class _Harness {
-  _Harness({this.loggedIn = true, this.liveOn = true});
+  _Harness({this.loggedIn = true, this.liveOn = true, this.loadGate});
 
   final bool loggedIn;
   final bool liveOn;
+  final Completer<void>? loadGate;
   final api = FakeForumApi()
     ..topicDetail = topicDetail(replyCount: 1)
     ..posts = CursorPage(items: [post(id: 1), post(id: 2)]);
@@ -65,7 +72,9 @@ class _Harness {
         authServiceProvider.overrideWith(
           () => FakeAuthService(loggedIn: loggedIn),
         ),
-        liveUpdatesSettingProvider.overrideWith(() => _FakeSetting(liveOn)),
+        liveUpdatesSettingProvider.overrideWith(
+          () => _FakeSetting(liveOn, loadGate: loadGate),
+        ),
         ...liveTestOverrides(connector),
       ],
     );
@@ -486,6 +495,71 @@ void main() {
     expect(h.connector.connects, hasLength(2));
     expect(h.live.status, LiveStatus.live);
     expect(h.live.pendingCount, 2);
+    await h.stop(tester);
+  });
+
+  testWidgets('no connect until the stored setting has loaded', (tester) async {
+    final h = _Harness(loadGate: Completer<void>());
+    await h.start(tester);
+    await tester.pump(const Duration(seconds: 1));
+    expect(h.connector.connects, isEmpty);
+
+    h.loadGate!.complete();
+    await tester.pump();
+
+    expect(h.connector.connects, hasLength(1));
+    await h.stop(tester);
+  });
+
+  testWidgets('covered closes the socket, uncovered reconnects', (
+    tester,
+  ) async {
+    final h = _Harness();
+    await h.start(tester);
+
+    h.notifier.setCovered(true);
+    await tester.pump(const Duration(minutes: 1));
+    expect(h.channel.closedByClient, isTrue);
+    expect(h.live.status, LiveStatus.off);
+
+    h.notifier.setCovered(false);
+    await tester.pump();
+    expect(h.connector.connects, hasLength(2));
+    expect(h.live.status, LiveStatus.live);
+    await h.stop(tester);
+  });
+
+  testWidgets('covered by the reply composer keeps the socket', (tester) async {
+    final h = _Harness();
+    await h.start(tester);
+
+    h.notifier.beginOwnReply();
+    h.notifier.setCovered(true);
+    await tester.pump();
+    expect(h.channel.closedByClient, isFalse);
+
+    h.notifier.setCovered(false);
+    h.notifier.endOwnReply();
+    await tester.pump();
+    expect(h.connector.connects, hasLength(1));
+    await h.stop(tester);
+  });
+
+  testWidgets('covered and hidden both have to clear before it reconnects', (
+    tester,
+  ) async {
+    final h = _Harness();
+    await h.start(tester);
+
+    h.notifier.setCovered(true);
+    h.notifier.suspend();
+    h.notifier.resume();
+    await tester.pump();
+    expect(h.connector.connects, hasLength(1));
+
+    h.notifier.setCovered(false);
+    await tester.pump();
+    expect(h.connector.connects, hasLength(2));
     await h.stop(tester);
   });
 

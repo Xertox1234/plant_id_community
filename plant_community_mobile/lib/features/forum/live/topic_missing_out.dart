@@ -27,6 +27,8 @@ class TopicMissingOut extends _$TopicMissingOut {
   Timer? _timer;
   int? _baseline;
   bool _suspended = false;
+  bool _appHidden = false;
+  bool _covered = false;
   bool _done = false;
   int _seq = 0;
 
@@ -46,14 +48,30 @@ class TopicMissingOut extends _$TopicMissingOut {
 
   /// The app was hidden: no reads until [resume].
   void suspend() {
-    _suspended = true;
-    _stop();
+    _appHidden = true;
+    _sync();
   }
 
   void resume() {
-    if (!_suspended) return;
-    _suspended = false;
-    if (!ref.read(authServiceProvider).isAuthenticated) unawaited(_start());
+    _appHidden = false;
+    _sync();
+  }
+
+  /// Another screen covers the thread, or the reader switched tabs.
+  void setCovered(bool covered) {
+    _covered = covered;
+    _sync();
+  }
+
+  void _sync() {
+    final run = !_appHidden && !_covered;
+    if (!run && !_suspended) {
+      _suspended = true;
+      _stop();
+    } else if (run && _suspended) {
+      _suspended = false;
+      if (!ref.read(authServiceProvider).isAuthenticated) unawaited(_start());
+    }
   }
 
   Future<void> _start() async {

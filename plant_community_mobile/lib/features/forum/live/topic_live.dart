@@ -76,7 +76,13 @@ const _topicRefetchDelay = Duration(milliseconds: 500);
 @riverpod
 class TopicLive extends _$TopicLive {
   ForumLiveClient? _client;
+
+  /// Not connected for now: the app is hidden ([suspend]), or another screen
+  /// covers the thread ([setCovered]) and no reply of the reader's is being
+  /// written.
   bool _suspended = false;
+  bool _appHidden = false;
+  bool _covered = false;
   bool _atBottom = true;
 
   /// Own replies in flight; `post.created` events are held meanwhile.
@@ -97,11 +103,15 @@ class TopicLive extends _$TopicLive {
     if (!signedIn || !enabled || _suspended) return const TopicLiveState();
     final client = _newClient();
     _client = client;
-    // Started after build returns: the client reports its first status
-    // synchronously, and build may not write state.
-    scheduleMicrotask(() {
-      if (identical(client, _client)) client.start();
-    });
+    // Started after build returns (the client reports its first status
+    // synchronously, and build may not write state), and only once the
+    // stored setting is known: a change rebuilds and replaces this client.
+    final loaded = ref.read(liveUpdatesSettingProvider.notifier).loaded;
+    unawaited(
+      loaded.then((_) {
+        if (identical(client, _client)) client.start();
+      }),
+    );
     return const TopicLiveState(status: LiveStatus.connecting);
   }
 
@@ -111,17 +121,40 @@ class TopicLive extends _$TopicLive {
 
   /// The app was hidden: close the socket, and fetch nothing until [resume].
   void suspend() {
-    if (_suspended) return;
+    _appHidden = true;
+    _sync();
+  }
+
+  /// The app is shown again: one new connection, which catches up on open.
+  /// This makes one new attempt even after 4503 or 4429.
+  void resume() {
+    _appHidden = false;
+    _sync();
+  }
+
+  /// Another screen covers the thread, or the reader switched tabs: the
+  /// socket is open only while the topic is on screen. The reply composer
+  /// covering it is the exception (D11, D20): with a reply in progress the
+  /// socket stays.
+  void setCovered(bool covered) {
+    _covered = covered;
+    _sync();
+  }
+
+  void _sync() {
+    final run = !_appHidden && !(_covered && _ownReplies == 0);
+    if (!run && !_suspended) _pause();
+    if (run && _suspended) _restart();
+  }
+
+  void _pause() {
     _suspended = true;
     _topicTimer?.cancel();
     _closeClient();
     if (!state.gone) state = state.copyWith(status: LiveStatus.off);
   }
 
-  /// The app is shown again: one new connection, which catches up on open.
-  /// This makes one new attempt even after 4503 or 4429.
-  void resume() {
-    if (!_suspended) return;
+  void _restart() {
     _suspended = false;
     if (state.gone) return;
     final signedIn = ref.read(authServiceProvider).isAuthenticated;
@@ -140,7 +173,9 @@ class TopicLive extends _$TopicLive {
   void endOwnReply() {
     if (_ownReplies == 0) return;
     _ownReplies--;
-    if (_ownReplies > 0) return;
+    // The thread may have closed while the composer was open.
+    if (_ownReplies > 0 || !ref.mounted) return;
+    _sync();
     final held = [..._held];
     _held.clear();
     for (final id in held) {

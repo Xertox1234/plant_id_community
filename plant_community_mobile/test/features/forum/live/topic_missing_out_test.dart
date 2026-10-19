@@ -131,6 +131,23 @@ void main() {
     await h.stop(tester);
   });
 
+  testWidgets('covered stops polling, uncovered restarts it', (tester) async {
+    final h = _Harness();
+    await h.start(tester);
+    await tester.pump(missingOutPollInterval);
+    expect(h.api.peekCalls, 1);
+
+    h.notifier.setCovered(true);
+    await tester.pump(const Duration(minutes: 2));
+    expect(h.api.peekCalls, 1);
+
+    h.notifier.setCovered(false);
+    await tester.pump();
+    await tester.pump(missingOutPollInterval);
+    expect(h.api.peekCalls, 2);
+    await h.stop(tester);
+  });
+
   testWidgets('signing in stops polling', (tester) async {
     final h = _Harness();
     await h.start(tester);

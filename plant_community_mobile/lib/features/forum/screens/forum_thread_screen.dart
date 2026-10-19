@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -603,6 +604,12 @@ class _ThreadBodyState extends State<_ThreadBody> {
   bool _jumping = false;
   bool _atBottom = true;
 
+  /// Following a live insert to the bottom: set when it lands, cleared once
+  /// its card has full height ([LiveFlash.onSlideDone]) or the reader
+  /// drags. A sliding card grows the list after the first scroll, so every
+  /// metrics change re-pins the end until then.
+  bool _pinned = false;
+
   @override
   void initState() {
     super.initState();
@@ -652,6 +659,7 @@ class _ThreadBodyState extends State<_ThreadBody> {
         newLast != oldLast &&
         widget.flashIds.contains(newLast) &&
         _atBottom) {
+      _pinned = true;
       WidgetsBinding.instance.addPostFrameCallback((_) => _followToBottom());
     }
   }
@@ -667,23 +675,38 @@ class _ThreadBodyState extends State<_ThreadBody> {
   void _reportAtBottom() {
     if (!_scrollController.hasClients) return;
     final position = _scrollController.position;
-    final atBottom = position.pixels >= position.maxScrollExtent - 48;
+    final atBottom =
+        _pinned || position.pixels >= position.maxScrollExtent - 48;
     _atBottom = atBottom;
     widget.onAtBottom?.call(atBottom);
   }
 
+  /// Jumps, never animates: the card sliding open is the motion, and the
+  /// end it would animate to moves while it grows.
   void _followToBottom() {
     if (!mounted || !_scrollController.hasClients) return;
-    final end = _scrollController.position.maxScrollExtent;
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _scrollController.jumpTo(end);
-    } else {
-      _scrollController.animateTo(
-        end,
-        duration: liveSlideDuration,
-        curve: Curves.easeOut,
-      );
+    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+  }
+
+  void _slideDone() {
+    if (!_pinned) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _followToBottom();
+      _pinned = false;
+      _reportAtBottom();
+    });
+  }
+
+  bool _onScrollNotification(Notification notification) {
+    if (notification is ScrollStartNotification &&
+        notification.dragDetails != null) {
+      _pinned = false; // The reader took over.
+    } else if (notification is ScrollMetricsNotification && _pinned) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_pinned) _followToBottom();
+      });
     }
+    return false;
   }
 
   GlobalKey? _keyFor(ForumPost post) {
@@ -840,6 +863,7 @@ class _ThreadBodyState extends State<_ThreadBody> {
                 key: ValueKey('live-flash-${post.id}'),
                 slide: !reduceMotion && widget.slideIds.contains(post.id),
                 onDone: () => widget.onFlashDone?.call(post.id),
+                onSlideDone: _slideDone,
                 child: card,
               )
             : card;
@@ -877,8 +901,12 @@ class _ThreadBodyState extends State<_ThreadBody> {
 
   Widget _refreshable(Widget list) {
     final onRefresh = widget.onRefresh;
-    if (onRefresh == null) return list;
-    return RefreshIndicator(onRefresh: onRefresh, child: list);
+    final listened = NotificationListener<Notification>(
+      onNotification: _onScrollNotification,
+      child: list,
+    );
+    if (onRefresh == null) return listened;
+    return RefreshIndicator(onRefresh: onRefresh, child: listened);
   }
 }
 
@@ -974,6 +1002,10 @@ SnackBar _liveToast(Widget content, {SnackBarAction? action}) => SnackBar(
 class _LiveScopeState extends ConsumerState<_LiveScope> {
   late final AppLifecycleListener _lifecycle;
 
+  /// Off while another route covers the thread or its tab is not shown
+  /// (the Overlay and the shell's indexed stack both turn tickers off).
+  ValueListenable<TickerModeData>? _onScreen;
+
   @override
   void initState() {
     super.initState();
@@ -990,9 +1022,36 @@ class _LiveScopeState extends ConsumerState<_LiveScope> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final onScreen = TickerMode.getValuesNotifier(context);
+    if (identical(onScreen, _onScreen)) return;
+    _onScreen?.removeListener(_onScreenChanged);
+    _onScreen = onScreen..addListener(_onScreenChanged);
+    _onScreenChanged();
+  }
+
+  @override
   void dispose() {
+    _onScreen?.removeListener(_onScreenChanged);
     _lifecycle.dispose();
     super.dispose();
+  }
+
+  /// The socket and the signed-out check run only while the topic is on
+  /// screen (spec O9), not while it sits under another route or tab.
+  ///
+  /// Applied after the frame: the ticker mode changes while the tree builds,
+  /// and providers may not change then.
+  void _onScreenChanged() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final covered = !(_onScreen?.value.enabled ?? true);
+      ref.read(topicLiveProvider(widget.topicId).notifier).setCovered(covered);
+      ref
+          .read(topicMissingOutProvider(widget.topicId).notifier)
+          .setCovered(covered);
+    });
   }
 
   void _onHide() {

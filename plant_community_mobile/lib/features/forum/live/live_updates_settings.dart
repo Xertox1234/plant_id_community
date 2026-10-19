@@ -25,12 +25,18 @@ class LiveUpdatesSetting extends _$LiveUpdatesSetting {
 
   /// Set once the user flips the switch, so a slow first read can't undo it.
   bool _changed = false;
+  Future<void>? _loading;
 
   @override
   bool build() {
-    unawaited(_load());
+    _loading = _load();
     return true;
   }
+
+  /// Completes once the stored value has been read (or failed to read). A
+  /// socket waits for it: until then the state is the default "on", and a
+  /// reader who turned live updates off would otherwise connect once.
+  Future<void> get loaded => _loading ?? Future<void>.value();
 
   void setEnabled(bool on) {
     _changed = true;

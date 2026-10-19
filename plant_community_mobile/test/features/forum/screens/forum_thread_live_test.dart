@@ -34,11 +34,12 @@ class _Live {
 
   final api = FakeForumApi();
   final connector = FakeLiveConnector();
+  late GoRouter router;
 
   FakeLiveChannel get channel => connector.last;
 
   Widget app({bool loggedIn = true, bool reduceMotion = false}) {
-    final router = GoRouter(
+    router = GoRouter(
       routes: [
         GoRoute(
           path: '/',
@@ -219,6 +220,44 @@ void main() {
     expect(find.byType(LiveFlash), findsOneWidget);
     await tester.pumpAndSettle();
     expect(find.text('Brand new reply').hitTestable(), findsOneWidget);
+  });
+
+  testWidgets('a reader at the bottom of a long thread sees a live reply, '
+      'and the next one slides in too', (tester) async {
+    final l = _Live();
+    l.api
+      ..topicDetail = topicDetail(replyCount: 29)
+      ..posts = CursorPage(items: [for (var i = 1; i <= 30; i++) _reply(i)])
+      ..postsById[31] = _reply(31, 'Live thirty-one')
+      ..postsById[32] = _reply(32, 'Live thirty-two');
+    await l.open(tester);
+    await tester.fling(find.byType(ListView), const Offset(0, -20000), 5000);
+    await tester.pumpAndSettle();
+
+    l.channel.serverEvent('post.created', postId: 31);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.close)); // the intro toast
+    await tester.pumpAndSettle();
+    expect(find.text('Live thirty-one').hitTestable(), findsOneWidget);
+
+    l.channel.serverEvent('post.created', postId: 32);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('new repl'), findsNothing);
+    expect(find.text('Live thirty-two').hitTestable(), findsOneWidget);
+  });
+
+  testWidgets('another screen pushed over the thread closes the socket, and '
+      'coming back reconnects', (tester) async {
+    final l = _Live();
+    await l.open(tester);
+
+    unawaited(l.router.push('/register'));
+    await tester.pumpAndSettle();
+    expect(l.channel.closedByClient, isTrue);
+
+    l.router.pop();
+    await tester.pumpAndSettle();
+    expect(l.connector.connects, hasLength(2));
   });
 
   testWidgets('own reply never counts', (tester) async {
