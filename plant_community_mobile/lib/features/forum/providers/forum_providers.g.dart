@@ -215,7 +215,7 @@ final class TopicDetailProvider
   }
 }
 
-String _$topicDetailHash() => r'53a58642f5691840b609ff0c0d2ccfd5cd84b5b6';
+String _$topicDetailHash() => r'4b9880bdebf92e67690efb44a6a1570870c6132c';
 
 /// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
 /// bookmark toggle and the accepted-answer mark/clear (todo 341).
@@ -513,7 +513,7 @@ final class TopicPostsProvider
   }
 }
 
-String _$topicPostsHash() => r'ffdd1b6bda2b33a2f8525e8925fa99160ff45a85';
+String _$topicPostsHash() => r'd45da22742aad780342bc6663026cde84c56e831';
 
 /// Posts in a topic (oldest-first), cursor-paginated with [loadMore], plus a
 /// reaction toggle that updates the affected post in place.

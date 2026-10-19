@@ -206,6 +206,73 @@ void main() {
     });
   });
 
+  group('TopicPosts live splices (forum live, slice 4)', () {
+    test(
+      'applyLivePost appends a new id and splices an existing one',
+      () async {
+        final api = FakeForumApi()
+          ..posts = CursorPage(
+            items: [
+              post(id: 1),
+              post(id: 2, body: const [ParagraphBlock('a')]),
+            ],
+          );
+        final container = ProviderContainer(
+          overrides: [forumApiProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+        await container.read(topicPostsProvider(10).future);
+        final notifier = container.read(topicPostsProvider(10).notifier);
+
+        notifier.applyLivePost(post(id: 3));
+        notifier.applyLivePost(post(id: 2, body: const [ParagraphBlock('b')]));
+
+        final items = container
+            .read(topicPostsProvider(10))
+            .asData!
+            .value
+            .items;
+        expect(items.map((p) => p.id), [1, 2, 3]);
+        expect(items[1].body, [const ParagraphBlock('b')]);
+        expect(api.fetchPostsCalls, hasLength(1));
+      },
+    );
+
+    test('removeLocal removes without calling the API', () async {
+      final api = FakeForumApi()
+        ..posts = CursorPage(items: [post(id: 1), post(id: 2)]);
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+      await container.read(topicPostsProvider(10).future);
+
+      container.read(topicPostsProvider(10).notifier).removeLocal(2);
+
+      final items = container.read(topicPostsProvider(10)).asData!.value.items;
+      expect(items.map((p) => p.id), [1]);
+      expect(api.deletePostCalls, isEmpty);
+    });
+
+    test('TopicDetail.applyPeek replaces the topic', () async {
+      final api = FakeForumApi()..topicDetail = topicDetail();
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+      await container.read(topicDetailProvider(10).future);
+
+      container
+          .read(topicDetailProvider(10).notifier)
+          .applyPeek(topicDetail(locked: true));
+
+      expect(
+        container.read(topicDetailProvider(10)).asData!.value.locked,
+        isTrue,
+      );
+    });
+  });
+
   group('TopicPosts.applyEditedPost (todo 292)', () {
     test('splices the updated post into place without a refetch', () async {
       final api = FakeForumApi()

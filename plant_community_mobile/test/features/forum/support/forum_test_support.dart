@@ -392,6 +392,9 @@ class FakeForumApi implements ForumApi {
   /// the last one repeats. Empty falls back to [topicDetail].
   List<ForumTopicDetail> peekDetails = [];
 
+  /// When set, every peek read waits for it: a catch-up still in flight.
+  Completer<void>? peekGate;
+
   @override
   Future<ForumTopicDetail> fetchTopicDetail(
     int topicId, {
@@ -400,6 +403,8 @@ class FakeForumApi implements ForumApi {
     fetchTopicDetailCalls++;
     if (peek) {
       final index = peekCalls++;
+      final gate = peekGate;
+      if (gate != null) await gate.future;
       if (peekDetails.isNotEmpty) {
         return peekDetails[index < peekDetails.length
             ? index
@@ -1456,6 +1461,8 @@ ForumTopicDetail topicDetail({
   int? solvedPostId,
   bool canMarkSolution = false,
   bool locked = false,
+  bool isClosed = false,
+  int replyCount = 3,
   ForumPoll? poll,
   ForumIdentification? identification,
 }) {
@@ -1466,9 +1473,9 @@ ForumTopicDetail topicDetail({
     board: const ForumTopicBoardRef(id: 1, slug: 'general', title: 'General'),
     author: author(),
     isPinned: false,
-    isClosed: false,
+    isClosed: isClosed,
     locked: locked,
-    replyCount: 3,
+    replyCount: replyCount,
     viewCount: 12,
     createdAt: DateTime(2026, 1, 1),
     lastPostAt: DateTime(2026, 1, 2),
