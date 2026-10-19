@@ -165,19 +165,16 @@ Test hook: reach the consumer instance through a small `mock.patch.object(TopicL
 
   Create 5 users and one public topic, and mint one access token per user into a 0600 file.
 - [ ] **Step 2: The burst.** `connect_burst.py` uses the `websockets` package (installed with `uvicorn[standard]`) and does the following:
+  0. **Align to the window.** The gate keys on `int(time.time() // 60)`, so sleep until `time.time() % 60 < 2` before Phase 1. Otherwise Phase 2 can fall in the next window, and connects 61–65 are rightly accepted: a false failure.
   1. **Phase 1:** open 50 sockets at once (10 per user, Bearer header) while a loop GETs `/api/v1/plant-identification/health/` every 100 ms.
-  2. **Phase 2:** close them all, then open 15 more in sequence within the same minute.
+  2. **Phase 2:** close them all and **wait 1 s**, so the server's `disconnect` gives the concurrent slots back. Then open 15 more in sequence, in the same window: the script asserts it's still the same window index, and aborts the run if not.
 
   Expected:
   - Phase 1: all 50 accepted and kept open in **< 5 s** wall time, with health p95 **< 1 s** during the burst.
   - Phase 2: connects 51–60 are accepted. 61–65 close **4429**, with exactly one `connect rate limited` log line, and no `reason=over cap` line for them.
   - No token in the uvicorn log (`grep -c "eyJ"` → 0).
-- [ ] **Step 3: If Phase 1 misses either threshold.** Connect DB work is serialised on one thread per worker, so:
-  - give `_topic_is_visible` and `JWTAuthMiddleware._user_for` `database_sync_to_async(..., thread_sensitive=False)`, each with a test that the result is unchanged;
-  - re-run the burst;
-  - ledger both runs' numbers.
-
-  If it still misses, stop and report. Don't tune the thresholds.
+- [ ] **Step 3: If Phase 1 misses either threshold**, ledger the numbers, then **stop and report** for a ruling. Don't tune the thresholds.
+  - Don't flip the connect DB calls to `thread_sensitive=False` on your own. That moves them to an executor thread with its own connection, outside the test transaction (see `test_live_consumer.py`'s docstring). Every socket test that authenticates or checks visibility would then stop seeing its own users and topics. That's a test-suite rework, not a one-line fix.
 - [ ] **Step 4: Tear down.** Stop uvicorn (`lsof -nP -iTCP:8000` → kill), drop the DB, and delete `smoke.env` and the token file.
 - [ ] **Step 5: Full gate.** Run: `cd backend && venv/bin/pytest -q -p no:cacheprovider` (the full suite, `apps/core` guards included). Then run the pre-commit hooks. Expected: green, with the count recorded.
 - [ ] **Step 6: Final whole-branch review** (fresh reviewer, most capable model) per the execution skill, with the fix pass for Critical and Important findings.
@@ -208,7 +205,7 @@ Test hook: reach the consumer instance through a small `mock.patch.object(TopicL
 
 **Files:** `.railway/railway.ts` (add `FORUM_LIVE_UPDATES_ENABLED: preserve()` to `plant_id_community`'s `env`, in alphabetical order) and root `CLAUDE.md` (the row's "Not yet declared…" sentence becomes "Declared with `preserve()`; set by hand").
 
-- [ ] **Step 1:** Branch from origin/main. The worktree can be reused after PR A merges: merge origin/main into it first. Commit: `chore(railway): declare FORUM_LIVE_UPDATES_ENABLED (live slice 5)`.
+- [ ] **Step 1:** After PR A merges, cut a **fresh** branch, `chore/railway-declare-forum-live`, from origin/main. Don't reuse PR A's branch: after a squash-merge its merge base is behind main. Commit: `chore(railway): declare FORUM_LIVE_UPDATES_ENABLED (live slice 5)`.
 - [ ] **Step 2:** Push and open the PR. **Read the `railway-plan` comment.** Expected: no change, or only the new declaration. Anything else (a destroy, a reset of another field) means drift: stop and report.
 - [ ] **Step 3:** The owner merges, or authorizes me to arm it. Then confirm the `Railway apply` run on main succeeded (`gh run list --workflow railway-apply.yml -L 1`).
 
@@ -219,16 +216,23 @@ Test hook: reach the consumer instance through a small `mock.patch.object(TopicL
     - Web users get live replies at once.
     - The owner checks from any browser in two tabs or two accounts.
     - The phone check follows on a new TestFlight build.
-    - Kill switch: set the variable to `False`. That redeploys, with a 60 s drain plus boot, so it isn't instant.
+    - Kill switch: set the variable to `False`, accept the staged change if Railway stages it (a second owner OK), then a redeploy: 60 s drain plus boot. Several minutes, not instant.
   - **B: hold the flag** until a phone build can run against a local backend with the flag on. This is laptop-bound: Firebase dart-defines, and a sim or phone build.
-- [ ] **Step 2 (A), with the owner's OK:** Railway MCP `set-variables` `FORUM_LIVE_UPDATES_ENABLED=True` on `plant_id_community`. Confirm a new deployment starts and reaches SUCCESS (`list-deployments`).
+- [ ] **Step 2 (A), with the owner's OK:** Railway MCP `set-variables` `FORUM_LIVE_UPDATES_ENABLED=True` on `plant_id_community`.
+  - A variable write may land as a **staged change** that nothing deploys, so next call `get-staged-changes`.
+  - If it's non-empty, `accept-deploy` is a second step that needs the owner's OK.
+  - Only then poll `list-deployments` until the new deployment reaches SUCCESS, and confirm its start time is after the write.
 - [ ] **Step 3: Production checks, with the owner's OK.**
   - Bare `wss://…/ws/forum/topics/48/` with no token → 101, then close **4401** (no longer 4503), plus a `[FORUM_LIVE] refused … reason=unauthenticated` log line.
   - Health 200 and 0 5xx over 10 min (`http-error-rate`).
   - Boot line unchanged.
 - [ ] **Step 4: The owner's web check.** Two signed-in accounts in two browsers, the same topic:
   - a reply, an edit and a delete each appear live in the other window;
-  - leave one window idle **> 100 s** (the Cloudflare idle limit), then reply from the other: it still arrives;
+  - leave one window idle **> 100 s** (the Cloudflare idle limit), then reply from the other. The web keeps its 30 s fallback poll, so "it still arrives" alone can pass on a dead socket. The check passes only if **both** hold:
+    - the reply arrives within **~2 s**, not up to 30 s;
+    - the idle window's socket is still the same open connection: the DevTools Network → WS row has no close and no second connection, and the production log has **no** `[FORUM_LIVE] disconnect` line for that user and topic during the wait (log read with the owner's OK).
+
+    This is the check that settles slice 2's deferred Cloudflare idle question.
   - Settings → Live updates off: no more live replies; reopening the topic opens no socket;
   - the first-time toast shows once, and "Turn off" / "Undo" work.
 - [ ] **Step 5: The phone build.** No TestFlight build carries slice 4: build 14 is from 2026-09-24.
@@ -243,7 +247,7 @@ Test hook: reach the consumer instance through a small `mock.patch.object(TopicL
   - backgrounding and resuming catches up.
 
   Add the reduce-motion highlight (2.5 s) and the "N new replies" pill when scrolled up.
-- [ ] **Step 7: If any check fails.** Flag off (MCP `set-variables False`, with the owner's OK), then file a todo with the failure. The declaration in `railway.ts` stays: `preserve()` carries no value, so nothing re-sets it.
+- [ ] **Step 7: If any check fails.** Flag off (MCP `set-variables False`, then `get-staged-changes` → `accept-deploy` if staged, then `list-deployments` until SUCCESS; each production write needs the owner's OK), then file a todo with the failure. The declaration in `railway.ts` stays: `preserve()` carries no value, so nothing re-sets it.
 
 ### Task 7: PR C — record the outcome
 
