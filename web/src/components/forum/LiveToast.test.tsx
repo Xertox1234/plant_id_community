@@ -29,15 +29,15 @@ describe('LiveToast', () => {
     expect(screen.getByRole('button', { name: 'Turn off' })).toBeInTheDocument();
   });
 
-  it('an action calls onClick then onDismiss', () => {
-    const onClick = vi.fn();
-    const onDismiss = vi.fn();
+  it('an action dismisses first, then calls onClick (so it can show the next toast)', () => {
+    const calls: string[] = [];
+    const onClick = vi.fn(() => calls.push('click'));
+    const onDismiss = vi.fn(() => calls.push('dismiss'));
     render(
       <LiveToast toast={spec({ actions: [{ label: 'Undo', onClick }] })} onDismiss={onDismiss} />
     );
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
-    expect(onClick).toHaveBeenCalledTimes(1);
-    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual(['dismiss', 'click']);
   });
 
   it('has a Dismiss button', () => {

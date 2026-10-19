@@ -73,8 +73,10 @@ export default function LiveToast({ toast, onDismiss }: LiveToastProps) {
                 variant="outline"
                 className="min-h-11"
                 onClick={() => {
-                  action.onClick();
+                  // Dismiss first: an action may show the next toast
+                  // ("Turn off" → "Live updates off · Undo").
                   onDismiss();
+                  action.onClick();
                 }}
               >
                 {action.label}

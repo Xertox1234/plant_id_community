@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
-import { useParams, Link, useLocation } from 'react-router-dom';
+import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bell,
   BellOff,
@@ -56,6 +56,7 @@ import PollCard from '../../components/forum/PollCard';
 import ThreadSummaryPanel from '../../components/forum/ThreadSummaryPanel';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import TipTapEditor from '../../components/forum/TipTapEditor';
+import LiveToast from '../../components/forum/LiveToast';
 import { ThreadDetailSkeleton } from '../../components/forum/ForumSkeleton';
 import Button from '../../components/ui/Button';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
@@ -69,11 +70,16 @@ import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useTopicLive } from '../../hooks/useTopicLive';
-import { useLiveUpdatesEnabled } from '../../utils/liveUpdatesStore';
+import {
+  markMissingOutShown,
+  mayShowMissingOut,
+  takeLiveIntro,
+  useLiveUpdatesEnabled,
+} from '../../utils/liveUpdatesStore';
 import { logger } from '../../utils/logger';
 import PageMeta from '../../components/PageMeta';
 import type { Thread, Post } from '@/types';
-import type { LiveEvent } from '@/types/forumLive';
+import type { LiveEvent, LiveToastSpec } from '@/types/forumLive';
 import type { JSONContent } from '@tiptap/react';
 import type { PaginatedResponse } from '@/types/forum';
 
@@ -143,6 +149,7 @@ export default function ThreadDetailPage() {
   const { categorySlug, threadSlug } = useParams<{ categorySlug: string; threadSlug: string }>();
   const { isAuthenticated, user, revalidateIdentity } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const announce = useAnnounce();
   useScrollToTop();
 
@@ -209,7 +216,10 @@ export default function ThreadDetailPage() {
   // Live updates (slice 3): replies flashed after a live insert or a pill
   // load, cleared CANOPY_FLASH_MS after the last change.
   const [flashIds, setFlashIds] = useState<string[]>([]);
-  const [liveEnabled] = useLiveUpdatesEnabled();
+  const [liveEnabled, setLiveEnabled] = useLiveUpdatesEnabled();
+  // The page's one toast: first-time live notice, its Undo, and the
+  // signed-out "missing out" notice (O10–O12).
+  const [toast, setToast] = useState<LiveToastSpec | null>(null);
   // Read by the socket's event handler, which must not re-subscribe on every
   // render: the ids offered through the pill, this reader's own replies, and
   // the current posts / thread / edit target.
@@ -453,6 +463,29 @@ export default function ThreadDetailPage() {
     editingPostIdRef.current = editingPostId;
   }, [editingPostId]);
 
+  // O12: the first time a live reply lands or the pill appears from a live
+  // event, once per browser, say so and offer the way out.
+  const showLiveIntro = useCallback(() => {
+    if (!takeLiveIntro()) return;
+    setToast({
+      id: 'live-intro',
+      message: 'Replies now appear live.',
+      actions: [
+        {
+          label: 'Turn off',
+          onClick: () => {
+            setLiveEnabled(false);
+            setToast({
+              id: `live-off-${Date.now()}`,
+              message: 'Live updates off',
+              actions: [{ label: 'Undo', onClick: () => setLiveEnabled(true) }],
+            });
+          },
+        },
+      ],
+    });
+  }, [setLiveEnabled]);
+
   // A live event (ids only): apply it through the same state the page already
   // keeps. Everything shown is refetched through REST as this viewer.
   const handleLiveEvent = useCallback(
@@ -488,6 +521,7 @@ export default function ThreadDetailPage() {
               setTotalPosts((n) => n + 1);
               setFlashIds((prev) => [...prev, postId]);
               pendingScrollRef.current = { bottom: true };
+              showLiveIntro();
             })
             .catch((err) => {
               logger.warn('Live reply fetch failed', {
@@ -500,6 +534,7 @@ export default function ThreadDetailPage() {
         }
         liveNewIdsRef.current.add(postId);
         setNewReplyCount((n) => Math.max(n, liveNewIdsRef.current.size));
+        showLiveIntro();
         return;
       }
       if (event.type === 'post.updated') {
@@ -533,7 +568,7 @@ export default function ThreadDetailPage() {
         setNotice('This post was removed.');
       }
     },
-    [scheduleTopicRefetch]
+    [scheduleTopicRefetch, showLiveIntro]
   );
 
   const handleLiveOpen = useCallback(() => {
@@ -563,7 +598,30 @@ export default function ThreadDetailPage() {
       if (inFlight || document.visibilityState === 'hidden') return;
       inFlight = true;
       try {
-        await checkForNewReplies(requestTopicId, () => active);
+        const fresh = await checkForNewReplies(requestTopicId, () => active);
+        // Signed out (O10/O11): no pill, no socket; new replies earn at most
+        // one "missing out" toast per tab session and per 24 h.
+        const now = Date.now();
+        if (
+          fresh &&
+          !isAuthenticated &&
+          (fresh.post_count ?? 0) > totalPostsRef.current &&
+          mayShowMissingOut(now)
+        ) {
+          markMissingOutShown(now);
+          setToast({
+            id: `missing-out-${now}`,
+            message: 'New replies are coming in. Sign in or sign up to follow along live.',
+            actions: [
+              {
+                label: 'Sign in',
+                onClick: () =>
+                  navigate('/login', { state: { from: { pathname: location.pathname } } }),
+              },
+              { label: 'Sign up', onClick: () => navigate('/signup') },
+            ],
+          });
+        }
       } finally {
         inFlight = false;
       }
@@ -578,7 +636,17 @@ export default function ThreadDetailPage() {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [topicId, loading, error, thread, liveConnected, checkForNewReplies]);
+  }, [
+    topicId,
+    loading,
+    error,
+    thread,
+    liveConnected,
+    checkForNewReplies,
+    isAuthenticated,
+    navigate,
+    location.pathname,
+  ]);
 
   const handleLoadNewReplies = useCallback(async () => {
     if (topicId == null) return;
@@ -1224,6 +1292,8 @@ export default function ThreadDetailPage() {
     return acc;
   }, []);
 
+  const lockedWithDraft = thread.is_locked && isAuthenticated && !isEmptyDoc(replyBody);
+
   // Rail: the cached board page, minus this thread and pinned topics — pinned
   // announcements sort first server-side (-is_pinned) and would otherwise
   // permanently occupy every slot. List items carry an empty category, so
@@ -1508,11 +1578,15 @@ export default function ThreadDetailPage() {
           the offer is announced; a conditionally rendered aria-live node is
           created already containing its content and says nothing. */}
       <div
-        className={newReplyCount > 0 ? 'sticky bottom-4 z-10 mb-4 flex justify-center' : 'sr-only'}
+        className={
+          isAuthenticated && newReplyCount > 0
+            ? 'sticky bottom-4 z-10 mb-4 flex justify-center'
+            : 'sr-only'
+        }
         aria-live="polite"
         aria-atomic="true"
       >
-        {newReplyCount > 0 && (
+        {isAuthenticated && newReplyCount > 0 && (
           <Button
             onClick={handleLoadNewReplies}
             variant="outline"
@@ -1549,8 +1623,10 @@ export default function ThreadDetailPage() {
         </div>
       )}
 
-      {/* Reply composer — hidden when the thread is locked/closed */}
-      {thread.is_locked ? (
+      {/* Reply composer — hidden when the thread is locked/closed, unless the
+          lock landed live while this reader was typing: then the text stays
+          and only sending is disabled (spec: never discard typed text). */}
+      {thread.is_locked && !lockedWithDraft ? (
         <div className="canopy-card rounded-md mt-8 p-6 text-center">
           <p className="inline-flex items-center gap-2 text-ink-2">
             <Lock className="h-3.5 w-3.5" aria-hidden="true" /> This thread is locked — new replies
@@ -1569,9 +1645,15 @@ export default function ThreadDetailPage() {
       ) : (
         <form
           ref={composerRef}
-          onSubmit={handleReply}
+          onSubmit={lockedWithDraft ? (e) => e.preventDefault() : handleReply}
           className="canopy-card rounded-md mt-8 p-5 sm:p-6 space-y-3"
         >
+          {lockedWithDraft && (
+            <p className="inline-flex items-center gap-2 text-ink-2">
+              <Lock className="h-3.5 w-3.5" aria-hidden="true" /> This thread is locked — new
+              replies are disabled.
+            </p>
+          )}
           <p className="gt-label">Join the discussion</p>
           <h2 className="gt-h3 text-ink">Post a Reply</h2>
           <TipTapEditor
@@ -1594,7 +1676,7 @@ export default function ThreadDetailPage() {
           <Button
             type="submit"
             variant="primary"
-            disabled={isBlankDoc(replyBody) || replySubmitting}
+            disabled={lockedWithDraft || isBlankDoc(replyBody) || replySubmitting}
             loading={replySubmitting}
             loadingText="Posting…"
           >
@@ -1602,6 +1684,8 @@ export default function ThreadDetailPage() {
           </Button>
         </form>
       )}
+
+      <LiveToast toast={toast} onDismiss={() => setToast(null)} />
 
       {/* Styled confirmations — replace native window.confirm (M24) and guard
           unsaved edits when switching edit targets (M27). */}

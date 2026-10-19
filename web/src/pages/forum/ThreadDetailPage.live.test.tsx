@@ -19,14 +19,19 @@ import * as blogService from '../../services/blogService';
 import { useAuth } from '../../contexts/AuthContext';
 import { AnnouncerProvider } from '../../contexts/AnnouncerContext';
 import { liveTopicUrl, LIVE_CLOSE } from '../../services/forumLiveSocket';
-import { LIVE_UPDATES_KEY } from '../../utils/liveUpdatesStore';
+import {
+  LIVE_UPDATES_KEY,
+  MISSING_OUT_QUIET_MS,
+  readLiveUpdatesEnabled,
+} from '../../utils/liveUpdatesStore';
+import { LIVE_TOAST_MS } from '../../components/forum/LiveToast';
 import { installFakeWebSocket, type FakeWs } from '../../tests/fakeWebSocket';
 import type { JSONContent } from '@tiptap/react';
 import type { Post, Thread } from '@/types';
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
-  return { ...actual, useParams: vi.fn() };
+  return { ...actual, useParams: vi.fn(), useNavigate: vi.fn() };
 });
 vi.mock('../../services/forumService');
 vi.mock('../../services/blogService');
@@ -105,6 +110,8 @@ function renderPage() {
   );
 }
 
+const navigate = vi.fn();
+
 describe('ThreadDetailPage live updates', () => {
   let sockets: FakeWs[];
   const live = () => sockets[sockets.length - 1];
@@ -138,6 +145,7 @@ describe('ThreadDetailPage live updates', () => {
       threadSlug: '12-watering-tips',
     });
     vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+    vi.mocked(ReactRouter.useNavigate).mockReturnValue(navigate);
     vi.mocked(forumService.fetchThreads).mockResolvedValue({
       items: [],
       meta: { next: null, count: 0 },
@@ -416,5 +424,178 @@ describe('ThreadDetailPage live updates', () => {
     await waitFor(() =>
       expect(vi.mocked(HTMLElement.prototype.scrollIntoView).mock.contexts).toContain(first)
     );
+  });
+
+  describe('toasts and locking (Task 7)', () => {
+    const INTRO = 'Replies now appear live.';
+    const MISSING_OUT = 'New replies are coming in. Sign in or sign up to follow along live.';
+
+    it('the first live reply shows the intro toast once per browser', async () => {
+      scrolledUp();
+      await loadAndOpen();
+      expect(screen.queryByText(INTRO)).not.toBeInTheDocument();
+      await send({ type: 'post.created', post_id: 3 });
+      expect(await screen.findByText(INTRO)).toBeInTheDocument();
+    });
+
+    it('a live insert at the bottom shows the intro toast too', async () => {
+      vi.mocked(forumService.fetchPost).mockResolvedValue(post('3', 'Live reply'));
+      await loadAndOpen();
+      await send({ type: 'post.created', post_id: 3 });
+      await screen.findByText('Live reply');
+      expect(await screen.findByText(INTRO)).toBeInTheDocument();
+    });
+
+    it('does not show the intro toast again after a remount', async () => {
+      scrolledUp();
+      const view = renderPage();
+      await screen.findByText('Opening post');
+      await waitFor(() => expect(sockets.length).toBe(1));
+      await act(async () => {
+        live().open();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await send({ type: 'post.created', post_id: 3 });
+      expect(await screen.findByText(INTRO)).toBeInTheDocument();
+      view.unmount();
+      renderPage();
+      await screen.findByText('Opening post');
+      await waitFor(() => expect(sockets.length).toBe(2));
+      await act(async () => {
+        live().open();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await send({ type: 'post.created', post_id: 4 });
+      await screen.findByRole('button', { name: 'Load 1 new reply' });
+      expect(screen.queryByText(INTRO)).not.toBeInTheDocument();
+    });
+
+    it('Turn off closes the socket, resumes polling and offers Undo', async () => {
+      scrolledUp();
+      await loadAndOpen();
+      await send({ type: 'post.created', post_id: 3 });
+      await userEvent.click(await screen.findByRole('button', { name: 'Turn off' }));
+      expect(readLiveUpdatesEnabled()).toBe(false);
+      expect(sockets[0].closedByClient).toBe(true);
+      expect(await screen.findByText('Live updates off')).toBeInTheDocument();
+      const before = peekCalls();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+      });
+      expect(peekCalls()).toBe(before + 1);
+    });
+
+    it('Undo turns live updates back on and reconnects', async () => {
+      scrolledUp();
+      await loadAndOpen();
+      await send({ type: 'post.created', post_id: 3 });
+      await userEvent.click(await screen.findByRole('button', { name: 'Turn off' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+      expect(readLiveUpdatesEnabled()).toBe(true);
+      await waitFor(() => expect(sockets).toHaveLength(2));
+    });
+
+    it('the poll pill never shows for a signed-out reader', async () => {
+      vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+      renderPage();
+      await screen.findByText('Opening post');
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 3 }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+      });
+      expect(peekCalls()).toBe(1);
+      expect(screen.queryByRole('button', { name: /new repl/i })).not.toBeInTheDocument();
+    });
+
+    it('a signed-out reader gets the missing-out toast, at most once per session and not again within 24 h', async () => {
+      vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+      const view = renderPage();
+      await screen.findByText('Opening post');
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 3 }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+      });
+      expect(await screen.findByText(MISSING_OUT)).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(LIVE_TOAST_MS);
+      });
+      expect(screen.queryByText(MISSING_OUT)).not.toBeInTheDocument();
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 4 }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+      });
+      expect(screen.queryByText(MISSING_OUT)).not.toBeInTheDocument();
+
+      // A new tab session the next morning, still within 24 h: nothing.
+      view.unmount();
+      sessionStorage.clear();
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread());
+      const again = renderPage();
+      await screen.findByText('Opening post');
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 3 }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+      });
+      expect(screen.queryByText(MISSING_OUT)).not.toBeInTheDocument();
+
+      // Past 24 h, in a new session: it may show again.
+      again.unmount();
+      sessionStorage.clear();
+      vi.setSystemTime(Date.now() + MISSING_OUT_QUIET_MS);
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread());
+      renderPage();
+      await screen.findByText('Opening post');
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 3 }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+      });
+      expect(await screen.findByText(MISSING_OUT)).toBeInTheDocument();
+    });
+
+    it('Sign in navigates to /login with state.from set to this topic', async () => {
+      vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+      renderPage();
+      await screen.findByText('Opening post');
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 3 }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+      });
+      await userEvent.click(await screen.findByRole('button', { name: 'Sign in' }));
+      expect(navigate).toHaveBeenCalledWith('/login', {
+        state: { from: { pathname: '/forum/plant-care/watering-tips' } },
+      });
+    });
+
+    it('Sign up navigates to /signup', async () => {
+      vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+      renderPage();
+      await screen.findByText('Opening post');
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 3 }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+      });
+      await userEvent.click(await screen.findByRole('button', { name: 'Sign up' }));
+      expect(navigate).toHaveBeenCalledWith('/signup');
+    });
+
+    it('locking while typing keeps the text and disables Post Reply', async () => {
+      await loadAndOpen();
+      await userEvent.type(screen.getByLabelText('Write a reply...'), 'Half a thought');
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ is_locked: true }));
+      await send({ type: 'topic.updated' });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(LIVE_TOPIC_DEBOUNCE_MS);
+      });
+      expect(await screen.findByText(/This thread is locked/)).toBeInTheDocument();
+      expect(screen.getByLabelText('Write a reply...')).toHaveValue('Half a thought');
+      expect(screen.getByRole('button', { name: 'Post Reply' })).toBeDisabled();
+    });
+
+    it('a locked thread with an empty draft shows only the notice', async () => {
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ is_locked: true }));
+      renderPage();
+      expect(await screen.findByText(/This thread is locked/)).toBeInTheDocument();
+      expect(screen.queryByLabelText('Write a reply...')).not.toBeInTheDocument();
+    });
   });
 });
