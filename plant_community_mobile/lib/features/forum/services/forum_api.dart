@@ -21,7 +21,14 @@ abstract class ForumApi {
     String? cursorUrl,
   });
 
-  Future<ForumTopicDetail> fetchTopicDetail(int topicId);
+  /// The topic. [peek] (`?peek=1`) reads it without counting a view or
+  /// marking it read: the live-replies catch-up and refetch use it.
+  Future<ForumTopicDetail> fetchTopicDetail(int topicId, {bool peek = false});
+
+  /// One post (`GET /forum/posts/{id}/`), shaped as the post list returns it,
+  /// or null when the viewer can't see it (404). Live replies refetch a post
+  /// this way after an event names it.
+  Future<ForumPost?> fetchPost(int postId);
 
   /// Public forum profile for [username] (`GET /forum/users/{username}/`,
   /// `AllowAny` server-side). 404s (as an [ApiException]) for a missing or
@@ -429,9 +436,26 @@ class HttpForumApi implements ForumApi {
   }
 
   @override
-  Future<ForumTopicDetail> fetchTopicDetail(int topicId) async {
-    final resp = await _api.get('/forum/topics/$topicId/');
+  Future<ForumTopicDetail> fetchTopicDetail(
+    int topicId, {
+    bool peek = false,
+  }) async {
+    final resp = await _api.get(
+      '/forum/topics/$topicId/',
+      queryParameters: peek ? const {'peek': '1'} : null,
+    );
     return ForumTopicDetail.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<ForumPost?> fetchPost(int postId) async {
+    try {
+      final resp = await _api.get('/forum/posts/$postId/');
+      return ForumPost.fromJson(resp.data as Map<String, dynamic>);
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
   }
 
   @override

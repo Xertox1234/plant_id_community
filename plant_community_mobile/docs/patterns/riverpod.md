@@ -322,3 +322,31 @@ ref.invalidate(unreadConversationCountProvider); // a single value: cheap to ref
 
 Same discipline as `TopicPosts.applyEditedPost`; the test proves the loaded
 pages survive (`fetchConversationsCalls` unchanged after the splice).
+
+## A socket notifier per screen (forum live replies, slice 4)
+
+`TopicLive` is an autoDispose family notifier: one per open topic, alive
+while the thread screen watches it. It owns a framework-free client and
+closes it in `ref.onDispose`, so leaving the screen closes the socket.
+
+- **Gates are watched, the client is not rebuilt for anything else.**
+  `build` watches the sign-in state and the setting; a change rebuilds and
+  `onDispose` closes the old client. Lifecycle (`suspend`/`resume`) comes
+  from the screen's `AppLifecycleListener` and does **not** rebuild, so the
+  pill and highlights survive a trip to the background.
+- **Never start the client inside `build`.** Its first status report is
+  synchronous, and `build` may not write `state`: start it in a
+  `scheduleMicrotask` that first checks the client is still current.
+- **Every callback checks client identity.** `onEvent`, `onOpen`,
+  `onStatus` and each async continuation compare against the current
+  `_client`; clearing `_client` before `close()` drops the closing client's
+  own `off` report. That one rule handles replaced, stopped and disposed
+  connections without a sequence counter.
+- **`ref.read`, never `ref.watch`, on the lists it splices**
+  (`topicPostsProvider`, `topicDetailProvider`): watching them would rebuild
+  the notifier on every splice.
+- **Tests:** `testWidgets` + `tester.pump(duration)` drive the timers on fake
+  time and fail on a leaked one; keep autoDispose providers alive with
+  `container.listen`, and dispose the container at the end of the body.
+  Never `await subscription.cancel()` in code these tests drive: it
+  stalled the caller under fake async.

@@ -54,7 +54,13 @@ case "$platform" in
       exit 1
     fi
     mapfile -t files < <(strip_prefix "plant_community_mobile/" "$@")
-    exec flutter test "${files[@]}"
+    # Flutter reads its own version with git in the SDK checkout. In a
+    # worktree commit git exports GIT_DIR (and always GIT_INDEX_FILE) to
+    # hooks, so that read lands on THIS repo: the SDK reports 0.0.0-unknown,
+    # pub refuses to resolve, and the bogus version is written into the SDK's
+    # bin/cache/flutter.version.json for every later run (2026-10-19).
+    exec env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_PREFIX \
+      flutter test "${files[@]}"
     ;;
   *)
     echo "test-staged: unknown platform '$platform' (backend|web|flutter)" >&2

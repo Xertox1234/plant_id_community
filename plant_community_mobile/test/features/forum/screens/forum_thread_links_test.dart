@@ -30,6 +30,7 @@ class _FakeLauncher {
 Widget _wrap(FakeForumApi api, _FakeLauncher launcher) => ProviderScope(
   overrides: [
     forumApiProvider.overrideWithValue(api),
+    ...liveTestOverrides(FakeLiveConnector()),
     authServiceProvider.overrideWith(() => FakeAuthService(loggedIn: true)),
     forumLinkLauncherProvider.overrideWithValue(launcher.call),
   ],

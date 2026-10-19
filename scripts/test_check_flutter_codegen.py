@@ -17,6 +17,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -159,6 +160,28 @@ class MainTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("flutter pub get", out)
             self.assertEqual(build.calls, [])
+
+
+class RunBuildEnvTest(unittest.TestCase):
+    def test_the_build_never_sees_git_hook_variables(self):
+        # In a worktree commit git exports GIT_DIR to hooks. Flutter reads its
+        # own SDK version with git, so with GIT_DIR set it read this repo,
+        # reported 0.0.0-unknown and pub refused to resolve (2026-10-19).
+        hook_env = {
+            "PATH": "/usr/bin",
+            "GIT_DIR": "/repo/.git/worktrees/x",
+            "GIT_INDEX_FILE": "/repo/.git/worktrees/x/index",
+            "GIT_WORK_TREE": "/repo",
+            "GIT_PREFIX": "",
+        }
+        with mock.patch.dict(cfc.os.environ, hook_env, clear=True), mock.patch.object(
+            cfc.subprocess, "run"
+        ) as run_:
+            cfc.run_build(pathlib.Path("/repo/plant_community_mobile"))
+        env = run_.call_args.kwargs["env"]
+        self.assertEqual(env["PATH"], "/usr/bin")
+        for name in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_PREFIX"):
+            self.assertNotIn(name, env)
 
 
 if __name__ == "__main__":

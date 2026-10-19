@@ -236,18 +236,23 @@ repos:
   # ===================================
   # Flutter/Dart Code Quality
   # ===================================
+  # Every Flutter hook drops git's hook variables (env -u GIT_*): Flutter's
+  # bin/flutter and bin/dart run `git rev-parse HEAD` in the SDK, and in a
+  # worktree commit the exported GIT_DIR points that at THIS repo. The SDK then
+  # rebuilds its tool, reports 0.0.0-unknown and pub refuses to resolve
+  # (2026-10-19; scripts/test-staged.sh and check_flutter_codegen.py too).
   - repo: local
     hooks:
       - id: flutter-analyze
         name: Analyze Flutter with flutter analyze
-        entry: bash -c 'flutter analyze plant_community_mobile/'
+        entry: env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_PREFIX bash -c 'flutter analyze plant_community_mobile/'
         language: system
         files: ^plant_community_mobile/.*\.dart$
         pass_filenames: false
 
       - id: dart-format
         name: Check Dart formatting with dart format
-        entry: bash -c 'dart format --output=none --set-exit-if-changed plant_community_mobile/lib/'
+        entry: env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_PREFIX bash -c 'dart format --output=none --set-exit-if-changed plant_community_mobile/lib/'
         language: system
         files: ^plant_community_mobile/.*\.dart$
         pass_filenames: false

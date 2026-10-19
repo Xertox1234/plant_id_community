@@ -12,6 +12,7 @@ import '../forum_errors.dart';
 import '../forum_format.dart';
 import '../models/forum_rich_text_markup.dart';
 import '../models/models.dart';
+import '../providers/forum_providers.dart';
 import '../services/forum_api.dart';
 import '../services/forum_composer_controller.dart';
 import '../services/forum_image_picker.dart';
@@ -202,6 +203,43 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
   bool get _isTopic => widget.args.mode == ForumComposeMode.topic;
   bool get _isEdit => widget.args.mode == ForumComposeMode.edit;
   bool get _supportsImage => !_isEdit;
+  bool get _isReply => !_isTopic && !_isEdit;
+
+  /// Set when a reply's 409 turned out to be a lock: a peek read after the
+  /// 409 found the topic locked or closed (D20).
+  bool _lockedByServer = false;
+
+  static const _lockedNotice =
+      'This thread is locked — new replies are disabled.';
+
+  /// D20 (forum live replies): in reply mode the composer watches the topic
+  /// the thread beneath it keeps alive, which live updates refresh. Only an
+  /// existing topic is watched, so a composer opened alone fetches nothing.
+  /// Locked keeps the typed text, disables Post and shows [_lockedNotice].
+  bool _topicLocked() {
+    if (!_isReply) return false;
+    if (_lockedByServer) return true;
+    final topic = topicDetailProvider(widget.args.topicId!);
+    if (!ref.exists(topic)) return false;
+    return ref.watch(topic).asData?.value.isLocked ?? false;
+  }
+
+  /// After a reply's 409: a 409 is either an in-flight twin or a lock, and
+  /// only the topic itself says which (the status is branched on, never the
+  /// server's sentence). A failed read counts as not locked.
+  Future<bool> _topicNowLocked() async {
+    final topicId = widget.args.topicId!;
+    try {
+      final fresh = await _api.fetchTopicDetail(topicId, peek: true);
+      final topic = topicDetailProvider(topicId);
+      if (mounted && ref.exists(topic)) {
+        ref.read(topic.notifier).applyPeek(fresh);
+      }
+      return fresh.isLocked;
+    } catch (_) {
+      return false;
+    }
+  }
 
   @override
   void initState() {
@@ -423,6 +461,16 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
       }
     } on ApiException catch (e) {
       if (!mounted) return;
+      if (e.statusCode == 409 && _isReply && await _topicNowLocked()) {
+        if (!mounted) return;
+        setState(() {
+          _submitting = false;
+          _lockedByServer = true;
+          _error = null;
+        });
+        return;
+      }
+      if (!mounted) return;
       setState(() {
         _submitting = false;
         // Edit's 409 is a real, permanent state (frozen/locked topic or post
@@ -537,6 +585,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
   }
 
   Widget _form(BuildContext context) {
+    final locked = _topicLocked();
     return ListView(
       children: [
         if (widget.args.boardTitle != null)
@@ -565,6 +614,14 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
             child: ForumNoticeBanner(
               message: _error!,
               icon: LucideIcons.circleAlert,
+            ),
+          ),
+        if (locked)
+          const Padding(
+            padding: EdgeInsets.only(bottom: AppSpacing.sm),
+            child: ForumNoticeBanner(
+              message: _lockedNotice,
+              icon: LucideIcons.lock,
             ),
           ),
         if (_imageError != null)
@@ -653,7 +710,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
         ],
         const SizedBox(height: AppSpacing.md),
         FilledButton(
-          onPressed: _canSubmit && !_submitting ? _submit : null,
+          onPressed: _canSubmit && !_submitting && !locked ? _submit : null,
           child: _submitting
               ? const SizedBox(
                   height: 18,

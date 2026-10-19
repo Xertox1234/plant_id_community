@@ -498,6 +498,12 @@ class ApiService {
   /// retrying error (todo 558 finding 1).
   bool get hasAuthToken => _authToken != null;
 
+  /// The bearer token every request carries, including after a silent
+  /// refresh. The forum topic socket reads it for its `Authorization` header
+  /// (live replies, slice 4). Never log it, put it in a URL, or put it in an
+  /// error message.
+  String? get authToken => _authToken;
+
   /// Set or clear the bearer token for a sign-in or sign-out.
   ///
   /// Either way this starts a new session (todo 498): a 401 on a request sent

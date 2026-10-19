@@ -111,6 +111,11 @@ class TopicDetail extends _$TopicDetail {
     return ref.watch(forumApiProvider).fetchTopicDetail(topicId);
   }
 
+  /// Replace the topic with a fresh peek read (live replies: the catch-up on
+  /// open and the refetch after `topic.updated`). A local write, so the
+  /// thread doesn't reload and no view is counted.
+  void applyPeek(ForumTopicDetail fresh) => state = AsyncData(fresh);
+
   /// Bookmark if not bookmarked, else remove the bookmark. OPTIMISTIC
   /// (unlike [toggleSubscription]): a bookmark is the viewer's own private
   /// flag with no server-side refusal path beyond auth, so the icon flips at
@@ -613,6 +618,41 @@ class TopicPosts extends _$TopicPosts {
     state = AsyncData(
       PagedList(
         items: items,
+        nextUrl: current.nextUrl,
+        isLoadingMore: current.isLoadingMore,
+      ),
+    );
+  }
+
+  /// Insert a post that arrived live, or splice it when its id is already
+  /// loaded. Appends: a live insert happens only with every page loaded.
+  void applyLivePost(ForumPost post) {
+    final current = state.asData?.value;
+    if (current == null) return;
+    final index = current.items.indexWhere((p) => p.id == post.id);
+    final items = [...current.items];
+    if (index < 0) {
+      items.add(post);
+    } else {
+      items[index] = post;
+    }
+    state = AsyncData(
+      PagedList(
+        items: items,
+        nextUrl: current.nextUrl,
+        isLoadingMore: current.isLoadingMore,
+      ),
+    );
+  }
+
+  /// The local half of [deletePost], with no API call: a post someone else
+  /// removed (live replies).
+  void removeLocal(int postId) {
+    final current = state.asData?.value;
+    if (current == null || !current.items.any((p) => p.id == postId)) return;
+    state = AsyncData(
+      PagedList(
+        items: current.items.where((p) => p.id != postId).toList(),
         nextUrl: current.nextUrl,
         isLoadingMore: current.isLoadingMore,
       ),

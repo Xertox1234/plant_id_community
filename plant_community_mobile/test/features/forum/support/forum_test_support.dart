@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
+import 'package:plant_community_mobile/features/forum/live/forum_live_channel.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_image_picker.dart';
@@ -382,14 +385,47 @@ class FakeForumApi implements ForumApi {
 
   int fetchTopicDetailCalls = 0;
 
+  /// How many [fetchTopicDetail] calls were peek reads (live replies).
+  int peekCalls = 0;
+
+  /// Successive fixtures for peek reads: each read takes the next one and
+  /// the last one repeats. Empty falls back to [topicDetail].
+  List<ForumTopicDetail> peekDetails = [];
+
+  /// When set, every peek read waits for it: a catch-up still in flight.
+  Completer<void>? peekGate;
+
   @override
-  Future<ForumTopicDetail> fetchTopicDetail(int topicId) async {
+  Future<ForumTopicDetail> fetchTopicDetail(
+    int topicId, {
+    bool peek = false,
+  }) async {
     fetchTopicDetailCalls++;
+    if (peek) {
+      final index = peekCalls++;
+      final gate = peekGate;
+      if (gate != null) await gate.future;
+      if (peekDetails.isNotEmpty) {
+        return peekDetails[index < peekDetails.length
+            ? index
+            : peekDetails.length - 1];
+      }
+    }
     final detail = topicDetail;
     if (detail == null) {
       throw ApiException('no fixture', statusCode: 404);
     }
     return detail;
+  }
+
+  /// Fixtures for [fetchPost], by id; a missing id answers null (a 404).
+  Map<int, ForumPost> postsById = {};
+  final List<int> fetchPostCalls = [];
+
+  @override
+  Future<ForumPost?> fetchPost(int postId) async {
+    fetchPostCalls.add(postId);
+    return postsById[postId];
   }
 
   @override
@@ -1425,6 +1461,8 @@ ForumTopicDetail topicDetail({
   int? solvedPostId,
   bool canMarkSolution = false,
   bool locked = false,
+  bool isClosed = false,
+  int replyCount = 3,
   ForumPoll? poll,
   ForumIdentification? identification,
 }) {
@@ -1435,9 +1473,9 @@ ForumTopicDetail topicDetail({
     board: const ForumTopicBoardRef(id: 1, slug: 'general', title: 'General'),
     author: author(),
     isPinned: false,
-    isClosed: false,
+    isClosed: isClosed,
     locked: locked,
-    replyCount: 3,
+    replyCount: replyCount,
     viewCount: 12,
     createdAt: DateTime(2026, 1, 1),
     lastPostAt: DateTime(2026, 1, 2),
@@ -1597,3 +1635,81 @@ class FakeForumImagePicker implements ForumImagePicker {
     return nextPath;
   }
 }
+
+/// A fake topic socket. [serverFrame] and [serverEvent] push frames;
+/// [serverClose] ends the stream with a close code, as the server's
+/// accept-then-close does.
+class FakeLiveChannel implements ForumLiveChannel {
+  final StreamController<Object?> _frames = StreamController<Object?>();
+  final List<String> sent = [];
+  bool closedByClient = false;
+  int? _closeCode;
+
+  @override
+  Stream<Object?> get frames => _frames.stream;
+
+  /// Makes [send] and [close] throw, as a `dart:io` socket the server just
+  /// closed does.
+  bool broken = false;
+
+  @override
+  void send(String text) {
+    if (broken) throw StateError('StreamSink is closed');
+    sent.add(text);
+  }
+
+  @override
+  Future<void> close() async {
+    if (broken) throw StateError('StreamSink is closed');
+    // Only records the close: the client cancels its subscription first,
+    // so no frame can reach it afterwards.
+    closedByClient = true;
+  }
+
+  @override
+  int? get closeCode => _closeCode;
+
+  void serverFrame(Object? data) {
+    if (!_frames.isClosed) _frames.add(data);
+  }
+
+  /// A `{"v":1,…}` event frame.
+  void serverEvent(String type, {int topicId = 10, int? postId}) => serverFrame(
+    jsonEncode({'v': 1, 'type': type, 'topic_id': topicId, 'post_id': ?postId}),
+  );
+
+  void serverClose(int? code) {
+    _closeCode = code;
+    if (!_frames.isClosed) unawaited(_frames.close());
+  }
+}
+
+/// Records every connect and hands out a [FakeLiveChannel] per connect.
+class FakeLiveConnector {
+  final List<({Uri uri, Map<String, String> headers})> connects = [];
+  final List<FakeLiveChannel> channels = [];
+
+  /// Thrown by the next connects instead of opening, like a refused handshake.
+  Object? throwOnConnect;
+
+  /// When set, a connect waits for it: a connect still in flight.
+  Completer<void>? gate;
+
+  FakeLiveChannel get last => channels.last;
+
+  ForumLiveConnector get fn => (uri, headers) async {
+    connects.add((uri: uri, headers: headers));
+    final pending = gate;
+    if (pending != null) await pending.future;
+    final error = throwOnConnect;
+    if (error != null) throw error;
+    final channel = FakeLiveChannel();
+    channels.add(channel);
+    return channel;
+  };
+}
+
+/// Overrides the socket connector so no test opens a real `dart:io` socket.
+List<Override> liveTestOverrides(FakeLiveConnector connector) => [
+  forumLiveConnectorProvider.overrideWithValue(connector.fn),
+];

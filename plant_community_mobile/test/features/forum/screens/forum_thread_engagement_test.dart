@@ -17,6 +17,7 @@ import '../support/forum_test_support.dart';
 Widget _wrap(FakeForumApi api, {bool loggedIn = true}) => ProviderScope(
   overrides: [
     forumApiProvider.overrideWithValue(api),
+    ...liveTestOverrides(FakeLiveConnector()),
     authServiceProvider.overrideWith(() => FakeAuthService(loggedIn: loggedIn)),
   ],
   child: const MaterialApp(home: ForumThreadScreen(topicId: 10)),
@@ -42,6 +43,7 @@ Widget _routed(FakeForumApi api) {
   return ProviderScope(
     overrides: [
       forumApiProvider.overrideWithValue(api),
+      ...liveTestOverrides(FakeLiveConnector()),
       authServiceProvider.overrideWith(() => FakeAuthService(loggedIn: true)),
     ],
     child: MaterialApp.router(routerConfig: router),
