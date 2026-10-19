@@ -5,6 +5,9 @@ import 'package:plant_community_mobile/config/density_notifier.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 import 'package:plant_community_mobile/features/settings/settings_screen.dart';
+import 'package:plant_community_mobile/services/auth_service.dart';
+
+import '../forum/support/forum_test_support.dart';
 
 /// Fake density notifier that updates state WITHOUT writing to
 /// FlutterSecureStorage — a real write throws MissingPluginException in a
@@ -18,7 +21,10 @@ class _FakeDensityNotifier extends DensityNotifier {
 }
 
 Widget _wrap(Widget child) => ProviderScope(
-  overrides: [densityProvider.overrideWith(_FakeDensityNotifier.new)],
+  overrides: [
+    densityProvider.overrideWith(_FakeDensityNotifier.new),
+    authServiceProvider.overrideWith(() => FakeAuthService(loggedIn: false)),
+  ],
   child: MaterialApp(
     theme: AppTheme.build(Brightness.light, AppDensity.cozy),
     home: child,

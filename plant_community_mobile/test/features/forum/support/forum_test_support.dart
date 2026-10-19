@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
+import 'package:plant_community_mobile/features/forum/live/forum_live_channel.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_image_picker.dart';
@@ -1625,3 +1628,80 @@ class FakeForumImagePicker implements ForumImagePicker {
     return nextPath;
   }
 }
+
+/// A fake topic socket. [serverFrame] and [serverEvent] push frames;
+/// [serverClose] ends the stream with a close code, as the server's
+/// accept-then-close does.
+class FakeLiveChannel implements ForumLiveChannel {
+  final StreamController<Object?> _frames = StreamController<Object?>();
+  final List<String> sent = [];
+  bool closedByClient = false;
+  int? _closeCode;
+
+  @override
+  Stream<Object?> get frames => _frames.stream;
+
+  @override
+  void send(String text) => sent.add(text);
+
+  @override
+  Future<void> close() async {
+    if (closedByClient) return;
+    closedByClient = true;
+    // Not awaited: a single-subscription controller's close() never
+    // completes while nobody listens.
+    unawaited(_frames.close());
+  }
+
+  @override
+  int? get closeCode => _closeCode;
+
+  void serverFrame(Object? data) {
+    if (!_frames.isClosed) _frames.add(data);
+  }
+
+  /// A `{"v":1,…}` event frame.
+  void serverEvent(String type, {int topicId = 10, int? postId}) => serverFrame(
+    jsonEncode({
+      'v': 1,
+      'type': type,
+      'topic_id': topicId,
+      'post_id': ?postId,
+    }),
+  );
+
+  void serverClose(int? code) {
+    _closeCode = code;
+    if (!_frames.isClosed) unawaited(_frames.close());
+  }
+}
+
+/// Records every connect and hands out a [FakeLiveChannel] per connect.
+class FakeLiveConnector {
+  final List<({Uri uri, Map<String, String> headers})> connects = [];
+  final List<FakeLiveChannel> channels = [];
+
+  /// Thrown by the next connects instead of opening, like a refused handshake.
+  Object? throwOnConnect;
+
+  /// When set, a connect waits for it: a connect still in flight.
+  Completer<void>? gate;
+
+  FakeLiveChannel get last => channels.last;
+
+  ForumLiveConnector get fn => (uri, headers) async {
+    connects.add((uri: uri, headers: headers));
+    final pending = gate;
+    if (pending != null) await pending.future;
+    final error = throwOnConnect;
+    if (error != null) throw error;
+    final channel = FakeLiveChannel();
+    channels.add(channel);
+    return channel;
+  };
+}
+
+/// Overrides the socket connector so no test opens a real `dart:io` socket.
+List<Override> liveTestOverrides(FakeLiveConnector connector) => [
+  forumLiveConnectorProvider.overrideWithValue(connector.fn),
+];

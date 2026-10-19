@@ -9,6 +9,7 @@ import '../../core/constants/app_brand.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../core/theme/theme_preview_screen.dart';
 import '../../shared/widgets/canopy_label.dart';
+import 'live_updates_tile.dart';
 import 'notification_status_tile.dart';
 
 /// App settings: theme mode, layout density, notification status, and (in
@@ -97,6 +98,10 @@ class SettingsScreen extends ConsumerWidget {
             SizedBox(height: ext.gapY),
             const NotificationStatusTile(),
             SizedBox(height: ext.gapY * 2),
+
+            // Forum: the per-device "Live updates" switch (live replies,
+            // slice 4). Renders nothing while signed out.
+            const LiveUpdatesTile(),
 
             // About
             const CanopyLabel('ABOUT'),
