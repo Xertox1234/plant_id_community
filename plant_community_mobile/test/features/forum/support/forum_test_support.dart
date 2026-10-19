@@ -1646,11 +1646,9 @@ class FakeLiveChannel implements ForumLiveChannel {
 
   @override
   Future<void> close() async {
-    if (closedByClient) return;
+    // Only records the close: the client cancels its subscription first,
+    // so no frame can reach it afterwards.
     closedByClient = true;
-    // Not awaited: a single-subscription controller's close() never
-    // completes while nobody listens.
-    unawaited(_frames.close());
   }
 
   @override
@@ -1662,12 +1660,7 @@ class FakeLiveChannel implements ForumLiveChannel {
 
   /// A `{"v":1,…}` event frame.
   void serverEvent(String type, {int topicId = 10, int? postId}) => serverFrame(
-    jsonEncode({
-      'v': 1,
-      'type': type,
-      'topic_id': topicId,
-      'post_id': ?postId,
-    }),
+    jsonEncode({'v': 1, 'type': type, 'topic_id': topicId, 'post_id': ?postId}),
   );
 
   void serverClose(int? code) {
