@@ -10,9 +10,10 @@ plugins = ["mypy_django_plugin.main"]
 # The gated paths (todo 580): a bare `python -m mypy` checks exactly these, and
 # that is what the CI step, bin/test-mypy-gate.sh and the mypy-staged pre-commit
 # hook (scripts/mypy_staged.py, which blocks only for files under these paths)
-# all use. Widen the gate by adding a path here, nowhere else. Measured
-# 2026-10-19: every other app still carries errors (1,097 across the tree, 615
-# of them in tests), so nothing else qualifies yet.
+# all use. Widen the gate by adding a path here, nowhere else. Tests are
+# excluded from the gate by the `apps.*.tests.*` override below (owner
+# decision 2026-10-19), so widening means fixing an app's SOURCE errors only;
+# the per-app source counts measured that day are in backend/CLAUDE.md "CI".
 files = ["apps/users"]
 # A module reached only by import is still analysed for types, but its own
 # errors are not reported; every file in `files` or named on the command line
@@ -35,6 +36,19 @@ ignore_errors = true
 # todo 580): they are machine-written and never hand-edited.
 [[tool.mypy.overrides]]
 module = "apps.users.migrations.*"
+ignore_errors = true
+
+# Tests are excluded from the mypy gate (owner decision 2026-10-19: 615 of the
+# 1,097 errors measured across the tree were in tests; DRF test clients and
+# `response.data` on a plain TestCase are the bulk and are not bugs). An
+# override, not `exclude`: `exclude` only limits directory discovery, so CI's
+# bare run would skip tests while the mypy-staged hook, which names staged
+# files on the command line, still blocked on them. ignore_errors applies in
+# both. `*` matches zero or more module components, so this covers
+# `apps.users.tests` and every submodule. Add `wagtail_forum.tests.*` here
+# when packages/wagtail_forum is gated (warn_unused_configs would flag it now).
+[[tool.mypy.overrides]]
+module = "apps.*.tests.*"
 ignore_errors = true
 
 [tool.django-stubs]

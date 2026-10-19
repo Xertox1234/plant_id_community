@@ -167,13 +167,16 @@ repos:
       # mypy on the staged backend files (django-stubs plugin, backend/venv).
       # Blocks for files under the gated paths in backend/pyproject.toml
       # [tool.mypy] files (the CI gate); one advisory count line for the rest.
+      # Tests never block: the `apps.*.tests.*` ignore_errors override in
+      # pyproject.toml is the policy (owner decision 2026-10-19); the exclude
+      # here only saves the mypy start-up on a tests-only commit.
       # SKIP=mypy-staged bypasses once.
       - id: mypy-staged
         name: Type-check staged backend files (mypy)
         entry: python3 scripts/mypy_staged.py
         language: system
         files: ^backend/.*\.py$
-        exclude: /migrations/
+        exclude: /(migrations|tests)/
         verbose: true  # pre-commit hides a passing hook's output; the advisory lines need it
 
   # ===================================

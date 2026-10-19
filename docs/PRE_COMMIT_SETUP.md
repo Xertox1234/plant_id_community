@@ -425,7 +425,7 @@ git commit -m "message"
 | black | Quality | 🔧 Fixes | Format Python code |
 | ruff | Quality | ✅ Yes | Lint Python code |
 | isort | Quality | 🔧 Fixes | Sort Python imports |
-| mypy-staged | Quality | ✅ Yes | Type-check staged backend files; blocks only under the gated paths (`[tool.mypy] files`) |
+| mypy-staged | Quality | ✅ Yes | Type-check staged backend files; blocks only under the gated paths (`[tool.mypy] files`); test files are skipped (tests are excluded from the gate, owner decision 2026-10-19) |
 | pytest-staged | Tests | ✅ Yes | Run exactly the staged backend test files (local Postgres + Redis) |
 | tsc-web | Quality | ✅ Yes | `tsc --noEmit` over the web app when a .ts/.tsx is staged |
 | vitest-staged | Tests | ✅ Yes | Run exactly the staged web test files |

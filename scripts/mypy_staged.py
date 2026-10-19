@@ -11,6 +11,11 @@ truth for what is gated. This hook runs mypy on the staged files and
     debt in an ungated app is visible while you are in the file, without
     turning 1,000+ pre-existing errors into a wall nobody reads.
 
+Tests are excluded from the gate (owner decision 2026-10-19): the
+`apps.*.tests.*` ignore_errors override in pyproject.toml applies to files
+named on the command line too, so a staged test file reports nothing here;
+the hook's `exclude` in .pre-commit-config.yaml just skips the run for them.
+
 Fail-closed: a missing backend/venv fails the commit with a message rather
 than passing by emptiness. Bypass one commit with SKIP=mypy-staged.
 """
