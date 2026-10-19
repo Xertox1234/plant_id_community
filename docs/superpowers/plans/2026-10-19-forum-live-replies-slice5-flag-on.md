@@ -200,6 +200,10 @@ Test hook: reach the consumer instance through a small `mock.patch.object(TopicL
 | `https://plantidcommunity.william-tower.workers.dev` | record either way; it matters only if people browse there |
 
 - [ ] **Step 2:** If the apex returns 403, **stop**. The owner adds it to `CORS_ALLOWED_ORIGINS` before the flag goes on, or web sockets fail for everyone.
+- [ ] **Step 3 (added by the final review), with the owner's OK: the gate keys on the real client, not the proxy.** Only HTTP client-IP resolution has been checked in production; if the WebSocket upgrade reaches Django with fewer `X-Forwarded-For` hops than `RATELIMIT_TRUSTED_PROXY_COUNT`, every socket resolves to the proxy's address and shares one bucket (a global 60/min and a global 50-socket cap). The gate runs before the flag check, so this works with the flag off:
+  - From one machine, open 61 bare sockets to `/ws/forum/topics/48/` within one minute (each closes 4503; the 61st closes 4429).
+  - Read the one `[FORUM_LIVE] connect rate limited ip=…` line (log read, owner's OK). Its `log_safe_ip` prefix (first two octets) must match that machine's public IP, not a Railway or Cloudflare address.
+  - If it shows a proxy address, **stop**: the flag stays off until the trusted-proxy setting covers the socket path.
 
 ### Task 5: PR B — declare the flag in `.railway/railway.ts`
 
