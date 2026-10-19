@@ -158,6 +158,40 @@ repos:
         files: ^backend/.*\.py$
 
   # ===================================
+  # Backend type-check of the files in this commit
+  # ===================================
+  - repo: local
+    hooks:
+      # mypy on the staged backend files (django-stubs plugin, backend/venv).
+      # Blocks for files under the gated paths in backend/pyproject.toml
+      # [tool.mypy] files (the CI gate); one advisory count line for the rest.
+      # SKIP=mypy-staged bypasses once.
+      - id: mypy-staged
+        name: Type-check staged backend files (mypy)
+        entry: python3 scripts/mypy_staged.py
+        language: system
+        files: ^backend/.*\.py$
+        exclude: /migrations/
+        verbose: true  # pre-commit hides a passing hook's output; the advisory lines need it
+
+  # ===================================
+  # Backend tests for the test files in this commit
+  # ===================================
+  - repo: local
+    hooks:
+      # Runs pytest on exactly the backend test files staged in this commit
+      # (needs the local Postgres + Redis, like any backend pytest run). A
+      # commit that stages no test file pays nothing. Root-level backend/test_*.py
+      # are standalone scripts outside pytest.ini's testpaths, so the scope is
+      # apps/ and packages/. SKIP=pytest-staged bypasses once (for example when
+      # another pytest run already holds the test database).
+      - id: pytest-staged
+        name: Run staged backend tests (pytest)
+        entry: scripts/test-staged.sh backend
+        language: script
+        files: ^backend/(apps|packages)/.*test.*\.py$
+
+  # ===================================
   # JavaScript/TypeScript Code Quality
   # ===================================
   - repo: local
@@ -175,6 +209,24 @@ repos:
         language: system
         files: ^web/.*\.(js|jsx|ts|tsx)$
         pass_filenames: false
+
+      # Type errors used to surface only in web-ci's `tsc --noEmit` step; now
+      # they block the commit (~4 s). Whole-project check: a change in one file
+      # can break a type in another, so the staged list is not enough.
+      - id: tsc-web
+        name: Type-check web with tsc --noEmit
+        entry: bash -c 'cd web && npm run --silent type-check'
+        language: system
+        files: ^web/(.*\.(ts|tsx)|tsconfig\.json|package\.json)$
+        pass_filenames: false
+
+      # Run the web test files staged in this commit (vitest). A commit that
+      # stages no test file pays nothing. SKIP=vitest-staged bypasses once.
+      - id: vitest-staged
+        name: Run staged web tests (vitest)
+        entry: scripts/test-staged.sh web
+        language: script
+        files: ^web/src/.*\.(test|spec)\.(js|jsx|ts|tsx)$
 
   # ===================================
   # Flutter/Dart Code Quality
@@ -205,6 +257,14 @@ repos:
         language: system
         files: ^plant_community_mobile/lib/.*\.dart$
         exclude: \.(g|freezed)\.dart$
+
+      # Run the Flutter test files staged in this commit. A commit that stages
+      # no test file pays nothing. SKIP=flutter-test-staged bypasses once.
+      - id: flutter-test-staged
+        name: Run staged Flutter tests (flutter test)
+        entry: scripts/test-staged.sh flutter
+        language: script
+        files: ^plant_community_mobile/test/.*_test\.dart$
 
   # ===================================
   # Markdown Linting

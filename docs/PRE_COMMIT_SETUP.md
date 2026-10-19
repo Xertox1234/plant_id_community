@@ -427,6 +427,11 @@ git commit -m "message"
 | black | Quality | 🔧 Fixes | Format Python code |
 | flake8 | Quality | ✅ Yes | Lint Python code |
 | isort | Quality | 🔧 Fixes | Sort Python imports |
+| mypy-staged | Quality | ✅ Yes | Type-check staged backend files; blocks only under the gated paths (`[tool.mypy] files`) |
+| pytest-staged | Tests | ✅ Yes | Run exactly the staged backend test files (local Postgres + Redis) |
+| tsc-web | Quality | ✅ Yes | `tsc --noEmit` over the web app when a .ts/.tsx is staged |
+| vitest-staged | Tests | ✅ Yes | Run exactly the staged web test files |
+| flutter-test-staged | Tests | ✅ Yes | Run exactly the staged Flutter test files |
 | eslint | Quality | ✅ Yes | Lint JavaScript/React |
 | markdownlint | Quality | 🔧 Fixes | Format Markdown |
 | check-added-large-files | Git | ✅ Yes | Prevent large files |

@@ -46,10 +46,12 @@ redis-cli ping   # should return PONG
 
 Two GitHub Actions workflows gate PRs:
 
-- **`backend-checks`** — Django system check, OpenAPI schema validation (`manage.py spectacular --validate --fail-on-warn`: any generator warning fails, so a view drf-spectacular cannot read needs an `@extend_schema`), and `mypy apps/users` (django-stubs plugin; one app gated so far, widened one app at a time). Uses SQLite, no external services.
+- **`backend-checks`** — Django system check, OpenAPI schema validation (`manage.py spectacular --validate --fail-on-warn`: any generator warning fails, so a view drf-spectacular cannot read needs an `@extend_schema`), and a bare `python -m mypy` over the gated paths in `pyproject.toml` `[tool.mypy] files` (django-stubs plugin; `apps/users` so far — the only app with zero errors, measured 2026-10-19 at 1,097 errors tree-wide — widened by adding a path there, nowhere else). Uses SQLite, no external services.
 - **`backend-tests`** — Full pytest suite against **PostgreSQL 16** + **Redis 7** (spun up as GitHub services). Placeholder API keys are injected for length-validation tests; all external HTTP calls are mocked.
 
 Lint (flake8/black/isort) is enforced **twice**: the pre-commit hooks on the staged files, and since PR #1158 (2026-10-18) the required `backend-checks` CI job, which runs the same three pre-commit hooks `--all-files` from the repo root (flake8 reads the root `setup.cfg` from the cwd, and its `per-file-ignores` are `backend/`-prefixed — running it from `backend/` drops every suppression). The tracked tree is clean, so a `git commit --no-verify` is caught in CI rather than landing. Note: pre-commit lints each **whole file** that appears in the staged diff (`files: ^backend/.*\.py$`), not just the changed *lines*. Measure with the pins that gate (`pre-commit run flake8 --all-files`), not the venv's flake8, which is a newer version and disagrees. Never widen `setup.cfg`'s `per-file-ignores`; wrap long prose/prompt strings with implicit concatenation or a backslash continuation and prove the value unchanged (`docs/LEARNINGS.md` 2026-10-18).
+
+Three more pre-commit hooks catch bugs before CI (2026-10-19): `mypy-staged` runs mypy on the staged backend files and blocks only for files under the gated paths (one advisory count line per other file); `pytest-staged` runs exactly the staged `apps/`/`packages/` test files (needs local Postgres + Redis; `SKIP=pytest-staged` when another pytest run holds the test DB); the web and Flutter equivalents are `tsc-web`, `vitest-staged` and `flutter-test-staged`. A commit that stages no test file pays nothing for the test hooks.
 
 ## Gotcha: the RemovedInDjango70Warning gate lives in pytest.ini
 
