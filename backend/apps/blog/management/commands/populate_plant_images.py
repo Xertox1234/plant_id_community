@@ -74,7 +74,7 @@ class Command(BaseCommand):
         try:
             self.image_service = PlantImageService()
         except Exception as e:
-            raise CommandError(f"Failed to initialize image service: {e}")
+            raise CommandError(f"Failed to initialize image service: {e}") from e
 
         # Show service status
         self._show_service_status()

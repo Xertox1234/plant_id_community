@@ -243,7 +243,7 @@ class AIRateLimiterTestCase(TestCase):
     def test_concurrent_checks_increment_correctly(self):
         """Test that concurrent limit checks increment counter correctly."""
         # Make multiple rapid checks
-        for i in range(5):
+        for _i in range(5):
             AIRateLimiter.check_user_limit(self.user.id)
 
         # Remaining should be correct

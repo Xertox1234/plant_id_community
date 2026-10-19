@@ -76,7 +76,7 @@ class LoginRateLimitingTestCase(TestCase):
             csrf_token = csrf_response.cookies.get("csrftoken").value
 
             # Make 5 login attempts (should succeed)
-            for i in range(5):
+            for _i in range(5):
                 response = self.client.post(
                     "/api/v1/auth/login/",
                     data={"username": "testuser", "password": "WrongPassword123!"},
@@ -108,7 +108,7 @@ class LoginRateLimitingTestCase(TestCase):
             csrf_token = csrf_response.cookies.get("csrftoken").value
 
             # Make 5 attempts from first IP
-            for i in range(5):
+            for _i in range(5):
                 self.client.post(
                     "/api/v1/auth/login/",
                     data={"username": "testuser", "password": "WrongPassword123!"},
@@ -142,7 +142,7 @@ class LoginRateLimitingTestCase(TestCase):
             csrf_token = csrf_response.cookies.get("csrftoken").value
 
             # Make 5 successful logins
-            for i in range(5):
+            for _i in range(5):
                 # Logout if logged in
                 self.client.post("/api/v1/auth/logout/", HTTP_X_CSRFTOKEN=csrf_token)
 
@@ -306,7 +306,7 @@ class TokenRefreshRateLimitingTestCase(TestCase):
         # the decorator captures "now" at import time, not call time.
         with freeze_time():
             # Make 10 refresh requests (should succeed)
-            for i in range(10):
+            for _i in range(10):
                 csrf_response = self.client.get("/api/v1/auth/csrf/")
                 csrf_token = csrf_response.cookies.get("csrftoken").value
 

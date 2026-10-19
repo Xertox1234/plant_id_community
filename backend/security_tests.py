@@ -198,7 +198,7 @@ class SecurityTestSuite:
         found_secrets = []
 
         # Check for .env files
-        for root, dirs, files in os.walk("."):
+        for root, _dirs, files in os.walk("."):
             for file in files:
                 if file.startswith(".env") and file != ".env.example":
                     found_secrets.append(os.path.join(root, file))

@@ -122,7 +122,7 @@ Log names a home path, and CI's archived-todo tripwire fails on one.
 2. Run pre-commit on what you staged (todo 540, owner decision 2026-10-10), so Land's commit never stops on a
    fixer: `/usr/bin/git -C WT diff --cached --name-only --diff-filter=d -z | (cd WT && SKIP=kimi-review xargs -0
    pre-commit run --files)`. When a fixer rewrote files (Black, isort, prettier, trailing whitespace, …),
-   re-stage them (step 1 again) and run it again until it passes. Fix by hand what no fixer can (flake8;
+   re-stage them (step 1 again) and run it again until it passes. Fix by hand what no fixer can (ruff;
    detect-secrets on a fake secret: use an obviously fake value), then re-stage. The kimi-review gate is
    skipped here; the main session runs it at commit. A fixer that fails with `Operation not permitted` on a
    `.claude/agents/` file is the sandbox (it denies opening those for writing), not the file. Never re-run

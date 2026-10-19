@@ -695,7 +695,7 @@ def get_or_create_user_from_firebase(
 
     except User.DoesNotExist:
         pass
-    except User.MultipleObjectsReturned:
+    except User.MultipleObjectsReturned as exc:
         # `email` is not DB-unique; app-layer registration enforces uniqueness,
         # but defend against a duplicate slipping in rather than 500-ing on the
         # ambiguous .get(). Fail closed as a linking conflict (→ 409 upstream).
@@ -703,7 +703,7 @@ def get_or_create_user_from_firebase(
             f"[FIREBASE AUTH] Multiple accounts share email "
             f"{redact_email(firebase_email)} — refusing ambiguous login"
         )
-        raise ValueError("Multiple accounts exist for this email")
+        raise ValueError("Multiple accounts exist for this email") from exc
 
     # Another account holds this address verified while its email has moved
     # on. A new account could never verify it, so refuse (→ 409) rather than

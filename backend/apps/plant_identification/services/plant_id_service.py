@@ -297,14 +297,14 @@ class PlantIDAPIService:
 
             return result
 
-        except CircuitBreakerError:
+        except CircuitBreakerError as exc:
             logger.error(
                 "[CIRCUIT] Plant.id circuit is OPEN - fast failing without API call"
             )
             raise ExternalAPIError(
                 "Plant.id service is temporarily unavailable. Please try again in a few moments.",
                 status_code=503,
-            )
+            ) from exc
         except requests.exceptions.Timeout:
             logger.error("[PLANT_ID] Plant.id API request timed out")
             raise

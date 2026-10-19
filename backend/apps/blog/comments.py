@@ -121,8 +121,8 @@ def resolve_parent(parent_id, post: "BlogPostPage", user: AbstractBaseUser):
         return None
     try:
         parent_id = int(parent_id)
-    except (TypeError, ValueError):
-        raise serializers.ValidationError(generic)
+    except (TypeError, ValueError) as exc:
+        raise serializers.ValidationError(generic) from exc
     parent = (
         BlogComment.objects.filter(pk=parent_id, post=post)
         .filter(models_q_visible_to(user))

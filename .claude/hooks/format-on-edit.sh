@@ -47,19 +47,14 @@ case "$FILE_PATH" in
 esac
 [ -f "$ABS" ] || exit 0
 
-# --- Python: ruff F401 unused-import fix (flake8 gate scopes to ^backend/.*\.py$) ---
+# --- Python: ruff F401 unused-import fix (the ruff gate scopes to ^backend/.*\.py$) ---
 python_branch() {
-  # Skip files with intentional unused imports — mirrors setup.cfg per-file-ignores
-  # (F401). Removing these would break re-exports / the import-smoke-test.
-  # SKIPLIST-START — test-format-on-edit.sh asserts setup.cfg F401 ⊆ these (todo 232);
+  # Skip files with intentional unused imports — mirrors the F401 entries of
+  # backend/pyproject.toml [tool.ruff.lint.per-file-ignores]. Removing these
+  # would break the import-smoke-test.
+  # SKIPLIST-START — test-format-on-edit.sh asserts pyproject F401 ⊆ these (todo 232);
   # keep entries one-per-line as `backend/...py| \` so the sync check can parse them.
   case "$REL" in
-    backend/plant_community_backend/settings.py| \
-    backend/apps/blog/api/viewsets.py| \
-    backend/apps/blog/tests/test_analytics.py| \
-    backend/apps/plant_identification/models.py| \
-    backend/apps/plant_identification/views.py| \
-    backend/apps/users/views.py| \
     backend/test_django_imports.py)
       exit 0 ;;
   esac
@@ -85,7 +80,7 @@ python_branch() {
   local RESIDUAL
   RESIDUAL=$("$RUFF" check --isolated --select F401 --quiet --output-format concise "$ABS" 2>/dev/null)
   if [ -n "$RESIDUAL" ]; then
-    printf 'Unused imports remain in %s (flake8 F401 will block the commit):\n%s\n' "$REL" "$RESIDUAL" >&2
+    printf 'Unused imports remain in %s (the ruff gate will block the commit):\n%s\n' "$REL" "$RESIDUAL" >&2
     exit 2
   fi
   exit 0

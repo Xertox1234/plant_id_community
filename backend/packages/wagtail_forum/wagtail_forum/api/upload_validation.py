@@ -69,17 +69,19 @@ def validate_image_upload(image_file):
         image_file.seek(0)  # reset the pointer for the subsequent save
     except ValidationError:
         raise  # a dimension/format rejection above — don't relabel it "invalid"
-    except PILImage.DecompressionBombError:
+    except PILImage.DecompressionBombError as exc:
         logger.warning(
             "[SECURITY] Forum image rejected (decompression bomb): name=%s size=%s",
             image_file.name,
             image_file.size,
         )
-        raise ValidationError(_("Image file rejected as a decompression bomb."))
+        raise ValidationError(
+            _("Image file rejected as a decompression bomb.")
+        ) from exc
     except Exception as exc:  # not a decodable image
         logger.warning(
             "[SECURITY] Forum image rejected (invalid): name=%s error=%s",
             image_file.name,
             exc,
         )
-        raise ValidationError(_("Invalid image file."))
+        raise ValidationError(_("Invalid image file.")) from exc

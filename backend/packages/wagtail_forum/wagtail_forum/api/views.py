@@ -1251,8 +1251,8 @@ class PostWriteView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIVie
                 request.user,
                 acting_as_moderator=request.user.has_perm("wagtail_forum.change_post"),
             )
-        except Post.DoesNotExist:
-            raise NotFound()
+        except Post.DoesNotExist as exc:
+            raise NotFound() from exc
         # submit_edit_for_moderation already refresh_from_db()'d `post` (the same
         # instance), so it is current here — no extra round-trip needed.
         serialize_source = post
@@ -1308,8 +1308,8 @@ class PostWriteView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIVie
         with transaction.atomic():
             try:
                 locked = Post.objects.select_for_update().get(pk=post.pk)
-            except Post.DoesNotExist:
-                raise NotFound()  # hard-deleted (topic CASCADE) between fetch and lock
+            except Post.DoesNotExist as exc:
+                raise NotFound() from exc  # hard-deleted (topic CASCADE) between fetch and lock
             if not locked.live:
                 raise NotFound()  # already taken down by a concurrent delete
             # UnpublishAction fires Wagtail's `unpublished` signal -> the forum's
@@ -1703,8 +1703,8 @@ class PostReportView(UnversionedForumAPIMixin, APIView):
             # makes Report.file's lock re-fetch raise DoesNotExist — map it to
             # 404, not a 500 (mirrors PostWriteView.patch's identical guard).
             Report.file(post, request.user, **serializer.validated_data)
-        except Post.DoesNotExist:
-            raise NotFound()
+        except Post.DoesNotExist as exc:
+            raise NotFound() from exc
         result = {"reported": True}
         remember(cache_key, result, http_status.HTTP_200_OK, payload_fp)
         return Response(result, status=http_status.HTTP_200_OK)
@@ -2546,8 +2546,10 @@ class SyncView(UnversionedForumAPIMixin, APIView):
                 )
         try:
             since_id = int(request.query_params.get("since_id", 0) or 0)
-        except (TypeError, ValueError):
-            raise ValidationError({"since_id": _("Provide an integer topic id.")})
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(
+                {"since_id": _("Provide an integer topic id.")}
+            ) from exc
 
         qs = Topic.objects.filter(live=True, board__in=_visible_boards())
         board_slug = request.query_params.get("board")

@@ -49,7 +49,7 @@ def lowercase(apps, schema_editor):
                 EmailAddress.objects.filter(pk=address.pk).update(email=target)
         except IntegrityError:
             logger.warning(
-                "[MIGRATION] EmailAddress %s not lowercased: constraint " "violation",
+                "[MIGRATION] EmailAddress %s not lowercased: constraint violation",
                 address.pk,
             )
 

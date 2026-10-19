@@ -33,3 +33,35 @@ ignore_errors = true
 
 [tool.django-stubs]
 django_settings_module = "plant_community_backend.settings"
+
+# ---------------------------------------------------------------------------
+# ruff: the Python lint gate (replaced flake8 in the pre-commit hook and the
+# backend-checks CI job). Bug-finding rule families on top of pyflakes/
+# pycodestyle parity; black + isort still own formatting. ruff discovers this
+# file hierarchically, so the gate reads the same config from any cwd.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "F",    # pyflakes: undefined/unused names, redefinitions
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "B",    # flake8-bugbear: raise-without-from, unused loop vars, blind asserts
+    "T10",  # leftover breakpoint()/pdb calls
+    "PLE",  # pylint errors (not conventions or refactors)
+    "DJ",   # flake8-django: missing __str__, locals() in render, form field lists
+    "ISC",  # implicit string concatenation (the missing-comma-in-a-list bug)
+]
+ignore = [
+    "E203",  # whitespace before ':' — black's slice style
+    "B905",  # zip(strict=) — deciding strict=True per call site is its own change
+    "DJ001", # null=True on CharField — dropping it is a schema migration, not lint
+    "DJ012", # model member ordering — style, not a bug
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Import-smoke-test: imports modules solely to verify they load.
+"test_django_imports.py" = ["F401", "F841"]

@@ -102,7 +102,7 @@ class Command(BaseCommand):
             self._show_final_summary()
 
         except Exception as e:
-            raise CommandError(f"Optimization failed: {str(e)}")
+            raise CommandError(f"Optimization failed: {str(e)}") from e
 
     def _run_cleanup_task(self):
         """Remove duplicate and low-quality species entries."""

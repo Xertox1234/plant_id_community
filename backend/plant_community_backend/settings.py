@@ -7,6 +7,7 @@ Built with Django 5.2 LTS, Wagtail 7.0 LTS, and modern web technologies.
 
 import logging
 import os
+import re
 import sys
 from datetime import timedelta
 from email.utils import parseaddr
@@ -136,7 +137,7 @@ else:
     # Production: MUST have SECRET_KEY set - fail loudly if missing
     try:
         SECRET_KEY = config("SECRET_KEY")  # Raises Exception if not set
-    except Exception:
+    except Exception as exc:
         raise ImproperlyConfigured(
             "\n"
             "=" * 70 + "\n"
@@ -150,7 +151,8 @@ else:
             "  - Signed cookies\n"
             "\n"
             "Generate a secure key with:\n"
-            "  python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'\n"
+            "  python -c 'from django.core.management.utils import get_random_secret_key; "
+            "print(get_random_secret_key())'\n"
             "\n"
             "Then set in environment:\n"
             "  export SECRET_KEY='your-generated-key-here'\n"
@@ -158,7 +160,7 @@ else:
             "Or add to .env file (do NOT commit):\n"
             "  SECRET_KEY=your-generated-key-here\n"
             "=" * 70 + "\n"
-        )
+        ) from exc
 
     # Validate it's not a default/example value
     reject_insecure_value("SECRET_KEY", SECRET_KEY)
@@ -169,7 +171,8 @@ else:
             f"Production SECRET_KEY is too short ({len(SECRET_KEY)} characters).\n"
             f"Django recommends at least 50 characters for security.\n"
             f"Generate a new key with:\n"
-            f"  python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'"
+            "  python -c 'from django.core.management.utils import get_random_secret_key; "
+            "print(get_random_secret_key())'"
         )
 
 # SECURITY WARNING: don't run with debug turned on in production!
@@ -986,20 +989,6 @@ else:
         cast=lambda v: [s.strip() for s in v.split(",") if s.strip()],
     )
 
-# Ensure 'file' handler is not configured when disabled
-if not ENABLE_FILE_LOGGING:
-    try:
-        LOGGING["handlers"].pop("file", None)
-        if "handlers" in LOGGING.get("root", {}):
-            LOGGING["root"]["handlers"] = [
-                h for h in LOGGING["root"]["handlers"] if h != "file"
-            ]
-        for _name, _logger in LOGGING.get("loggers", {}).items():
-            if isinstance(_logger, dict) and "handlers" in _logger:
-                _logger["handlers"] = [h for h in _logger["handlers"] if h != "file"]
-    except Exception:
-        pass
-
 # Channels configuration
 # Redis channel layer. The in-memory fallback is for DEBUG and test runs only:
 # in production each uvicorn worker would get its own in-memory layer, and a
@@ -1526,7 +1515,8 @@ RATELIMIT_LOG_RESOLUTION = config("RATELIMIT_LOG_RESOLUTION", default=False, cas
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True
-CSRF_COOKIE_HTTPONLY = True  # ✅ Secure - prevents XSS attacks from stealing CSRF tokens (JavaScript reads from meta tag instead)
+# ✅ Secure - prevents XSS attacks from stealing CSRF tokens (JavaScript reads from meta tag instead)
+CSRF_COOKIE_HTTPONLY = True
 # SameSite policy - stricter in production if workflows allow.
 # Prod serves the API same-site with the frontend (api.houseplant-md.com is a
 # subdomain of the frontend's own registrable domain, houseplant-md.com), so
@@ -1757,9 +1747,6 @@ ENABLE_COMMUNITY_VOTING = config("ENABLE_COMMUNITY_VOTING", default=True, cast=b
 ENABLE_DISEASE_DIAGNOSIS = config("ENABLE_DISEASE_DIAGNOSIS", default=True, cast=bool)
 
 # Environment Validation and Warning System
-import logging
-import re
-
 logger = logging.getLogger(__name__)
 
 

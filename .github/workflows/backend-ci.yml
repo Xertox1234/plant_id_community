@@ -1,12 +1,13 @@
 name: Backend CI
 
-# Lint gate (closes the todo-132 gap): black, isort and flake8 run here over
+# Lint gate (closes the todo-132 gap): black, isort and ruff run here over
 # every tracked backend/*.py with the SAME pins, args and file scope as
 # .pre-commit-config.yaml, by running those three pre-commit hooks directly.
 # Before this, lint was pre-commit-only and `git commit --no-verify` bypassed
 # it entirely; the full-tree gate became possible once the frozen debt was
-# cleared (179 findings -> 0, PR for this gate). The per-file-ignores in the
-# root setup.cfg still apply and must not widen.
+# cleared (179 findings -> 0, PR #1158). ruff replaced flake8 (2026-10-18) with
+# the bug-finding rule families; its config is backend/pyproject.toml
+# [tool.ruff], and the only per-file-ignore left is the import-smoke-test.
 
 'on':
   push:
@@ -16,7 +17,6 @@ name: Backend CI
       - '.github/workflows/backend-ci.yml'
       - '.python-version'
       - '.pre-commit-config.yaml'
-      - 'setup.cfg'
   pull_request:
     branches: [main, develop]
     # No path filter on pull_request: the backend-checks job is a required
@@ -73,18 +73,18 @@ jobs:
           path: ~/.cache/pre-commit
           key: pre-commit-lint-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
-      - name: Lint (black, isort, flake8 via the pre-commit hooks)
-        # Runs from the repo root, not backend/: flake8 reads setup.cfg from
-        # the cwd, and its per-file-ignores are backend/-prefixed, so running
-        # from backend/ would silently drop every suppression. `pre-commit run`
-        # takes one hook id per call. --all-files applies each hook's `files:`
-        # filter (^backend/.*\.py$), the same scope the local commit hook sees.
+      - name: Lint (black, isort, ruff via the pre-commit hooks)
+        # Runs from the repo root, where .pre-commit-config.yaml lives. ruff
+        # finds backend/pyproject.toml hierarchically, so the cwd does not
+        # change which config applies. `pre-commit run` takes one hook id per
+        # call. --all-files applies each hook's `files:` filter
+        # (^backend/.*\.py$), the same scope the local commit hook sees.
         working-directory: ${{ github.workspace }}
         run: |
           python -m pip install pre-commit==4.6.0
           pre-commit run black --all-files --show-diff-on-failure
           pre-commit run isort --all-files --show-diff-on-failure
-          pre-commit run flake8 --all-files
+          pre-commit run ruff-check --all-files
 
       - name: Start-script self-test (bin/start.sh supervision rules)
         # The Railway start command runs gunicorn + the Celery worker in one

@@ -12,16 +12,13 @@ from apps.core.ratelimit import client_ip_key
 from apps.core.security import SecurityMonitor, log_security_event
 from apps.core.utils.pii_safe_logging import log_safe_user_context, log_safe_username
 from apps.plant_identification.constants import RATE_LIMITS
-from django.contrib.auth import authenticate
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-from django.views.decorators.cache import cache_page
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 
 # Rate limiting - now required for security
 from django_ratelimit.decorators import ratelimit
 from rest_framework import permissions, status
-from rest_framework.authentication import CSRFCheck
 from rest_framework.decorators import (
     api_view,
     authentication_classes,
@@ -295,7 +292,8 @@ def login(request: Request) -> Response:
         # This ensures both paths (user exists / doesn't exist) take similar time
         from django.contrib.auth.hashers import make_password
 
-        dummy_hash = make_password(password)
+        # Result unused: equalises timing with the real-user path.
+        make_password(password)
         user = None  # Explicitly set to None after dummy computation
 
     if user:
@@ -358,7 +356,8 @@ def login(request: Request) -> Response:
         return create_error_response(
             "ACCOUNT_LOCKED",
             "Account locked",
-            "Too many failed login attempts. Your account has been temporarily locked for security. Check your email for details.",
+            "Too many failed login attempts. Your account has been temporarily locked for security. "
+            "Check your email for details.",
             status.HTTP_429_TOO_MANY_REQUESTS,
         )
 

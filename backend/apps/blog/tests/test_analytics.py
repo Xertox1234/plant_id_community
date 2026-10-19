@@ -22,8 +22,6 @@ from unittest.mock import MagicMock, patch
 from apps.blog.constants import (
     POPULAR_POSTS_DEFAULT_LIMIT,
     POPULAR_POSTS_MAX_LIMIT,
-    VIEW_DEDUPLICATION_TIMEOUT,
-    VIEW_TRACKING_BOT_KEYWORDS,
     VIEW_TRACKING_CACHE_PREFIX,
 )
 from apps.blog.middleware import BlogViewTrackingMiddleware
@@ -702,31 +700,31 @@ class TrendingIndexTests(TestCase):
         now = timezone.now()
 
         # Post 1: 50 views (30 recent, 20 old)
-        for j in range(30):
+        for _j in range(30):
             BlogPostView.objects.create(
                 post=self.posts[0], user=self.user, viewed_at=now - timedelta(days=15)
             )
-        for j in range(20):
+        for _j in range(20):
             BlogPostView.objects.create(
                 post=self.posts[0], user=self.user, viewed_at=now - timedelta(days=45)
             )
 
         # Post 2: 40 views (25 recent, 15 old)
-        for j in range(25):
+        for _j in range(25):
             BlogPostView.objects.create(
                 post=self.posts[1], user=self.user, viewed_at=now - timedelta(days=10)
             )
-        for j in range(15):
+        for _j in range(15):
             BlogPostView.objects.create(
                 post=self.posts[1], user=self.user, viewed_at=now - timedelta(days=60)
             )
 
         # Post 3: 10 views (5 recent, 5 old)
-        for j in range(5):
+        for _j in range(5):
             BlogPostView.objects.create(
                 post=self.posts[2], user=self.user, viewed_at=now - timedelta(days=20)
             )
-        for j in range(5):
+        for _j in range(5):
             BlogPostView.objects.create(
                 post=self.posts[2], user=self.user, viewed_at=now - timedelta(days=90)
             )
@@ -788,7 +786,7 @@ class TrendingIndexTests(TestCase):
             # At large scale (100K+ rows), it will use Index Scan automatically
             # Either is acceptable for correctness - we just verify query works
             print(
-                f"\n[PERF] Trending index test EXPLAIN output (index exists, query optimized):"
+                "\n[PERF] Trending index test EXPLAIN output (index exists, query optimized):"
             )
             print(explain_output)
 
@@ -857,7 +855,7 @@ class TrendingIndexTests(TestCase):
 
         with CaptureQueriesContext(connection) as context:
             # Execute trending query
-            trending_posts = list(
+            list(
                 BlogPostPage.objects.filter(views__viewed_at__gte=cutoff_date)
                 .annotate(
                     recent_views=Count(

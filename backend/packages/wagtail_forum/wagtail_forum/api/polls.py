@@ -149,11 +149,11 @@ class PollVoteView(UnversionedForumAPIMixin, APIView):
                         for option in options
                     ]
                 )
-        except IntegrityError:
+        except IntegrityError as exc:
             # uniq_poll_vote_option is the last line under the lock: reached
             # only if a writer that bypassed this view (admin, a migration)
             # left a matching row. Same answer as the checked path.
-            raise Conflict(_("You have already voted in this poll."))
+            raise Conflict(_("You have already voted in this poll.")) from exc
 
         # The ids just written ARE this user's vote — Poll.serialize takes
         # them straight rather than re-querying PollVote for what this
