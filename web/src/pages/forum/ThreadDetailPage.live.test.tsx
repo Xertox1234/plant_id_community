@@ -396,7 +396,7 @@ describe('ThreadDetailPage live updates', () => {
     await loadAndOpen();
     act(() => live().serverClose(1006));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(750);
+      await vi.advanceTimersByTimeAsync(3000);
     });
     expect(sockets).toHaveLength(2);
     vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 3 }));
@@ -596,6 +596,103 @@ describe('ThreadDetailPage live updates', () => {
       renderPage();
       expect(await screen.findByText(/This thread is locked/)).toBeInTheDocument();
       expect(screen.queryByLabelText('Write a reply...')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('final-review fixes', () => {
+    it('#1 own reply racing ahead of createPost never reaches the pill or the intro toast', async () => {
+      scrolledUp();
+      let resolveCreate: (v: { id: string; status: 'published' }) => void = () => {};
+      vi.mocked(forumService.createPost).mockReturnValue(
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        })
+      );
+      await loadAndOpen();
+      await userEvent.type(screen.getByLabelText('Write a reply...'), 'My reply');
+      await userEvent.click(screen.getByRole('button', { name: 'Post Reply' }));
+      await send({ type: 'post.created', post_id: 3 });
+      // Mid-window: the event is ours, not someone else's reply.
+      expect(screen.queryByRole('button', { name: /new repl/i })).not.toBeInTheDocument();
+      expect(screen.queryByText('Replies now appear live.')).not.toBeInTheDocument();
+      vi.mocked(forumService.fetchPosts).mockResolvedValue(
+        page([...initialPosts(), post('3', 'My reply')])
+      );
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 2 }));
+      await act(async () => {
+        resolveCreate({ id: '3', status: 'published' });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await screen.findByText('My reply');
+      expect(screen.queryByRole('button', { name: /new repl/i })).not.toBeInTheDocument();
+      expect(screen.queryByText('Replies now appear live.')).not.toBeInTheDocument();
+    });
+
+    it("#1 someone else's reply during a pending (moderated) post is still offered", async () => {
+      scrolledUp();
+      let resolveCreate: (v: { id: string; status: 'pending' }) => void = () => {};
+      vi.mocked(forumService.createPost).mockReturnValue(
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        })
+      );
+      await loadAndOpen();
+      await userEvent.type(screen.getByLabelText('Write a reply...'), 'Held reply');
+      await userEvent.click(screen.getByRole('button', { name: 'Post Reply' }));
+      await send({ type: 'post.created', post_id: 4 });
+      await act(async () => {
+        resolveCreate({ id: '3', status: 'pending' });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(await screen.findByRole('button', { name: 'Load 1 new reply' })).toBeInTheDocument();
+    });
+
+    it('#2 live replies after a catch-up add to the pill', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      scrolledUp();
+      await loadAndOpen();
+      act(() => live().serverClose(1006));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 3 }));
+      await act(async () => {
+        live().open();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await screen.findByRole('button', { name: 'Load 2 new replies' });
+      await send({ type: 'post.created', post_id: 9 });
+      expect(await screen.findByRole('button', { name: 'Load 3 new replies' })).toBeInTheDocument();
+    });
+
+    it('#3 a reply is not inserted at the bottom while earlier ones wait in the pill', async () => {
+      scrolledUp();
+      await loadAndOpen();
+      await send({ type: 'post.created', post_id: 3 });
+      await screen.findByRole('button', { name: 'Load 1 new reply' });
+      atBottom();
+      await send({ type: 'post.created', post_id: 4 });
+      expect(await screen.findByRole('button', { name: 'Load 2 new replies' })).toBeInTheDocument();
+      expect(forumService.fetchPost).not.toHaveBeenCalled();
+    });
+
+    it('#9 a reader who scrolls up before the reply arrives is not pulled down', async () => {
+      let resolveFetch: (p: Post) => void = () => {};
+      vi.mocked(forumService.fetchPost).mockReturnValue(
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        })
+      );
+      await loadAndOpen();
+      await send({ type: 'post.created', post_id: 3 });
+      scrolledUp();
+      await act(async () => {
+        resolveFetch(post('3', 'Late reply'));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(await screen.findByRole('button', { name: 'Load 1 new reply' })).toBeInTheDocument();
+      expect(screen.queryByText('Late reply')).not.toBeInTheDocument();
+      expect(window.scrollTo).not.toHaveBeenCalled();
     });
   });
 });

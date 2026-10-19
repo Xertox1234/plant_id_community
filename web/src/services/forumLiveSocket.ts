@@ -11,7 +11,7 @@
  * | 4429 | socket cap | stop for this visit |
  * | 4404 | topic not visible, or removed | stop, report `gone` |
  * | 4401 | no valid user | refresh the session once, reconnect once, then stop |
- * | other (1006 …) | dropped | reconnect with backoff + jitter |
+ * | other (1006 …) | dropped | reconnect after 1 s + random · min(29 s, 4 s · 2^n) |
  *
  * A stopped socket never retries: retrying a 4503 would be the reconnect
  * storm the spec forbids. The page's 30 s check covers every stop.
@@ -73,6 +73,9 @@ export const LIVE_CLOSE = {
 } as const;
 export const BACKOFF_BASE_MS = 1000;
 export const BACKOFF_CAP_MS = 30_000;
+/** The first retry lands anywhere in 1–5 s, so a deploy that drops every
+ * socket at once does not bring them all back in the same second. */
+export const BACKOFF_SPREAD_MS = 4000;
 /** A browser cannot see protocol pings, so a dead link is found by our own. */
 export const PING_INTERVAL_MS = 25_000;
 export const PONG_TIMEOUT_MS = 10_000;
@@ -127,7 +130,7 @@ export function openTopicLive(topicId: number, handlers: TopicLiveHandlers): { c
   };
 
   const scheduleRetry = () => {
-    const base = Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** attempt);
+    const spread = Math.min(BACKOFF_CAP_MS - BACKOFF_BASE_MS, BACKOFF_SPREAD_MS * 2 ** attempt);
     attempt += 1;
     handlers.onStatus('connecting');
     retryTimer = setTimeout(
@@ -135,7 +138,7 @@ export function openTopicLive(topicId: number, handlers: TopicLiveHandlers): { c
         retryTimer = null;
         connect();
       },
-      base / 2 + Math.random() * (base / 2)
+      BACKOFF_BASE_MS + Math.random() * spread
     );
   };
 

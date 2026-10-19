@@ -1215,7 +1215,7 @@ API origin with `http` → `ws` and **no `/api/v1`**: `wss://<api>/ws/forum/topi
 | 4503, 4429 | stop for this page visit; the 30 s poll carries on (never retry: 4503 is every socket until slice 5 flips the flag) |
 | 4404 / `topic.removed` | "This topic is no longer available." (the reply draft is already saved per topic) |
 | 4401 | refresh the session once, reconnect once, then stop |
-| anything else (1006 …) | backoff `base/2 + rand·base/2`, `base = min(30 s, 1 s·2^n)`, reset on open, forever |
+| anything else (1006 …) | retry after `1 s + rand · min(29 s, 4 s·2^n)` (first retry spread over 1–5 s), reset on open, forever |
 
 - The 30 s poll runs **only while the socket is not connected**. Every open
   runs the poll's check once (catch-up), so replies that landed while

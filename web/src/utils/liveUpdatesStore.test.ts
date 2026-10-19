@@ -70,4 +70,30 @@ describe('liveUpdatesStore', () => {
     sessionStorage.clear();
     expect(mayShowMissingOut(now)).toBe(true);
   });
+
+  describe('when the browser blocks storage', () => {
+    beforeEach(() => {
+      vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('denied');
+      });
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('denied');
+      });
+    });
+
+    it('turning it off still reads back off for this page', () => {
+      const { result } = renderHook(() => useLiveUpdatesEnabled());
+      act(() => result.current[1](false));
+      expect(result.current[0]).toBe(false);
+      act(() => result.current[1](true));
+      expect(result.current[0]).toBe(true);
+    });
+
+    it('the missing-out toast is still at most once', () => {
+      const now = 2_000_000_000_000;
+      expect(mayShowMissingOut(now)).toBe(true);
+      markMissingOutShown(now);
+      expect(mayShowMissingOut(now + 30_000)).toBe(false);
+    });
+  });
 });

@@ -228,6 +228,12 @@ export default function ThreadDetailPage() {
   const postsRef = useRef<Post[]>([]);
   const threadRef = useRef<Thread | null>(null);
   const editingPostIdRef = useRef<string | null>(null);
+  const newReplyCountRef = useRef(0);
+  // While this reader's own reply is posting, its post.created can beat the
+  // HTTP response: hold every post.created until createPost says which id was
+  // ours (final review #1).
+  const replyInFlightRef = useRef(false);
+  const heldCreatedIdsRef = useRef<Set<string>>(new Set());
   const topicRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Where to scroll once the next posts render lands: the bottom (a live
   // insert while pinned there) or the first newly loaded reply.
@@ -294,6 +300,7 @@ export default function ThreadDetailPage() {
     setFlashIds([]);
     liveNewIdsRef.current = new Set();
     ownReplyIdsRef.current = new Set();
+    heldCreatedIdsRef.current = new Set();
     pendingScrollRef.current = null;
     if (topicRefetchTimerRef.current) clearTimeout(topicRefetchTimerRef.current);
     topicRefetchTimerRef.current = null;
@@ -411,7 +418,9 @@ export default function ThreadDetailPage() {
           // has reached the end of what was there.
           setTotalPosts(count);
         } else {
-          setNewReplyCount(Math.max(0, count - totalPostsRef.current, liveNewIdsRef.current.size));
+          // The server's count is the truth here; live events add to it
+          // one by one until the next check (final review #2).
+          setNewReplyCount(Math.max(0, count - totalPostsRef.current));
         }
         return fresh;
       } catch (err) {
@@ -462,6 +471,9 @@ export default function ThreadDetailPage() {
   useEffect(() => {
     editingPostIdRef.current = editingPostId;
   }, [editingPostId]);
+  useEffect(() => {
+    newReplyCountRef.current = newReplyCount;
+  }, [newReplyCount]);
 
   // O12: the first time a live reply lands or the pill appears from a live
   // event, once per browser, say so and offer the way out.
@@ -507,17 +519,34 @@ export default function ThreadDetailPage() {
         if (loaded || ownReplyIdsRef.current.has(postId) || liveNewIdsRef.current.has(postId)) {
           return;
         }
-        if (nextCursorRef.current == null && isAtBottom()) {
+        if (replyInFlightRef.current) {
+          heldCreatedIdsRef.current.add(postId);
+          return;
+        }
+        const offer = () => {
+          if (liveNewIdsRef.current.has(postId)) return;
+          liveNewIdsRef.current.add(postId);
+          setNewReplyCount((n) => n + 1);
+          showLiveIntro();
+        };
+        // Insert only for a reader at the bottom with every page loaded and
+        // nothing already waiting in the pill: inserting past offered replies
+        // would show the thread out of order (final review #3).
+        if (nextCursorRef.current == null && newReplyCountRef.current === 0 && isAtBottom()) {
           void fetchPost(postId)
             .then((fresh) => {
               if (!fresh || currentTopicIdRef.current !== requestTopicId) return;
-              const already = postsRef.current.some((p) => p.id === postId);
-              setPosts((prev) =>
-                prev.some((p) => p.id === postId)
-                  ? prev.map((p) => (p.id === postId ? fresh : p))
-                  : [...prev, fresh]
-              );
-              if (already) return;
+              if (postsRef.current.some((p) => p.id === postId)) {
+                setPosts((prev) => prev.map((p) => (p.id === postId ? fresh : p)));
+                return;
+              }
+              // The reader scrolled up while it loaded: offer, never pull
+              // them down (final review #9).
+              if (!isAtBottom()) {
+                offer();
+                return;
+              }
+              setPosts((prev) => [...prev, fresh]);
               setTotalPosts((n) => n + 1);
               setFlashIds((prev) => [...prev, postId]);
               pendingScrollRef.current = { bottom: true };
@@ -532,9 +561,7 @@ export default function ThreadDetailPage() {
             });
           return;
         }
-        liveNewIdsRef.current.add(postId);
-        setNewReplyCount((n) => Math.max(n, liveNewIdsRef.current.size));
-        showLiveIntro();
+        offer();
         return;
       }
       if (event.type === 'post.updated') {
@@ -805,9 +832,11 @@ export default function ThreadDetailPage() {
       // this chain (createPost → revalidateIdentity → collectAllPosts) is
       // the longest await on the page.
       const requestTopicId = topicId;
+      let refreshedAll = false;
       try {
         setReplySubmitting(true);
         setNotice(null);
+        replyInFlightRef.current = true;
         const res = await createPost({
           thread: requestTopicId,
           body: docToBodyBlocks(replyBody),
@@ -857,6 +886,7 @@ export default function ThreadDetailPage() {
           setPosts(refreshed.items);
           setNextCursor(refreshed.next);
           setTotalPosts(fresh.post_count ?? 0);
+          refreshedAll = true;
           // The refresh above loaded everything, including anyone else's.
           setNewReplyCount(0);
           liveNewIdsRef.current = new Set();
@@ -888,9 +918,20 @@ export default function ThreadDetailPage() {
         }
       } finally {
         setReplySubmitting(false);
+        replyInFlightRef.current = false;
+        // Replies that landed while ours was posting: none to offer when the
+        // refresh above loaded everything; otherwise apply them now (our own
+        // id, if any, is in ownReplyIdsRef and is skipped).
+        const held = [...heldCreatedIdsRef.current];
+        heldCreatedIdsRef.current = new Set();
+        if (!refreshedAll && currentTopicIdRef.current === requestTopicId) {
+          held.forEach((postId) =>
+            handleLiveEvent({ type: 'post.created', topicId: requestTopicId, postId })
+          );
+        }
       }
     },
-    [topicId, replyBody, announce, user, revalidateIdentity]
+    [topicId, replyBody, announce, user, revalidateIdentity, handleLiveEvent]
   );
 
   // Quote a post into the reply composer (todo 342). The `post_quote`

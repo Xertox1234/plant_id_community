@@ -15,11 +15,16 @@ export const MISSING_OUT_SESSION_KEY = 'gt-live-missing-out-session';
 /** After the signed-out "missing out" toast shows, not again on this device for 24 h. */
 export const MISSING_OUT_QUIET_MS = 24 * 60 * 60 * 1000;
 
+// Where a value lives when the browser refuses storage (private mode,
+// blocked site data): this page keeps it, so "Turn off" still turns off and
+// a once-only toast stays once-only until the page reloads.
+const memory = new Map<string, string>();
+
 function readItem(storage: () => Storage, key: string): string | null {
   try {
     return storage().getItem(key);
   } catch {
-    return null;
+    return memory.get(key) ?? null;
   }
 }
 
@@ -27,7 +32,7 @@ function writeItem(storage: () => Storage, key: string, value: string): void {
   try {
     storage().setItem(key, value);
   } catch {
-    /* ignore quota/denied */
+    memory.set(key, value);
   }
 }
 

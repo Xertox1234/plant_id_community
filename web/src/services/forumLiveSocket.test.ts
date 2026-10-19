@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import {
+  BACKOFF_BASE_MS,
   BACKOFF_CAP_MS,
   LIVE_CLOSE,
   PING_INTERVAL_MS,
@@ -173,23 +174,41 @@ describe('openTopicLive', () => {
   });
 
   it('1006 reconnects with backoff, resetting after a successful open', async () => {
+    // delay = 1 s + random · min(29 s, 4 s · 2^attempt): 3 s, then 5 s at random 0.5.
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     start();
     sockets[0].serverClose(1006);
-    await vi.advanceTimersByTimeAsync(749);
+    await vi.advanceTimersByTimeAsync(2999);
     expect(sockets).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(sockets).toHaveLength(2);
     sockets[1].serverClose(1006);
-    await vi.advanceTimersByTimeAsync(1499);
+    await vi.advanceTimersByTimeAsync(4999);
     expect(sockets).toHaveLength(2);
     await vi.advanceTimersByTimeAsync(1);
     expect(sockets).toHaveLength(3);
     sockets[2].open();
     sockets[2].serverClose(1006);
-    await vi.advanceTimersByTimeAsync(750);
+    await vi.advanceTimersByTimeAsync(3000);
     expect(sockets).toHaveLength(4);
     expect(lastStatus()).toBe('connecting');
+  });
+
+  it('spreads the first retry over 1–5 s, so a deploy does not reconnect everyone at once', async () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+    start();
+    sockets[0].serverClose(1006);
+    await vi.advanceTimersByTimeAsync(BACKOFF_BASE_MS - 1);
+    expect(sockets).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sockets).toHaveLength(2);
+    random.mockReturnValue(0.999999);
+    sockets[1].open();
+    sockets[1].serverClose(1006);
+    await vi.advanceTimersByTimeAsync(4990);
+    expect(sockets).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(sockets).toHaveLength(3);
   });
 
   it('backoff is capped', async () => {
@@ -214,7 +233,7 @@ describe('openTopicLive', () => {
     await vi.advanceTimersByTimeAsync(PONG_TIMEOUT_MS);
     expect(sockets[0].closedByClient).toBe(true);
     expect(lastStatus()).toBe('connecting');
-    await vi.advanceTimersByTimeAsync(750);
+    await vi.advanceTimersByTimeAsync(3000);
     expect(sockets).toHaveLength(2);
   });
 
