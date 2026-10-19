@@ -7492,3 +7492,24 @@ modules load.
 - **Rules with their own change control stay off the gate:** `DJ001` (`null=True` on text fields
   is a migration), `DJ012` (member order is style) and `B905` (`zip(strict=…)` is a per-call
   decision) are ignored in the config with the reason beside each, not fixed in a lint PR.
+
+## 2026-10-19 — Mobile live replies: four things that cost time (live replies, slice 4)
+
+**1. A pre-commit hook in a worktree corrupts the Flutter SDK.** In a worktree commit git exports
+`GIT_DIR` (absolute) to hooks. Flutter's `bin/flutter` and `bin/dart` run `git rev-parse HEAD` in the
+SDK checkout, so they read *this* repo, rebuild the tool, report `0.0.0-unknown` and write it to the
+SDK's `bin/cache/flutter.version.json`; pub then refuses `flutter_timezone` ("requires Flutter SDK
+>=3.22.0"). The main checkout never showed it (its `GIT_DIR` is relative). Fixed in this PR for all
+four Flutter hooks (`env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_PREFIX`). If the SDK
+is already poisoned, one plain `flutter --version` run **to completion** repairs it; piping it into
+`head` kills the rebuild halfway and deletes the version file.
+
+**2. `await subscription.cancel()` stalls code that `testWidgets` drives.** The await after it never
+resumed under fake async. The client never needed to wait for the cancel; it no longer awaits it.
+
+**3. A `SnackBar` with an action never times out** on this Flutter (`persist` defaults to
+`action != null`). Pass `persist: false` for a timed toast; accessible navigation still keeps it up.
+
+**4. `Scrollable.ensureVisible` on a card that is still growing lands short.** A `SizeTransition`
+from zero height measured 0, then the card grew and pushed itself below the viewport. Only animate
+the size of cards you aren't about to scroll to.

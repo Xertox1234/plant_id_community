@@ -1230,3 +1230,41 @@ API origin with `http` → `ws` and **no `/api/v1`**: `wss://<api>/ws/forum/topi
   every 25 s and reconnects if no frame arrives within 10 s.
 - Tests drive `tests/fakeWebSocket.ts`; `tests/setup.ts` installs it by
   default so no test dials a real socket.
+
+### Mobile client (slice 4)
+
+`plant_community_mobile/lib/features/forum/live/`: `forum_live_client.dart`
+(framework-free: connect, close codes, backoff, heartbeat) behind the
+`ForumLiveChannel` seam (`forum_live_channel.dart`, `dart:io` `WebSocket`,
+no new dependency), and the autoDispose family notifier `TopicLive`
+(`topic_live.dart`), which makes every decision about an event. The token is
+`ApiService.authToken`, sent only as `Authorization: Bearer`; `dart:io` sends
+no `Origin`. The per-device setting is `LiveUpdatesSetting`
+(FlutterSecureStorage `forum_live_updates`, Settings → FORUM, hidden while
+signed out).
+
+| Close | Mobile client |
+|---|---|
+| 4503, 4429 | stop for this foreground session; showing the app again makes one new attempt |
+| 4404 / `topic.removed` | "This topic is no longer available.", no Reply button |
+| 4401 | one peek read of the topic — the REST bearer **is** the socket bearer, so its 401 makes `ApiService` refresh the token (or sign out) — then one reconnect; two 4401s in a row stop it |
+| anything else, or a thrown handshake | retry after `1 s + rand · min(29 s, 4 s·2^n)`, reset on open, forever |
+
+- **Lifecycle:** `AppLifecycleListener.onHide` closes the socket,
+  `onShow` opens a new one, which catches up. `inactive` alone (Control
+  Centre, a call banner) keeps it.
+- **Catch-up on every open:** one `?peek=1` read; with every page loaded the
+  pill becomes `replyCount − loaded replies`. A result that arrives after the
+  client stopped (the prod 4503) or was replaced is dropped, so a flag-off
+  connect never shows a pill or the intro toast.
+- **Own reply:** `beginOwnReply()` before the composer opens,
+  `endOwnReply()` after the refresh walk; `post.created` events in between
+  are held, and released ones already in the list are dropped.
+- **Signed out:** no socket; `TopicMissingOut` peeks every 30 s and offers
+  the sign-in toast once per launch and 24 h.
+- **Composer (D20):** in reply mode it watches `topicDetailProvider` (only if
+  it already exists), so a lock that arrives live disables Post and keeps the
+  text. A reply 409 is told apart from an in-flight twin by a peek read.
+- **Tests:** `FakeLiveConnector` / `liveTestOverrides` in
+  `test/features/forum/support/forum_test_support.dart`. A thread test that
+  installs an `ApiService` token must add them, or it dials a real socket.
