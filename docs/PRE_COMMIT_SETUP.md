@@ -108,7 +108,7 @@ pre-commit run --all-files
 ### Code Quality Checks
 
 1. **black** - Python code formatter
-2. **flake8** - Python linter
+2. **ruff** - Python linter (bug-finding rule families; config in `backend/pyproject.toml`)
 3. **isort** - Python import sorter
 4. **eslint** - JavaScript/React linter
 5. **markdownlint** - Markdown formatter
@@ -141,7 +141,7 @@ git commit -m "feat: add new plant identification service"
 # 2. Check for CLAUDE.md (CRITICAL - blocks if found)
 # 3. Check for .env files (CRITICAL - blocks if found)
 # 4. Format code with black, isort
-# 5. Lint code with flake8, eslint
+# 5. Lint code with ruff, eslint
 # 6. Check file hygiene
 
 # If hooks pass:
@@ -150,7 +150,7 @@ git commit -m "feat: add new plant identification service"
 # If hooks fail:
 ❌ Secret detected in file.py:45
 ❌ CLAUDE.md must not be committed
-❌ flake8 found 3 linting errors
+❌ ruff found 3 linting errors
 
 # Fix the issues and try again
 ```
@@ -268,17 +268,15 @@ SKIP=eslint git commit -m "message"
 git commit --no-verify -m "message"
 ```
 
-### Issue: Black/flake8 conflicts
+### Issue: Black/ruff conflicts
 
 ```bash
-# Black and flake8 may disagree on formatting
-# Solution: Configure flake8 to be Black-compatible
+# Black and ruff may disagree on formatting
+# Solution: ruff is configured to be Black-compatible
 
-# Already configured in .pre-commit-config.yaml:
-# flake8:
-#   args:
-#     - '--max-line-length=120'
-#     - '--extend-ignore=E203,W503'  # Black compatibility
+# Already configured in backend/pyproject.toml [tool.ruff]:
+#   line-length = 120
+#   [tool.ruff.lint] ignore = ["E203", ...]  # Black's slice style
 ```
 
 ## Issue #1 Prevention in Action
@@ -425,7 +423,7 @@ git commit -m "message"
 | scan-django-secrets | Security | ⚠️  Warns | Detect Django secrets |
 | verify-gitignore | Security | ✅ Yes | Verify .gitignore patterns |
 | black | Quality | 🔧 Fixes | Format Python code |
-| flake8 | Quality | ✅ Yes | Lint Python code |
+| ruff | Quality | ✅ Yes | Lint Python code |
 | isort | Quality | 🔧 Fixes | Sort Python imports |
 | eslint | Quality | ✅ Yes | Lint JavaScript/React |
 | markdownlint | Quality | 🔧 Fixes | Format Markdown |

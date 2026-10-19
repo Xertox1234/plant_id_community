@@ -139,14 +139,16 @@ repos:
         language_version: python3
         files: ^backend/.*\.py$
 
-  - repo: https://github.com/pycqa/flake8
-    rev: 7.0.0
+  # ruff replaced flake8 (2026-10-18): same pyflakes/pycodestyle rules plus the
+  # bug-finding families (bugbear, flake8-django, pylint errors, leftover
+  # breakpoints, implicit string concatenation). Config: backend/pyproject.toml
+  # [tool.ruff], discovered hierarchically, so the cwd no longer matters. The
+  # rev must equal the ruff== pin in backend/requirements.txt.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.17
     hooks:
-      - id: flake8
-        name: Lint Python with Flake8
-        args:
-          - '--max-line-length=120'
-          - '--extend-ignore=E203,W503'
+      - id: ruff-check
+        name: Lint Python with ruff
         files: ^backend/.*\.py$
 
   - repo: https://github.com/pycqa/isort

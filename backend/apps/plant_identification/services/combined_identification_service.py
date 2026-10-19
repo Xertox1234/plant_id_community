@@ -521,7 +521,7 @@ class CombinedPlantIdentificationService:
 
         # Enrich with PlantNet data or add supplemental suggestions
         if plantnet_results and "results" in plantnet_results:
-            for idx, result in enumerate(plantnet_results["results"][:3]):  # Top 3
+            for result in plantnet_results["results"][:3]:  # Top 3
                 species = result.get("species", {})
                 parsed = parse_plantnet_species(species)
                 scientific_name = parsed["scientific_name"]

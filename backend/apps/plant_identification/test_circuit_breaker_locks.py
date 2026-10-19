@@ -54,8 +54,8 @@ class CircuitBreakerTests(TestCase):
         test_image = b"fake-image-data"
 
         # Make 3 consecutive failures (should open circuit)
-        for i in range(3):
-            with self.assertRaises(Exception):
+        for _i in range(3):
+            with self.assertRaises(Exception):  # noqa: B017 - mock raises Exception
                 service.identify_plant(test_image)
 
         # Circuit should now be open
@@ -106,8 +106,8 @@ class CircuitBreakerTests(TestCase):
             mock_response_fail,
         ]
 
-        for i in range(3):
-            with self.assertRaises(Exception):
+        for _i in range(3):
+            with self.assertRaises(Exception):  # noqa: B017 - mock raises Exception
                 service.identify_plant(test_image)
 
         # Circuit should be open
@@ -298,7 +298,7 @@ class DistributedLockTests(TestCase):
 
         # Simulate 3 concurrent requests for same image
         threads = []
-        for i in range(3):
+        for _i in range(3):
             thread = threading.Thread(target=make_request)
             threads.append(thread)
             thread.start()

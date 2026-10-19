@@ -79,7 +79,7 @@ class AccountLockoutTestCase(TestCase):
     def test_lockout_prevents_further_login_attempts(self):
         """Test that locked account prevents login attempts."""
         # Lock the account
-        for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
+        for _i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
                 username="testuser", ip_address="192.168.1.100"
             )
@@ -102,7 +102,7 @@ class AccountLockoutTestCase(TestCase):
     def test_lockout_email_notification_sent(self):
         """Test that email notification is sent on account lockout."""
         # Lock the account
-        for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
+        for _i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
                 username="testuser", ip_address="192.168.1.100"
             )
@@ -117,7 +117,7 @@ class AccountLockoutTestCase(TestCase):
     def test_lockout_email_contains_unlock_time(self):
         """Test that lockout email contains unlock time information."""
         # Lock the account
-        for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
+        for _i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
                 username="testuser", ip_address="192.168.1.100"
             )
@@ -147,7 +147,7 @@ class AccountLockoutTestCase(TestCase):
     def test_successful_login_clears_failed_attempts(self):
         """Test that successful login clears failed attempt counter."""
         # Make some failed attempts (but not enough to lock)
-        for i in range(5):
+        for _i in range(5):
             SecurityMonitor.track_failed_login_attempt(
                 username="testuser", ip_address="192.168.1.100"
             )
@@ -166,7 +166,7 @@ class AccountLockoutTestCase(TestCase):
     def test_lockout_duration_enforced(self):
         """Test that lockout lasts for specified duration."""
         # Lock the account
-        for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
+        for _i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
                 username="testuser", ip_address="192.168.1.100"
             )
@@ -186,7 +186,7 @@ class AccountLockoutTestCase(TestCase):
         lock_time = time.time()
 
         # Lock the account
-        for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
+        for _i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
                 username="testuser", ip_address="192.168.1.100"
             )
@@ -206,7 +206,7 @@ class AccountLockoutTestCase(TestCase):
     def test_manual_unlock_account(self):
         """Test manual account unlock (admin function)."""
         # Lock the account
-        for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
+        for _i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
                 username="testuser", ip_address="192.168.1.100"
             )
@@ -240,7 +240,7 @@ class AccountLockoutTestCase(TestCase):
             old_time = time.time() - 1000  # More than 15 minutes ago
             mock_time.return_value = old_time
 
-            for i in range(5):
+            for _i in range(5):
                 SecurityMonitor.track_failed_login_attempt(
                     username="testuser", ip_address="192.168.1.100"
                 )
@@ -260,7 +260,7 @@ class AccountLockoutTestCase(TestCase):
         )
 
         # Lock first user
-        for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
+        for _i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
                 username="testuser", ip_address="192.168.1.100"
             )
@@ -278,7 +278,7 @@ class AccountLockoutTestCase(TestCase):
         # Mock the alert trigger
         with patch.object(SecurityMonitor, "_trigger_security_alert") as mock_alert:
             # Lock the account
-            for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
+            for _i in range(ACCOUNT_LOCKOUT_THRESHOLD):
                 SecurityMonitor.track_failed_login_attempt(
                     username="testuser", ip_address="192.168.1.100"
                 )
@@ -318,7 +318,7 @@ class AccountLockoutTestCase(TestCase):
     def test_lockout_with_nonexistent_user(self):
         """Test lockout tracking for non-existent username."""
         # Track failed attempts for non-existent user
-        for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
+        for _i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             is_locked, attempts = SecurityMonitor.track_failed_login_attempt(
                 username="nonexistent", ip_address="192.168.1.100"
             )
@@ -339,7 +339,7 @@ class AccountLockoutTestCase(TestCase):
         mail.outbox = []
 
         # Lock the account
-        for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
+        for _i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
                 username="noemail", ip_address="192.168.1.100"
             )
@@ -350,7 +350,7 @@ class AccountLockoutTestCase(TestCase):
     def test_lockout_message_includes_time_remaining(self):
         """Test that lockout error message includes time remaining."""
         # Lock the account
-        for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
+        for _i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
                 username="testuser", ip_address="192.168.1.100"
             )
@@ -447,7 +447,7 @@ class AccountLockoutIntegrationTestCase(TestCase):
     def test_lockout_cleared_after_successful_login_post_expiry(self):
         """Test that account can login successfully after lockout expires."""
         # Lock account
-        for i in range(ACCOUNT_LOCKOUT_THRESHOLD):
+        for _i in range(ACCOUNT_LOCKOUT_THRESHOLD):
             SecurityMonitor.track_failed_login_attempt(
                 username="testuser", ip_address="192.168.1.100"
             )

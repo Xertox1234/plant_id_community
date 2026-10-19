@@ -436,7 +436,7 @@ class TestPlantHealthAPIService(TestCase):
         mock_post.return_value = mock_response
 
         # Make multiple API calls
-        for i in range(3):
+        for _i in range(3):
             result = self.service.diagnose_disease([self.diseased_image], "Test plant")
             self.assertEqual(result.get("status"), "COMPLETED")
 

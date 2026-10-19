@@ -56,7 +56,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             try:
                 validate_password(password)
             except ValidationError as e:
-                raise serializers.ValidationError({"password": e.messages})
+                raise serializers.ValidationError({"password": e.messages}) from e
 
         # Then check confirmation match
         if password_confirm and password != password_confirm:
@@ -223,13 +223,13 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
         try:
             return strip_image_metadata(value)
-        except AvatarUnreadableError:
-            raise serializers.ValidationError("This image could not be read.")
-        except AvatarTooLargeError:
+        except AvatarUnreadableError as exc:
+            raise serializers.ValidationError("This image could not be read.") from exc
+        except AvatarTooLargeError as exc:
             raise serializers.ValidationError(
                 f"This image is larger than {MAX_AVATAR_SIZE // (1024 * 1024)} MB"
                 " once its metadata is removed."
-            )
+            ) from exc
 
     @extend_schema_field(serializers.IntegerField())
     def get_plant_collections_count(self, obj):

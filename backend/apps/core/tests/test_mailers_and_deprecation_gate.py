@@ -62,7 +62,9 @@ SMTP_ENV = dict(
 def test_a_first_party_removed_in_django70_warning_fails_the_run():
     # Raised, not merely shown: pytest.ini promotes the class to an error.
     with pytest.raises(RemovedInDjango70Warning):
-        warnings.warn("first-party use of a removed API", RemovedInDjango70Warning)
+        warnings.warn(
+            "first-party use of a removed API", RemovedInDjango70Warning, stacklevel=2
+        )
 
 
 def test_settings_define_mailers_and_no_deprecated_email_setting():

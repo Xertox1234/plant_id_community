@@ -327,7 +327,7 @@ class PlantNetAPIService:
 
             return result
 
-        except CircuitBreakerError:
+        except CircuitBreakerError as exc:
             # Circuit breaker is open - expected operational state, not an error
             logger.warning(
                 "[CIRCUIT] PlantNet circuit breaker open - service degraded "
@@ -336,9 +336,9 @@ class PlantNetAPIService:
             raise ExternalAPIError(
                 "PlantNet service is temporarily unavailable. Please try again in a few moments.",
                 status_code=503,
-            )
+            ) from exc
 
-        except requests.exceptions.Timeout:
+        except requests.exceptions.Timeout as exc:
             # API request timeout
             logger.error(
                 f"[ERROR] PlantNet API timeout after {PLANTNET_API_REQUEST_TIMEOUT}s",
@@ -347,7 +347,7 @@ class PlantNetAPIService:
             raise ExternalAPIError(
                 "Plant identification service timeout. Please try again.",
                 status_code=504,
-            )
+            ) from exc
 
         except requests.exceptions.ConnectionError as e:
             # Network connectivity issues
@@ -358,7 +358,7 @@ class PlantNetAPIService:
             raise ExternalAPIError(
                 "Unable to connect to plant identification service. Please check your connection.",
                 status_code=503,
-            )
+            ) from e
 
         except requests.exceptions.RequestException as e:
             # Other requests library errors (HTTPError, etc.)
@@ -369,7 +369,7 @@ class PlantNetAPIService:
             raise ExternalAPIError(
                 "Plant identification service error. Please try again later.",
                 status_code=503,
-            )
+            ) from e
 
         except ValueError as e:
             # Data validation/parsing errors (JSON decoding, etc.)
@@ -380,7 +380,7 @@ class PlantNetAPIService:
             raise ExternalAPIError(
                 "Unable to process plant identification results. Please try again.",
                 status_code=502,
-            )
+            ) from e
 
     def get_top_suggestions(
         self, identification_result: Dict[str, Any], min_score: float = 0.1

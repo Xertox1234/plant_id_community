@@ -417,7 +417,7 @@ class TrefleAPIService:
 
         # Additional images from specifications
         specs = plant_data.get("main_species", {}).get("specifications", {})
-        for spec_key, spec_value in specs.items():
+        for _spec_key, spec_value in specs.items():
             if isinstance(spec_value, dict) and "image_url" in spec_value:
                 if spec_value["image_url"]:
                     images.append(spec_value["image_url"])

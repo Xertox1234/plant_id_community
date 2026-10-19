@@ -105,7 +105,7 @@ def record_throttled_operations(endpoints):
     view from the decorator itself, so a missing marker fails there.
     """
     throttled_ops = set()
-    for path, path_regex, method, callback in endpoints:
+    for path, _path_regex, method, callback in endpoints:
         # DRF's as_view() sets `.cls`; Django's plain views set `.view_class`.
         view = getattr(callback, "cls", None) or getattr(callback, "view_class", None)
         throttled = getattr(view, "_forum_throttled_methods", ()) if view else ()

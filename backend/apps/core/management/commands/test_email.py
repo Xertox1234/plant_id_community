@@ -114,7 +114,7 @@ class Command(BaseCommand):
 
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"❌ Error sending test email: {e}"))
-            raise CommandError(f"Email test failed: {e}")
+            raise CommandError(f"Email test failed: {e}") from e
 
     def print_available_templates(self):
         """Print available email templates."""

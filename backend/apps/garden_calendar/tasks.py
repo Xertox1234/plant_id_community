@@ -584,4 +584,4 @@ def send_care_reminder_to_device(
         )
         raise self.retry(
             exc=exc, countdown=self.default_retry_delay * (2**self.request.retries)
-        )
+        ) from exc

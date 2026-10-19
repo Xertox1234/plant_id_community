@@ -1593,8 +1593,8 @@ class CareTaskViewSet(AuditActorMixin, viewsets.ModelViewSet):
             next_created = task.mark_complete(request.user)
         except CareTask.AlreadyResolved:
             return _complete_refusal(task)
-        except CareTask.DoesNotExist:
-            raise NotFound()
+        except CareTask.DoesNotExist as exc:
+            raise NotFound() from exc
 
         return Response(
             {
@@ -1659,8 +1659,8 @@ class CareTaskViewSet(AuditActorMixin, viewsets.ModelViewSet):
             )
         except CareTask.AlreadyResolved:
             return _skip_refusal(task)
-        except CareTask.DoesNotExist:
-            raise NotFound()
+        except CareTask.DoesNotExist as exc:
+            raise NotFound() from exc
 
         return Response(
             {

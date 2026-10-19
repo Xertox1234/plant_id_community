@@ -88,7 +88,9 @@ class SecureFileValidator:
             # Fallback to Django's mime type detection
             guessed_type = mimetypes.guess_type(name)[0]
             if guessed_type not in ALLOWED_IMAGE_MIMETYPES:
-                raise ValidationError("Could not verify file type as a valid image.")
+                raise ValidationError(
+                    "Could not verify file type as a valid image."
+                ) from e
 
         # Validate image integrity using PIL
         try:
@@ -132,7 +134,7 @@ class SecureFileValidator:
         except Exception as e:
             if isinstance(e, ValidationError):
                 raise
-            raise ValidationError(f"Invalid or corrupted image file: {str(e)}")
+            raise ValidationError(f"Invalid or corrupted image file: {str(e)}") from e
 
         finally:
             file.seek(0)  # Reset file pointer for subsequent use

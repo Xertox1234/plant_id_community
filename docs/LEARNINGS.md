@@ -7454,3 +7454,41 @@ threading claims against the real server, not the test harness.
 - **`check:classes` reads `gt-*` storage keys as class names.** New
   localStorage keys in that family go in the script's ALLOWLIST with a reason,
   as the theme keys already do.
+
+## 2026-10-18 — A per-file `F821` suppression hid a block that raised `NameError` on every boot (flake8 → ruff)
+
+**What happened.** Replacing flake8 with ruff (same `F`/`E`/`W` rules plus bugbear, flake8-django,
+pylint errors, `T10` and `ISC`) surfaced 139 findings on a tree flake8 called clean. Five were
+`F821 Undefined name 'LOGGING'` in `settings.py` lines 990–1001: an `if not ENABLE_FILE_LOGGING:`
+block that pruned the `file` handler from `LOGGING` — 260 lines before `LOGGING` was defined. It
+raised `NameError` on every settings import, and its `except Exception: pass` swallowed it, so the
+block had never once run. A correct twin at line 1353 did the real work, which is why nothing was
+ever visibly broken. The root `setup.cfg` carried `settings.py: E501,E731,F821,E402` under
+"pre-existing technical debt — do not widen", so flake8 never reported it.
+
+**Root cause.** A per-file suppression of an *error-class* rule (`F821` undefined name, `F811`
+redefinition, `F401`) is not debt, it is blindness: it hides every future instance in that file,
+not the ones that existed when it was written. Of the seven suppressed files, two had no remaining
+findings at all (the suppression outlived the debt), and the rest hid 12 unused imports, two
+`filters` redefinitions, a timing-equalisation hash bound to a name nobody read, and the dead block.
+
+**Fix.** PR for this entry: ruff config in `backend/pyproject.toml` (`[tool.ruff]`, discovered
+hierarchically so the cwd no longer matters — the #1158 "run from the repo root" rule is gone with
+`setup.cfg`), the `ruff-check` pre-commit hook and CI line replacing flake8, every finding fixed
+(46 `raise … from exc`, 32 `_`-prefixed unused loop variables, the dead block deleted, both
+`assertRaises(Exception)` on unique constraints narrowed to `IntegrityError`), and exactly one
+per-file-ignore left: `test_django_imports.py` (`F401`,`F841`), which imports solely to prove the
+modules load.
+
+**Rules.**
+
+- **Never suppress `F821`, `F811` or `F841` per file.** Fix the line, or put `# noqa: <code> - reason`
+  on it, so the next instance in the same file still reports. The settings block sat under a
+  file-wide `F821` for the whole life of the suppression.
+- **A `try: … except Exception: pass` around config code hides `NameError` too.** If the block
+  must not raise, catch the exception it expects (`KeyError`), not everything.
+- **Measure suppressions against the current tree before carrying them forward.** Two of the seven
+  entries protected nothing; the migration was the first time anyone had looked.
+- **Rules with their own change control stay off the gate:** `DJ001` (`null=True` on text fields
+  is a migration), `DJ012` (member order is style) and `B905` (`zip(strict=…)` is a per-call
+  decision) are ignored in the config with the reason beside each, not fixed in a lint PR.

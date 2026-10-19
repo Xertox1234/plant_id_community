@@ -185,6 +185,4 @@ class AICacheService:
         # Generate AI response and cache it
         # This will be implemented in management command
         # which has access to AI generation functions
-        logger.info(
-            f"[CACHE] Warming cache for {feature} " f"(content: {content[:30]}...)"
-        )
+        logger.info(f"[CACHE] Warming cache for {feature} (content: {content[:30]}...)")

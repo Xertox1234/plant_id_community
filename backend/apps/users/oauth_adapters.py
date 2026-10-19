@@ -68,7 +68,7 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
             # No local account owns this email. allauth's auto-signup (gated by
             # the mandatory ACCOUNT_EMAIL_VERIFICATION) handles new users safely.
             return
-        except User.MultipleObjectsReturned:
+        except User.MultipleObjectsReturned as exc:
             logger.warning(
                 f"[SECURITY] Refused {sociallogin.account.provider} login: "
                 f"several accounts share this email"
@@ -77,7 +77,7 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
                 f"{get_oauth_redirect_url(sociallogin.account.provider)}"
                 f"?error=user_creation_failed"
             )
-            raise ImmediateHttpResponse(HttpResponseRedirect(error_url))
+            raise ImmediateHttpResponse(HttpResponseRedirect(error_url)) from exc
 
         # A local account already owns this email and this social account is not
         # yet linked. Only proceed when the provider has VERIFIED the email —
@@ -140,7 +140,7 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
             with transaction.atomic():
                 on_first_provider_link(existing_user, provider)
                 sociallogin.connect(request, existing_user)
-        except IntegrityError:
+        except IntegrityError as exc:
             linked = SocialAccount.objects.filter(
                 provider=provider, uid=sociallogin.account.uid
             ).first()
@@ -159,7 +159,7 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
                 error_url = (
                     f"{get_oauth_redirect_url(provider)}?error=user_creation_failed"
                 )
-                raise ImmediateHttpResponse(HttpResponseRedirect(error_url))
+                raise ImmediateHttpResponse(HttpResponseRedirect(error_url)) from exc
             # The concurrent login linked this account: sign in through its row.
             sociallogin.account = linked
             sociallogin.user = existing_user

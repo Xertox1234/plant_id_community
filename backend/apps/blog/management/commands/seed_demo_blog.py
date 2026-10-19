@@ -104,15 +104,15 @@ class Command(BaseCommand):
         # documents: a page attached there has url None and is never served.
         try:
             site_root = Site.objects.get(is_default_site=True).root_page
-        except Site.DoesNotExist:
+        except Site.DoesNotExist as exc:
             raise CommandError(
                 "No default Wagtail Site found. Run migrations before seeding."
-            )
-        except Site.MultipleObjectsReturned:
+            ) from exc
+        except Site.MultipleObjectsReturned as exc:
             raise CommandError(
                 "Multiple default Wagtail Sites found; fix is_default_site "
                 "flags before seeding."
-            )
+            ) from exc
 
         index = BlogIndexPage.objects.first()
         if index is None:

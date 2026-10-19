@@ -156,23 +156,23 @@ def _resolve_public_address(
 ) -> tuple[str, str]:
     try:
         literal = _public_ip(host)
-    except InvalidPreviewURL:
+    except InvalidPreviewURL as exc:
         try:
             normalized_host = host.encode("idna").decode("ascii").lower().rstrip(".")
         except UnicodeError as exc:
             raise InvalidPreviewURL from exc
         if not normalized_host:
-            raise InvalidPreviewURL
+            raise InvalidPreviewURL from exc
         infos = _resolve_addresses(normalized_host, port, dns_timeout)
         addresses = []
         for info in infos:
             try:
                 address = _public_ip(info[4][0])
-            except (IndexError, InvalidPreviewURL):
-                raise InvalidPreviewURL
+            except (IndexError, InvalidPreviewURL) as exc:
+                raise InvalidPreviewURL from exc
             addresses.append(address)
         if not addresses or any(not address.is_global for address in addresses):
-            raise InvalidPreviewURL
+            raise InvalidPreviewURL from exc
         return normalized_host, str(addresses[0])
     if not literal.is_global:
         raise InvalidPreviewURL

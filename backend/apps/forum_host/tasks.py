@@ -210,7 +210,7 @@ def send_forum_push(
         )
         return
 
-    if not getattr(user, "forum_notifications", True) is True:
+    if getattr(user, "forum_notifications", True) is not True:
         logger.debug(
             "[FCM] forum push skipped — user %s has forum_notifications=False",
             recipient_user_id,
@@ -249,7 +249,7 @@ def send_forum_push(
         # land inside the member's quiet hours (review round 2, PR #1132).
         raise self.retry(
             exc=exc, countdown=self.default_retry_delay * (2**self.request.retries)
-        )
+        ) from exc
     if held:
         return
     tokens = device_tokens_for_users([recipient_user_id]).get(recipient_user_id, [])
@@ -1371,7 +1371,7 @@ def generate_topic_summary(self, topic_id: int) -> None:
         raise self.retry(
             exc=exc,
             countdown=self.default_retry_delay * (2**self.request.retries),
-        )
+        ) from exc
 
     if not summary or not summary.strip():
         # An empty completion is a transient provider glitch, never a real

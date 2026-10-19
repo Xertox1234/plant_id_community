@@ -8,6 +8,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
@@ -38,7 +39,7 @@ class GrowingZoneModelTest(TestCase):
         """Test zone_code must be unique."""
         GrowingZone.objects.create(zone_code="7a", temp_min=0, temp_max=5)
 
-        with self.assertRaises(Exception):  # IntegrityError
+        with self.assertRaises(IntegrityError):
             GrowingZone.objects.create(zone_code="7a", temp_min=0, temp_max=5)
 
 

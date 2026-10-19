@@ -45,8 +45,9 @@ class HeadlessPreviewSettingsTestCase(TestCase):
         )
 
     def test_preview_client_origin_may_be_framed_by_the_admin(self):
-        policy = getattr(settings, "CONTENT_SECURITY_POLICY", None) or getattr(
-            settings, "CONTENT_SECURITY_POLICY_REPORT_ONLY"
+        policy = (
+            getattr(settings, "CONTENT_SECURITY_POLICY", None)
+            or settings.CONTENT_SECURITY_POLICY_REPORT_ONLY
         )
         self.assertIn(
             settings.HEADLESS_PREVIEW_CLIENT_ORIGIN,

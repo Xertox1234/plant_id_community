@@ -87,10 +87,10 @@ def _read(token, salt: str, max_age: int) -> tuple[BlogNewsletter, dict]:
         raise NewsletterTokenInvalid
     try:
         payload = signing.loads(token, salt=salt, max_age=max_age)
-    except signing.SignatureExpired:
-        raise NewsletterTokenExpired
-    except signing.BadSignature:
-        raise NewsletterTokenInvalid
+    except signing.SignatureExpired as exc:
+        raise NewsletterTokenExpired from exc
+    except signing.BadSignature as exc:
+        raise NewsletterTokenInvalid from exc
     if not isinstance(payload, dict) or not isinstance(payload.get("s"), int):
         raise NewsletterTokenInvalid
     subscriber = BlogNewsletter.objects.filter(pk=payload["s"]).first()

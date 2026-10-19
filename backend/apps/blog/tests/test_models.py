@@ -8,6 +8,7 @@ from datetime import date
 
 from apps.blog.models import BlogCategory, BlogIndexPage, BlogPostPage, BlogSeries
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from django.test import TestCase
 from wagtail.models import Page
 from wagtail.test.utils import WagtailPageTestCase
@@ -38,7 +39,7 @@ class BlogCategoryTestCase(TestCase):
 
     def test_category_slug_uniqueness(self):
         """BlogCategory slug must be unique."""
-        with self.assertRaises(Exception):
+        with self.assertRaises(IntegrityError):
             BlogCategory.objects.create(
                 name="Different Name",
                 slug="beginner-guides",  # Duplicate slug

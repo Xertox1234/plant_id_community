@@ -279,8 +279,13 @@ def confirm_verification_key(key, user, request=None):
         address = EmailAddress.objects.select_related("user").get(
             pk=payload["address"], verified=False
         )
-    except (signing.BadSignature, EmailAddress.DoesNotExist, KeyError, TypeError):
-        raise VerificationKeyInvalid()
+    except (
+        signing.BadSignature,
+        EmailAddress.DoesNotExist,
+        KeyError,
+        TypeError,
+    ) as exc:
+        raise VerificationKeyInvalid() from exc
     if address.user_id != user.pk:
         raise VerificationKeyInvalid()
     if address.email.lower() != (user.email or "").lower():

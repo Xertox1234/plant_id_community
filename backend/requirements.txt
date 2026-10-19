@@ -169,7 +169,7 @@ requests==2.33.1
 rich==14.2.0
 rpds-py==0.28.0
 rsa==4.9.1
-ruff==0.15.17  # F401 auto-fix at edit time (.claude/hooks/format-on-edit.sh); NOT a formatter — black+isort own formatting
+ruff==0.15.17  # lint gate (pyproject [tool.ruff]; pin == ruff-pre-commit rev in .pre-commit-config.yaml) + F401 auto-fix at edit time; NOT a formatter — black+isort own formatting
 s3transfer==0.19.2
 sentry-sdk==2.68.1
 setuptools==83.0.0

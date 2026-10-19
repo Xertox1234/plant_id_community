@@ -29,3 +29,6 @@ class TopicDeletedLog(models.Model):
         indexes = [
             models.Index(fields=["deleted_at"], name="wf_tombstone_deleted_at_idx"),
         ]
+
+    def __str__(self) -> str:
+        return f"TopicDeletedLog(topic_id={self.topic_id}, board_id={self.board_id})"

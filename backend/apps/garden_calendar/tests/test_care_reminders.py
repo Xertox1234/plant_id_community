@@ -891,7 +891,7 @@ class CareReminderCredentialsErrorTest(TestCase):
                 CareTask.objects.update(notification_sent=False)
                 calls = []
 
-                def send(message, exc=exc):
+                def send(message, exc=exc, calls=calls):
                     calls.append(message)
                     if len(calls) == 1:
                         raise exc

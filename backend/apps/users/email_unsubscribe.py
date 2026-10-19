@@ -167,10 +167,10 @@ def read_token(token) -> tuple:
         payload = signing.loads(
             token, salt=UNSUBSCRIBE_SALT, max_age=UNSUBSCRIBE_MAX_AGE
         )
-    except signing.SignatureExpired:
-        raise UnsubscribeTokenExpired
-    except signing.BadSignature:
-        raise UnsubscribeTokenInvalid
+    except signing.SignatureExpired as exc:
+        raise UnsubscribeTokenExpired from exc
+    except signing.BadSignature as exc:
+        raise UnsubscribeTokenInvalid from exc
     if not isinstance(payload, dict):
         raise UnsubscribeTokenInvalid
     user_uuid, list_id = payload.get("u"), payload.get("l")

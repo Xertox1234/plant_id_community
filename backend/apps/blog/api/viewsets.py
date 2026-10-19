@@ -15,7 +15,6 @@ import time
 
 from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
-from rest_framework import filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from wagtail.api.v2.filters import FieldsFilter, OrderingFilter, SearchFilter
@@ -44,7 +43,6 @@ from ..models import (
     BlogIndexPage,
     BlogPostPage,
     BlogPostView,
-    BlogSeries,
 )
 from ..services.blog_cache_service import BlogCacheService
 from .serializers import (
@@ -858,8 +856,8 @@ class BlogPostPreviewAPIViewSet(BlogPostPageViewSet):
             model = ContentType.objects.get_by_natural_key(
                 app_label, model_name
             ).model_class()
-        except ContentType.DoesNotExist:
-            raise Http404("Unknown content type")
+        except ContentType.DoesNotExist as exc:
+            raise Http404("Unknown content type") from exc
         # Only preview-enabled page models; this endpoint serializes blog posts.
         if model is None or not (
             issubclass(model, HeadlessPreviewMixin) and issubclass(model, BlogPostPage)
@@ -869,8 +867,8 @@ class BlogPostPreviewAPIViewSet(BlogPostPageViewSet):
             # The model refuses a stale token (todo 434). SignatureExpired
             # subclasses BadSignature: stale is also a 404.
             page = model.get_page_from_preview_token(token)
-        except BadSignature:
-            raise Http404("Invalid or expired preview token")
+        except BadSignature as exc:
+            raise Http404("Invalid or expired preview token") from exc
         if page is None:
             raise Http404("Preview not found or expired")
         if page.pk is None:

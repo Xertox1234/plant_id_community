@@ -43,13 +43,13 @@ else
   no "removes unused import, keeps used one, exits 0" "rc=$RC file: $(tr '\n' ' ' < "$ROOT/backend/apps/scratch.py")"
 fi
 
-# 2. Skip-list: a per-file-ignore path is left untouched (intentional re-exports).
-mkfixture backend/apps/plant_identification/models.py 'import os\n'
-run backend/apps/plant_identification/models.py
-if grep -q '^import os$' "$ROOT/backend/apps/plant_identification/models.py" && [ "$RC" -eq 0 ]; then
+# 2. Skip-list: a per-file-ignore path is left untouched (the import-smoke-test).
+mkfixture backend/test_django_imports.py 'import os\n'
+run backend/test_django_imports.py
+if grep -q '^import os$' "$ROOT/backend/test_django_imports.py" && [ "$RC" -eq 0 ]; then
   ok "skip-list file untouched"
 else
-  no "skip-list file untouched" "rc=$RC content=$(cat "$ROOT/backend/apps/plant_identification/models.py")"
+  no "skip-list file untouched" "rc=$RC content=$(cat "$ROOT/backend/test_django_imports.py")"
 fi
 
 # 3. Non-.py file is ignored.
@@ -146,25 +146,25 @@ ERR=$(printf '{"tool_name":"Edit","tool_input":{"file_path":"plant_community_mob
       | FORMAT_ON_EDIT_DART="$ROOT/no-such-dart" FORMAT_ON_EDIT_ROOT="$ROOT" bash "$HOOK" 2>&1 >/dev/null); RC=$?
 [ "$RC" -eq 0 ] && ok "Dart missing → fail-open exit 0" || no "Dart missing → fail-open exit 0" "rc=$RC"
 
-# 14. Skip-list ↔ setup.cfg F401 sync (todo 232): every setup.cfg [flake8]
-#     per-file-ignore carrying F401 must be in the hook's skip-list (between the
-#     SKIPLIST sentinels), or the hook would strip an intentional re-export. Assert
-#     the F401 set ⊆ the skip-list (the hook may legitimately carry extras like
-#     settings.py). Runs against the REAL repo files (not the fake ROOT).
-SETUP_CFG="$REPO_ROOT/backend/setup.cfg"
-if [ -f "$SETUP_CFG" ] && command -v python3 >/dev/null 2>&1; then
+# 14. Skip-list ↔ pyproject F401 sync (todo 232): every backend/pyproject.toml
+#     [tool.ruff.lint.per-file-ignores] entry carrying F401 must be in the hook's
+#     skip-list (between the SKIPLIST sentinels), or the hook would strip an
+#     intentional unused import. Assert the F401 set ⊆ the skip-list (the hook
+#     may legitimately carry extras). Runs against the REAL repo files (not the
+#     fake ROOT). Paths in pyproject are relative to backend/, like the skip-list
+#     after its backend/ prefix is stripped.
+PYPROJECT="$REPO_ROOT/backend/pyproject.toml"
+if [ -f "$PYPROJECT" ] && python3 -c 'import tomllib' >/dev/null 2>&1; then
   SKIP=$(awk '/SKIPLIST-START/{f=1;next} /SKIPLIST-END/{f=0} f' "$HOOK" \
     | grep -oE 'backend/[A-Za-z0-9_./-]+\.py' | sed 's#^backend/##' | sort -u)
-  CFG=$(python3 - "$SETUP_CFG" <<'PY'
-import configparser, sys
-cp = configparser.ConfigParser(interpolation=None)
-cp.read(sys.argv[1])
-for line in cp.get('flake8', 'per-file-ignores', fallback='').splitlines():
-    line = line.strip()
-    if ':' in line:
-        path, codes = line.split(':', 1)
-        if 'F401' in codes:
-            print(path.strip())
+  CFG=$(python3 - "$PYPROJECT" <<'PY'
+import sys, tomllib
+with open(sys.argv[1], 'rb') as fh:
+    cfg = tomllib.load(fh)
+ignores = cfg.get('tool', {}).get('ruff', {}).get('lint', {}).get('per-file-ignores', {})
+for path, codes in ignores.items():
+    if 'F401' in codes:
+        print(path.strip())
 PY
 )
   check_subset() { # $1=needles(newline-sep)  $2=haystack(newline-sep) → echoes missing
@@ -179,18 +179,18 @@ PY
   #     fails loudly instead of passing vacuously).
   REAL_MISSING=$(check_subset "$CFG" "$SKIP")
   if [ -z "$REAL_MISSING" ] && [ -n "$CFG" ]; then
-    ok "skip-list ⊇ setup.cfg F401 ignores (in sync)"
+    ok "skip-list ⊇ pyproject F401 ignores (in sync)"
   else
-    no "skip-list ⊇ setup.cfg F401 ignores (in sync)" "missing:$REAL_MISSING cfg_empty?=$([ -z "$CFG" ] && echo yes || echo no)"
+    no "skip-list ⊇ pyproject F401 ignores (in sync)" "missing:$REAL_MISSING cfg_empty?=$([ -z "$CFG" ] && echo yes || echo no)"
   fi
-  # (b) Teeth: a setup.cfg F401 entry NOT in the skip-list is detected as missing.
+  # (b) Teeth: a pyproject F401 entry NOT in the skip-list is detected as missing.
   if grep -q 'fake_reexport' <<< "$(check_subset 'apps/fake_reexport.py' "$SKIP")"; then
     ok "sync check detects an unmirrored F401 ignore"
   else
     no "sync check detects an unmirrored F401 ignore" "fake entry not flagged"
   fi
 else
-  ok "skip-list sync check (setup.cfg or python3 absent — skipped)"
+  ok "skip-list sync check (pyproject or python3 tomllib absent — skipped)"
 fi
 
 echo "----"
