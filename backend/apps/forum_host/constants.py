@@ -690,6 +690,11 @@ LIVE_SOCKET_COUNT_KEY_PREFIX = "forum_live"
 LIVE_CONNECT_RATE_PER_IP = 60
 LIVE_CONNECT_RATE_WINDOW_SECONDS = 60
 LIVE_CONNECT_RATE_KEY_PREFIX = "forum_live:rate"
+# An open socket re-checks its topic's visibility on a timer (slice 5, plan
+# ruling R4) and closes 4404 once the topic is gone. Jittered so the sockets
+# a deploy reconnects all at once don't re-check in step.
+LIVE_VISIBILITY_RECHECK_SECONDS = 300
+LIVE_VISIBILITY_RECHECK_JITTER = (0.8, 1.2)
 # Close codes a client can tell apart (sent AFTER accept: a close before
 # accept reaches the client as a bare handshake 403, code lost).
 LIVE_CLOSE_UNAUTHENTICATED = 4401

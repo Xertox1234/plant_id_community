@@ -12,13 +12,16 @@ accept reaches the client as a bare handshake 403 and the code is lost.
 | ``FORUM_LIVE_UPDATES_ENABLED`` off | 4503 (client stops; web polls) |
 | no valid user | 4401 (mobile refreshes once; web backs off) |
 | topic not visible by the REST rule | 4404 |
+| topic stopped being visible (re-checked every ~5 min) | 4404 |
 | per-user or per-IP socket cap reached | 4429 |
 
 Async, so an idle socket holds no thread and no DB connection.
 """
 
+import asyncio
 import json
 import logging
+import random
 from typing import Optional
 
 from apps.core.ratelimit import meta_from_asgi_scope, trusted_client_ip_from_meta
@@ -46,6 +49,7 @@ class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
         self.topic_id = int(self.scope["url_route"]["kwargs"]["topic_id"])
         self.group_name: Optional[str] = None
         self._counted_keys: list[str] = []
+        self._recheck_task: Optional[asyncio.Task] = None
         user = self.scope.get("user")
         self.user_id = user.pk if user is not None and user.is_authenticated else None
 
@@ -63,11 +67,15 @@ class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
         self.group_name = topic_group(self.topic_id)
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
+        self._recheck_task = asyncio.create_task(self._recheck_loop())
         logger.info(
             "[FORUM_LIVE] connect user=%s topic=%s", self.user_id, self.topic_id
         )
 
     async def disconnect(self, code):
+        # Cancel without awaiting: the loop holds nothing that needs unwinding,
+        # and awaiting a cancelled task here can stall the close.
+        self._cancel_recheck()
         if self.group_name is not None:
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
             logger.info(
@@ -101,9 +109,54 @@ class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
         if event.get("type") == "topic.removed":
             # The topic is gone for everyone: deliver the event, then drop the
             # subscription so this socket hears nothing more about it.
+            self._cancel_recheck()
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
             self.group_name = None
             await self.close(code=constants.LIVE_CLOSE_NOT_FOUND)
+
+    def _cancel_recheck(self) -> None:
+        if self._recheck_task is not None:
+            self._recheck_task.cancel()
+
+    async def _recheck_loop(self) -> None:
+        """Close 4404 once the topic stops being visible by the REST rule.
+
+        A board made private or a topic unpublished sends no event every reader
+        hears, so without this an open socket would keep receiving id-only
+        events for a topic its reader can no longer open. A DB error is not
+        "not visible": it is logged once per socket and the next tick retries.
+        """
+        failure_logged = False
+        while True:
+            await asyncio.sleep(
+                constants.LIVE_VISIBILITY_RECHECK_SECONDS
+                * random.uniform(*constants.LIVE_VISIBILITY_RECHECK_JITTER)
+            )
+            try:
+                visible = await _topic_is_visible(self.topic_id)
+            except Exception as exc:  # CancelledError is not an Exception
+                if not failure_logged:
+                    failure_logged = True
+                    logger.warning(
+                        "[FORUM_LIVE] recheck failed user=%s topic=%s: %s",
+                        self.user_id,
+                        self.topic_id,
+                        type(exc).__name__,
+                    )
+                continue
+            if not visible:
+                logger.info(
+                    "[FORUM_LIVE] recheck closed user=%s topic=%s",
+                    self.user_id,
+                    self.topic_id,
+                )
+                if self.group_name is not None:
+                    await self.channel_layer.group_discard(
+                        self.group_name, self.channel_name
+                    )
+                    self.group_name = None
+                await self.close(code=constants.LIVE_CLOSE_NOT_FOUND)
+                return
 
     async def _refuse(self, code: int, reason: str) -> None:
         logger.info(
