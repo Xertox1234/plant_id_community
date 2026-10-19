@@ -45,6 +45,16 @@ void main() {
         expect(apiService, isNotNull);
       });
 
+      test('authToken reflects setAuthToken and replaceAuthToken', () {
+        expect(apiService.authToken, isNull);
+        apiService.setAuthToken('first');
+        expect(apiService.authToken, 'first');
+        apiService.replaceAuthToken('refreshed');
+        expect(apiService.authToken, 'refreshed');
+        apiService.setAuthToken(null);
+        expect(apiService.authToken, isNull);
+      });
+
       test('should allow removing auth token by setting to null', () {
         apiService.setAuthToken('token');
         apiService.setAuthToken(null);

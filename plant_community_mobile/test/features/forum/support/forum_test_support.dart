@@ -382,14 +382,42 @@ class FakeForumApi implements ForumApi {
 
   int fetchTopicDetailCalls = 0;
 
+  /// How many [fetchTopicDetail] calls were peek reads (live replies).
+  int peekCalls = 0;
+
+  /// Successive fixtures for peek reads: each read takes the next one and
+  /// the last one repeats. Empty falls back to [topicDetail].
+  List<ForumTopicDetail> peekDetails = [];
+
   @override
-  Future<ForumTopicDetail> fetchTopicDetail(int topicId) async {
+  Future<ForumTopicDetail> fetchTopicDetail(
+    int topicId, {
+    bool peek = false,
+  }) async {
     fetchTopicDetailCalls++;
+    if (peek) {
+      final index = peekCalls++;
+      if (peekDetails.isNotEmpty) {
+        return peekDetails[index < peekDetails.length
+            ? index
+            : peekDetails.length - 1];
+      }
+    }
     final detail = topicDetail;
     if (detail == null) {
       throw ApiException('no fixture', statusCode: 404);
     }
     return detail;
+  }
+
+  /// Fixtures for [fetchPost], by id; a missing id answers null (a 404).
+  Map<int, ForumPost> postsById = {};
+  final List<int> fetchPostCalls = [];
+
+  @override
+  Future<ForumPost?> fetchPost(int postId) async {
+    fetchPostCalls.add(postId);
+    return postsById[postId];
   }
 
   @override
