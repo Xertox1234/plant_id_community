@@ -21,20 +21,30 @@ django_asgi_app = get_asgi_application()
 # imported plainly: a broken routing module must fail the boot, never serve
 # zero socket routes in silence.
 from . import routing as project_routing  # noqa: E402
-from .asgi_middleware import HttpConcurrencyLimit, OptionalOriginValidator  # noqa: E402
+from .asgi_middleware import (  # noqa: E402
+    HttpConcurrencyLimit,
+    OptionalOriginValidator,
+    WebsocketConnectRateLimit,
+)
 from .channels_middleware import JWTAuthMiddleware  # noqa: E402
 
 
 def build_websocket_app(routes):
     """The full websocket stack around ``URLRouter(routes)``.
 
-    The Origin check is outermost, so a cross-site socket is refused before
-    any auth work. The session stack is OUTSIDE the JWT middleware: it parses
+    Order, outermost first: the Origin check (headers only), then the per-IP
+    connect-rate gate (cache only), then the auth stack, whose session and
+    JWT lookups are the first DB work. So a cross-site socket and a connect
+    over the rate are both refused before any query.
+
+    The session stack is OUTSIDE the JWT middleware: it parses
     ``scope["cookies"]`` and sets the session user (or anonymous), and the JWT
     middleware replaces that user only when a token validates.
     """
     return OptionalOriginValidator(
-        AuthMiddlewareStack(JWTAuthMiddleware(URLRouter(routes)))
+        WebsocketConnectRateLimit(
+            AuthMiddlewareStack(JWTAuthMiddleware(URLRouter(routes)))
+        )
     )
 
 

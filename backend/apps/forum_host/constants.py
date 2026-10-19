@@ -683,6 +683,13 @@ LIVE_MAX_SOCKETS_PER_USER = 10
 LIVE_MAX_SOCKETS_PER_IP = 50
 LIVE_SOCKET_COUNT_TTL_SECONDS = 3600
 LIVE_SOCKET_COUNT_KEY_PREFIX = "forum_live"
+# Connect rate per trusted client IP (slice 5, plan ruling R3), counted in a
+# fixed window BEFORE the auth stack's DB lookups. Above the concurrent cap so
+# a whole NAT reconnecting after a deploy fits in one window. An IP that
+# cannot be resolved is admitted uncounted, never pooled into one bucket.
+LIVE_CONNECT_RATE_PER_IP = 60
+LIVE_CONNECT_RATE_WINDOW_SECONDS = 60
+LIVE_CONNECT_RATE_KEY_PREFIX = "forum_live:rate"
 # Close codes a client can tell apart (sent AFTER accept: a close before
 # accept reaches the client as a bare handshake 403, code lost).
 LIVE_CLOSE_UNAUTHENTICATED = 4401

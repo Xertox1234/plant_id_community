@@ -364,7 +364,7 @@ def test_scope_meta_builds_headers_as_django_does(headers):
     the scope's META view must follow Django's ASGI header rules."""
     import io
 
-    from apps.forum_host.consumers import _scope_meta
+    from apps.core.ratelimit import meta_from_asgi_scope
     from django.core.handlers.asgi import ASGIRequest
 
     scope = {
@@ -376,7 +376,7 @@ def test_scope_meta_builds_headers_as_django_does(headers):
         "client": ("10.9.9.9", 5000),
     }
     django_meta = ASGIRequest(scope, io.BytesIO()).META
-    ours = _scope_meta(scope)
+    ours = meta_from_asgi_scope(scope)
     for key in ("REMOTE_ADDR", "HTTP_X_FORWARDED_FOR"):
         assert ours.get(key) == django_meta.get(key), key
     with override_settings(RATELIMIT_TRUSTED_PROXY_COUNT=2):

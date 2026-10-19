@@ -21,7 +21,7 @@ import json
 import logging
 from typing import Optional
 
-from apps.core.ratelimit import trusted_client_ip_from_meta
+from apps.core.ratelimit import meta_from_asgi_scope, trusted_client_ip_from_meta
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.conf import settings
@@ -32,27 +32,6 @@ from . import constants
 from .live import PROTOCOL_VERSION, topic_group
 
 logger = logging.getLogger(__name__)
-
-
-def _scope_meta(scope) -> dict:
-    """A META-shaped view of the handshake, for the shared client-IP rule.
-
-    Built by Django's own ASGI rules (``ASGIRequest.__init__``): a header
-    name containing ``_`` is dropped, so a client's ``x_forwarded_for`` can't
-    stand in for the proxy's ``X-Forwarded-For``, and a repeated header is
-    joined with ``,`` rather than the last copy winning.
-    """
-    meta = {"REMOTE_ADDR": (scope.get("client") or ("",))[0] or ""}
-    for raw_name, raw_value in scope.get("headers", []):
-        name = raw_name.decode("latin-1")
-        if "_" in name:
-            continue
-        key = "HTTP_" + name.upper().replace("-", "_")
-        value = raw_value.decode("latin-1")
-        if key in meta:
-            value = meta[key] + "," + value
-        meta[key] = value
-    return meta
 
 
 @database_sync_to_async
@@ -140,7 +119,7 @@ class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
     def _cap_keys(self) -> list[tuple[str, int]]:
         prefix = constants.LIVE_SOCKET_COUNT_KEY_PREFIX
         keys = [(f"{prefix}:u:{self.user_id}", constants.LIVE_MAX_SOCKETS_PER_USER)]
-        ip = trusted_client_ip_from_meta(_scope_meta(self.scope))
+        ip = trusted_client_ip_from_meta(meta_from_asgi_scope(self.scope))
         if ip:
             keys.append((f"{prefix}:ip:{ip}", constants.LIVE_MAX_SOCKETS_PER_IP))
         return keys
