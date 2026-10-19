@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
-import { useParams, Link, useLocation } from 'react-router-dom';
+import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bell,
   BellOff,
@@ -16,6 +16,7 @@ import {
   fetchThread,
   fetchThreads,
   fetchPosts,
+  fetchPost,
   createPost,
   updatePost,
   deletePost,
@@ -55,6 +56,7 @@ import PollCard from '../../components/forum/PollCard';
 import ThreadSummaryPanel from '../../components/forum/ThreadSummaryPanel';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import TipTapEditor from '../../components/forum/TipTapEditor';
+import LiveToast from '../../components/forum/LiveToast';
 import { ThreadDetailSkeleton } from '../../components/forum/ForumSkeleton';
 import Button from '../../components/ui/Button';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
@@ -67,9 +69,17 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
+import { useTopicLive } from '../../hooks/useTopicLive';
+import {
+  markMissingOutShown,
+  mayShowMissingOut,
+  takeLiveIntro,
+  useLiveUpdatesEnabled,
+} from '../../utils/liveUpdatesStore';
 import { logger } from '../../utils/logger';
 import PageMeta from '../../components/PageMeta';
 import type { Thread, Post } from '@/types';
+import type { LiveEvent, LiveToastSpec } from '@/types/forumLive';
 import type { JSONContent } from '@tiptap/react';
 import type { PaginatedResponse } from '@/types/forum';
 
@@ -114,6 +124,21 @@ const RAIL_BOARD_TOPICS_LIMIT = 5;
 // Same cadence as the unread bell (UNREAD_POLL_INTERVAL_MS).
 export const NEW_REPLIES_POLL_INTERVAL_MS = 30_000;
 
+// Live updates (forum live replies, slice 3). A live reply is inserted only
+// when the reader is within this many px of the bottom with every page
+// loaded; otherwise it is offered through the pill, so nothing reflows under
+// someone who is reading (spec anti-goal "page jumping").
+export const LIVE_AT_BOTTOM_PX = 120;
+// A burst of topic.updated events collapses into one peek read.
+export const LIVE_TOPIC_DEBOUNCE_MS = 500;
+const TOPIC_GONE_MESSAGE = 'This topic is no longer available.';
+
+function isAtBottom(): boolean {
+  return (
+    window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - LIVE_AT_BOTTOM_PX
+  );
+}
+
 /**
  * ThreadDetailPage Component
  *
@@ -124,6 +149,7 @@ export default function ThreadDetailPage() {
   const { categorySlug, threadSlug } = useParams<{ categorySlug: string; threadSlug: string }>();
   const { isAuthenticated, user, revalidateIdentity } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const announce = useAnnounce();
   useScrollToTop();
 
@@ -187,6 +213,31 @@ export default function ThreadDetailPage() {
   // The reply just posted by THIS user, marked for the one-shot canopy-flash
   // highlight. Purely visual state; cleared by a 2.5s timer.
   const [justPostedId, setJustPostedId] = useState<string | null>(null);
+  // Live updates (slice 3): replies flashed after a live insert or a pill
+  // load, cleared CANOPY_FLASH_MS after the last change.
+  const [flashIds, setFlashIds] = useState<string[]>([]);
+  const [liveEnabled, setLiveEnabled] = useLiveUpdatesEnabled();
+  // The page's one toast: first-time live notice, its Undo, and the
+  // signed-out "missing out" notice (O10–O12).
+  const [toast, setToast] = useState<LiveToastSpec | null>(null);
+  // Read by the socket's event handler, which must not re-subscribe on every
+  // render: the ids offered through the pill, this reader's own replies, and
+  // the current posts / thread / edit target.
+  const liveNewIdsRef = useRef<Set<string>>(new Set());
+  const ownReplyIdsRef = useRef<Set<string>>(new Set());
+  const postsRef = useRef<Post[]>([]);
+  const threadRef = useRef<Thread | null>(null);
+  const editingPostIdRef = useRef<string | null>(null);
+  const newReplyCountRef = useRef(0);
+  // While this reader's own reply is posting, its post.created can beat the
+  // HTTP response: hold every post.created until createPost says which id was
+  // ours (final review #1).
+  const replyInFlightRef = useRef(false);
+  const heldCreatedIdsRef = useRef<Set<string>>(new Set());
+  const topicRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Where to scroll once the next posts render lands: the bottom (a live
+  // insert while pinned there) or the first newly loaded reply.
+  const pendingScrollRef = useRef<{ bottom: true } | { postId: string } | null>(null);
 
   // Tracks the topic currently on screen. handleToggleSubscription reads this
   // after its await to detect that the user navigated to a different thread
@@ -245,6 +296,14 @@ export default function ThreadDetailPage() {
     setJustPostedId(null);
     // A stale "N new replies" offer belongs to the previous thread.
     setNewReplyCount(0);
+    // So do its live-update marks.
+    setFlashIds([]);
+    liveNewIdsRef.current = new Set();
+    ownReplyIdsRef.current = new Set();
+    heldCreatedIdsRef.current = new Set();
+    pendingScrollRef.current = null;
+    if (topicRefetchTimerRef.current) clearTimeout(topicRefetchTimerRef.current);
+    topicRefetchTimerRef.current = null;
 
     // react.dev race guard: a stale initial load (fast nav to another thread,
     // unmount, or a Retry superseding an in-flight request) is dropped so
@@ -343,17 +402,15 @@ export default function ThreadDetailPage() {
   // Armed only after a SUCCESSFUL load: the error screen must not poll, and
   // a poll from a superseded run (Retry, navigation) is dropped via `active`
   // — the ref guard alone would let a late response seed a bogus count.
-  useEffect(() => {
-    if (topicId == null || loading || error || !thread) return;
-    const requestTopicId = topicId;
-    let active = true;
-    let inFlight = false;
-    const check = async () => {
-      if (inFlight || document.visibilityState === 'hidden') return;
-      inFlight = true;
+  // One peek read of the topic: grows the pill (or the Load More count) by
+  // what landed since the page loaded. The poll's tick, and the socket's
+  // catch-up on every open (spec O9). Returns the fresh topic, or null when
+  // it failed or the page moved on (`isActive` says the caller still cares).
+  const checkForNewReplies = useCallback(
+    async (requestTopicId: number, isActive: () => boolean): Promise<Thread | null> => {
       try {
         const fresh = await fetchThread(requestTopicId, { peek: true });
-        if (!active || currentTopicIdRef.current !== requestTopicId) return;
+        if (!isActive() || currentTopicIdRef.current !== requestTopicId) return null;
         const count = fresh.post_count ?? 0;
         if (nextCursorRef.current) {
           // Older pages are still unread: new replies are just more of them.
@@ -361,15 +418,237 @@ export default function ThreadDetailPage() {
           // has reached the end of what was there.
           setTotalPosts(count);
         } else {
+          // The server's count is the truth here; live events add to it
+          // one by one until the next check (final review #2).
           setNewReplyCount(Math.max(0, count - totalPostsRef.current));
         }
+        return fresh;
       } catch (err) {
-        // A failed poll is silent — the next tick retries; the page is unaffected.
+        // A failed check is silent — the next tick retries; the page is unaffected.
         logger.warn('New-replies poll failed', {
           component: 'ThreadDetailPage',
           error: err,
           context: { threadId: requestTopicId },
         });
+        return null;
+      }
+    },
+    []
+  );
+
+  // topic.updated (and removing the accepted answer): refetch the topic with
+  // a peek read, collapsing a burst into one request.
+  const scheduleTopicRefetch = useCallback((requestTopicId: number) => {
+    if (topicRefetchTimerRef.current) clearTimeout(topicRefetchTimerRef.current);
+    topicRefetchTimerRef.current = setTimeout(() => {
+      topicRefetchTimerRef.current = null;
+      fetchThread(requestTopicId, { peek: true })
+        .then((fresh) => {
+          if (currentTopicIdRef.current === requestTopicId) setThread(fresh);
+        })
+        .catch((err) => {
+          logger.warn('Live topic refetch failed', {
+            component: 'ThreadDetailPage',
+            error: err,
+            context: { threadId: requestTopicId },
+          });
+        });
+    }, LIVE_TOPIC_DEBOUNCE_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (topicRefetchTimerRef.current) clearTimeout(topicRefetchTimerRef.current);
+    },
+    []
+  );
+
+  useEffect(() => {
+    postsRef.current = posts;
+  }, [posts]);
+  useEffect(() => {
+    threadRef.current = thread;
+  }, [thread]);
+  useEffect(() => {
+    editingPostIdRef.current = editingPostId;
+  }, [editingPostId]);
+  useEffect(() => {
+    newReplyCountRef.current = newReplyCount;
+  }, [newReplyCount]);
+
+  // O12: the first time a live reply lands or the pill appears from a live
+  // event, once per browser, say so and offer the way out.
+  const showLiveIntro = useCallback(() => {
+    if (!takeLiveIntro()) return;
+    setToast({
+      id: 'live-intro',
+      message: 'Replies now appear live.',
+      actions: [
+        {
+          label: 'Turn off',
+          onClick: () => {
+            setLiveEnabled(false);
+            setToast({
+              id: `live-off-${Date.now()}`,
+              message: 'Live updates off',
+              actions: [{ label: 'Undo', onClick: () => setLiveEnabled(true) }],
+            });
+          },
+        },
+      ],
+    });
+  }, [setLiveEnabled]);
+
+  // A live event (ids only): apply it through the same state the page already
+  // keeps. Everything shown is refetched through REST as this viewer.
+  const handleLiveEvent = useCallback(
+    (event: LiveEvent) => {
+      const requestTopicId = currentTopicIdRef.current;
+      if (requestTopicId == null || event.topicId !== requestTopicId) return;
+      if (event.type === 'topic.removed') {
+        setError(TOPIC_GONE_MESSAGE);
+        return;
+      }
+      if (event.type === 'topic.updated') {
+        scheduleTopicRefetch(requestTopicId);
+        return;
+      }
+      if (!('postId' in event)) return;
+      const { postId } = event;
+      const loaded = postsRef.current.find((p) => p.id === postId);
+      if (event.type === 'post.created') {
+        if (loaded || ownReplyIdsRef.current.has(postId) || liveNewIdsRef.current.has(postId)) {
+          return;
+        }
+        if (replyInFlightRef.current) {
+          heldCreatedIdsRef.current.add(postId);
+          return;
+        }
+        const offer = () => {
+          if (liveNewIdsRef.current.has(postId)) return;
+          liveNewIdsRef.current.add(postId);
+          setNewReplyCount((n) => n + 1);
+          showLiveIntro();
+        };
+        // Insert only for a reader at the bottom with every page loaded and
+        // nothing already waiting in the pill: inserting past offered replies
+        // would show the thread out of order (final review #3).
+        if (nextCursorRef.current == null && newReplyCountRef.current === 0 && isAtBottom()) {
+          void fetchPost(postId)
+            .then((fresh) => {
+              if (!fresh || currentTopicIdRef.current !== requestTopicId) return;
+              if (postsRef.current.some((p) => p.id === postId)) {
+                setPosts((prev) => prev.map((p) => (p.id === postId ? fresh : p)));
+                return;
+              }
+              // The reader scrolled up while it loaded: offer, never pull
+              // them down (final review #9).
+              if (!isAtBottom()) {
+                offer();
+                return;
+              }
+              setPosts((prev) => [...prev, fresh]);
+              setTotalPosts((n) => n + 1);
+              setFlashIds((prev) => [...prev, postId]);
+              pendingScrollRef.current = { bottom: true };
+              showLiveIntro();
+            })
+            .catch((err) => {
+              logger.warn('Live reply fetch failed', {
+                component: 'ThreadDetailPage',
+                error: err,
+                context: { postId },
+              });
+            });
+          return;
+        }
+        offer();
+        return;
+      }
+      if (event.type === 'post.updated') {
+        if (!loaded) return;
+        void fetchPost(postId)
+          .then((fresh) => {
+            if (!fresh || currentTopicIdRef.current !== requestTopicId) return;
+            setPosts((prev) => prev.map((p) => (p.id === postId ? fresh : p)));
+          })
+          .catch((err) => {
+            logger.warn('Live edit fetch failed', {
+              component: 'ThreadDetailPage',
+              error: err,
+              context: { postId },
+            });
+          });
+        return;
+      }
+      // post.removed
+      if (liveNewIdsRef.current.delete(postId)) {
+        setNewReplyCount((n) => Math.max(0, n - 1));
+      }
+      if (loaded) {
+        setPosts((prev) => prev.filter((p) => p.id !== postId));
+        if (!loaded.is_first_post) setTotalPosts((n) => Math.max(0, n - 1));
+      }
+      if (isSolvedPost(threadRef.current, postId)) scheduleTopicRefetch(requestTopicId);
+      if (editingPostIdRef.current === postId) {
+        setEditingPostId(null);
+        setEditBody(emptyDoc());
+        setNotice('This post was removed.');
+      }
+    },
+    [scheduleTopicRefetch, showLiveIntro]
+  );
+
+  const handleLiveOpen = useCallback(() => {
+    const requestTopicId = currentTopicIdRef.current;
+    if (requestTopicId == null) return;
+    void checkForNewReplies(requestTopicId, () => true).then((fresh) => {
+      if (fresh) setThread(fresh);
+    });
+  }, [checkForNewReplies]);
+
+  // Signed-in readers only (O10); off with the per-browser setting (O7/O8).
+  const { status: liveStatus, connected: liveConnected } = useTopicLive({
+    topicId,
+    enabled: isAuthenticated && liveEnabled && thread != null && !error && !loading,
+    onEvent: handleLiveEvent,
+    onOpen: handleLiveOpen,
+  });
+  const topicGone = liveStatus === 'gone';
+
+  // The poll runs only while the socket is not connected (spec §5).
+  useEffect(() => {
+    if (topicId == null || loading || error || !thread || liveConnected) return;
+    const requestTopicId = topicId;
+    let active = true;
+    let inFlight = false;
+    const check = async () => {
+      if (inFlight || document.visibilityState === 'hidden') return;
+      inFlight = true;
+      try {
+        const fresh = await checkForNewReplies(requestTopicId, () => active);
+        // Signed out (O10/O11): no pill, no socket; new replies earn at most
+        // one "missing out" toast per tab session and per 24 h.
+        const now = Date.now();
+        if (
+          fresh &&
+          !isAuthenticated &&
+          (fresh.post_count ?? 0) > totalPostsRef.current &&
+          mayShowMissingOut(now)
+        ) {
+          markMissingOutShown(now);
+          setToast({
+            id: `missing-out-${now}`,
+            message: 'New replies are coming in. Sign in or sign up to follow along live.',
+            actions: [
+              {
+                label: 'Sign in',
+                onClick: () =>
+                  navigate('/login', { state: { from: { pathname: location.pathname } } }),
+              },
+              { label: 'Sign up', onClick: () => navigate('/signup') },
+            ],
+          });
+        }
       } finally {
         inFlight = false;
       }
@@ -384,7 +663,17 @@ export default function ThreadDetailPage() {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [topicId, loading, error, thread]);
+  }, [
+    topicId,
+    loading,
+    error,
+    thread,
+    liveConnected,
+    checkForNewReplies,
+    isAuthenticated,
+    navigate,
+    location.pathname,
+  ]);
 
   const handleLoadNewReplies = useCallback(async () => {
     if (topicId == null) return;
@@ -400,10 +689,19 @@ export default function ThreadDetailPage() {
         collectAllPosts(requestTopicId),
       ]);
       if (currentTopicIdRef.current !== requestTopicId) return;
+      // O4: jump to the first reply the reader had not loaded and highlight
+      // every new one.
+      const before = new Set(postsRef.current.map((p) => p.id));
+      const newIds = refreshed.items.filter((p) => !before.has(p.id)).map((p) => p.id);
       setPosts(refreshed.items);
       setNextCursor(refreshed.next);
       setTotalPosts(fresh.post_count ?? 0);
       setNewReplyCount(0);
+      liveNewIdsRef.current = new Set();
+      if (newIds.length > 0) {
+        setFlashIds(newIds);
+        pendingScrollRef.current = { postId: newIds[0] };
+      }
       announce(`${offered} new ${offered === 1 ? 'reply' : 'replies'} loaded.`, 'polite');
     } catch (err) {
       logger.error('Error loading new replies', {
@@ -471,6 +769,28 @@ export default function ThreadDetailPage() {
     const timer = setTimeout(() => setJustPostedId(null), CANOPY_FLASH_MS);
     return () => clearTimeout(timer);
   }, [justPostedId]);
+  // The same one-shot timer for live-inserted and pill-loaded replies.
+  useEffect(() => {
+    if (flashIds.length === 0) return;
+    const timer = setTimeout(() => setFlashIds([]), CANOPY_FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [flashIds]);
+
+  // Scroll once the posts that asked for it have rendered: pinned to the
+  // bottom after a live insert (the reader was already there), or to the
+  // first reply a pill load brought in.
+  useEffect(() => {
+    const target = pendingScrollRef.current;
+    if (!target) return;
+    pendingScrollRef.current = null;
+    if ('bottom' in target) {
+      window.scrollTo({ top: document.documentElement.scrollHeight });
+    } else {
+      document
+        .getElementById(`post-${target.postId}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [posts]);
 
   // Rail: other recent topics on this board. Best-effort — a failure just
   // leaves the module unrendered; never blocks the thread itself. One board =
@@ -512,14 +832,18 @@ export default function ThreadDetailPage() {
       // this chain (createPost → revalidateIdentity → collectAllPosts) is
       // the longest await on the page.
       const requestTopicId = topicId;
+      let refreshedAll = false;
       try {
         setReplySubmitting(true);
         setNotice(null);
+        replyInFlightRef.current = true;
         const res = await createPost({
           thread: requestTopicId,
           body: docToBodyBlocks(replyBody),
         });
         clearDraft(draftKey('reply', String(requestTopicId)));
+        // The live event for this reply is ours: never offer or insert it.
+        if (currentTopicIdRef.current === requestTopicId) ownReplyIdsRef.current.add(res.id);
         // Defense-in-depth (todo 297): the reply already posted under
         // whatever identity the cookie carried — this can only detect a
         // switch, not prevent one (a TOCTOU race, same as NewThreadPage).
@@ -562,8 +886,10 @@ export default function ThreadDetailPage() {
           setPosts(refreshed.items);
           setNextCursor(refreshed.next);
           setTotalPosts(fresh.post_count ?? 0);
+          refreshedAll = true;
           // The refresh above loaded everything, including anyone else's.
           setNewReplyCount(0);
+          liveNewIdsRef.current = new Set();
           // Posts are oldest-first, so the just-posted reply is the last item —
           // mark it for the one-shot press-in landing animation.
           setJustPostedId(refreshed.items[refreshed.items.length - 1]?.id ?? null);
@@ -592,9 +918,20 @@ export default function ThreadDetailPage() {
         }
       } finally {
         setReplySubmitting(false);
+        replyInFlightRef.current = false;
+        // Replies that landed while ours was posting: none to offer when the
+        // refresh above loaded everything; otherwise apply them now (our own
+        // id, if any, is in ownReplyIdsRef and is skipped).
+        const held = [...heldCreatedIdsRef.current];
+        heldCreatedIdsRef.current = new Set();
+        if (!refreshedAll && currentTopicIdRef.current === requestTopicId) {
+          held.forEach((postId) =>
+            handleLiveEvent({ type: 'post.created', topicId: requestTopicId, postId })
+          );
+        }
       }
     },
-    [topicId, replyBody, announce, user, revalidateIdentity]
+    [topicId, replyBody, announce, user, revalidateIdentity, handleLiveEvent]
   );
 
   // Quote a post into the reply composer (todo 342). The `post_quote`
@@ -968,11 +1305,11 @@ export default function ThreadDetailPage() {
     );
   }
 
-  if (error || !thread) {
+  if (error || topicGone || !thread) {
     return (
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <ForumErrorState
-          message={error || 'Thread not found'}
+          message={error || (topicGone ? TOPIC_GONE_MESSAGE : 'Thread not found')}
           onRetry={() => setReloadKey((k) => k + 1)}
         />
       </div>
@@ -995,6 +1332,8 @@ export default function ThreadDetailPage() {
     }
     return acc;
   }, []);
+
+  const lockedWithDraft = thread.is_locked && isAuthenticated && !isEmptyDoc(replyBody);
 
   // Rail: the cached board page, minus this thread and pinned topics — pinned
   // announcements sort first server-side (-is_pinned) and would otherwise
@@ -1243,7 +1582,9 @@ export default function ThreadDetailPage() {
             <div
               key={post.id}
               id={`post-${post.id}`}
-              className={justPostedId === post.id ? 'canopy-flash' : undefined}
+              className={
+                justPostedId === post.id || flashIds.includes(post.id) ? 'canopy-flash' : undefined
+              }
             >
               <PostCard
                 post={post}
@@ -1278,11 +1619,15 @@ export default function ThreadDetailPage() {
           the offer is announced; a conditionally rendered aria-live node is
           created already containing its content and says nothing. */}
       <div
-        className={newReplyCount > 0 ? 'sticky bottom-4 z-10 mb-4 flex justify-center' : 'sr-only'}
+        className={
+          isAuthenticated && newReplyCount > 0
+            ? 'sticky bottom-4 z-10 mb-4 flex justify-center'
+            : 'sr-only'
+        }
         aria-live="polite"
         aria-atomic="true"
       >
-        {newReplyCount > 0 && (
+        {isAuthenticated && newReplyCount > 0 && (
           <Button
             onClick={handleLoadNewReplies}
             variant="outline"
@@ -1319,8 +1664,10 @@ export default function ThreadDetailPage() {
         </div>
       )}
 
-      {/* Reply composer — hidden when the thread is locked/closed */}
-      {thread.is_locked ? (
+      {/* Reply composer — hidden when the thread is locked/closed, unless the
+          lock landed live while this reader was typing: then the text stays
+          and only sending is disabled (spec: never discard typed text). */}
+      {thread.is_locked && !lockedWithDraft ? (
         <div className="canopy-card rounded-md mt-8 p-6 text-center">
           <p className="inline-flex items-center gap-2 text-ink-2">
             <Lock className="h-3.5 w-3.5" aria-hidden="true" /> This thread is locked — new replies
@@ -1339,9 +1686,15 @@ export default function ThreadDetailPage() {
       ) : (
         <form
           ref={composerRef}
-          onSubmit={handleReply}
+          onSubmit={lockedWithDraft ? (e) => e.preventDefault() : handleReply}
           className="canopy-card rounded-md mt-8 p-5 sm:p-6 space-y-3"
         >
+          {lockedWithDraft && (
+            <p className="inline-flex items-center gap-2 text-ink-2">
+              <Lock className="h-3.5 w-3.5" aria-hidden="true" /> This thread is locked — new
+              replies are disabled.
+            </p>
+          )}
           <p className="gt-label">Join the discussion</p>
           <h2 className="gt-h3 text-ink">Post a Reply</h2>
           <TipTapEditor
@@ -1364,7 +1717,7 @@ export default function ThreadDetailPage() {
           <Button
             type="submit"
             variant="primary"
-            disabled={isBlankDoc(replyBody) || replySubmitting}
+            disabled={lockedWithDraft || isBlankDoc(replyBody) || replySubmitting}
             loading={replySubmitting}
             loadingText="Posting…"
           >
@@ -1372,6 +1725,8 @@ export default function ThreadDetailPage() {
           </Button>
         </form>
       )}
+
+      <LiveToast toast={toast} onDismiss={() => setToast(null)} />
 
       {/* Styled confirmations — replace native window.confirm (M24) and guard
           unsaved edits when switching edit targets (M27). */}

@@ -5,9 +5,10 @@
  * It sets up DOM polyfills, global mocks, and test utilities.
  */
 
-import { afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { installFakeWebSocket } from './fakeWebSocket';
 
 // Surface the originating stack of any unhandled promise rejection. Vitest treats a
 // post-test unhandled rejection as a run-level error (exit 1) even when every test file
@@ -16,6 +17,14 @@ import '@testing-library/jest-dom';
 // so it diagnoses leaks without masking them (see todo 234).
 process.on('unhandledRejection', (reason) => {
   console.error('\n[UNHANDLED REJECTION]', reason instanceof Error ? reason.stack : reason);
+});
+
+// No test opens a real socket: jsdom's WebSocket would dial the dev API.
+// The topic page opens one for every signed-in reader (forum live replies),
+// so this fake (never opens) stands in by default; a test that drives the
+// socket calls installFakeWebSocket() itself for the instance list.
+beforeEach(() => {
+  installFakeWebSocket();
 });
 
 // Cleanup after each test case (e.g., clearing jsdom)

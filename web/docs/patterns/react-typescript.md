@@ -589,3 +589,24 @@ card's affordances: the full URL as its hover `title`, and `aria-describedby`
 on an `sr-only` "Opens in a new tab" hint so that `title` is never spoken. The
 anchor has no `aria-label`, so the hint sits OUTSIDE it, or it would join the
 name (todo 563).
+
+## WebSocket clients: a framework-free client plus a hook (forum live replies)
+
+Keep connect, close-code rules, backoff and heartbeat in a plain module
+(`services/forumLiveSocket.ts`) and bind it with a thin hook
+(`hooks/useTopicLive.ts`):
+
+- The hook's effect depends only on what should REOPEN the socket
+  (`topicId`, `enabled`). Callbacks ride in refs synced in an effect, so a new
+  function each render never reconnects.
+- A terminal close (the server said "not now", e.g. a feature flag) must stop
+  the client, not retry it: a retry loop against a refused endpoint is a
+  reconnect storm.
+- Event handlers read page state through refs (`postsRef`, `threadRef`), not
+  closures, for the same reason.
+- Tests: `installFakeWebSocket()` (in `beforeEach`; `mockReset` wipes module
+  scope) returns the instance list; drive `open()`, `message()`,
+  `serverClose(code)`. `tests/setup.ts` installs it for every test so jsdom
+  never dials a real socket.
+- `useScrollToTop` calls `window.scrollTo` on mount: clear the spy after the
+  page loads before asserting a scroll, or the assertion passes vacuously.

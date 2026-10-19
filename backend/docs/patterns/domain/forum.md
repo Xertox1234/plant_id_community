@@ -1201,3 +1201,32 @@ Spec: `docs/superpowers/specs/2026-10-18-forum-live-replies-design.md`. Behind
   (`apps/forum_host/tests/test_live_consumer.py`), not `channels.testing` (it
   imports daphne). Patch `channels.db.close_old_connections` for the whole test,
   and wrap event tests in `django_capture_on_commit_callbacks(execute=True)`.
+
+### Web client (slice 3)
+
+`web/src/services/forumLiveSocket.ts` (framework-free) plus
+`web/src/hooks/useTopicLive.ts`. `ThreadDetailPage` opens the socket only for a
+signed-in reader with the per-browser "Live updates" setting on
+(`utils/liveUpdatesStore.ts`, localStorage `gt-live-updates`). The URL is the
+API origin with `http` → `ws` and **no `/api/v1`**: `wss://<api>/ws/forum/topics/<id>/`.
+
+| Close | Web client |
+|---|---|
+| 4503, 4429 | stop for this page visit; the 30 s poll carries on (never retry: 4503 is every socket until slice 5 flips the flag) |
+| 4404 / `topic.removed` | "This topic is no longer available." (the reply draft is already saved per topic) |
+| 4401 | refresh the session once, reconnect once, then stop |
+| anything else (1006 …) | retry after `1 s + rand · min(29 s, 4 s·2^n)` (first retry spread over 1–5 s), reset on open, forever |
+
+- The 30 s poll runs **only while the socket is not connected**. Every open
+  runs the poll's check once (catch-up), so replies that landed while
+  disconnected become the pill.
+- `post.created` is inserted (slide-in flash, kept pinned) only when the
+  reader is within 120 px of the bottom with every page loaded; otherwise it
+  grows the pill. The reader's own reply id is recorded from `createPost`, so
+  its event never counts.
+- `topic.updated` refetches with `?peek=1`, debounced 500 ms. Removing the
+  accepted answer does the same.
+- A browser cannot see protocol pings: the client sends `{"type":"ping"}`
+  every 25 s and reconnects if no frame arrives within 10 s.
+- Tests drive `tests/fakeWebSocket.ts`; `tests/setup.ts` installs it by
+  default so no test dials a real socket.

@@ -7438,6 +7438,23 @@ tool and pins that would gate, from the directory that tool reads its config in.
 (accept, then close with the code), not what the consumer called; and measure
 threading claims against the real server, not the test harness.
 
+## 2026-10-19 — Web live replies: what to remember (live replies, slice 3)
+
+- **The socket URL has no `/api/v1`.** Every REST call goes through
+  `FORUM_BASE` (`…/api/v1/forum`), so a socket URL built from it would 404 at
+  the handshake (a bare 403 to the browser, close 1006). The socket is
+  `API_ORIGIN` with `http` → `ws` plus `/ws/forum/topics/<id>/`.
+- **A refusal code is terminal on the client.** Slice 3 ships while
+  `FORUM_LIVE_UPDATES_ENABLED` is off, so every production socket gets 4503.
+  Treating it like a dropped connection would make every open tab reconnect
+  forever. 4503 and 4429 stop the socket; the 30 s poll carries on.
+- **The web app has no CSP** (`wrangler.jsonc`, `index.html`, `public/sw.js`
+  have none), so a new `wss://` origin needs no `connect-src` change. Check
+  again if a CSP is ever added.
+- **`check:classes` reads `gt-*` storage keys as class names.** New
+  localStorage keys in that family go in the script's ALLOWLIST with a reason,
+  as the theme keys already do.
+
 ## 2026-10-18 — A per-file `F821` suppression hid a block that raised `NameError` on every boot (flake8 → ruff)
 
 **What happened.** Replacing flake8 with ruff (same `F`/`E`/`W` rules plus bugbear, flake8-django,
