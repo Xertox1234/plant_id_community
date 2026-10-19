@@ -462,6 +462,23 @@ export async function fetchPosts(options: {
   };
 }
 
+/**
+ * Fetch one post exactly as the topic's post list serves it (forum live
+ * replies: a live client hears "post N changed" and refetches it as the
+ * viewer). Null on 404 — the viewer can't see it, which is not an error.
+ */
+export async function fetchPost(postId: string): Promise<Post | null> {
+  try {
+    const p = await authenticatedFetch<BackendPost & { topic_id: number }>(
+      `${FORUM_BASE}/posts/${postId}/`
+    );
+    return mapPostToPost(p, String(p.topic_id));
+  } catch (err) {
+    if (err instanceof ForumApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
 export async function fetchLinkPreview(url: string, signal?: AbortSignal): Promise<LinkPreview> {
   const trimmed = url.trim();
   // The shared http(s)/host/no-credentials rule (todo 438). The request still
