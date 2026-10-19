@@ -26,6 +26,7 @@ Usage (pre-commit passes the staged paths): check_flutter_codegen.py PATH...
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import shutil
@@ -69,8 +70,15 @@ def changed_generated(root: pathlib.Path) -> list[str]:
     return sorted(set(modified) | set(untracked))
 
 
+# Git exports these to hooks (GIT_DIR in a worktree commit). Flutter reads its
+# own SDK version with git, so with them set it reads THIS repo, reports
+# 0.0.0-unknown, and pub refuses to resolve (2026-10-19).
+GIT_HOOK_VARS = ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_PREFIX")
+
+
 def run_build(mobile: pathlib.Path) -> subprocess.CompletedProcess:
-    return subprocess.run(BUILD, cwd=mobile, capture_output=True, text=True)
+    env = {k: v for k, v in os.environ.items() if k not in GIT_HOOK_VARS}
+    return subprocess.run(BUILD, cwd=mobile, capture_output=True, text=True, env=env)
 
 
 def main(argv: list[str], root: pathlib.Path | None = None, build=run_build) -> int:
