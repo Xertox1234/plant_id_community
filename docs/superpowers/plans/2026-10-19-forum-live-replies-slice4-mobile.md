@@ -63,7 +63,7 @@
 | D15 | **Sign in** pushes `login` and **Sign up** pushes `register`. Both return to the topic, because `dismissAfterAuth` re-navigates to the underlying location. | Unlike web (slice 3 D11), the mobile auth screens already return to the screen that pushed them. |
 | D16 | **Settings:** the "Live updates" `SwitchListTile` sits under a new `FORUM` label, after `NOTIFICATIONS`, and is **hidden** while signed out. | The spec leaves hide or disable to the builder. A disabled switch with a hint would be a second sign-in prompt on a screen that already has one. |
 | D17 | **The signed-out check (`TopicMissingOut`):** a peek read every 30 s while the app is shown. The first read sets the baseline `replyCount`. The toast is due when a later read's count is higher and `mayShowMissingOut(now)` allows it. "Per app launch" is an in-memory flag on a keepAlive provider. The 24 h timestamp is stored under `forum_live_missing_out_at`. | Spec "Signed-out readers", mobile trigger. |
-| D18 | **The intro flag** is stored under `forum_live_intro_shown` (`'1'`). It is read and recorded before the toast shows, so a crash can't show it twice. | O12: once per device. |
+| D18 | **The intro flag** is stored under `forum_live_intro_shown` (`'1'`). It is read and recorded before the toast shows, so a crash can't show it twice. `takeIntro()` sets an in-memory flag **synchronously** before it awaits the read and write, so two events in a row can't both get true. The intro fires only on an **event-driven** insert or pill (a handled `post.created`), never on a pill the catch-up set. A catch-up result that arrives after the client has stopped (4503, 4429) is dropped. | O12: once per device. In prod the flag is off, and the catch-up peek from the brief open before 4503 finishes after the close. Without these two rules, a busy topic would show a pill and "Replies now appear live." while nothing is live. |
 | D19 | **Event fetches:** `post.created` and `post.updated` fetch the post once per id, with in-flight ids deduped. `topic.updated` and "the removed post was the accepted answer" schedule one peek refetch of the topic, debounced 500 ms. A 404 is ignored. An event whose `topic_id` isn't this topic is dropped. | Spec §4 and slice 3 D7. |
 | D20 | **Locked while typing:** the reply composer is its own route, pushed over the thread. In reply mode it watches `topicDetailProvider(topicId)`, which the thread beneath keeps alive and `TopicLive` updates. When the topic is locked or closed, Post is disabled, the typed text stays, and a notice reads "This thread is locked — new replies are disabled." (the web's copy). A reply that still gets the server's 409 for a locked topic shows that notice, not "Still processing your last attempt". | The spec's "keep their text, disable sending, show the locked notice". Today a reply 409 always reads as an in-flight twin (`forum_composer_screen.dart:450`), which is wrong for a lock. |
 
@@ -245,6 +245,9 @@
     - `topic.removed sets gone`;
     - `ignores an event for another topic`;
     - `the intro is due once, on the first insert`;
+    - `a catch-up pill does not trigger the intro`;
+    - `a catch-up that returns after 4503 sets no pill` (the peek completes after `serverClose(4503)`, with `peekDetails` one reply higher);
+    - `4401: two peek reads (refresh, then the reconnect's catch-up) and one reconnect` (`peekCalls == 2`);
     - `suspend closes, resume reconnects and catches up`;
     - `takePending walks every page and returns the first new id`.
 - [ ] **Step 2: Run** `flutter test test/features/forum/live/topic_live_test.dart test/features/forum/providers/forum_providers_test.dart`. Expected: FAIL.
@@ -308,7 +311,7 @@
     - after a live insert while at the bottom, scrolls to `maxScrollExtent` post-frame: `jumpTo` with reduce motion, otherwise `animateTo` over 250 ms.
 
 - [ ] **Step 1: Write the failing widget tests.** Use `FakeForumApi`, a `FakeLiveConnector`, `FakeAuthService` and `FlutterSecureStorage.setMockInitialValues({})`.
-  - `flag off: one connect, no retry, no toast`: `serverClose(4503)`, pump 2 min, then one connect and no `SnackBar`.
+  - `flag off: one connect, no retry, no pill, no toast`: `peekDetails` returns `replyCount + 1`, so a catch-up that wrongly counted *would* set a pill. Then `serverClose(4503)`, pump 2 min, and expect one connect, no pill and no `SnackBar`.
   - `a reply at the bottom slides in with the intro toast`. The intro toast's **Turn off** closes the socket (`closedByClient`) and shows "Live updates off". **Undo** reconnects (a second connect).
   - `the intro toast shows once per device`: a second insert in a new pump of the screen shows no toast.
   - `scrolled up: the pill counts, and tapping it loads, highlights and reveals the first new reply`. Use a 40-post thread over two pages, so the target starts off-screen. Expect `find.text(firstNewBody)` hit-testable after the tap.
@@ -321,7 +324,7 @@
   - `pull-to-refresh loads a new reply with the setting off`: drag the list down with `tester.fling`.
   - `signed out: no socket, and the missing-out toast after the count grows, with Sign in and Sign up`. **Sign in** routes to `login`, using a `GoRouter` host like `forum_thread_engagement_test.dart`'s second wrap.
   - `reduce motion: an inserted reply is highlighted but not animated` (`MediaQuery(data: MediaQueryData(disableAnimations: true))`).
-  - In the composer test: `a topic locked while typing keeps the text, disables Post and shows the locked notice` (type a body, then set the overridden `topicDetailProvider` to a locked detail); and `a reply 409 on a locked topic shows the locked notice`.
+  - In the composer test: `a topic locked while typing keeps the text, disables Post and shows the locked notice` (pump with `UncontrolledProviderScope(container)`, type a body, then call `container.read(topicDetailProvider(10).notifier).applyPeek(lockedDetail)`, which is the same path `TopicLive` uses); and `a reply 409 on a locked topic shows the locked notice`.
 - [ ] **Step 2: Run** `flutter test test/features/forum/screens/forum_thread_live_test.dart`. Expected: FAIL.
 - [ ] **Step 3: Implement** the screen changes and `LiveFlash`, then add the overrides to the existing tests.
 - [ ] **Step 4: Run** the new file, then `flutter test test/features/forum test/routing test/services`. Expected: PASS, with every existing thread test unchanged apart from its overrides.
@@ -336,7 +339,7 @@
 - Modify: `docs/LEARNINGS.md`. Add a 2026-10-19 entry, but only for lessons this slice actually hit. Write none if there were none.
 
 - [ ] **Step 1: Full gate.** Run `cd plant_community_mobile && flutter analyze && flutter test > $WS/flutter-test.log 2>&1; tail -5 $WS/flutter-test.log`. Expected: `No issues found!` and `All tests passed!`. Also run `python3 scripts/check_flutter_codegen.py` from the repo root. Expected: clean.
-- [ ] **Step 2: Real `dart:io` smoke** against a local uvicorn with `FORUM_LIVE_UPDATES_ENABLED=True` on a throwaway DB (slice 3's recipe: mint a JWT for a test user; don't use the 5/15 min login endpoint). Write the smoke script in the plan's workspace, not the repo: a `dart run` script that calls `ioForumLiveConnector(topicLiveUri('http://localhost:8000/api/v1', id), {'Authorization': 'Bearer …'})`.
+- [ ] **Step 2: Real `dart:io` smoke** against a local uvicorn with `FORUM_LIVE_UPDATES_ENABLED=True` on a throwaway DB (slice 3's recipe: mint a JWT for a test user; don't use the 5/15 min login endpoint). Write the smoke script in the plan's workspace, not the repo. It is a plain `dart run` script with **no package imports**: `forum_live_channel.dart` pulls in Riverpod and Flutter, which `dart run` can't load. It calls `WebSocket.connect('ws://localhost:8000/ws/forum/topics/<id>/', headers: {'Authorization': 'Bearer …'})` directly, with the same headers and URL shape as `ioForumLiveConnector` and `topicLiveUri`.
   - Check that it opens.
   - Check that a reply posted over REST arrives as `post.created` with the right ids.
   - Check that a ping gets a pong.
