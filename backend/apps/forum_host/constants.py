@@ -674,3 +674,18 @@ RAG_PROMPT_TEMPLATE = (
 
 # Max items in the public forum RSS feed (todo 256 H9).
 FORUM_RSS_MAX_ITEMS = 50
+
+# Live forum replies over WebSockets (spec 2026-10-18, slice 2). Socket caps
+# are shared across both uvicorn workers through the cache (Redis); the TTL
+# bounds the drift a crashed worker leaves behind (its sockets never
+# decrement), at the cost of undercounting a socket that outlives it.
+LIVE_MAX_SOCKETS_PER_USER = 10
+LIVE_MAX_SOCKETS_PER_IP = 50
+LIVE_SOCKET_COUNT_TTL_SECONDS = 3600
+LIVE_SOCKET_COUNT_KEY_PREFIX = "forum_live"
+# Close codes a client can tell apart (sent AFTER accept: a close before
+# accept reaches the client as a bare handshake 403, code lost).
+LIVE_CLOSE_UNAUTHENTICATED = 4401
+LIVE_CLOSE_NOT_FOUND = 4404
+LIVE_CLOSE_LIMITED = 4429
+LIVE_CLOSE_DISABLED = 4503

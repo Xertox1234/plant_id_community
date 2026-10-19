@@ -18,6 +18,7 @@ class ForumHostAppConfig(AppConfig):
         # docstring), so this is inert until the feature is enabled + rebuilt.
         # Admin-editable WAGTAILFORUM_* overrides (Wagtail quick wins, item
         # 1): plug the DB-backed provider into the package's get_setting.
+        from . import live_receivers  # noqa: F401  (live forum events)
         from . import redirects  # noqa: F401  (Topic slug/board -> Redirect rows)
         from . import signals  # noqa: F401  (registers signal receivers)
         from . import vector_indexes  # noqa: F401

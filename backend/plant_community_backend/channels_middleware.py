@@ -1,105 +1,65 @@
 import logging
-import urllib.parse
 from typing import Optional
 
 from channels.db import database_sync_to_async
 from channels.middleware import BaseMiddleware
-from django.contrib.auth import get_user_model
-from django.contrib.auth.models import AnonymousUser
-from rest_framework_simplejwt.tokens import AccessToken
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import AuthenticationFailed, InvalidToken
 
-User = get_user_model()
 logger = logging.getLogger(__name__)
+
+ACCESS_COOKIE_NAME = "access_token"
 
 
 class JWTAuthMiddleware(BaseMiddleware):
-    """Authenticate WebSocket connections via JWT.
+    """Authenticate a WebSocket with the same access JWT that REST accepts.
 
-    Looks for token in query string (?token=...) as a simple, frontend-friendly option.
-    Also falls back to reading the JWT from cookies (httpOnly) when the query param
-    is absent, aligning WS auth with cookie-first REST auth.
+    Sources, in order: an ``Authorization: Bearer <access>`` header (the mobile
+    app; ``dart:io`` sockets can set headers) and the ``access_token`` cookie
+    (the web app; it is ``path="/"``, so the browser sends it on the handshake).
+    A token in the query string is NOT accepted: URLs end up in logs.
 
-    If token is missing/invalid, leaves user as AnonymousUser and allows outer
-    AuthMiddlewareStack (session) to take effect if present.
+    Must sit INSIDE channels' ``AuthMiddlewareStack``: that stack parses
+    ``scope["cookies"]`` and sets ``scope["user"]`` (the session user, or
+    anonymous). This middleware replaces that user only when a token validates,
+    so a socket with no token keeps its session user.
+
+    No part of a token is ever logged.
     """
 
     async def __call__(self, scope, receive, send):
-        scope = dict(scope)
-        query_string = scope.get("query_string", b"")
-        token_source = None
-        token = self._extract_token(query_string)
-        if token:
-            token_source = "query"
-        if not token:
-            # Fallback to cookie-based token (httpOnly cookie set by backend)
-            token = self._extract_token_from_cookies(scope)
-            if token:
-                token_source = "cookie"
+        source, raw = self._raw_token(scope)
         user = None
-
-        if token:
-            try:
-                access = AccessToken(token)
-                user_id = access.get("user_id")
-                if user_id:
-                    user = await self._get_user(user_id)
-                logger.info(
-                    "[AUTH] WS JWTAuthMiddleware: token_source=%s token_prefix=%s user_id=%s",
-                    token_source,
-                    token[:10] if isinstance(token, str) else None,
-                    user_id,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "[AUTH] WS JWTAuthMiddleware: token parse/validation failed (source=%s): %s",
-                    token_source,
-                    str(exc),
-                )
-                user = None
-        else:
-            logger.info(
-                "[AUTH] WS JWTAuthMiddleware: no token found (query_string=%s, has_cookie=%s)",
-                query_string.decode(errors="ignore"),
-                any(h[0] == b"cookie" for h in scope.get("headers", [])),
-            )
-
-        scope["user"] = user or scope.get("user") or AnonymousUser()
+        if raw is not None:
+            user = await self._user_for(raw)
+            if user is not None:
+                scope = dict(scope, user=user)
+        logger.debug(
+            "[AUTH] WS auth source=%s user_id=%s",
+            source,
+            user.pk if user is not None else None,
+        )
         return await super().__call__(scope, receive, send)
 
-    def _extract_token(self, query_string_bytes: bytes) -> Optional[str]:
-        try:
-            query = urllib.parse.parse_qs(query_string_bytes.decode())
-            vals = query.get("token")
-            if vals:
-                return vals[0]
-        except Exception:
-            pass
-        return None
-
-    def _extract_token_from_cookies(
-        self, scope, name: str = "access_token"
-    ) -> Optional[str]:
-        """Extract a token from the Cookie header in the ASGI scope.
-
-        The scope headers are a list of (name, value) byte pairs.
-        """
-        try:
-            headers = dict(scope.get("headers", []))
-            cookie_bytes = headers.get(b"cookie")
-            if not cookie_bytes:
-                return None
-            cookie_str = cookie_bytes.decode()
-            for part in cookie_str.split(";"):
-                k, _, v = part.strip().partition("=")
-                if k == name:
-                    return v
-        except Exception:
-            pass
-        return None
+    @staticmethod
+    def _raw_token(scope) -> tuple[str, Optional[str]]:
+        for name, value in scope.get("headers", []):
+            if name == b"authorization":
+                scheme, _, token = value.decode("latin-1").partition(" ")
+                if scheme == "Bearer" and token.strip():
+                    return "header", token.strip()
+        token = scope.get("cookies", {}).get(ACCESS_COOKIE_NAME)
+        if token:
+            return "cookie", token
+        return "none", None
 
     @database_sync_to_async
-    def _get_user(self, user_id):
+    def _user_for(self, raw: str):
+        """The active user the token names, or None. simplejwt's own checks:
+        signature, expiry, token type, the user-id claim and ``is_active``."""
+        auth = JWTAuthentication()
         try:
-            return User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return AnonymousUser()
+            return auth.get_user(auth.get_validated_token(raw))
+        except (InvalidToken, AuthenticationFailed) as exc:
+            logger.warning("[AUTH] WS token rejected: %s", type(exc).__name__)
+            return None

@@ -747,7 +747,8 @@ correlation handle pointing into private history.
 
 ## Signals
 
-Five signals are public API for hosts (push notifications, analytics, email).
+Six signals are public API for hosts (push notifications, analytics, email,
+live updates).
 They live in `wagtail_forum.signals`.
 
 | Signal | Fired when | kwargs |
@@ -756,6 +757,7 @@ They live in `wagtail_forum.signals`.
 | `reply_added` | A non-opening post is published for the **first** time | `sender=Post`, `topic=<Topic>`, `post=<Post>` |
 | `moderation_decided` | A create or edit finishes routing | `sender=type(obj)`, `obj=<Topic or Post>`, `status="published"` or `"pending"` |
 | `solution_marked` | A post is accepted as a topic's answer | `sender=Topic`, `topic=<Topic>`, `post=<accepted Post>`, `actor=<User who accepted>` |
+| `solution_unmarked` | A topic's accepted answer is cleared: the API unmark, or the answer is unpublished or deleted | `sender=Topic`, `topic_id=<int>` |
 | `badge_awarded` | The badge engine grants a badge (todo 348) | `sender=Badge`, `user_id=<int>`, `badge=<Badge>` — already inside `transaction.on_commit`, so a receiver may deliver directly |
 
 ```python
@@ -780,6 +782,16 @@ Contract notes:
   the API view (inside `transaction.on_commit`) rather than from a model
   signal, because only the request knows the `actor`. `post.author` may be
   `None` if that account was since deleted.
+- **`solution_unmarked` fires only when an answer actually cleared**: never
+  for an unmark of an unsolved topic, and once per topic. The API unmark sends
+  it after commit; the clearing rule (the answer unpublished or deleted) sends
+  it inside that write, like the publish signals. It carries an id, not the
+  topic: it is for state listeners (the host's live updates), not push.
+- **Hosts can also use** `is_first_publish(instance)` (inside a `published`
+  receiver: a new object vs an edit), `is_topic_deleting(topic_id)` (inside a
+  Post `post_delete` receiver: the whole topic is going) and
+  `wagtail_forum.api.views.visible_topics()` (the API's topic-visibility rule
+  as a queryset).
 - **Fired synchronously inside the publish transaction.** A receiver that hands
   off to async work (Celery, FCM) should wrap it in `transaction.on_commit()`
   itself — and register that hook only after the write it depends on succeeded.

@@ -1166,3 +1166,38 @@ follows the same shape:
 Tests use `InMemoryStorage` and age a file by saving it under `freeze_time`.
 The `apps` logger does not propagate, so attach `caplog.handler` to the
 command's logger (see `docs/rules/testing.md`).
+
+## Live events over WebSockets (live replies, slice 2)
+
+Spec: `docs/superpowers/specs/2026-10-18-forum-live-replies-design.md`. Behind
+`FORUM_LIVE_UPDATES_ENABLED` (default off).
+
+- **The package stays Channels-free.** It sends plain Django signals and exposes
+  `is_first_publish`, `is_topic_deleting`, `solution_unmarked` and
+  `api.views.visible_topics()`. All socket code is in the host:
+  `apps/forum_host/live.py` (the sender), `live_receivers.py` (signal → event)
+  and `consumers.py` (the socket).
+- **Events carry ids only**, `{"v": 1, "type", "topic_id", "post_id"?}`, to the
+  group `forum.topic.<id>`, after commit. Each client fetches through REST as
+  itself (`GET posts/<id>/`, or topic detail with `?peek=1`), which applies
+  visibility and the per-viewer fields. A failed send logs `[FORUM_LIVE]` and
+  never fails the write.
+- **Which write sends what** is the table in `live_receivers.py`. Two traps:
+  a whole-topic delete must send one `topic.removed` and no per-reply
+  `post.removed` (`is_topic_deleting`); and lock/unlock reach the host only as
+  `post_save(update_fields=["locked", ...])` from Wagtail's lock views, so that
+  receiver is gated on `"locked" in update_fields`.
+- **Close codes are accept-then-close** (4401 signed out or expired, 4404 not
+  visible, 4429 over a cap, 4503 flag off). A close before `accept()` reaches
+  the client as a bare handshake 403 and the code is lost.
+- **The socket stack** is `OptionalOriginValidator(AuthMiddlewareStack(
+  JWTAuthMiddleware(URLRouter)))` (`plant_community_backend/asgi.py`). Origin
+  must be in `CORS_ALLOWED_ORIGINS` when present; absent passes (mobile).
+  Tokens come from `Authorization: Bearer` (mobile) or the `access_token`
+  cookie (web), never the query string, and are never logged.
+- **Caps** (10 sockets per user, 50 per IP) are cache counters shared by both
+  workers. `disconnect()` gives back only the slots its own `connect()` took.
+- **Tests** drive the real ASGI app with asgiref's `ApplicationCommunicator`
+  (`apps/forum_host/tests/test_live_consumer.py`), not `channels.testing` (it
+  imports daphne). Patch `channels.db.close_old_connections` for the whole test,
+  and wrap event tests in `django_capture_on_commit_callbacks(execute=True)`.
