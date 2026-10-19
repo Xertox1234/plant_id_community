@@ -45,6 +45,16 @@ def _topic_is_visible(topic_id: int) -> bool:
 class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
     """Deliver one topic's live events to a signed-in reader."""
 
+    async def __call__(self, scope, receive, send):
+        # disconnect() runs only on a websocket.disconnect message. A consumer
+        # that exits any other way (a handler raising on a send to a client
+        # that just dropped) must not leave its re-check timer running.
+        try:
+            return await super().__call__(scope, receive, send)
+        finally:
+            if getattr(self, "_recheck_task", None) is not None:
+                self._recheck_task.cancel()
+
     async def connect(self):
         self.topic_id = int(self.scope["url_route"]["kwargs"]["topic_id"])
         self.group_name: Optional[str] = None

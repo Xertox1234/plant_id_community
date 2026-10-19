@@ -558,13 +558,14 @@ def test_disconnect_cancels_recheck(fast_recheck):
         task = spy.call_args.args[0]._recheck_task
         checks_at_close = visible.await_count
         await asyncio.sleep(RECHECK_FAST * 4)  # several ticks after the close
-        return task, checks_at_close, visible.await_count
+        # Judged inside the loop: async_to_sync cancels leftover tasks on exit.
+        return task, task.cancelled(), checks_at_close, visible.await_count
 
     with _recheck_spy() as spy, mock.patch(
         "apps.forum_host.consumers._topic_is_visible", visible
     ):
-        task, at_close, later = async_to_sync(run)()
-    assert task.done() and task.cancelled()
+        task, cancelled_in_loop, at_close, later = async_to_sync(run)()
+    assert cancelled_in_loop
     assert later == at_close  # no check ran after the close
 
 
@@ -574,3 +575,33 @@ def test_refused_socket_starts_no_recheck(fast_recheck):
     with override_settings(FORUM_LIVE_UPDATES_ENABLED=False), _recheck_spy() as spy:
         assert _open_once(topic.pk, author) == ("closed_after_accept", 4503)
     spy.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_consumer_crash_still_cancels_recheck(fast_recheck):
+    """A consumer that exits through an exception (a send to a client that
+    just dropped) never gets disconnect(); its timer must still stop."""
+    from apps.forum_host.consumers import TopicLiveConsumer
+
+    topic, _o, author = _thread("ws-recheck-crash")
+
+    async def boom(self, content, **kwargs):
+        raise RuntimeError("send after the client dropped")
+
+    async def run():
+        sock = Socket(topic.pk, author)
+        assert await sock.open() == ("accepted", None)
+        await sock.send_text('{"type": "ping"}')
+        try:
+            await sock.comm.wait(timeout=1)
+        except RuntimeError:
+            pass  # the consumer's own exception, re-raised by the communicator
+        task = spy.call_args.args[0]._recheck_task
+        await asyncio.sleep(RECHECK_FAST * 2)
+        # Judged inside the loop: async_to_sync cancels leftover tasks on exit.
+        return task.done(), task.cancelled()
+
+    with _recheck_spy() as spy, mock.patch.object(
+        TopicLiveConsumer, "receive_json", boom
+    ):
+        assert async_to_sync(run)() == (True, True)
