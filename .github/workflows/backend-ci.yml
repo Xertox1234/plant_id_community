@@ -118,13 +118,16 @@ jobs:
         # mypy-staged pre-commit hook blocks on the same list at commit time.
         # pyproject.toml loads the django-stubs plugin with this job's settings
         # env and sets follow_imports=silent, so only the gated files report
-        # errors. Widen the gate by adding a path to `files`, nowhere else.
+        # errors. Tests are excluded (the `apps.*.tests.*` ignore_errors
+        # override, owner decision 2026-10-19). Widen the gate by adding a
+        # path to `files`, nowhere else.
         run: python -m mypy
 
-      - name: mypy gate self-test (a planted error in apps/users must fail it)
+      - name: mypy gate self-test (a planted error in apps/users must fail it; one in apps/users/tests must not)
         # follow_imports=silent hides errors in imported-only modules; this
         # proves the named app still reports, so config drift cannot turn the
-        # gate above green by emptiness (todo 599 item 4).
+        # gate above green by emptiness (todo 599 item 4), and that the tests
+        # exclusion still matches.
         run: bash bin/test-mypy-gate.sh
 
   backend-tests:
