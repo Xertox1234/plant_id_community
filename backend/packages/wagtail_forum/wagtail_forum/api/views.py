@@ -139,6 +139,15 @@ def _visible_boards():
     return ForumBoard.objects.live().public()
 
 
+def visible_topics():
+    """Topics the API may expose: live, on a visible board (audit M6/M7).
+
+    The one definition of topic visibility. Public so a host can apply the
+    same rule outside a REST view (the live-updates socket).
+    """
+    return Topic.objects.filter(live=True, board__in=_visible_boards())
+
+
 def _get_visible_post(post_id):
     """Fetch a live, visible post or 404 in a SINGLE query.
 
@@ -163,9 +172,7 @@ def _get_visible_topic(topic_id):
     lookups, and TopicSubscriptionView.post (audit M6/M7, todo 253 slice 3) —
     so the predicate has one shape, not four.
     """
-    return get_object_or_404(
-        Topic.objects.filter(live=True, board__in=_visible_boards()), id=topic_id
-    )
+    return get_object_or_404(visible_topics(), id=topic_id)
 
 
 def _get_board(slug):
@@ -943,6 +950,31 @@ class TopicDetailView(
         return response
 
 
+def _post_page_context(objects, request, base_context):
+    """``PostSerializer`` context for a page of posts: the batched maps that
+    keep image, embed, quote and reaction serialization flat (no per-post
+    query). Shared by the post list and the single-post read, so one post
+    serializes exactly as it does in the list."""
+    # Per-page batched map of the CURRENT user's reactions (M23) so the
+    # serializer's `reacted` field costs zero per-post queries — one query
+    # for the whole page, like build_forum_image_map. Authed-only: an
+    # anonymous list issues no reaction query, so its pin stays 3.
+    reacted_map = None
+    if request.user.is_authenticated:
+        reacted_map = {}
+        for post_id, rtype in Reaction.objects.filter(
+            post__in=objects, user=request.user
+        ).values_list("post_id", "reaction_type"):
+            reacted_map.setdefault(post_id, []).append(rtype)
+    return {
+        **base_context,
+        "forum_image_map": build_forum_image_map(objects),
+        "forum_embed_map": build_forum_embed_map(objects),
+        "forum_quote_map": build_forum_quote_map(objects, request.user),
+        "forum_reacted_map": reacted_map,
+    }
+
+
 @extend_schema(
     responses={200: PostSerializer(many=True), 404: dict},
     description=(
@@ -963,10 +995,7 @@ class PostListView(
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return Post.objects.none()
-        topic = get_object_or_404(
-            Topic.objects.filter(live=True, board__in=_visible_boards()),
-            id=self.kwargs["topic_id"],
-        )
+        topic = get_object_or_404(visible_topics(), id=self.kwargs["topic_id"])
         # select_related("topic") so PostSerializer.can_edit/can_delete
         # (Post.edit_block reads obj.topic) adds no per-post query — flat, no N+1
         # for authenticated listers (todo 252).
@@ -986,24 +1015,7 @@ class PostListView(
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         objects = page if page is not None else queryset
-        # Per-page batched map of the CURRENT user's reactions (M23) so the
-        # serializer's `reacted` field costs zero per-post queries — one query
-        # for the whole page, like build_forum_image_map. Authed-only: an
-        # anonymous list issues no reaction query, so its pin stays 3.
-        reacted_map = None
-        if request.user.is_authenticated:
-            reacted_map = {}
-            for post_id, rtype in Reaction.objects.filter(
-                post__in=objects, user=request.user
-            ).values_list("post_id", "reaction_type"):
-                reacted_map.setdefault(post_id, []).append(rtype)
-        context = {
-            **self.get_serializer_context(),
-            "forum_image_map": build_forum_image_map(objects),
-            "forum_embed_map": build_forum_embed_map(objects),
-            "forum_quote_map": build_forum_quote_map(objects, self.request.user),
-            "forum_reacted_map": reacted_map,
-        }
+        context = _post_page_context(objects, request, self.get_serializer_context())
         serializer = self.get_serializer(objects, many=True, context=context)
         if page is not None:
             return self.get_paginated_response(serializer.data)
@@ -1080,10 +1092,35 @@ class PostListView(
         return response
 
 
-class PostWriteView(UnversionedForumAPIMixin, APIView):
-    """Edit (PATCH) or soft-delete (DELETE) a single post. Author or moderator."""
+class PostWriteView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView):
+    """Read (GET), edit (PATCH) or soft-delete (DELETE) a single post.
+
+    GET is any signed-in reader; PATCH and DELETE are the author or a
+    moderator."""
 
     permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="forum_posts_retrieve",
+        responses={200: PostSerializer, 401: dict, 404: dict},
+        description=(
+            "One post, exactly as it appears in its topic's post list, with "
+            "the same visibility (404 for a post that is not live, or whose "
+            "topic or board is hidden) and the same per-viewer fields. For "
+            "live clients refetching a post after a socket event. Signed-in "
+            "only; always `private, no-store`."
+        ),
+    )
+    def get(self, request, post_id):
+        queryset = _annotate_author_blocked(
+            Post.objects.filter(live=True, topic__in=visible_topics()).select_related(
+                "author__wagtail_forum_profile__avatar", "topic"
+            ),
+            request.user,
+        )
+        post = get_object_or_404(queryset, id=post_id)
+        context = _post_page_context([post], request, {"request": request})
+        return Response(PostSerializer(post, context=context).data)
 
     def _get_editable(self, request, post_id):
         # Existence gate only (single-query _get_visible_post; no existence leak,

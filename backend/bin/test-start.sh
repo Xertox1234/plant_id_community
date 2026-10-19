@@ -109,7 +109,8 @@ defaults=$(PORT=8123 CELERY_CONCURRENCY=7 bash -c 'source <(sed -n "/^: \"\${POR
    && $defaults == *"--no-proxy-headers"* \
    && $defaults == *"--ws-ping-interval 20"* \
    && $defaults == *"--timeout-graceful-shutdown 50"* \
-   && $defaults == *"--limit-concurrency 20"* \
+   && $defaults == *"--limit-concurrency 500"* \
+   && $defaults == *"--ws-max-size 4096"* \
    && $defaults != *"gunicorn"* ]] \
   && pass "defaults name the real worker and the uvicorn ASGI web command" \
   || flunk "defaults changed: $defaults"

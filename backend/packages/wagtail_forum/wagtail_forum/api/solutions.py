@@ -17,7 +17,7 @@ from rest_framework.views import APIView
 
 from ..models import Post, Topic
 from ..models.posts import BLOCK_FORBIDDEN
-from ..signals import notify, solution_marked
+from ..signals import notify, solution_marked, solution_unmarked
 from .exceptions import UnprocessableEntity
 from .idempotency import fingerprint, idempotency_cache_key, remember, reserve
 from .versioning import UnversionedForumAPIMixin
@@ -144,6 +144,10 @@ class TopicSolutionView(UnversionedForumAPIMixin, APIView):
             topic.solved_post = None
             topic.solved_at = None
             topic.save(update_fields=["solved_post", "solved_at", "updated_at"])
+            topic_id = topic.pk
+            transaction.on_commit(
+                lambda: notify(solution_unmarked, sender=Topic, topic_id=topic_id)
+            )
         return Response(_solution_payload(topic), status=http_status.HTTP_200_OK)
 
     @staticmethod
