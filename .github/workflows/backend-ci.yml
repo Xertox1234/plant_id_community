@@ -112,12 +112,14 @@ jobs:
         # never silently drops an endpoint's shapes.
         run: python manage.py spectacular --file /dev/null --validate --fail-on-warn
 
-      - name: Type-check apps/users (mypy + django-stubs)
-        # One app at a time (todo 580). pyproject.toml loads the django-stubs
-        # plugin with this job's settings env and sets follow_imports=silent, so
-        # only the files named here report errors. Widen the gate by naming
-        # another app.
-        run: python -m mypy apps/users
+      - name: Type-check the gated paths (mypy + django-stubs)
+        # The gated paths are `files` in pyproject.toml [tool.mypy] (apps/users
+        # so far, todo 580), which a bare `python -m mypy` checks; the
+        # mypy-staged pre-commit hook blocks on the same list at commit time.
+        # pyproject.toml loads the django-stubs plugin with this job's settings
+        # env and sets follow_imports=silent, so only the gated files report
+        # errors. Widen the gate by adding a path to `files`, nowhere else.
+        run: python -m mypy
 
       - name: mypy gate self-test (a planted error in apps/users must fail it)
         # follow_imports=silent hides errors in imported-only modules; this

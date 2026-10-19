@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Self-test for the CI mypy gate (`python -m mypy apps/users`, todo 580).
+# Self-test for the CI mypy gate (a bare `python -m mypy`, which checks the
+# `files` list in pyproject.toml [tool.mypy]; apps/users so far, todo 580).
 # Run from backend/: bash bin/test-mypy-gate.sh
 #
 # pyproject.toml sets follow_imports=silent, which hides errors in modules
@@ -23,7 +24,7 @@ cat > "$canary" <<'PY'
 CANARY: int = "not an int"
 PY
 
-output=$(python -m mypy apps/users 2>&1)
+output=$(python -m mypy 2>&1)
 status=$?
 echo "$output" | tail -5
 
