@@ -6,6 +6,7 @@ call ``async_to_sync``; thread-sensitive DB work then runs back on the test's
 thread, inside the test transaction.
 """
 
+import asyncio
 import json
 import logging
 from unittest import mock
@@ -364,7 +365,7 @@ def test_scope_meta_builds_headers_as_django_does(headers):
     the scope's META view must follow Django's ASGI header rules."""
     import io
 
-    from apps.forum_host.consumers import _scope_meta
+    from apps.core.ratelimit import meta_from_asgi_scope
     from django.core.handlers.asgi import ASGIRequest
 
     scope = {
@@ -376,7 +377,7 @@ def test_scope_meta_builds_headers_as_django_does(headers):
         "client": ("10.9.9.9", 5000),
     }
     django_meta = ASGIRequest(scope, io.BytesIO()).META
-    ours = _scope_meta(scope)
+    ours = meta_from_asgi_scope(scope)
     for key in ("REMOTE_ADDR", "HTTP_X_FORWARDED_FOR"):
         assert ours.get(key) == django_meta.get(key), key
     with override_settings(RATELIMIT_TRUSTED_PROXY_COUNT=2):
@@ -405,3 +406,202 @@ def test_topic_removed_is_delivered_then_the_socket_closes_4404():
     frame, close = async_to_sync(run)()
     assert frame == removed
     assert close == {"type": "websocket.close", "code": 4404}
+
+
+# --- Visibility re-check on an open socket (live slice 5, plan ruling R4) ---
+
+RECHECK_FAST = 0.05
+
+
+@pytest.fixture
+def fast_recheck():
+    with mock.patch.object(
+        constants, "LIVE_VISIBILITY_RECHECK_SECONDS", RECHECK_FAST
+    ), mock.patch.object(constants, "LIVE_VISIBILITY_RECHECK_JITTER", (1.0, 1.0)):
+        yield
+
+
+def _recheck_spy():
+    """Spy on the re-check loop; ``spy.call_args.args[0]`` is the consumer."""
+    from apps.forum_host.consumers import TopicLiveConsumer
+
+    real = TopicLiveConsumer._recheck_loop
+    return mock.patch.object(
+        TopicLiveConsumer, "_recheck_loop", autospec=True, side_effect=real
+    )
+
+
+@pytest.mark.django_db
+def test_board_made_private_closes_4404_on_next_recheck(fast_recheck):
+    from channels.db import database_sync_to_async
+
+    topic, _o, author = _thread("ws-recheck-board")
+    hide = database_sync_to_async(
+        lambda: ForumBoard.objects.filter(pk=topic.board_id).update(live=False)
+    )
+
+    async def run():
+        sock = Socket(topic.pk, author)
+        try:
+            assert await sock.open() == ("accepted", None)
+            await hide()
+            return await sock.comm.receive_output(timeout=2)
+        finally:
+            await sock.close()
+
+    assert async_to_sync(run)() == {"type": "websocket.close", "code": 4404}
+
+
+@pytest.mark.django_db
+def test_topic_unpublished_closes_4404_on_next_recheck(fast_recheck):
+    """No topic.removed event arrives (the sender is patched off): the timer
+    alone notices the topic went away."""
+    from channels.db import database_sync_to_async
+
+    topic, _o, author = _thread("ws-recheck-unpub")
+    unpublish = database_sync_to_async(
+        lambda: UnpublishAction(topic, user=None).execute(skip_permission_checks=True)
+    )
+
+    async def run():
+        sock = Socket(topic.pk, author)
+        try:
+            assert await sock.open() == ("accepted", None)
+            await unpublish()
+            return await sock.comm.receive_output(timeout=2)
+        finally:
+            await sock.close()
+
+    with mock.patch("apps.forum_host.live._send") as sender:
+        assert async_to_sync(run)() == {"type": "websocket.close", "code": 4404}
+    sender.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_visible_topic_survives_rechecks(fast_recheck):
+    topic, _o, author = _thread("ws-recheck-visible")
+    event = build_event("post.created", topic.pk, 9)
+
+    async def run():
+        sock = Socket(topic.pk, author)
+        try:
+            assert await sock.open() == ("accepted", None)
+            assert await sock.nothing(timeout=RECHECK_FAST * 4)
+            await get_channel_layer().group_send(
+                topic_group(topic.pk), {"type": EVENT_HANDLER_TYPE, "event": event}
+            )
+            return await sock.receive_json()
+        finally:
+            await sock.close()
+
+    with _recheck_spy() as spy:
+        assert async_to_sync(run)() == event
+    assert spy.call_count == 1  # one loop per socket, which ran
+
+
+@pytest.mark.django_db
+def test_recheck_db_error_keeps_socket(fast_recheck, caplog):
+    """A transient DB error is not "not visible": the socket stays, the error
+    is logged once, and the next tick tries again."""
+    from django.db import OperationalError
+
+    topic, _o, author = _thread("ws-recheck-dberror")
+    event = build_event("post.created", topic.pk, 9)
+    calls = []
+
+    async def flaky(topic_id):
+        calls.append(topic_id)
+        if len(calls) in (2, 3):  # the 1st call is connect's own check
+            raise OperationalError("server closed the connection unexpectedly")
+        return True
+
+    lg = logging.getLogger("apps.forum_host.consumers")
+    lg.addHandler(caplog.handler)
+    caplog.set_level(logging.INFO, logger=lg.name)
+
+    async def run():
+        sock = Socket(topic.pk, author)
+        try:
+            assert await sock.open() == ("accepted", None)
+            assert await sock.nothing(timeout=RECHECK_FAST * 6)
+            await get_channel_layer().group_send(
+                topic_group(topic.pk), {"type": EVENT_HANDLER_TYPE, "event": event}
+            )
+            return await sock.receive_json()
+        finally:
+            await sock.close()
+
+    try:
+        with mock.patch("apps.forum_host.consumers._topic_is_visible", flaky):
+            assert async_to_sync(run)() == event
+    finally:
+        lg.removeHandler(caplog.handler)
+    assert len(calls) >= 4  # it kept checking after the errors
+    failed = [
+        r for r in caplog.records if "[FORUM_LIVE] recheck failed" in r.getMessage()
+    ]
+    assert len(failed) == 1
+    assert "OperationalError" in failed[0].getMessage()
+    assert "server closed" not in caplog.text  # the class name only
+
+
+@pytest.mark.django_db
+def test_disconnect_cancels_recheck(fast_recheck):
+    topic, _o, author = _thread("ws-recheck-cancel")
+
+    visible = mock.AsyncMock(return_value=True)
+
+    async def run():
+        sock = Socket(topic.pk, author)
+        assert await sock.open() == ("accepted", None)
+        await sock.close()
+        task = spy.call_args.args[0]._recheck_task
+        checks_at_close = visible.await_count
+        await asyncio.sleep(RECHECK_FAST * 4)  # several ticks after the close
+        # Judged inside the loop: async_to_sync cancels leftover tasks on exit.
+        return task, task.cancelled(), checks_at_close, visible.await_count
+
+    with _recheck_spy() as spy, mock.patch(
+        "apps.forum_host.consumers._topic_is_visible", visible
+    ):
+        task, cancelled_in_loop, at_close, later = async_to_sync(run)()
+    assert cancelled_in_loop
+    assert later == at_close  # no check ran after the close
+
+
+@pytest.mark.django_db
+def test_refused_socket_starts_no_recheck(fast_recheck):
+    topic, _o, author = _thread("ws-recheck-refused")
+    with override_settings(FORUM_LIVE_UPDATES_ENABLED=False), _recheck_spy() as spy:
+        assert _open_once(topic.pk, author) == ("closed_after_accept", 4503)
+    spy.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_consumer_crash_still_cancels_recheck(fast_recheck):
+    """A consumer that exits through an exception (a send to a client that
+    just dropped) never gets disconnect(); its timer must still stop."""
+    from apps.forum_host.consumers import TopicLiveConsumer
+
+    topic, _o, author = _thread("ws-recheck-crash")
+
+    async def boom(self, content, **kwargs):
+        raise RuntimeError("send after the client dropped")
+
+    async def run():
+        sock = Socket(topic.pk, author)
+        assert await sock.open() == ("accepted", None)
+        await sock.send_text('{"type": "ping"}')
+        try:
+            await sock.comm.wait(timeout=1)
+        except RuntimeError:
+            pass  # the consumer's own exception, re-raised by the communicator
+        task = spy.call_args.args[0]._recheck_task
+        await asyncio.sleep(RECHECK_FAST * 2)
+        # Judged inside the loop: async_to_sync cancels leftover tasks on exit.
+        return task.done(), task.cancelled()
+
+    with _recheck_spy() as spy, mock.patch.object(
+        TopicLiveConsumer, "receive_json", boom
+    ):
+        assert async_to_sync(run)() == (True, True)

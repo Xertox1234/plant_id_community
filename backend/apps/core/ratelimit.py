@@ -109,6 +109,27 @@ def get_trusted_client_ip(request: HttpRequest) -> Optional[str]:
     return trusted_client_ip_from_meta(request.META)
 
 
+def meta_from_asgi_scope(scope: Mapping) -> dict[str, str]:
+    """A META-shaped view of an ASGI handshake, for the shared client-IP rule.
+
+    Built by Django's own ASGI rules (``ASGIRequest.__init__``): a header
+    name containing ``_`` is dropped, so a client's ``x_forwarded_for`` can't
+    stand in for the proxy's ``X-Forwarded-For``, and a repeated header is
+    joined with ``,`` rather than the last copy winning.
+    """
+    meta = {"REMOTE_ADDR": (scope.get("client") or ("",))[0] or ""}
+    for raw_name, raw_value in scope.get("headers", []):
+        name = raw_name.decode("latin-1")
+        if "_" in name:
+            continue
+        key = "HTTP_" + name.upper().replace("-", "_")
+        value = raw_value.decode("latin-1")
+        if key in meta:
+            value = meta[key] + "," + value
+        meta[key] = value
+    return meta
+
+
 def trusted_client_ip_from_meta(meta: Mapping[str, str]) -> Optional[str]:
     """``get_trusted_client_ip`` over a bare META-shaped mapping.
 

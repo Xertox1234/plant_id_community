@@ -2,8 +2,17 @@
 
 import asyncio
 import logging
+import time
 
+from apps.core.ratelimit import (
+    _mask_ip,
+    log_safe_ip,
+    meta_from_asgi_scope,
+    trusted_client_ip_from_meta,
+)
+from apps.forum_host import constants as live_constants
 from django.conf import settings
+from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +51,55 @@ class OptionalOriginValidator:
                     await send({"type": "websocket.close"})
                     return
         return await self.inner(scope, receive, send)
+
+
+class WebsocketConnectRateLimit:
+    """Refuse a socket connect over the per-IP rate, before any auth work.
+
+    The session stack and the JWT middleware both query the database before a
+    consumer's ``connect()`` runs, so a reconnect storm costs DB work per
+    attempt unless it is cut off out here. A fixed window per trusted client
+    IP (masked as the HTTP limiter masks it), counted in the shared cache.
+
+    The refusal is accept-then-close 4429, the code both clients back off on.
+    An IP that cannot be resolved, or a cache that cannot count (the project
+    cache answers ``None`` when Redis is down), is admitted: fail open, like
+    the consumer's socket caps. Non-websocket scopes pass straight through.
+    """
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "websocket" and await self._over_rate(scope):
+            await receive()  # the websocket.connect event
+            await send({"type": "websocket.accept"})
+            await send(
+                {"type": "websocket.close", "code": live_constants.LIVE_CLOSE_LIMITED}
+            )
+            return None
+        return await self.inner(scope, receive, send)
+
+    async def _over_rate(self, scope) -> bool:
+        ip = trusted_client_ip_from_meta(meta_from_asgi_scope(scope))
+        if not ip:
+            return False
+        window = live_constants.LIVE_CONNECT_RATE_WINDOW_SECONDS
+        limit = live_constants.LIVE_CONNECT_RATE_PER_IP
+        key = (
+            f"{live_constants.LIVE_CONNECT_RATE_KEY_PREFIX}:"
+            f"{_mask_ip(ip)}:{int(time.time() // window)}"
+        )
+        try:
+            await cache.aadd(key, 0, window + 5)
+            count = await cache.aincr(key)
+        except ValueError:  # the key expired between add and incr
+            return False
+        if count is None or count <= limit:
+            return False
+        if count == limit + 1:  # once per IP per window
+            logger.info("[FORUM_LIVE] connect rate limited ip=%s", log_safe_ip(ip))
+        return True
 
 
 class HttpConcurrencyLimit:
