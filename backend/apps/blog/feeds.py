@@ -9,7 +9,7 @@ instead of the SPA route shape.
 
 from django.conf import settings
 from django.contrib.syndication.views import Feed
-from django.utils.feedgenerator import Atom1Feed, Rss201rev2Feed
+from django.utils.feedgenerator import Atom1Feed, Rss201rev2Feed, SyndicationFeed
 
 from .constants import BLOG_RSS_MAX_ITEMS
 from .models import BlogPostPage
@@ -22,7 +22,7 @@ def _site_url():
 
 
 class BlogPostsFeed(Feed):
-    feed_type = Rss201rev2Feed
+    feed_type: type[SyndicationFeed] = Rss201rev2Feed
     title = "Houseplant MD — blog"
     description = "Guides, experiments, and honest failures from the community garden."
 

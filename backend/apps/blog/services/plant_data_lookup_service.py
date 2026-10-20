@@ -9,7 +9,7 @@ This service searches multiple data sources in priority order:
 """
 
 import logging
-from typing import Dict
+from typing import Any, Dict, Optional
 
 from apps.plant_identification.models import PlantSpecies
 from apps.plant_identification.services.plantnet_service import PlantNetAPIService
@@ -33,13 +33,13 @@ class PlantDataLookupService:
 
     def __init__(self):
         try:
-            self.trefle_service = TrefleAPIService()
+            self.trefle_service: Optional[TrefleAPIService] = TrefleAPIService()
         except Exception as e:
             logger.warning(f"[PLANT_DATA] Could not initialize TrefleAPIService: {e}")
             self.trefle_service = None
 
         try:
-            self.plantnet_service = PlantNetAPIService()
+            self.plantnet_service: Optional[PlantNetAPIService] = PlantNetAPIService()
         except Exception as e:
             logger.warning(f"[PLANT_DATA] Could not initialize PlantNetAPIService: {e}")
             self.plantnet_service = None
@@ -57,7 +57,12 @@ class PlantDataLookupService:
         Returns:
             Dict containing plant data with source information
         """
-        result = {"found": False, "source": None, "confidence": 0.0, "data": {}}
+        result: Dict[str, Any] = {
+            "found": False,
+            "source": None,
+            "confidence": 0.0,
+            "data": {},
+        }
 
         # Step 1: Local database exact match
         local_result = self._search_local_database(query)
@@ -196,7 +201,13 @@ class PlantDataLookupService:
         try:
             # Try Trefle API first (more detailed care information)
             if self.trefle_service:
-                trefle_data = self.trefle_service.search_species(query)
+                # `search_plants` takes a scientific, common or partial name,
+                # which is what lookup_plant_data accepts; the first hit is
+                # Trefle's best match. (This used to call a `search_species`
+                # method TrefleAPIService never had; the AttributeError was
+                # swallowed by the except below, so this step always missed.)
+                hits = self.trefle_service.search_plants(query, limit=1)
+                trefle_data = hits[0] if hits else None
                 if trefle_data:
                     return {
                         "found": True,

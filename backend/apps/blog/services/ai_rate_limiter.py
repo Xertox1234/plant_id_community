@@ -158,7 +158,7 @@ class AIRateLimiter:
         Returns:
             The new call count for this window.
         """
-        calls = cache.get(cache_key, 0) + 1
+        calls: int = cache.get(cache_key, 0) + 1
         cache.set(cache_key, calls, cls.TTL)
 
         logger.debug(f"[RATE_LIMIT] {cache_key}: {calls}/{limit} calls/hour")
@@ -196,7 +196,7 @@ class AIRateLimiter:
             print(f"You have {remaining} AI calls remaining this hour")
         """
         cache_key = f"ai_rate_limit:user:{user_id}"
-        calls = cache.get(cache_key, 0)
+        calls: int = cache.get(cache_key, 0)
 
         limit = cls.PREMIUM_LIMIT if has_premium else cls.USER_LIMIT
 

@@ -18,7 +18,7 @@ from .models import BlogAuthorPage, BlogCategory, BlogComment, BlogPostPage, Blo
 User = get_user_model()
 
 
-def _absolute_page_url(request, page):
+def _absolute_page_url(request, page) -> Optional[str]:
     """A page's absolute URL, derived from the request's own host (todo 326).
 
     Mirrors `apps/blog/api/serializers.py`'s helper of the same name: this
@@ -37,7 +37,8 @@ def _absolute_page_url(request, page):
     page_path = url_parts[2] if url_parts else None
     if not page_path:
         return None
-    return request.build_absolute_uri(page_path) if request else page_path
+    url: Optional[str] = request.build_absolute_uri(page_path) if request else page_path
+    return url
 
 
 class BlogCategorySerializer(serializers.ModelSerializer):
@@ -61,9 +62,12 @@ class BlogCategorySerializer(serializers.ModelSerializer):
 
     def get_post_count(self, obj) -> int:
         """Get the number of published posts in this category."""
-        if hasattr(obj, "_post_count"):
-            return obj._post_count
-        return obj.blogpostpage_set.live().public().count()
+        count: int = (
+            obj._post_count
+            if hasattr(obj, "_post_count")
+            else obj.blogpostpage_set.live().public().count()
+        )
+        return count
 
 
 class BlogSeriesSerializer(serializers.ModelSerializer):
@@ -88,17 +92,21 @@ class BlogSeriesSerializer(serializers.ModelSerializer):
 
     def get_post_count(self, obj) -> int:
         """Get the number of posts in this series."""
-        if hasattr(obj, "_post_count"):
-            return obj._post_count
-        return obj.blogpostpage_set.live().public().count()
+        count: int = (
+            obj._post_count
+            if hasattr(obj, "_post_count")
+            else obj.blogpostpage_set.live().public().count()
+        )
+        return count
 
     def get_posts_url(self, obj) -> Optional[str]:
         """Get URL to fetch posts in this series."""
         request = self.context.get("request")
         if request:
-            return request.build_absolute_uri(
+            url: str = request.build_absolute_uri(
                 reverse("v1:blog:blog-series-posts", kwargs={"slug": obj.slug})
             )
+            return url
         return None
 
 
@@ -124,9 +132,12 @@ class UserSerializer(serializers.ModelSerializer):
         """Get avatar URL if available."""
         if hasattr(obj, "avatar") and obj.avatar:
             request = self.context.get("request")
-            if request:
-                return request.build_absolute_uri(obj.avatar.url)
-            return obj.avatar.url
+            url: str = (
+                request.build_absolute_uri(obj.avatar.url)
+                if request
+                else obj.avatar.url
+            )
+            return url
         return None
 
 
@@ -151,9 +162,12 @@ class BlogAuthorSerializer(serializers.ModelSerializer):
 
     def get_post_count(self, obj) -> int:
         """Get the number of published posts by this author."""
-        if hasattr(obj, "_post_count"):
-            return obj._post_count
-        return BlogPostPage.objects.live().public().filter(author=obj.author).count()
+        count: int = (
+            obj._post_count
+            if hasattr(obj, "_post_count")
+            else BlogPostPage.objects.live().public().filter(author=obj.author).count()
+        )
+        return count
 
 
 class BlogCommentCreateSerializer(serializers.Serializer):
@@ -207,7 +221,10 @@ class BlogCommentSerializer(serializers.ModelSerializer):
         replies = getattr(obj, "visible_replies", None)
         if replies is None:
             replies = obj.get_replies()
-        return BlogCommentSerializer(replies, many=True, context=self.context).data
+        data: list[dict[str, Any]] = BlogCommentSerializer(
+            replies, many=True, context=self.context
+        ).data
+        return data
 
 
 class BlogPostPageSerializer(TaggitSerializer, serializers.ModelSerializer):
@@ -270,9 +287,12 @@ class BlogPostPageSerializer(TaggitSerializer, serializers.ModelSerializer):
         """Get the number of approved comments."""
         if not obj.allow_comments:
             return 0
-        if hasattr(obj, "_comment_count"):
-            return obj._comment_count
-        return obj.comments.filter(is_approved=True).count()
+        count: int = (
+            obj._comment_count
+            if hasattr(obj, "_comment_count")
+            else obj.comments.filter(is_approved=True).count()
+        )
+        return count
 
 
 class BlogPostListSerializer(serializers.ModelSerializer):
@@ -325,9 +345,12 @@ class BlogPostListSerializer(serializers.ModelSerializer):
         """Get the number of approved comments."""
         if not obj.allow_comments:
             return 0
-        if hasattr(obj, "_comment_count"):
-            return obj._comment_count
-        return obj.comments.filter(is_approved=True).count()
+        count: int = (
+            obj._comment_count
+            if hasattr(obj, "_comment_count")
+            else obj.comments.filter(is_approved=True).count()
+        )
+        return count
 
 
 # Serializer for blog statistics

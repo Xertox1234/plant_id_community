@@ -37,6 +37,7 @@ from apps.forum_host.rag_guardrails import classify_blocked_question
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import QuerySet
 from django.utils import timezone
 from django.utils.html import escape
 
@@ -291,7 +292,7 @@ class Command(BaseCommand):
             self.stdout.write("not drafted: " + ", ".join(failed + screened))
 
     def _resolve_index(self, slug: str | None) -> BlogIndexPage:
-        indexes = BlogIndexPage.objects.all()
+        indexes: QuerySet[BlogIndexPage] = BlogIndexPage.objects.all()
         if slug:
             lookup = {"pk": int(slug)} if slug.isdigit() else {"slug": slug}
             matches = list(indexes.filter(**lookup)[:2])
