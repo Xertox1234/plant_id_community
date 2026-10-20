@@ -27,6 +27,7 @@ and docs/superpowers/specs/2026-07-29-forum-rag-plant-care-design.md.
 
 import hashlib
 import logging
+from typing import Any
 
 from apps.blog.models import BlogPostPage
 from django.conf import settings
@@ -94,8 +95,8 @@ class TopicSource(ModelSource):
 @registry.register()
 class SimilarTopics(VectorIndex):
     storage_provider = PgVectorProvider()
-    sources = []  # set lazily in __init__ (see module docstring)
-    embedding_transformer = None  # set lazily in __init__
+    sources: list = []  # set lazily in __init__ (see module docstring)
+    embedding_transformer: Any = None  # set lazily in __init__
 
     def __init__(self):
         # Both deferred to instantiation, never class-def/import:
@@ -163,8 +164,8 @@ class BlogChunks(VectorIndex):
     """
 
     storage_provider = PgVectorProvider()
-    sources = []  # set lazily in __init__ (see module docstring)
-    embedding_transformer = None  # set lazily in __init__
+    sources: list = []  # set lazily in __init__ (see module docstring)
+    embedding_transformer: Any = None  # set lazily in __init__
 
     def __init__(self):
         self.sources = [BlogChunkSource(BlogPostPage.objects.live().public())]

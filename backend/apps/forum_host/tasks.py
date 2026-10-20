@@ -308,14 +308,14 @@ def send_forum_push(
         # Some devices got it, or failed for good: retry only the ones that
         # failed transiently, each on its own (todo 621), so no device that
         # has the push gets it twice and no dropped one is tried again.
-        for device_token, exc in transient:
+        for device_token, device_exc in transient:
             logger.warning(
                 "[FCM] forum.%s send failed on one device (user=%s, task_id=%s):"
                 " %s — retrying that device",
                 event,
                 recipient_user_id,
                 self.request.id,
-                exc,
+                device_exc,
             )
             # Guarded as in send_forum_push_batch (todo 650 #2): a broker that
             # refuses one hand-off must not escape and drop the devices after
@@ -334,19 +334,19 @@ def send_forum_push(
                     type(enqueue_exc).__name__,
                 )
         return
-    exc = transient[-1][1]
+    last_exc = transient[-1][1]
     logger.warning(
         "[FCM] forum.%s send failed (user=%s, task_id=%s): %s — retrying",
         event,
         recipient_user_id,
         self.request.id,
-        exc,
+        last_exc,
     )
     # Every device failed transiently: retry the task. Exponential backoff:
     # 30s, 60s, 120s across max_retries=3. A ``token=`` retry keeps its
     # token, which rides in the request kwargs.
     raise self.retry(
-        exc=exc, countdown=self.default_retry_delay * (2**self.request.retries)
+        exc=last_exc, countdown=self.default_retry_delay * (2**self.request.retries)
     )
 
 
@@ -464,8 +464,8 @@ def send_forum_push_batch(
         # Backed off like a transient failure (terminal at the attempt cap),
         # not left pending for reconciliation to re-drive every interval.
         if batch_id:
-            claimed = delivery.claim_batch(kind, batch_id, recipient_user_ids)
-            _record(delivery.mark_retry, list(claimed.values()), "fcm_unavailable")
+            backed_off = delivery.claim_batch(kind, batch_id, recipient_user_ids)
+            _record(delivery.mark_retry, list(backed_off.values()), "fcm_unavailable")
         return
 
     # One bulk fetch instead of N: the profile row carries the recipient's
@@ -499,12 +499,12 @@ def send_forum_push_batch(
             return False
         return bool(tokens_by_user.get(profile.user_id))
 
-    claimed = None
+    claimed: dict[int, int] | None = None
     if batch_id:
         # After every up-front read, as in the browser-push task.
         claimed = delivery.claim_batch(kind, batch_id, recipient_user_ids)
         by_user = {p.user_id: p for p in profiles}
-        suppressed: dict = {}
+        suppressed: dict[str, list[int]] = {}
         for pk, row in claimed.items():
             profile = by_user.get(pk)
             reason = ineligible.get(pk) if profile is not None else "no_destination"
@@ -824,7 +824,7 @@ def send_forum_web_push_batch(
         claimed = delivery.claim_batch(kind, batch_id, recipient_user_ids)
         subscriptions = [s for s in subscriptions if s.user_id in claimed]
         with_browser = {s.user_id for s in subscriptions}
-        suppressed = {}
+        suppressed: dict[str, list[int]] = {}
         for pk, row in claimed.items():
             reason = check.suppressed.get(pk)
             if reason is None and pk not in with_browser:
@@ -848,7 +848,9 @@ def send_forum_web_push_batch(
     rendered: dict = {}
     for pk, send in sends.items():
         send_data = pacing.folded_data(data, send)
-        title, body = _notification_content(event, send_data)
+        content = _notification_content(event, send_data)
+        assert content is not None  # the event passed the copy check above
+        title, body = content
         url = _web_topic_path(send_data.get("topic_id"), send_data.get("post_id"))
         tag = (
             f"forum-{event}-"
@@ -1144,7 +1146,7 @@ def send_forum_email_batch(
         # already have it, are not ours to send.
         claimed = delivery.claim_batch(kind, batch_id, recipient_user_ids)
         eligible_pks = {user.pk for user in check.eligible}
-        suppressed = {}
+        suppressed: dict[str, list[int]] = {}
         for pk, row in claimed.items():
             reason = check.suppressed.get(pk)
             if reason is None and pk not in eligible_pks:
@@ -1211,9 +1213,9 @@ def send_forum_email_batch(
         pacing.finish_folds(send, bool(sent))
         if send.row is None:
             continue
-        row = [send.row]
+        rows = [send.row]
         if sent:
-            _record(delivery.mark_sent, row)
+            _record(delivery.mark_sent, rows)
             continue
         # A False that is not a transport failure is never retried. A send
         # that never reached send_email (no copy for the event) says
@@ -1224,11 +1226,11 @@ def send_forum_email_batch(
             # A provider suppression (bounce, complaint) is not an opt-out:
             # recorded as such, as the account tasks do (todo 625).
             reason = service.email_service.last_suppression_reason or "preference_off"
-            _record(delivery.mark_suppressed, row, reason)
+            _record(delivery.mark_suppressed, rows, reason)
         elif outcome == EmailOutcome.PERMANENT:
-            _record(delivery.mark_failed, row, "permanent")
+            _record(delivery.mark_failed, rows, "permanent")
         else:
-            _record(delivery.mark_retry, row, "smtp_transient")
+            _record(delivery.mark_retry, rows, "smtp_transient")
 
 
 @shared_task(

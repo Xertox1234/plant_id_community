@@ -219,3 +219,16 @@ def test_every_template_in_the_table_formats():
                 raise AssertionError(
                     f"{event}.{field} is not a renderable template: {exc!r}"
                 ) from exc
+
+
+def test_a_coalesced_reply_renders_on_both_surfaces():
+    """``reply_added`` with ``count`` > 1 renders ``replies_coalesced``, and
+    the whitelist check sits on THAT entry, so it must carry a push arm and
+    an email arm of its own: ``send_forum_web_push_batch`` asserts a per-send
+    render is never None once the event passed its up-front copy check."""
+    push = push_content("reply_added", "Topic", "Ann", count=3)
+    assert push is not None
+    assert "3" in push[0]
+    email = email_content("reply_added", "Topic", "Ann", count=3)
+    assert email is not None
+    assert "3" in email[0]

@@ -113,10 +113,13 @@ def push_content(
     ``topic_title`` is expected pre-truncated by the caller (the cap is a push
     transport concern, not copy). ``actor`` is expected pre-defaulted.
     """
-    copy = FORUM_NOTIFICATION_COPY.get(event)
-    if copy is None or copy.push_title is None or copy.push_body is None:
+    if event not in FORUM_NOTIFICATION_COPY:
         return None
+    # The whitelist check sits on the copy actually rendered: a coalesced
+    # reply reads ``replies_coalesced``, whose push arm matches ``reply_added``'s.
     copy = FORUM_NOTIFICATION_COPY[_copy_key(event, count)]
+    if copy.push_title is None or copy.push_body is None:
+        return None
     fields = {"topic_title": topic_title, "actor": actor, "count": count}
     if topic_title:
         title = copy.push_title.format(**fields)
@@ -130,9 +133,10 @@ def email_content(
 ) -> tuple[str, str] | None:
     """Render the email ``(subject, body)`` for *event*, or ``None`` if the
     event has no email arm. ``count`` > 1 renders a coalesced reply."""
-    copy = FORUM_NOTIFICATION_COPY.get(event)
-    if copy is None or copy.email_subject is None or copy.email_body is None:
+    if event not in FORUM_NOTIFICATION_COPY:
         return None
     copy = FORUM_NOTIFICATION_COPY[_copy_key(event, count)]
+    if copy.email_subject is None or copy.email_body is None:
+        return None
     fields = {"topic_title": topic_title, "actor": actor, "count": count}
     return copy.email_subject.format(**fields), copy.email_body.format(**fields)

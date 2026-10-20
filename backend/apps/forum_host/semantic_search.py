@@ -123,7 +123,9 @@ class SemanticSearchMixin:
         ),
     )
     def get(self, request, *args, **kwargs):
-        response = super().get(request, *args, **kwargs)
+        # ``get`` is the package SearchView's: api.py mixes this class in
+        # ahead of it, which mypy cannot see from the mixin alone.
+        response = super().get(request, *args, **kwargs)  # type: ignore[misc]
 
         if not _wants_semantic(request):
             return response

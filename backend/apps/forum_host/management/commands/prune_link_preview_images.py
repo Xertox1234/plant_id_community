@@ -62,7 +62,7 @@ def _referenced_names(prefix):
     from wagtail.models import Revision
     from wagtail_forum.models import Post
 
-    names = set()
+    names: set[str] = set()
     for post in Post.objects.only("id", "body").iterator(chunk_size=CHUNK):
         # StreamValue.raw_data is a RawDataView, not a list (see migration
         # 0038): convert it before walking.
