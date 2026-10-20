@@ -85,7 +85,7 @@ def _trim_schema_prefix(path):
     trimmed keys in the generated schema's ``paths`` — derived from the SAME
     settings drf-spectacular uses, so the two cannot drift on a version bump."""
     spec = settings.SPECTACULAR_SETTINGS
-    prefix = spec.get("SCHEMA_PATH_PREFIX") or ""
+    prefix = str(spec.get("SCHEMA_PATH_PREFIX") or "")
     if not (prefix and spec.get("SCHEMA_PATH_PREFIX_TRIM")):
         return path
     return re.sub("^" + prefix, "", path)
@@ -160,7 +160,7 @@ def document_throttle_429(result, generator, request, public):
     """Postprocessing hook: add a 429 response to every rate-limited operation
     recorded by :func:`record_throttled_operations`."""
     paths = result.get("paths", {})
-    by_shape = {}
+    by_shape: dict[str, list[str]] = {}
     for schema_path in paths:
         by_shape.setdefault(_PATH_PARAM.sub("{}", schema_path), []).append(schema_path)
     for path, method in getattr(_state, "throttled_operations", set()):

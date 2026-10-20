@@ -63,14 +63,16 @@ class HttpConcurrencyLimit:
     def __init__(self, inner, limit: int):
         self.inner = inner
         self.limit = limit
-        self._loop = None
-        self._semaphore = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._semaphore: asyncio.Semaphore | None = None
 
     def _get_semaphore(self) -> asyncio.Semaphore:
         loop = asyncio.get_running_loop()
-        if self._loop is not loop:
-            self._loop, self._semaphore = loop, asyncio.Semaphore(self.limit)
-        return self._semaphore
+        semaphore = self._semaphore
+        if self._loop is not loop or semaphore is None:
+            semaphore = asyncio.Semaphore(self.limit)
+            self._loop, self._semaphore = loop, semaphore
+        return semaphore
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":

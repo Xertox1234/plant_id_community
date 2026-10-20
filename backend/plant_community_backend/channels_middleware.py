@@ -59,7 +59,9 @@ class JWTAuthMiddleware(BaseMiddleware):
         signature, expiry, token type, the user-id claim and ``is_active``."""
         auth = JWTAuthentication()
         try:
-            return auth.get_user(auth.get_validated_token(raw))
+            # simplejwt types the raw token as bytes; PyJWT's decode encodes a
+            # str to UTF-8 bytes itself, so this is the same input it saw.
+            return auth.get_user(auth.get_validated_token(raw.encode("utf-8")))
         except (InvalidToken, AuthenticationFailed) as exc:
             logger.warning("[AUTH] WS token rejected: %s", type(exc).__name__)
             return None
