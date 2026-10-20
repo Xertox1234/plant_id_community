@@ -41,10 +41,14 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
 from . import constants
+
+if TYPE_CHECKING:
+    from wagtail_forum.models import Post
 
 logger = logging.getLogger("forum_host.pacing")
 
@@ -66,7 +70,7 @@ class Send:
     row: int | None = None
     folded: dict = field(default_factory=dict)
     count: int = 1
-    latest: object = None
+    latest: Post | None = None
 
 
 @dataclass

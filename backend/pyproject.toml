@@ -14,7 +14,7 @@ plugins = ["mypy_django_plugin.main"]
 # excluded from the gate by the `apps.*.tests.*` override below (owner
 # decision 2026-10-19), so widening means fixing an app's SOURCE errors only;
 # the per-app source counts measured that day are in backend/CLAUDE.md "CI".
-files = ["apps/users", "plant_community_backend"]
+files = ["apps/users", "apps/forum_host", "plant_community_backend"]
 # A module reached only by import is still analysed for types, but its own
 # errors are not reported; every file in `files` or named on the command line
 # always is.

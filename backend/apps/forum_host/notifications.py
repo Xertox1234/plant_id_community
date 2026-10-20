@@ -361,7 +361,9 @@ def dispatch(event, **kwargs):
                 # follow (plan decision 3; confirmed intentional, not a bug,
                 # in the slice-3 review — two independent review angles
                 # flagged this exact interaction for a sanity check).
-                if post_author is not None and topic is not None:
+                # ``post is not None`` is implied by ``post_author`` (read off
+                # ``post``); spelled out so the stamp below type-checks.
+                if post is not None and post_author is not None and topic is not None:
                     TopicSubscription.subscribe(post_author, topic)
                     # Marks the replier's own reply as already-read — otherwise
                     # topic.last_post_at (about to be bumped to this reply's

@@ -114,8 +114,8 @@ jobs:
 
       - name: Type-check the gated paths (mypy + django-stubs)
         # The gated paths are `files` in pyproject.toml [tool.mypy] (apps/users
-        # since todo 580, plant_community_backend since 2026-10-19), which a
-        # bare `python -m mypy` checks; the
+        # since todo 580, plant_community_backend and apps/forum_host since
+        # 2026-10-19), which a bare `python -m mypy` checks; the
         # mypy-staged pre-commit hook blocks on the same list at commit time.
         # pyproject.toml loads the django-stubs plugin with this job's settings
         # env and sets follow_imports=silent, so only the gated files report

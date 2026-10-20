@@ -159,8 +159,8 @@ def _resolve_public_address(
     except InvalidPreviewURL as exc:
         try:
             normalized_host = host.encode("idna").decode("ascii").lower().rstrip(".")
-        except UnicodeError as exc:
-            raise InvalidPreviewURL from exc
+        except UnicodeError as idna_exc:
+            raise InvalidPreviewURL from idna_exc
         if not normalized_host:
             raise InvalidPreviewURL from exc
         infos = _resolve_addresses(normalized_host, port, dns_timeout)
@@ -168,8 +168,8 @@ def _resolve_public_address(
         for info in infos:
             try:
                 address = _public_ip(info[4][0])
-            except (IndexError, InvalidPreviewURL) as exc:
-                raise InvalidPreviewURL from exc
+            except (IndexError, InvalidPreviewURL) as address_exc:
+                raise InvalidPreviewURL from address_exc
             addresses.append(address)
         if not addresses or any(not address.is_global for address in addresses):
             raise InvalidPreviewURL from exc
@@ -340,7 +340,9 @@ def _open_connection(
             sock.settimeout(remaining if timeout is None else min(timeout, remaining))
         return sock
 
-    connection._create_connection = create_connection
+    # http.client sets ``_create_connection`` in ``HTTPConnection.__init__``;
+    # typeshed does not declare it.
+    connection._create_connection = create_connection  # type: ignore[union-attr]
     return connection
 
 

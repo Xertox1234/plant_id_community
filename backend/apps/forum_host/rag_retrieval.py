@@ -173,7 +173,7 @@ def retrieve_grounding_passages(
     per-asker and uncached, so the ask view passes it.
     """
     floor = constants.RAG_SIMILARITY_FLOOR
-    by_source: dict[str, list] = {}
+    by_source: dict[str | None, list] = {}
     top_scores: dict[str, float | None] = {}
     searched = False
     for index_cls in indexes:
@@ -203,7 +203,7 @@ def retrieve_grounding_passages(
 
     passages: list[Passage] = []
     for source_id, docs in by_source.items():
-        refetch = _REFETCHERS.get(source_id)
+        refetch = _REFETCHERS.get(source_id) if source_id is not None else None
         if refetch is not None:
             passages.extend(refetch(docs, user))
 

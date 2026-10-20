@@ -39,7 +39,8 @@ logger = logging.getLogger(__name__)
 
 @database_sync_to_async
 def _topic_is_visible(topic_id: int) -> bool:
-    return visible_topics().filter(pk=topic_id).exists()
+    # bool() only for mypy: the package is untyped to it, so exists() is Any.
+    return bool(visible_topics().filter(pk=topic_id).exists())
 
 
 class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
@@ -52,8 +53,9 @@ class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
         try:
             return await super().__call__(scope, receive, send)
         finally:
-            if getattr(self, "_recheck_task", None) is not None:
-                self._recheck_task.cancel()
+            recheck_task = getattr(self, "_recheck_task", None)
+            if recheck_task is not None:
+                recheck_task.cancel()
 
     async def connect(self):
         self.topic_id = int(self.scope["url_route"]["kwargs"]["topic_id"])
