@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Self-test for the CI mypy gate (a bare `python -m mypy`, which checks the
-# `files` list in pyproject.toml [tool.mypy]; apps/users so far, todo 580).
+# `files` list in pyproject.toml [tool.mypy]; apps/users since todo 580).
 # Run from backend/: bash bin/test-mypy-gate.sh
 #
 # pyproject.toml sets follow_imports=silent, which hides errors in modules

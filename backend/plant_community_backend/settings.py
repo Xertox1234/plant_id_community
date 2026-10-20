@@ -12,6 +12,7 @@ import sys
 from datetime import timedelta
 from email.utils import parseaddr
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 import dj_database_url
@@ -425,7 +426,7 @@ try:
     redis_client = redis.from_url(redis_url)
     redis_client.ping()  # Test connection
 
-    _redis_pool_kwargs = {"retry_on_timeout": True}
+    _redis_pool_kwargs: dict[str, Any] = {"retry_on_timeout": True}
     if not redis_url.startswith("unix://"):
         # TCP-only: a Unix-socket connection rejects them with a TypeError that
         # IGNORE_EXCEPTIONS then hides, silently disabling the cache. Sweep
@@ -545,7 +546,7 @@ MEDIA_ROOT = BASE_DIR / "media"
 # below when USE_R2 is on. When off, MEDIA_URL/MEDIA_ROOT above serve as
 # usual; when on, they're unused for URL generation — S3Storage.url()
 # builds URLs from `custom_domain` below, not MEDIA_URL.
-STORAGES = {
+STORAGES: dict[str, dict[str, Any]] = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
@@ -1242,7 +1243,7 @@ GENERATE_REQUEST_ID_IF_NOT_FOUND = True
 # Choose production console formatter based on availability
 _PROD_CONSOLE_FORMATTER = "json" if _HAS_JSON_LOGGER else "simple"
 
-LOGGING = {
+LOGGING: dict[str, Any] = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": (
