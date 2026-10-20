@@ -257,8 +257,13 @@ class BlogPostView(models.Model):
 
 
 # Snippet models
+# The two `type: ignore[django-manager-missing]` below: the django-stubs plugin
+# cannot build the reverse managers (`blogcategorypage_set`,
+# `blogpostpage_set`) because the page models that hold the ForeignKeys
+# descend from wagtail's untyped `Page` (no py.typed), so it reports the
+# relation unresolved on the snippet class line. The managers exist at runtime.
 @register_snippet
-class BlogCategory(models.Model):
+class BlogCategory(models.Model):  # type: ignore[django-manager-missing]
     """
     Blog category snippet model.
     """
@@ -312,7 +317,7 @@ class BlogCategory(models.Model):
 
 
 @register_snippet
-class BlogSeries(models.Model):
+class BlogSeries(models.Model):  # type: ignore[django-manager-missing]
     """
     Blog series for multi-part content.
     """
@@ -467,7 +472,7 @@ class BlogIndexPage(BlogBasePage):
             )
 
         # Categories
-        categories = []
+        categories: models.QuerySet[BlogCategory] | list[BlogCategory] = []
         if self.show_categories:
             categories = BlogCategory.objects.filter(is_featured=True)
 
@@ -856,7 +861,8 @@ class BlogPostPage(HeadlessPreviewMixin, BlogBasePage):
         """
         from django.conf import settings
 
-        return settings.HEADLESS_PREVIEW_CLIENT_URL
+        url: str = settings.HEADLESS_PREVIEW_CLIENT_URL
+        return url
 
     @classmethod
     def get_page_from_preview_token(cls, token: str) -> Optional[Page]:

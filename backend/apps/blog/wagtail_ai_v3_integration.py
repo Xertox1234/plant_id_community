@@ -102,7 +102,8 @@ def generate_ai_text(
     # kwarg — it cannot come from the shared WAGTAIL_AI['PROVIDERS'] client.
     extra = {} if timeout is None else {"timeout": timeout}
     result = service.completion(messages=[{"role": "user", "content": prompt}], **extra)
-    return result.choices[0].message.content
+    text: str = result.choices[0].message.content
+    return text
 
 
 class CachedLLMService:
@@ -147,7 +148,8 @@ class CachedLLMService:
     @property
     def service_id(self) -> str:
         """Return the service ID from the wrapped service."""
-        return self.service.service_id
+        service_id: str = self.service.service_id
+        return service_id
 
     def _generate_cache_key(self, messages: list[dict]) -> str:
         """
@@ -183,7 +185,8 @@ class CachedLLMService:
                 if isinstance(content, list):
                     for item in content:
                         if isinstance(item, dict) and item.get("type") == "text":
-                            return item.get("text", "")[:200]  # First 200 chars
+                            text: str = item.get("text", "")
+                            return text[:200]  # First 200 chars
                 elif isinstance(content, str):
                     return content[:200]
         except Exception:

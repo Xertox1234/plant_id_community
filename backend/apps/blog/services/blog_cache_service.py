@@ -74,7 +74,7 @@ class BlogCacheService:
             - Cache miss: Returns None, triggers DB query
         """
         cache_key = f"{CACHE_PREFIX_BLOG_POST}:{slug}"
-        cached = cache.get(cache_key)
+        cached: Optional[Dict[str, Any]] = cache.get(cache_key)
 
         if cached:
             logger.info(f"[CACHE] HIT for blog post {slug} (instant response)")
@@ -124,7 +124,7 @@ class BlogCacheService:
         """
         filters_hash = hashlib.sha256(str(sorted(filters.items())).encode()).hexdigest()
         cache_key = f"{CACHE_PREFIX_BLOG_LIST}:{page}:{limit}:{filters_hash}"
-        cached = cache.get(cache_key)
+        cached: Optional[Dict[str, Any]] = cache.get(cache_key)
 
         if cached:
             logger.info(f"[CACHE] HIT for blog list page {page} (instant response)")
@@ -186,7 +186,7 @@ class BlogCacheService:
             Cached category page data dict or None if cache miss
         """
         cache_key = f"{CACHE_PREFIX_BLOG_CATEGORY}:{slug}:{page}"
-        cached = cache.get(cache_key)
+        cached: Optional[Dict[str, Any]] = cache.get(cache_key)
 
         if cached:
             logger.info(
@@ -254,9 +254,12 @@ class BlogCacheService:
             invalidates ALL list caches. Trade-off between complexity
             and cache freshness favors simplicity.
         """
-        # Try Redis pattern matching (most efficient)
+        # Try Redis pattern matching (most efficient). `delete_pattern` is
+        # django-redis's extension, absent from Django's BaseCache stubs, hence
+        # the `type: ignore[attr-defined]` on each call; the AttributeError
+        # fallbacks below cover a backend without it.
         try:
-            cache.delete_pattern(f"{CACHE_PREFIX_BLOG_LIST}:*")
+            cache.delete_pattern(f"{CACHE_PREFIX_BLOG_LIST}:*")  # type: ignore[attr-defined]
             logger.info("[CACHE] INVALIDATE all blog lists (pattern match)")
             return
         except AttributeError:
@@ -298,7 +301,7 @@ class BlogCacheService:
             - Cache miss: Returns None, triggers DB query
         """
         cache_key = f"{CACHE_PREFIX_POPULAR_POSTS}:{limit}:{days}"
-        cached = cache.get(cache_key)
+        cached: Optional[Dict[str, Any]] = cache.get(cache_key)
 
         if cached:
             logger.info(
@@ -350,7 +353,7 @@ class BlogCacheService:
             so natural expiration is acceptable if pattern matching fails.
         """
         try:
-            cache.delete_pattern(f"{CACHE_PREFIX_POPULAR_POSTS}:*")
+            cache.delete_pattern(f"{CACHE_PREFIX_POPULAR_POSTS}:*")  # type: ignore[attr-defined]
             logger.info("[CACHE] INVALIDATE all popular posts (pattern match)")
         except AttributeError:
             # Fallback: Let natural 30-minute expiration handle it
@@ -371,7 +374,7 @@ class BlogCacheService:
             slug: Category slug to invalidate
         """
         try:
-            cache.delete_pattern(f"{CACHE_PREFIX_BLOG_CATEGORY}:{slug}:*")
+            cache.delete_pattern(f"{CACHE_PREFIX_BLOG_CATEGORY}:{slug}:*")  # type: ignore[attr-defined]
             logger.info(f"[CACHE] INVALIDATE all pages for category {slug}")
         except AttributeError:
             logger.warning(
@@ -393,10 +396,10 @@ class BlogCacheService:
             as caches are rebuilt from cold state.
         """
         try:
-            cache.delete_pattern(f"{CACHE_PREFIX_BLOG_POST}:*")
-            cache.delete_pattern(f"{CACHE_PREFIX_BLOG_LIST}:*")
-            cache.delete_pattern(f"{CACHE_PREFIX_BLOG_CATEGORY}:*")
-            cache.delete_pattern(f"{CACHE_PREFIX_POPULAR_POSTS}:*")
+            cache.delete_pattern(f"{CACHE_PREFIX_BLOG_POST}:*")  # type: ignore[attr-defined]
+            cache.delete_pattern(f"{CACHE_PREFIX_BLOG_LIST}:*")  # type: ignore[attr-defined]
+            cache.delete_pattern(f"{CACHE_PREFIX_BLOG_CATEGORY}:*")  # type: ignore[attr-defined]
+            cache.delete_pattern(f"{CACHE_PREFIX_POPULAR_POSTS}:*")  # type: ignore[attr-defined]
             logger.warning("[CACHE] CLEARED all blog caches (nuclear option)")
         except AttributeError:
             logger.warning(

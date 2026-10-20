@@ -20,6 +20,8 @@ from rest_framework import serializers
 from . import constants
 
 if TYPE_CHECKING:  # pragma: no cover
+    from django.contrib.auth.models import AbstractUser
+
     from .models import BlogPostPage
 
 logger = logging.getLogger(__name__)
@@ -30,7 +32,8 @@ def _rate(name: str):
 
     def resolve(group: str, request) -> str:
         overrides = getattr(settings, "BLOG_RATELIMITS", {})
-        return {**constants.DEFAULT_BLOG_RATELIMITS, **overrides}[name]
+        rates: dict[str, str] = {**constants.DEFAULT_BLOG_RATELIMITS, **overrides}
+        return rates[name]
 
     return resolve
 
@@ -61,7 +64,7 @@ def auto_approve_trust_level() -> int:
     )
 
 
-def decide_approval(user: AbstractBaseUser, content: str) -> tuple[bool, str]:
+def decide_approval(user: AbstractUser, content: str) -> tuple[bool, str]:
     """(is_approved, reason). Staff always pass. Below the trust threshold the
     comment is held WITHOUT calling the spam backend — the outcome is fixed,
     and the configured backend may be a billable LLM call (same reasoning as

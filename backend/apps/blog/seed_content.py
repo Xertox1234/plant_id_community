@@ -42,7 +42,7 @@ CATEGORIES = [
 # blog than on the forum (spec §5). Applied fill-if-blank only.
 _BLOG_AUTHOR_USERNAMES = ("june_park", "iris_delgado", "sam_whitaker", "theo_brandt")
 AUTHOR_NAMES = {
-    u["username"]: tuple(u["display_name"].split(" ", 1))
+    u["username"]: tuple(str(u["display_name"]).split(" ", 1))
     for u in USERS
     if u["username"] in _BLOG_AUTHOR_USERNAMES
 }

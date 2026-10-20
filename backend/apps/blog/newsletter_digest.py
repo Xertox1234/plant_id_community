@@ -61,7 +61,8 @@ class DigestPost:
 
 def _site_url() -> str:
     # The web app's origin, as in feeds.py: posts live at /blog/{slug} there.
-    return settings.SITE_URL.rstrip("/")
+    site_url: str = settings.SITE_URL
+    return site_url.rstrip("/")
 
 
 def recipients():
@@ -85,7 +86,15 @@ def since_for(subscriber: BlogNewsletter) -> datetime:
     old one; their new `confirmed_at` is later and wins.
     """
     last = subscriber.last_sent_at
-    return max(last, subscriber.confirmed_at) if last else subscriber.confirmed_at
+    confirmed = subscriber.confirmed_at
+    if confirmed is None:
+        # recipients() selects confirmed subscribers only; the column is
+        # nullable, so the type cannot carry that. A digest for an unconfirmed
+        # row is a caller bug, and used to die later on max(None, ...) anyway.
+        raise ValueError(
+            f"since_for() needs a confirmed subscriber, got pk={subscriber.pk}"
+        )
+    return max(last, confirmed) if last else confirmed
 
 
 def _excerpt(introduction: str) -> str:

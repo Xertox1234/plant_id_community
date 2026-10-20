@@ -70,7 +70,7 @@ class AICacheService:
         content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
         cache_key = f"{cls.CACHE_PREFIX}:{feature}:{content_hash}"
 
-        cached = cache.get(cache_key)
+        cached: Optional[Dict[str, Any]] = cache.get(cache_key)
         if cached:
             logger.info(
                 f"[CACHE] HIT for {feature} (key: {cache_key}, "
@@ -140,7 +140,7 @@ class AICacheService:
         logger.info(f"[CACHE] INVALIDATED for {feature} (key: {cache_key})")
 
     @classmethod
-    def get_cache_stats(cls) -> Dict[str, int]:
+    def get_cache_stats(cls) -> Dict[str, float]:
         """
         Get cache statistics for monitoring.
 

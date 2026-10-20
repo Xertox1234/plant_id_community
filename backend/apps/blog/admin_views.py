@@ -3,6 +3,8 @@ Blog admin views for managing blog content, comments, and settings.
 Provides comprehensive administrative functionality beyond basic Wagtail page management.
 """
 
+from typing import Any
+
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
@@ -270,7 +272,7 @@ def blog_search(request):
     date_from = request.GET.get("date_from", "")
     date_to = request.GET.get("date_to", "")
 
-    results = {
+    results: dict[str, Any] = {
         "posts": [],
         "comments": [],
         "categories": [],
