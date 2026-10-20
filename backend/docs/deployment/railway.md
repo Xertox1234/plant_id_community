@@ -26,8 +26,16 @@ depends on whether API and frontend share a registrable domain.
    earlier version of this step said DNS-only; that was never the prod state.
    Two consequences: Cloudflare closes a WebSocket that is idle for about
    100 s, so uvicorn pings every 20 s (`--ws-ping-interval 20` in
-   `bin/start.sh`); and Cloudflare is one of the hops
-   `RATELIMIT_TRUSTED_PROXY_COUNT` (2) has to count.
+   `bin/start.sh`); and the real client is no longer in `X-Forwarded-For`.
+   Measured 2026-10-20 with `RATELIMIT_LOG_RESOLUTION`: XFF arrives as
+   `<cloudflare-edge>, <upstream proxy>`, `REMOTE_ADDR` is a Railway internal
+   address that changes per request, and `X-Real-IP` holds the client. A
+   forged `X-Real-IP` or XFF from the client is overwritten upstream. So prod
+   uses `RATELIMIT_CLIENT_IP_META_KEY=HTTP_X_REAL_IP` (set once its
+   `railway.ts` declaration was applied), which takes precedence over
+   `RATELIMIT_TRUSTED_PROXY_COUNT`. No proxy count can find the client here:
+   until then every per-IP limit (HTTP and the live socket gate) keyed on
+   the changing internal address and never tripped.
 6. Deploy. The Docker build bakes `collectstatic`; `preDeployCommand` runs
    migrations + the forum seed; the start command only starts the server and the worker (see below).
 
