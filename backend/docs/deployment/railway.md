@@ -31,9 +31,10 @@ depends on whether API and frontend share a registrable domain.
    `<cloudflare-edge>, <upstream proxy>`, `REMOTE_ADDR` is a Railway internal
    address that changes per request, and `X-Real-IP` holds the client. A
    forged `X-Real-IP` or XFF from the client is overwritten upstream. So prod
-   sets `RATELIMIT_CLIENT_IP_META_KEY=HTTP_X_REAL_IP`, which takes precedence
-   over `RATELIMIT_TRUSTED_PROXY_COUNT`. No proxy count can find the client
-   here: until then every per-IP limit (HTTP and the live socket gate) keyed on
+   uses `RATELIMIT_CLIENT_IP_META_KEY=HTTP_X_REAL_IP` (set once its
+   `railway.ts` declaration was applied), which takes precedence over
+   `RATELIMIT_TRUSTED_PROXY_COUNT`. No proxy count can find the client here:
+   until then every per-IP limit (HTTP and the live socket gate) keyed on
    the changing internal address and never tripped.
 6. Deploy. The Docker build bakes `collectstatic`; `preDeployCommand` runs
    migrations + the forum seed; the start command only starts the server and the worker (see below).
