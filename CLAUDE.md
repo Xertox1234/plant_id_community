@@ -150,6 +150,7 @@ The pattern library is the primary reference for implementation decisions. Read 
 | `flutter-patterns.md` | Material 3, dark mode, null safety |
 | `firebase-auth.md` | Firebase → Django JWT exchange, GDPR email redaction |
 | `riverpod.md` | Riverpod 3.x state management |
+| `flutter-ui-design.md` | Canopy on mobile: device audit, layout/motion/a11y rules, the FAB decision |
 
 ### Firebase (`firebase/docs/patterns/`)
 
@@ -242,6 +243,7 @@ Non-review agents (invoke directly for implementation tasks):
 
 - `wagtail-cms-orchestrator.md` — CMS content, API integration, data flow tracing
 - `frontend-developer.md` — React UI/UX implementation
+- `flutter-ui-designer.md` — Flutter UI/UX: Canopy screens, text fit, motion, accessibility (UI layer only)
 - `docs-researcher.md` — validates findings against current library docs via
   Context7 (committed `.mcp.json`; see Harness Automation → Documentation backend),
   used by `/audit` Phase 2.5
