@@ -12,6 +12,7 @@ import '../../shared/widgets/clay_button.dart';
 import '../../shared/widgets/feature_card.dart';
 import '../blog/screens/blog_format.dart';
 import '../onboarding/onboarding_checklist_card.dart';
+import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// Home page with hero section and feature cards
 ///
@@ -43,10 +44,12 @@ class HomePage extends StatelessWidget {
         child: SafeArea(
           child: SingleChildScrollView(
             child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: ext.padScreen,
-                vertical: ext.padScreen * 2,
-              ),
+              padding:
+                  EdgeInsets.symmetric(
+                    horizontal: ext.padScreen,
+                    vertical: ext.padScreen * 2,
+                  ) +
+                  MainShell.fabClearanceOf(context),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [

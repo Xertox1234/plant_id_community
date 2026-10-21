@@ -10,6 +10,7 @@ import '../../services/user_profile_service.dart';
 import '../../services/auth_service.dart';
 import '../../shared/widgets/canopy_surfaces.dart';
 import 'forum_notification_settings_card.dart';
+import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// User profile screen displaying user information and settings
 ///
@@ -71,7 +72,9 @@ class ProfileScreen extends ConsumerWidget {
             },
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: EdgeInsets.all(ext.padScreen),
+              padding:
+                  EdgeInsets.all(ext.padScreen) +
+                  MainShell.fabClearanceOf(context),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -685,7 +688,9 @@ class _SignedOutProfile extends StatelessWidget {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: EdgeInsets.all(ext.padScreen),
+            padding:
+                EdgeInsets.all(ext.padScreen) +
+                MainShell.fabClearanceOf(context),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
               child: Column(

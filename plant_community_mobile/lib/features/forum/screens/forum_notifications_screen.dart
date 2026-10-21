@@ -8,6 +8,7 @@ import '../../../shared/widgets/canopy_surfaces.dart';
 import '../forum_format.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
+import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// The authenticated user's notifications: cursor-paginated, newest first.
 /// Tapping a row marks it read and opens its topic. Mirrors the web bell's
@@ -108,7 +109,9 @@ class _NotificationsList extends StatelessWidget {
       return const Center(child: Text('No notifications yet.'));
     }
     return ListView.separated(
-      padding: const EdgeInsets.all(AppSpacing.md),
+      padding:
+          const EdgeInsets.all(AppSpacing.md) +
+          MainShell.fabClearanceOf(context),
       itemCount: paged.items.length + (paged.hasMore ? 1 : 0),
       separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) {

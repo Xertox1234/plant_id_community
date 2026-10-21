@@ -7,6 +7,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../shared/widgets/canopy_surfaces.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
+import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// Full-text forum search: a query field, optional board filter, and two
 /// result sections (topics/posts) that page independently via one shared
@@ -130,10 +131,12 @@ class _ResultsBody extends ConsumerWidget {
     }
 
     return ListView(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
-      ),
+      padding:
+          const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ) +
+          MainShell.fabClearanceOf(context),
       children: [
         // The semantic section (code review, todo 295) is an ALWAYS-checked
         // sibling, never an alternative to "No results." — search() requests

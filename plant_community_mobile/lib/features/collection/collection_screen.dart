@@ -11,6 +11,7 @@ import '../../core/theme/green_thumb_extension.dart';
 import '../../models/plant.dart';
 import '../../services/auth_service.dart';
 import '../../services/firestore_service.dart';
+import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// Identified-plant collection hub.
 ///
@@ -80,7 +81,8 @@ class _CollectionBody extends StatelessWidget {
     return CustomScrollView(
       slivers: [
         SliverPadding(
-          padding: EdgeInsets.all(ext.padScreen),
+          padding:
+              EdgeInsets.all(ext.padScreen) + MainShell.fabClearanceOf(context),
           sliver: SliverList(
             delegate: SliverChildListDelegate([
               Row(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -200,7 +202,7 @@ void main() {
       await tapTab(tester, LucideIcons.messagesSquare);
       expect(h.path, AppRoutes.forum);
 
-      await tester.tap(find.byType(FloatingActionButton));
+      await tester.tap(find.byKey(MainShell.identifyFabKey));
       await settle(tester);
       expect(h.path, AppRoutes.camera);
       expect(find.byType(CameraScreen), findsOneWidget);
@@ -229,7 +231,7 @@ void main() {
     ) async {
       final h = await pumpShell(tester, loggedIn: false);
 
-      await tester.tap(find.byType(FloatingActionButton));
+      await tester.tap(find.byKey(MainShell.identifyFabKey));
       await settle(tester);
 
       expect(h.path, AppRoutes.camera);
@@ -445,11 +447,11 @@ void main() {
 
   group('the Identify FAB does not sit on the nav bar', () {
     // The FAB is a fixed 56px and each destination cell is width/4, so the
-    // NARROWER the phone the more of its neighbours the FAB covers. 320pt is
-    // the narrowest width iOS ships. Under the `centerDocked` this shell was
-    // written with, these failed by 11.3px at 390pt and 20px at 320pt, on two
-    // of the four tabs -- with an even number of destinations the centre of
-    // the screen is a boundary between two of them, not a gap.
+    // NARROWER the phone the more of its neighbours a centred FAB covered.
+    // 320pt is the narrowest width iOS ships. Under the original
+    // `centerDocked`, these failed by 11.3px at 390pt and 20px at 320pt, on
+    // two of the four tabs. The FAB is now at `endFloat`; this keeps it off
+    // the last tab's pill too.
     //
     // Geometry only, no text: the M3 selection pill is a fixed 64x32, so this
     // assertion is font-independent. That matters, because flutter_test's
@@ -466,7 +468,7 @@ void main() {
 
         await pumpShell(tester, loggedIn: false);
 
-        final fab = tester.getRect(find.byType(FloatingActionButton));
+        final fab = tester.getRect(find.byKey(MainShell.identifyFabKey));
         final indicators = find.byType(NavigationIndicator);
         // A missing indicator would make the loop below vacuously pass.
         expect(indicators, findsNWidgets(MainShell.destinations.length));
@@ -484,6 +486,206 @@ void main() {
 
         await tester.pump(const Duration(seconds: 4));
       });
+    }
+  });
+
+  group('one floating button per screen (owner decision 2026-10-18)', () {
+    testWidgets('the Identify FAB sits bottom-right', (tester) async {
+      tester.view.physicalSize = const Size(375, 812) * 3;
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await pumpShell(tester, loggedIn: false);
+
+      final fab = tester.getRect(find.byKey(MainShell.identifyFabKey));
+      expect(fab.center.dx, greaterThan(375 * 0.75));
+      expect(
+        fab.bottom,
+        lessThanOrEqualTo(tester.getRect(find.byType(NavigationBar)).top),
+      );
+
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    test(
+      'the corner belongs to screens with their own action or a composer',
+      () {
+        for (final path in <String>[
+          AppRoutes.garden,
+          '/forum/boards/general',
+          '/forum/topics/42',
+          '/forum/compose',
+          '${AppRoutes.forumMessages}/alice',
+          AppRoutes.forumNewGroup,
+          '${AppRoutes.forumGroups}/7',
+        ]) {
+          expect(MainShell.ownsPrimaryAction(path), isTrue, reason: path);
+        }
+        for (final path in <String>[
+          AppRoutes.home,
+          AppRoutes.collection,
+          AppRoutes.forum,
+          AppRoutes.profile,
+          AppRoutes.care,
+          AppRoutes.blog,
+          '${AppRoutes.blog}/post-1',
+          AppRoutes.forumMessages,
+          AppRoutes.forumNotifications,
+          AppRoutes.forumBookmarks,
+          '/forum/search',
+          '/forum/users/alice',
+        ]) {
+          expect(MainShell.ownsPrimaryAction(path), isFalse, reason: path);
+        }
+      },
+    );
+
+    // Driven through the real router, so this also proves the shell builder
+    // sees NESTED locations: if `state.uri.path` were shell-scoped, the FAB
+    // would stay up here and two FABs would share the corner.
+    for (final width in <double>[320.0, 375.0]) {
+      for (final path in <String>['/forum/boards/general', AppRoutes.garden]) {
+        testWidgets('$path shows only its own FAB @${width.toInt()}pt', (
+          tester,
+        ) async {
+          tester.view.physicalSize = Size(width, 812) * 3;
+          tester.view.devicePixelRatio = 3.0;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+
+          final h = await pumpShell(tester, loggedIn: true);
+          h.router.go(path);
+          await settle(tester);
+
+          expect(h.path, path);
+          expect(find.byKey(MainShell.identifyFabKey), findsNothing);
+          expect(find.byType(FloatingActionButton), findsOneWidget);
+
+          // Back on a tab root the camera returns.
+          h.router.go(AppRoutes.forum);
+          await settle(tester);
+          expect(find.byKey(MainShell.identifyFabKey), findsOneWidget);
+
+          await tester.pump(const Duration(seconds: 4));
+        });
+      }
+    }
+
+    // Screens reach these routes with `push`, not `go` (forum_screen.dart,
+    // forum_topics_screen.dart), and a push leaves the router's `uri` on the
+    // underlying location -- see [GoRouterHarness.path]. Drive it that way.
+    for (final path in <String>[
+      '/forum/boards/general',
+      '/forum/topics/1',
+      AppRoutes.garden,
+    ]) {
+      testWidgets('a PUSHED $path also hides the Identify FAB', (tester) async {
+        final h = await pumpShell(tester, loggedIn: true);
+        // From Forum even for garden: signed in, Home fetches unfaked
+        // onboarding progress and leaves a timer pending.
+        h.router.go(AppRoutes.forum);
+        await settle(tester);
+        expect(find.byKey(MainShell.identifyFabKey), findsOneWidget);
+
+        unawaited(h.router.push(path));
+        await settle(tester);
+
+        expect(h.path, path);
+        expect(find.byKey(MainShell.identifyFabKey), findsNothing);
+
+        h.router.pop();
+        await settle(tester);
+        expect(find.byKey(MainShell.identifyFabKey), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 4));
+      });
+    }
+
+    // The user-reported bug: the FAB hid the last row of every list. Scroll
+    // each tab to its end and check no visible text is under the FAB.
+    for (final size in <Size>[const Size(320, 640), const Size(375, 812)]) {
+      for (final d in MainShell.destinations) {
+        final tab = d.icon;
+        testWidgets(
+          'scrolled to the end, no text on the ${d.label} tab sits under '
+          'the Identify FAB @${size.width.toInt()}x${size.height.toInt()}',
+          (tester) async {
+            tester.view.physicalSize = size * 3;
+            tester.view.devicePixelRatio = 3.0;
+            addTearDown(tester.view.resetPhysicalSize);
+            addTearDown(tester.view.resetDevicePixelRatio);
+
+            // Signed in only where it changes what renders: Profile's settings.
+            // Signed in, Home fetches onboarding progress, which is unfaked.
+            await pumpShell(tester, loggedIn: d.route == AppRoutes.profile);
+            if (d.route != AppRoutes.home) await tapTab(tester, tab);
+
+            // Offstage branches are skipped by default, so this is the tab on
+            // screen.
+            final barTop = tester.getRect(find.byType(NavigationBar)).top;
+            var lowestViewport = 0.0;
+            for (final e in find.byType(Scrollable).evaluate()) {
+              final state = (e as StatefulElement).state as ScrollableState;
+              if (state.position.axis != Axis.vertical) continue;
+              final box = state.context.findRenderObject()! as RenderBox;
+              final bottom = box
+                  .localToGlobal(box.size.bottomLeft(Offset.zero))
+                  .dy;
+              if (bottom > lowestViewport) lowestViewport = bottom;
+              state.position.jumpTo(state.position.maxScrollExtent);
+            }
+            await tester.pump();
+
+            // The other half of the bug: clearance applied OUTSIDE the scroll
+            // view (a MediaQuery inset that a SafeArea consumes) shrinks the
+            // viewport and clips every list in a dead band above the bar.
+            // The list must reach the bar and scroll beneath the FAB.
+            // Signed out, My Plants is a sign-in prompt with no scroll view.
+            if (d.route != AppRoutes.collection) {
+              expect(
+                lowestViewport,
+                moreOrLessEquals(barTop, epsilon: 1),
+                reason:
+                    'the ${d.label} tab\'s scroll view ends at $lowestViewport, '
+                    'short of the nav bar at $barTop',
+              );
+            }
+
+            final fabFinder = find.byKey(MainShell.identifyFabKey);
+            final fab = tester.getRect(fabFinder);
+            final viewport = Offset.zero & size;
+            // NOT hitTestable(): text under the FAB is exactly what the FAB
+            // blocks from hit tests, so that filter would hide the bug.
+            final texts = find
+                .byType(RichText)
+                .evaluate()
+                .where(
+                  (e) => find
+                      .descendant(
+                        of: fabFinder,
+                        matching: find.byWidget(e.widget),
+                      )
+                      .evaluate()
+                      .isEmpty,
+                );
+            expect(texts, isNotEmpty);
+            for (final e in texts) {
+              final rect = tester.getRect(find.byWidget(e.widget));
+              if (!viewport.overlaps(rect)) continue;
+              expect(
+                rect.overlaps(fab),
+                isFalse,
+                reason:
+                    'text "${(e.widget as RichText).text.toPlainText()}" at '
+                    '$rect is under the Identify FAB at $fab',
+              );
+            }
+
+            await tester.pump(const Duration(seconds: 4));
+          },
+        );
+      }
     }
   });
 }
