@@ -7,6 +7,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
 import '../widgets/topic_card.dart';
+import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// The viewer's bookmarked topics (todo 341), most recently bookmarked
 /// first, cursor-paginated with a "Load more" footer. Auth-only route —
@@ -89,12 +90,14 @@ class _BookmarksList extends StatelessWidget {
       );
     }
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.md,
-        AppSpacing.md,
-        AppSpacing.md,
-        AppSpacing.xl3,
-      ),
+      padding:
+          const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.md,
+            AppSpacing.md,
+            AppSpacing.xl3,
+          ) +
+          MainShell.fabClearanceOf(context),
       itemCount: paged.items.length + (paged.hasMore ? 1 : 0),
       separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) {

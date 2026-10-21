@@ -12,6 +12,7 @@ import '../providers/forum_providers.dart';
 import '../widgets/author_identity.dart';
 import '../widgets/forum_notice_banner.dart';
 import '../widgets/forum_stats_grid.dart';
+import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// A public forum profile: identity + trust + recent activity, read-only.
 /// Backed by `GET /forum/users/{username}/` (`AllowAny` server-side, so this
@@ -90,7 +91,9 @@ class ForumUserProfileScreen extends ConsumerWidget {
             onRetry: () => ref.invalidate(forumUserProfileProvider(username)),
           ),
           data: (profile) => ListView(
-            padding: const EdgeInsets.all(AppSpacing.md),
+            padding:
+                const EdgeInsets.all(AppSpacing.md) +
+                MainShell.fabClearanceOf(context),
             children: [
               if (profile.isBlocked)
                 Padding(

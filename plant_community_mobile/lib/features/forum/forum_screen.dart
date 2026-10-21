@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 import '../../core/constants/app_spacing.dart';
 import '../../shared/widgets/canopy_surfaces.dart';
@@ -55,7 +56,9 @@ class ForumScreen extends ConsumerWidget {
             if (isAuthenticated) ref.invalidate(meStatsProvider);
           },
           child: ListView(
-            padding: const EdgeInsets.all(AppSpacing.md),
+            padding:
+                const EdgeInsets.all(AppSpacing.md) +
+                MainShell.fabClearanceOf(context),
             children: [
               if (isAuthenticated) const _YourSeasonSection(),
               const _ExpertsSection(),

@@ -85,7 +85,10 @@ Cause analysis below is from the code (`lib/core/routing/main_shell.dart` etc.),
    indicator') to assert: shell FAB at end, hidden on own-FAB screens, no two FABs
    overlap, last list item scrolls clear of the FAB, at 320pt and 375pt.
    **IMPLEMENTED (#1174, 2026-10-21).** The shell hides its FAB by route
-   (`MainShell.ownsPrimaryAction`); screens keep their own FABs. The hide list also
+   (`MainShell.ownsPrimaryAction`); screens keep their own FABs. A new scrolling
+   screen under the shell must add `MainShell.fabClearanceOf(context)` to its scroll
+   view's padding: a `MediaQuery` inset does NOT work, because the screens' `SafeArea`s
+   consume it outside the scroll view and clip the list above the bar. The hide list also
    covers the composers (compose, new group, DM and group conversations; owner call
    2026-10-21). Two corrections to the notes above: `heroTag` is KEPT (indexedStack
    still keeps a garden or forum FAB alive in a branch you've left), and the tests live

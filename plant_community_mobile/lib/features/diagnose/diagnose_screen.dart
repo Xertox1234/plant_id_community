@@ -8,6 +8,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../services/api_service.dart';
 import 'diagnose_api.dart';
+import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// Diagnose a sick plant (todo 444): a photo, the symptoms, and optionally
 /// the plant's condition and location; then the diagnosis. Signed-in only
@@ -140,7 +141,9 @@ class _DiagnoseScreenState extends ConsumerState<DiagnoseScreen> {
         // Not a ListView: a short form should build every field, so focus
         // traversal and screen readers reach the ones below the photo.
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppSpacing.md),
+          padding:
+              const EdgeInsets.all(AppSpacing.md) +
+              MainShell.fabClearanceOf(context),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [

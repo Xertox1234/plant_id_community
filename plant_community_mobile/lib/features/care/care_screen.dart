@@ -5,6 +5,7 @@ import '../../core/constants/app_spacing.dart';
 import '../../core/routing/app_router.dart';
 import '../../shared/widgets/canopy_surfaces.dart';
 import '../../core/theme/green_thumb_extension.dart';
+import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// The tag the CMS care guides carry (`CARE_GUIDE_TAG` in
 /// `backend/apps/blog/care_topics.py`, todo 445).
@@ -34,7 +35,8 @@ class CareScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Plant Care'), centerTitle: true),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: EdgeInsets.all(ext.padScreen),
+          padding:
+              EdgeInsets.all(ext.padScreen) + MainShell.fabClearanceOf(context),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

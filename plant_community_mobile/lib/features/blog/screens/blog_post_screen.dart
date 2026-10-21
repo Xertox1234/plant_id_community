@@ -11,6 +11,7 @@ import '../providers/blog_providers.dart';
 import '../services/blog_api.dart';
 import '../widgets/blog_block_view.dart';
 import 'blog_format.dart';
+import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// One blog post (todo 385). [initialTitle] is the list row's title, shown
 /// in the app bar while the post loads; without one the bar says the blog's
@@ -173,12 +174,14 @@ class _PostBody extends StatelessWidget {
     ].where((s) => s.isNotEmpty).join(' · ');
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.md,
-        AppSpacing.md,
-        AppSpacing.md,
-        AppSpacing.xl3,
-      ),
+      padding:
+          const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.md,
+            AppSpacing.md,
+            AppSpacing.xl3,
+          ) +
+          MainShell.fabClearanceOf(context),
       children: [
         if (image != null) ...[
           ClipRRect(

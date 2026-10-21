@@ -11,6 +11,7 @@ import '../models/models.dart';
 import '../providers/forum_providers.dart';
 import '../widgets/author_identity.dart';
 import '../widgets/forum_avatar_cluster.dart';
+import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// The authenticated user's DM inbox (todo 339): one row per conversation,
 /// most recent activity first, unread rows emphasised with a count chip.
@@ -118,7 +119,9 @@ class _ConversationsList extends StatelessWidget {
       );
     }
     return ListView.separated(
-      padding: const EdgeInsets.all(AppSpacing.md),
+      padding:
+          const EdgeInsets.all(AppSpacing.md) +
+          MainShell.fabClearanceOf(context),
       itemCount: paged.items.length + (paged.hasMore ? 1 : 0),
       separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) {

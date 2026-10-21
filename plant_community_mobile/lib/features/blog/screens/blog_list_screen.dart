@@ -8,6 +8,7 @@ import '../models/blog_post.dart';
 import '../providers/blog_providers.dart';
 import '../services/blog_api.dart';
 import 'blog_format.dart';
+import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// Published blog posts, newest first, with a "Load more" footer (todo 385).
 ///
@@ -82,12 +83,14 @@ class _PostList extends StatelessWidget {
       );
     }
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.md,
-        AppSpacing.md,
-        AppSpacing.md,
-        AppSpacing.xl3,
-      ),
+      padding:
+          const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.md,
+            AppSpacing.md,
+            AppSpacing.xl3,
+          ) +
+          MainShell.fabClearanceOf(context),
       itemCount: feed.items.length + (feed.hasMore ? 1 : 0),
       separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) {

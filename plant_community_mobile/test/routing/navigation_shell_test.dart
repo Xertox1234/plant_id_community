@@ -623,12 +623,34 @@ void main() {
 
             // Offstage branches are skipped by default, so this is the tab on
             // screen.
+            final barTop = tester.getRect(find.byType(NavigationBar)).top;
+            var lowestViewport = 0.0;
             for (final e in find.byType(Scrollable).evaluate()) {
               final state = (e as StatefulElement).state as ScrollableState;
               if (state.position.axis != Axis.vertical) continue;
+              final box = state.context.findRenderObject()! as RenderBox;
+              final bottom = box
+                  .localToGlobal(box.size.bottomLeft(Offset.zero))
+                  .dy;
+              if (bottom > lowestViewport) lowestViewport = bottom;
               state.position.jumpTo(state.position.maxScrollExtent);
             }
             await tester.pump();
+
+            // The other half of the bug: clearance applied OUTSIDE the scroll
+            // view (a MediaQuery inset that a SafeArea consumes) shrinks the
+            // viewport and clips every list in a dead band above the bar.
+            // The list must reach the bar and scroll beneath the FAB.
+            // Signed out, My Plants is a sign-in prompt with no scroll view.
+            if (d.route != AppRoutes.collection) {
+              expect(
+                lowestViewport,
+                moreOrLessEquals(barTop, epsilon: 1),
+                reason:
+                    'the ${d.label} tab\'s scroll view ends at $lowestViewport, '
+                    'short of the nav bar at $barTop',
+              );
+            }
 
             final fabFinder = find.byKey(MainShell.identifyFabKey);
             final fab = tester.getRect(fabFinder);

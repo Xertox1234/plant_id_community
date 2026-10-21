@@ -73,9 +73,8 @@ class MainShell extends StatelessWidget {
   /// Key for the shell's Identify FAB, so tests can tell it from a screen's.
   static const identifyFabKey = ValueKey<String>('shellIdentifyFab');
 
-  /// Height of a standard FAB plus its 16px float margin. While the Identify
-  /// FAB shows, the body's bottom padding grows by this much so a list's last
-  /// row can scroll clear of it.
+  /// Height of a standard FAB plus its 16px float margin: how far a list's
+  /// end must sit above the bottom for its last row to clear the FAB.
   static const fabClearance = 56.0 + 16.0;
 
   /// Screens that own the bottom-right corner, where the Identify FAB is
@@ -92,6 +91,17 @@ class MainShell extends StatelessWidget {
     // A group conversation, and the new-group form at /forum/groups/new.
     RegExp('^${AppRoutes.forumGroups}/[^/]+\$'),
   ];
+
+  /// Bottom padding a scroll view under this shell adds INSIDE its own
+  /// padding, so content scrolls beneath the Identify FAB yet its last row
+  /// ends clear of it. Zero where the FAB is hidden, or outside the shell.
+  static EdgeInsets fabClearanceOf(BuildContext context) => EdgeInsets.only(
+    bottom:
+        context
+            .dependOnInheritedWidgetOfExactType<_FabClearance>()
+            ?.clearance ??
+        0,
+  );
 
   /// Whether the screen at [path] owns the corner the Identify FAB sits in.
   static bool ownsPrimaryAction(String path) =>
@@ -138,24 +148,14 @@ class MainShell extends StatelessWidget {
     // No AppBar here on purpose: all 23 screens build their own Scaffold and
     // AppBar, so a shell-level one would double every header.
     return Scaffold(
-      // The outer Scaffold has already stripped the bottom inset (the nav bar
-      // owns it), so this padding reaches the screens' Scaffolds intact.
-      // Default-padded lists and SafeAreas pick it up and end above the FAB.
-      // Screens with their own FAB get nothing extra and pad for themselves.
       // Always wrapped, so toggling the FAB never changes navigationShell's
-      // parent chain.
-      body: Builder(
-        builder: (context) {
-          final mq = MediaQuery.of(context);
-          return MediaQuery(
-            data: mq.copyWith(
-              padding: mq.padding.copyWith(
-                bottom: mq.padding.bottom + (showIdentify ? fabClearance : 0),
-              ),
-            ),
-            child: navigationShell,
-          );
-        },
+      // parent chain. NOT a MediaQuery padding: screens wrap their scroll
+      // views in SafeArea, which would consume it OUTSIDE the scroll view and
+      // clip every list 72px above the bar (seen on the simulator). Screens
+      // add [fabClearanceOf] inside their own scroll padding instead.
+      body: _FabClearance(
+        clearance: showIdentify ? fabClearance : 0,
+        child: navigationShell,
       ),
       floatingActionButton: showIdentify
           ? FloatingActionButton(
@@ -195,4 +195,14 @@ class MainShell extends StatelessWidget {
       ),
     );
   }
+}
+
+class _FabClearance extends InheritedWidget {
+  const _FabClearance({required this.clearance, required super.child});
+
+  final double clearance;
+
+  @override
+  bool updateShouldNotify(_FabClearance oldWidget) =>
+      clearance != oldWidget.clearance;
 }
