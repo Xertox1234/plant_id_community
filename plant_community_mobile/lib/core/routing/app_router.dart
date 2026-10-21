@@ -162,8 +162,10 @@ GoRouter appRouter(Ref ref) {
       // MainShell.destinations -- goBranch() addresses branches positionally,
       // so reordering one without the other silently swaps two tabs.
       StatefulShellRoute.indexedStack(
-        builder: (context, state, navigationShell) =>
-            MainShell(navigationShell: navigationShell),
+        builder: (context, state, navigationShell) => MainShell(
+          navigationShell: navigationShell,
+          location: state.uri.path,
+        ),
         branches: [
           // 0 Home -- /care, /diagnose, /garden and /blog hang off the Home feature
           // grid, so they keep the bar.

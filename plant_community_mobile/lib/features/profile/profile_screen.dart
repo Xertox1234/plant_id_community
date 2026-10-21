@@ -71,7 +71,12 @@ class ProfileScreen extends ConsumerWidget {
             },
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: EdgeInsets.all(ext.padScreen),
+              // Plus the bottom inset, which under MainShell includes the
+              // Identify FAB's clearance: without it the last settings row
+              // scrolls no further than underneath the FAB.
+              padding:
+                  EdgeInsets.all(ext.padScreen) +
+                  EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
