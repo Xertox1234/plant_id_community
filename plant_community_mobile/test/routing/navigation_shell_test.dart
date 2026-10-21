@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -568,6 +570,36 @@ void main() {
           await tester.pump(const Duration(seconds: 4));
         });
       }
+    }
+
+    // Screens reach these routes with `push`, not `go` (forum_screen.dart,
+    // forum_topics_screen.dart), and a push leaves the router's `uri` on the
+    // underlying location -- see [GoRouterHarness.path]. Drive it that way.
+    for (final path in <String>[
+      '/forum/boards/general',
+      '/forum/topics/1',
+      AppRoutes.garden,
+    ]) {
+      testWidgets('a PUSHED $path also hides the Identify FAB', (tester) async {
+        final h = await pumpShell(tester, loggedIn: true);
+        // From Forum even for garden: signed in, Home fetches unfaked
+        // onboarding progress and leaves a timer pending.
+        h.router.go(AppRoutes.forum);
+        await settle(tester);
+        expect(find.byKey(MainShell.identifyFabKey), findsOneWidget);
+
+        unawaited(h.router.push(path));
+        await settle(tester);
+
+        expect(h.path, path);
+        expect(find.byKey(MainShell.identifyFabKey), findsNothing);
+
+        h.router.pop();
+        await settle(tester);
+        expect(find.byKey(MainShell.identifyFabKey), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 4));
+      });
     }
 
     // The user-reported bug: the FAB hid the last row of every list. Scroll

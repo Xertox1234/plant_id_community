@@ -142,21 +142,21 @@ class MainShell extends StatelessWidget {
       // owns it), so this padding reaches the screens' Scaffolds intact.
       // Default-padded lists and SafeAreas pick it up and end above the FAB.
       // Screens with their own FAB get nothing extra and pad for themselves.
-      body: showIdentify
-          ? Builder(
-              builder: (context) {
-                final mq = MediaQuery.of(context);
-                return MediaQuery(
-                  data: mq.copyWith(
-                    padding: mq.padding.copyWith(
-                      bottom: mq.padding.bottom + fabClearance,
-                    ),
-                  ),
-                  child: navigationShell,
-                );
-              },
-            )
-          : navigationShell,
+      // Always wrapped, so toggling the FAB never changes navigationShell's
+      // parent chain.
+      body: Builder(
+        builder: (context) {
+          final mq = MediaQuery.of(context);
+          return MediaQuery(
+            data: mq.copyWith(
+              padding: mq.padding.copyWith(
+                bottom: mq.padding.bottom + (showIdentify ? fabClearance : 0),
+              ),
+            ),
+            child: navigationShell,
+          );
+        },
+      ),
       floatingActionButton: showIdentify
           ? FloatingActionButton(
               key: identifyFabKey,
@@ -166,7 +166,9 @@ class MainShell extends StatelessWidget {
               // every screen in every branch -- including a garden or forum
               // FAB kept alive in a branch the user has left. Two
               // default-tagged FABs in one subtree throw "multiple heroes
-              // share the same tag". Caught by test/routing/app_router_test.dart.
+              // share the same tag". No test fails without it any more (checked
+              // 2026-10-21), because the shell FAB is now hidden where a screen
+              // has its own; keep it for the kept-alive branch case.
               heroTag: 'shellIdentifyFab',
               tooltip: 'Identify a plant',
               onPressed: () => context.push(AppRoutes.camera),

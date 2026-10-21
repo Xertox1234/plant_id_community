@@ -84,6 +84,12 @@ Cause analysis below is from the code (`lib/core/routing/main_shell.dart` etc.),
    `test/routing/app_router_test.dart` ('the Identify FAB never covers a tab selection
    indicator') to assert: shell FAB at end, hidden on own-FAB screens, no two FABs
    overlap, last list item scrolls clear of the FAB, at 320pt and 375pt.
+   **IMPLEMENTED (#1174, 2026-10-21).** The shell hides its FAB by route
+   (`MainShell.ownsPrimaryAction`); screens keep their own FABs. The hide list also
+   covers the composers (compose, new group, DM and group conversations; owner call
+   2026-10-21). Two corrections to the notes above: `heroTag` is KEPT (indexedStack
+   still keeps a garden or forum FAB alive in a branch you've left), and the tests live
+   in `test/routing/navigation_shell_test.dart`, not `app_router_test.dart`.
 2. **Everything is one teal.** Ground, cards, borders, and text are all low-contrast
    greens. The Canopy accents (pollen/bloom/orchid, and `leaf`/`sky`/`berry`/`clay` on
    `GreenThumbExtension`) are essentially unused, and the web's accent `Tile` icon squares,
