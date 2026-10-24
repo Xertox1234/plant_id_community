@@ -1228,7 +1228,7 @@ class PlantViewSet(AuditActorMixin, viewsets.ModelViewSet):
                     )
 
                 # Verify format matches allowed types
-                if img.format.lower() not in ["jpeg", "png", "gif", "webp"]:
+                if (img.format or "").lower() not in ["jpeg", "png", "gif", "webp"]:
                     return Response(
                         {
                             "error": "Invalid image format",

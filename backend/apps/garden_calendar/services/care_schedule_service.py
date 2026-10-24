@@ -13,15 +13,16 @@ This service handles:
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 
 from ..models import CareTask, GrowingZone, Plant, SeasonalTemplate
 
-User = get_user_model()
+if TYPE_CHECKING:
+    from apps.users.models import User
+
 logger = logging.getLogger(__name__)
 
 
@@ -83,7 +84,7 @@ class CareScheduleService:
         """
         logger.info(f"[CARE_SCHEDULE] Generating initial tasks for plant {plant.uuid}")
 
-        created_tasks = []
+        created_tasks: List[CareTask] = []
         growth_stage = plant.growth_stage
         now = timezone.now()
 
@@ -206,12 +207,13 @@ class CareScheduleService:
             f"[CARE_SCHEDULE] Updating tasks for plant {plant.uuid}: {old_stage} → {new_stage}"
         )
 
-        updates = {
+        tasks_adjusted: List[str] = []
+        updates: Dict[str, Any] = {
             "watering_updated": False,
             "fertilizing_updated": False,
             "pruning_updated": False,
             "harvesting_created": False,
-            "tasks_adjusted": [],
+            "tasks_adjusted": tasks_adjusted,
         }
 
         # Get active recurring tasks
@@ -315,7 +317,7 @@ class CareScheduleService:
         return updates
 
     @staticmethod
-    def generate_seasonal_tasks(user: User, season: str) -> List[CareTask]:
+    def generate_seasonal_tasks(user: "User", season: str) -> List[CareTask]:
         """
         Generate seasonal care tasks based on templates and user's growing zone.
 
@@ -330,7 +332,7 @@ class CareScheduleService:
             f"[CARE_SCHEDULE] Generating seasonal tasks for user {user.id}, season: {season}"
         )
 
-        created_tasks = []
+        created_tasks: List[CareTask] = []
 
         # Get user's hardiness zone
         user_zone = getattr(user, "hardiness_zone", None)
@@ -450,7 +452,7 @@ class CareScheduleService:
             return None
 
     @staticmethod
-    def reschedule_overdue_tasks(user: User, days_overdue: int = 7) -> int:
+    def reschedule_overdue_tasks(user: "User", days_overdue: int = 7) -> int:
         """
         Reschedule overdue tasks to today or tomorrow.
 

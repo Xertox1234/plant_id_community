@@ -941,7 +941,7 @@ class Plant(models.Model):
         ]
 
     def __str__(self):
-        if self.garden_bed_id is None:
+        if self.garden_bed is None:
             return self.common_name
         return f"{self.common_name} in {self.garden_bed.name}"
 
@@ -952,7 +952,7 @@ class Plant(models.Model):
     def _check_bed_owner(self):
         # Owner and bed are two FKs since todo 410; a bed's plants are read
         # through the bed, so a plant may only sit in its own owner's bed.
-        if self.garden_bed_id is not None and self.garden_bed.owner_id != self.owner_id:
+        if self.garden_bed is not None and self.garden_bed.owner_id != self.owner_id:
             raise ValidationError(
                 {"garden_bed": "A plant can only be in its owner's garden bed."}
             )
@@ -1236,7 +1236,7 @@ class CareTask(models.Model):
             cached = [
                 (field, field.get_cached_value(self))
                 for field in self._meta.concrete_fields
-                if field.is_relation and field.is_cached(self)
+                if isinstance(field, models.ForeignKey) and field.is_cached(self)
             ]
             self.refresh_from_db(from_queryset=CareTask.objects.select_for_update())
             for field, related in cached:
@@ -1244,8 +1244,8 @@ class CareTask(models.Model):
                     field.set_cached_value(self, related)
             if self.completed or self.skipped:
                 raise CareTask.AlreadyResolved()
-            for field, value in changes.items():
-                setattr(self, field, value)
+            for name, value in changes.items():
+                setattr(self, name, value)
             self.save(update_fields=[*changes, "updated_at"])
             return self._schedule_next_occurrence()
 
@@ -1266,12 +1266,15 @@ class CareTask(models.Model):
         """
         from datetime import timedelta
 
+        interval = self.recurrence_interval_days
+        if not interval:
+            return None  # Not recurring (callers check this first)
         base = max(
             moment
             for moment in (self.scheduled_date, self.completed_at, self.skipped_at)
             if moment is not None
         )
-        next_date = base + timedelta(days=self.recurrence_interval_days)
+        next_date = base + timedelta(days=interval)
 
         # Check if we've reached end date
         if self.recurrence_end_date and next_date.date() > self.recurrence_end_date:

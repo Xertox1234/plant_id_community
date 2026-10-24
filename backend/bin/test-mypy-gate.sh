@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for the CI mypy gate (a bare `python -m mypy`, which checks the
 # `files` list in pyproject.toml [tool.mypy]; apps/users since todo 580, the
-# wagtail_forum package since todo 659).
+# wagtail_forum package and apps/garden_calendar since todo 659).
 # Run from backend/: bash bin/test-mypy-gate.sh
 #
 # pyproject.toml sets follow_imports=silent, which hides errors in modules
@@ -20,8 +20,9 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 cd "$here" || exit 2
 
 forum=packages/wagtail_forum/wagtail_forum
-canaries=("apps/users/_mypy_gate_canary.py" "$forum/_mypy_gate_canary.py")
-test_canaries=("apps/users/tests/_mypy_gate_canary.py" "$forum/tests/_mypy_gate_canary.py")
+garden=apps/garden_calendar
+canaries=("apps/users/_mypy_gate_canary.py" "$forum/_mypy_gate_canary.py" "$garden/_mypy_gate_canary.py")
+test_canaries=("apps/users/tests/_mypy_gate_canary.py" "$forum/tests/_mypy_gate_canary.py" "$garden/tests/_mypy_gate_canary.py")
 all=("${canaries[@]}" "${test_canaries[@]}")
 for f in "${all[@]}"; do
   if [[ -e "$f" ]]; then
@@ -58,9 +59,13 @@ for test_canary in "${test_canaries[@]}"; do
     exit 1
   fi
 done
-others=$(grep ": error:" <<<"$output" | grep -vc -e "^${canaries[0]}:" -e "^${canaries[1]}:")
+canary_patterns=()
+for canary in "${canaries[@]}"; do
+  canary_patterns+=(-e "^$canary:")
+done
+others=$(grep ": error:" <<<"$output" | grep -vc "${canary_patterns[@]}")
 if [[ $others -ne 0 ]]; then
   echo "test-mypy-gate: FAIL: $others error(s) besides the canaries; fix those first" >&2
   exit 1
 fi
-echo "test-mypy-gate: OK: the gate reports errors planted in apps/users and $forum and ignores those in their tests/"
+echo "test-mypy-gate: OK: the gate reports errors planted in apps/users, $forum and $garden and ignores those in their tests/"

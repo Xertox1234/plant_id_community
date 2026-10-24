@@ -68,7 +68,7 @@ class WeatherService:
             lat=f"{latitude:.2f}", lng=f"{longitude:.2f}"
         )
 
-        cached_data = cache.get(cache_key)
+        cached_data: Optional[Dict[str, Any]] = cache.get(cache_key)
         if cached_data:
             # Coordinates are deliberately absent: they are precise user garden
             # positions, and the hit/miss signal is what has diagnostic value.
@@ -79,14 +79,15 @@ class WeatherService:
         logger.info("[WEATHER] Fetching current weather")
 
         try:
+            params: Dict[str, str | float] = {
+                "lat": latitude,
+                "lon": longitude,
+                "appid": WeatherService.API_KEY,
+                "units": "imperial",  # Fahrenheit
+            }
             response = requests.get(
                 f"{WeatherService.API_BASE_URL}/weather",
-                params={
-                    "lat": latitude,
-                    "lon": longitude,
-                    "appid": WeatherService.API_KEY,
-                    "units": "imperial",  # Fahrenheit
-                },
+                params=params,
                 timeout=5,
             )
             response.raise_for_status()
@@ -135,7 +136,7 @@ class WeatherService:
             lat=f"{latitude:.2f}", lng=f"{longitude:.2f}"
         )
 
-        cached_data = cache.get(cache_key)
+        cached_data: Optional[Dict[str, Any]] = cache.get(cache_key)
         if cached_data:
             logger.info("[CACHE] HIT for weather forecast")
             return cached_data
@@ -144,15 +145,16 @@ class WeatherService:
         logger.info(f"[WEATHER] Fetching {days}-day forecast")
 
         try:
+            params: Dict[str, str | float] = {
+                "lat": latitude,
+                "lon": longitude,
+                "appid": WeatherService.API_KEY,
+                "units": "imperial",  # Fahrenheit
+                "cnt": days * 8,  # 3-hour intervals, 8 per day
+            }
             response = requests.get(
                 f"{WeatherService.API_BASE_URL}/forecast",
-                params={
-                    "lat": latitude,
-                    "lon": longitude,
-                    "appid": WeatherService.API_KEY,
-                    "units": "imperial",  # Fahrenheit
-                    "cnt": days * 8,  # 3-hour intervals, 8 per day
-                },
+                params=params,
                 timeout=5,
             )
             response.raise_for_status()

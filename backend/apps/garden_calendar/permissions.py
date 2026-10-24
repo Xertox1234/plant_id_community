@@ -7,6 +7,8 @@ Implements ownership-based permissions for garden resources:
 - IsCareTaskOwner: User owns the care task (via plant)
 """
 
+from typing import Any
+
 from django.db.models import Model
 from rest_framework import permissions
 from rest_framework.request import Request
@@ -34,11 +36,9 @@ class IsGardenOwner(permissions.BasePermission):
             True if user is authenticated (list views allow all users)
         """
         # Require authentication for all garden operations
-        return request.user and request.user.is_authenticated
+        return bool(request.user and request.user.is_authenticated)
 
-    def has_object_permission(
-        self, request: Request, view: APIView, obj: Model
-    ) -> bool:
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         """
         Check object-level permission for garden bed.
 
@@ -52,7 +52,7 @@ class IsGardenOwner(permissions.BasePermission):
         """
         # Read permissions are allowed to owner
         # Write permissions are allowed to owner
-        return obj.owner == request.user
+        return bool(obj.owner == request.user)
 
     message = "You do not have permission to access this garden bed."
 
@@ -79,7 +79,7 @@ class IsPlantOwner(permissions.BasePermission):
             True if user is authenticated
         """
         # Require authentication for all plant operations
-        return request.user and request.user.is_authenticated
+        return bool(request.user and request.user.is_authenticated)
 
     def has_object_permission(
         self, request: Request, view: APIView, obj: Model
@@ -98,11 +98,11 @@ class IsPlantOwner(permissions.BasePermission):
         from .models import Plant
 
         if isinstance(obj, Plant):
-            return obj.owner_id == request.user.pk
+            return bool(obj.owner_id == request.user.pk)
         plant = getattr(obj, "plant", None)
         if plant is not None:
             # CareLog, Harvest, PlantImage: owned through their plant
-            return plant.owner_id == request.user.pk
+            return bool(plant.owner_id == request.user.pk)
 
         # Fallback: deny if no ownership path found
         return False
@@ -131,11 +131,9 @@ class IsCareTaskOwner(permissions.BasePermission):
             True if user is authenticated
         """
         # Require authentication for all care task operations
-        return request.user and request.user.is_authenticated
+        return bool(request.user and request.user.is_authenticated)
 
-    def has_object_permission(
-        self, request: Request, view: APIView, obj: Model
-    ) -> bool:
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         """
         Check object-level permission for care task.
 
@@ -147,7 +145,7 @@ class IsCareTaskOwner(permissions.BasePermission):
         Returns:
             True if user owns the plant for this task
         """
-        return obj.plant.owner_id == request.user.pk
+        return bool(obj.plant.owner_id == request.user.pk)
 
     message = "You do not have permission to access this care task."
 
@@ -172,7 +170,7 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
             True if user is authenticated
         """
         # All authenticated users can read
-        return request.user and request.user.is_authenticated
+        return bool(request.user and request.user.is_authenticated)
 
     def has_object_permission(
         self, request: Request, view: APIView, obj: Model
@@ -195,11 +193,11 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
         # Write permissions only for owner
         # Handle different owner field names
         if hasattr(obj, "owner"):
-            return obj.owner == request.user
+            return bool(obj.owner == request.user)
         elif hasattr(obj, "organizer"):
-            return obj.organizer == request.user
+            return bool(obj.organizer == request.user)
         elif hasattr(obj, "created_by"):
-            return obj.created_by == request.user
+            return bool(obj.created_by == request.user)
 
         # Fallback: deny if no owner field found
         return False
