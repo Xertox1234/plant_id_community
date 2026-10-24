@@ -61,7 +61,7 @@ django-taggit==6.1.0
 django-tasks==0.12.0
 django-treebeard==5.0.5
 django-widget-tweaks==1.5.1
-djangorestframework==3.18.0
+djangorestframework==3.18.2
 djangorestframework_simplejwt==5.5.1
 draftjs_exporter==7.1.0
 drf-spectacular==0.30.0
