@@ -19,7 +19,7 @@ class SuppressionFilterMixin:
         kept = filter_suppressed_messages(email_messages or [])
         if not kept:
             return 0
-        return super().send_messages(kept)
+        return super().send_messages(kept)  # type: ignore[misc]
 
 
 class ConfiguredSMTPBackend(SuppressionFilterMixin, EmailBackend):

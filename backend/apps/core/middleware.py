@@ -49,7 +49,7 @@ class RateLimitMonitoringMiddleware:
         endpoint = request.path
 
         # Process the request
-        response = self.get_response(request)
+        response: HttpResponse = self.get_response(request)
 
         # Post-request processing - check for rate limit violations
         if response.status_code == 429:  # Too Many Requests
@@ -196,7 +196,7 @@ class SecurityMetricsMiddleware:
         start_time = time.time()
 
         # Process request
-        response = self.get_response(request)
+        response: HttpResponse = self.get_response(request)
 
         # Calculate request duration
         duration = time.time() - start_time
@@ -293,7 +293,7 @@ class PermissionsPolicyMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         """Process request and add Permissions-Policy header to response."""
-        response = self.get_response(request)
+        response: HttpResponse = self.get_response(request)
         self._add_permissions_policy(response)
         return response
 

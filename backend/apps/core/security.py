@@ -10,7 +10,7 @@ import logging
 import time
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 from apps.core.ratelimit import get_trusted_client_ip
 from apps.core.utils.pii_safe_logging import (
@@ -46,7 +46,11 @@ from .constants import (
 
 logger = logging.getLogger(__name__)
 
-User = get_user_model()
+if TYPE_CHECKING:
+    # The concrete class, so `User` is valid as an annotation (todo 580).
+    from apps.users.models import User
+else:
+    User = get_user_model()
 
 
 def _printable(value: Any) -> Optional[str]:
@@ -217,7 +221,7 @@ class SecurityMonitor:
 
         # Set lockout status
         lockout_key = LOCKOUT_STATUS_KEY.format(username=username)
-        lockout_data = {
+        lockout_data: Dict[str, Any] = {
             "locked_at": current_time,
             "attempts_count": len(attempts),
             "ip_addresses": list(set(a["ip_address"] for a in attempts)),
@@ -556,7 +560,7 @@ This is an automated security message from Houseplant MD.
 
     @classmethod
     def track_api_request(
-        cls, request: HttpRequest, endpoint: str, user: User = None
+        cls, request: HttpRequest, endpoint: str, user: Optional[User] = None
     ) -> None:
         """
         Track API requests for rate limiting and abuse detection.
@@ -678,7 +682,8 @@ class SecurityMiddleware:
         # Pre-request security checks
         self._pre_request_checks(request)
 
-        return self.get_response(request)
+        response: HttpResponse = self.get_response(request)
+        return response
 
     def _pre_request_checks(self, request: HttpRequest) -> None:
         """Perform security checks before processing request."""
@@ -698,9 +703,9 @@ class SecurityMiddleware:
 # Utility functions for use in views
 def log_security_event(
     event_type: str,
-    user: User = None,
-    details: Dict[str, Any] = None,
-    request: HttpRequest = None,
+    user: Optional[User] = None,
+    details: Optional[Dict[str, Any]] = None,
+    request: Optional[HttpRequest] = None,
 ) -> None:
     """
     Convenience function to log security events from views.

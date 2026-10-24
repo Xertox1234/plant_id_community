@@ -6,8 +6,9 @@ and manages user preferences and notification scheduling.
 """
 
 import logging
+from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_context
 from django.contrib.auth import get_user_model
@@ -15,7 +16,12 @@ from django.utils import timezone
 
 from .email_service import EmailOutcome, EmailService, EmailType
 
-User = get_user_model()
+if TYPE_CHECKING:
+    # The concrete class, so `User` is valid as an annotation (todo 580).
+    from apps.users.models import User
+else:
+    User = get_user_model()
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,7 +61,7 @@ class NotificationService:
         channels: Optional[List[NotificationChannel]] = None,
         priority: NotificationPriority = NotificationPriority.NORMAL,
         template_name: Optional[str] = None,
-        schedule_for: Optional[timezone.datetime] = None,
+        schedule_for: Optional[datetime] = None,
     ) -> Dict[str, bool]:
         """
         Send a notification through specified channels.
@@ -201,7 +207,7 @@ class NotificationService:
         channels: List[NotificationChannel],
         priority: NotificationPriority,
         template_name: Optional[str],
-        schedule_for: timezone.datetime,
+        schedule_for: datetime,
     ) -> Dict[str, bool]:
         """Schedule notification for later delivery."""
         # TODO: Implement proper scheduling with Celery or Django-RQ

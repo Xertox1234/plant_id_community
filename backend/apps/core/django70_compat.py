@@ -129,7 +129,7 @@ def mailers_get_connection(*args, **kwargs):
         and set(kwargs) <= _WAGTAIL_DEFAULT_MAILER_KWARGS
         and all(value is None or value is False for value in kwargs.values())
     ):
-        return mail.mailers.default
+        return mail.mailers.default  # type: ignore[attr-defined]
     return mail.get_connection(*args, **kwargs)
 
 

@@ -11,7 +11,7 @@ import re
 import smtplib
 import uuid
 from email.utils import parseaddr
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from apps.core import email_feedback
 from apps.core.constants import EMAIL_TRACKED_LINK_KEYS
@@ -24,7 +24,12 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.html import strip_tags
 
-User = get_user_model()
+if TYPE_CHECKING:
+    # The concrete class, so `User` is valid as an annotation (todo 580).
+    from apps.users.models import User
+else:
+    User = get_user_model()
+
 logger = logging.getLogger(__name__)
 
 # html_to_text() patterns (todo 622). The plain-text part of a message whose
@@ -156,7 +161,7 @@ def _refuses_this_message(code, reply) -> bool:
             enhanced.group(1) == b"5"
             and int(enhanced.group(2)) in _RECIPIENT_FAULT_SUBJECTS
         )
-    return code != 554
+    return bool(code != 554)
 
 
 def classify_send_error(exc: BaseException) -> str:
@@ -363,7 +368,7 @@ class EmailService:
             return False
 
         try:
-            text_content = render_to_string(f"emails/{template_name}.txt", context)
+            text_content: str = render_to_string(f"emails/{template_name}.txt", context)
         except TemplateDoesNotExist:
             # Expected for the legacy .html-only templates — derive plain text
             # from the HTML that already rendered.
@@ -467,7 +472,7 @@ class EmailService:
         recipients: List[Union[str, User]],
         subject: str,
         template_name: str,
-        context_factory: callable,
+        context_factory: Callable[[Union[str, User]], Dict[str, Any]],
         **kwargs,
     ) -> Dict[str, int]:
         """

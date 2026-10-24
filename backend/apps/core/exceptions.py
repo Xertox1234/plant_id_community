@@ -22,8 +22,10 @@ logger = logging.getLogger(__name__)
 def get_request_id(request) -> Optional[str]:
     """Extract request ID from headers or request object."""
     if hasattr(request, "id"):
-        return request.id
-    return request.META.get("HTTP_X_REQUEST_ID")
+        request_id: Optional[str] = request.id
+        return request_id
+    header: Optional[str] = request.META.get("HTTP_X_REQUEST_ID")
+    return header
 
 
 def _retry_after_seconds(rate: Optional[str]) -> int:

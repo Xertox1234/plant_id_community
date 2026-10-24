@@ -195,7 +195,8 @@ def forget_device_token(user_id: int, token: str) -> int:
         cleared = ForumProfile.objects.filter(user_id=user_id, fcm_token=token).update(
             fcm_token=""
         )
-    return removed + cleared
+    total: int = removed + cleared
+    return total
 
 
 def device_tokens_for_users(user_ids) -> dict[int, list[str]]:

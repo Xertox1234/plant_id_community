@@ -299,7 +299,7 @@ class SecurityLogger:
 
     @staticmethod
     def log_file_upload_attempt(
-        user, filename: str, file_size: int, success: bool, error: str = None
+        user, filename: str, file_size: int, success: bool, error: Optional[str] = None
     ):
         """Log file upload attempts for security monitoring."""
         user_id = user.id if user and hasattr(user, "id") else "anonymous"
@@ -314,7 +314,7 @@ class SecurityLogger:
             )
 
     @staticmethod
-    def log_suspicious_activity(user, activity: str, details: dict = None):
+    def log_suspicious_activity(user, activity: str, details: Optional[dict] = None):
         """Log suspicious activities for security monitoring."""
         user_id = user.id if user and hasattr(user, "id") else "anonymous"
         logger.warning(
