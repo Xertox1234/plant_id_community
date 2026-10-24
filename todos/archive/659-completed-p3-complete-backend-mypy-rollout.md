@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "659"
 tags: [backend, ci, typing, code-quality]
@@ -73,22 +73,22 @@ source errors in these areas cannot silently land.
 
 ## Acceptance Criteria
 
-- [ ] All four remaining source roots are in `[tool.mypy] files`, and a bare
+- [x] All four remaining source roots are in `[tool.mypy] files`, and a bare
       `python -m mypy` from `backend/` passes with the CI configuration.
-- [ ] The `apps.plant_identification.models` blanket suppression is removed.
+- [x] The `apps.plant_identification.models` blanket suppression is removed.
       No new production-module blanket ignores or weaker global rules are added;
       any new inline suppressions name an error code and explain the limitation.
-- [ ] Automated gate self-tests plant a source type error in each newly gated
+- [x] Automated gate self-tests plant a source type error in each newly gated
       area and prove that the CI command reports it and exits nonzero. Temporary
       probes are cleaned up, and the clean gate passes afterward.
-- [ ] The actual `mypy-staged` pre-commit hook fails for a deliberately introduced
+- [x] The actual `mypy-staged` pre-commit hook fails for a deliberately introduced
       source type error in each newly gated area. Record the commands and results.
-- [ ] Existing app-test exclusions remain effective, and forum tests are excluded
+- [x] Existing app-test exclusions remain effective, and forum tests are excluded
       via their module override. Planted-error checks demonstrate that exclusions
       hide test errors without hiding adjacent production-source errors.
-- [ ] Ruff, Black and isort checks and the affected backend runtime tests pass.
+- [x] Ruff, Black and isort checks and the affected backend runtime tests pass.
       Every behavior fix discovered during cleanup has a focused regression test.
-- [ ] Backend CI documentation and workflow comments reflect the final coverage;
+- [x] Backend CI documentation and workflow comments reflect the final coverage;
       the Work Log records verification results and any intentional limitations.
 
 ## Work Log
@@ -200,3 +200,77 @@ source errors in these areas cannot silently land.
   plants them at run time and deletes them on exit.
 - Remaining: `apps/plant_identification` 150, plus the
   `apps.plant_identification.models` blanket suppression.
+
+### 2026-10-24 - Area 4 of 4: apps/plant_identification gated (PR #1188, merged)
+
+- Remeasured with the CI env and the `apps.plant_identification.models`
+  override removed: 160 errors = 141 source + 19 in two app-root test
+  modules. The "150" carried since 2026-10-19 was 131 + 19: it counted
+  `test_api.py` and `test_services.py` as source, because `apps.*.tests.*`
+  only matches a `tests` package. The override already hid 10 of the 141.
+- `apps/plant_identification` added to `[tool.mypy] files`; the models
+  override is gone. The app-root test modules (5 here, plus
+  `apps/core/test_basic.py`) are named one by one in the tests override,
+  since `*` cannot match part of a module name. Bare gate Success on 724
+  files, also with `--warn-unused-ignores`; no ripple into gated apps.
+- Fixes are annotations and narrowing: `@admin.display` for 10 columns;
+  bare annotations for the image slots `RequestImagesMixin` reads (no
+  fields, `makemigrations --check` clean); `cast()` on redis-py replies
+  typed `Awaitable | Any`; `Optional[...]` on providers set to None when
+  unconfigured; annotated locals where `cache.get` / `response.json`
+  returned Any; `QuerySet` as `get_popular_species`' real return type;
+  `UploadedFile` as the upload validator's real parameter.
+- Two unreachable guards, behavior-equivalent: the combined service's
+  provider closures return not-configured when their provider is None (they
+  are only submitted when configured), and `_diagnose_with_api` returns []
+  without plant.health (its only caller checks first). Narrow, explained
+  ignores: the openai `images.generate` overload and the `views.py`
+  ratelimit optional-import stand-in.
+- Real bug found: `optimize_species_database --cleanup-duplicates` (and
+  `--all`, which runs it first) always raised FieldError on
+  `values("scientific_name__iexact")` (review 2026-05-07 #908). Owner chose
+  to fix it in a separate PR with tests; that fix also moves every
+  SET_NULL reference onto the kept species before deleting a duplicate.
+- Self-test gained a plant_identification canary pair and now fails on
+  mypy's "unused section" note (mypy itself exits 0 on it), so a renamed
+  app-root test module cannot drop out of the override silently.
+
+### 2026-10-24 - Verified by hand (owner confirmed completion)
+
+- AC 1: `files` lists `apps/users`, `apps/forum_host`, `apps/blog`,
+  `apps/core`, `apps/garden_calendar`, `apps/plant_identification`,
+  `plant_community_backend` and the wagtail_forum package (every backend app
+  and package). `python -m mypy` from `backend/` with backend-ci.yml's env:
+  `Success: no issues found in 724 source files`; CI green on #1188.
+- AC 2: the models override is removed in #1188. Inline suppressions added
+  across the four areas each name an error code and give a reason (listed
+  per area above); no global rule was weakened.
+- AC 3: `bin/test-mypy-gate.sh` plants canaries in apps/users, wagtail_forum,
+  garden_calendar, core and plant_identification and passes; it runs in CI
+  as its own step. Negative controls failed it in each area (area 4: path
+  dropped from `files`; extra planted error in `permissions.py`; renamed
+  override name), and the canaries are deleted on exit.
+- AC 4: `scripts/mypy_staged.py` (the hook's entry) exited 1 on a planted
+  source error in each newly gated area (area 4:
+  `apps/plant_identification/permissions.py:105: error: Incompatible types in
+  assignment`) and 0 on clean files.
+- AC 5: each area's tests canary must NOT be reported, and the self-test
+  passes; `wagtail_forum.tests.*` excludes the forum tests. The hook exited
+  0 on `test_services.py` with its 18 pre-existing errors.
+- AC 6: ruff/black/isort pass on every PR. Full pytest with the CI env and
+  placeholder keys: 5689 passed, 8 skipped (areas 3 and 4). Behavior fixes
+  and their tests: the garden_calendar formatless-image change gets
+  `test_image_without_format_rejected_as_invalid_format` in this PR (red
+  with the old `img.format.lower()`). Correction to the area 2 entry: that
+  image was a 400 before too ("Invalid image file", via the generic
+  `except Exception`), not a 500; only the error message changed. The dead
+  signal receivers were removed, not fixed. The FieldError fix carries its
+  own tests in its PR.
+- AC 7: `backend/CLAUDE.md` CI bullet, the `pyproject.toml` comments and the
+  `backend-ci.yml` comments/step name describe the final coverage (#1188).
+  Limitations recorded above: app-root test modules are excluded by name.
+
+### 2026-10-24 - Completed
+
+- Archived by hand (owner confirmed, all four areas merged: #1182, #1184,
+  #1186, #1188); verification is quoted above.
