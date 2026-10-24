@@ -116,8 +116,8 @@ jobs:
       - name: Type-check the gated paths (mypy + django-stubs)
         # The gated paths are `files` in pyproject.toml [tool.mypy] (apps/users
         # since todo 580, plant_community_backend, apps/forum_host and apps/blog
-        # since 2026-10-19, packages/wagtail_forum/wagtail_forum and
-        # apps/garden_calendar since todo 659), which a bare `python -m mypy`
+        # since 2026-10-19, packages/wagtail_forum/wagtail_forum,
+        # apps/garden_calendar and apps/core since todo 659), which a bare `python -m mypy`
         # checks; the
         # mypy-staged pre-commit hook blocks on the same list at commit time.
         # pyproject.toml loads the django-stubs plugin with this job's settings
@@ -128,7 +128,7 @@ jobs:
         # path to `files`, nowhere else.
         run: python -m mypy
 
-      - name: mypy gate self-test (planted errors in apps/users, wagtail_forum and garden_calendar must fail it; ones in their tests must not)
+      - name: mypy gate self-test (planted errors in apps/users, wagtail_forum, garden_calendar and core must fail it; ones in their tests must not)
         # follow_imports=silent hides errors in imported-only modules; this
         # proves the probed areas still report, so config drift cannot turn the
         # gate above green by emptiness (todo 599 item 4), and that the tests

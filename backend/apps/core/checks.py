@@ -33,7 +33,7 @@ def check_default_mailer(app_configs, **kwargs):
     from django.core.mail.backends.smtp import EmailBackend as SMTPEmailBackend
 
     try:
-        backend = mail.mailers["default"]
+        backend = mail.mailers["default"]  # type: ignore[attr-defined]
     except Exception as exc:
         return [
             Error(

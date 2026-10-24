@@ -230,7 +230,10 @@ class ResponseSanitizer:
                 return {"error": "An error occurred"}
         else:
             # In debug mode, sanitize but keep more details
-            return cls.sanitize_response_data(error_data, is_debug=True)
+            sanitized_data: Dict[str, Any] = cls.sanitize_response_data(
+                error_data, is_debug=True
+            )
+            return sanitized_data
 
     @classmethod
     def _sanitize_error_message(cls, message: str) -> str:

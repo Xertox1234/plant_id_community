@@ -123,4 +123,5 @@ def send_fcm_message(
         message_kwargs["apns"] = fcm.APNSConfig(
             headers={"apns-collapse-id": collapse_key}
         )
-    return fcm.send(fcm.Message(**message_kwargs))
+    message_id: str = fcm.send(fcm.Message(**message_kwargs))
+    return message_id

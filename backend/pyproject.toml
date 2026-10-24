@@ -18,6 +18,7 @@ files = [
     "apps/users",
     "apps/forum_host",
     "apps/blog",
+    "apps/core",
     "apps/garden_calendar",
     "plant_community_backend",
     # The reusable forum package's importable root (module `wagtail_forum.*`).

@@ -83,7 +83,7 @@ Kind = DeliveryIntent.Kind
 Status = DeliveryIntent.Status
 
 # Each kind's redriver: called by reconcile() with that kind's due rows.
-REDRIVERS = {
+REDRIVERS: dict[str, str] = {
     Kind.FORUM_EMAIL: "apps.forum_host.tasks.redrive_forum_deliveries",
     Kind.FORUM_WEB_PUSH: "apps.forum_host.tasks.redrive_forum_deliveries",
     Kind.FORUM_PUSH: "apps.forum_host.tasks.redrive_forum_deliveries",
@@ -334,7 +334,7 @@ def record_reaccept(
 # --- outcome -------------------------------------------------------------------
 
 
-def _finish(pks, status, reason=""):
+def _finish(pks, status, reason="") -> int:
     pks = list(pks)
     if not pks:
         return 0
@@ -503,7 +503,7 @@ def reconcile() -> dict[str, int]:
         # No bound exception: a frame local would reach Sentry (todo 623).
         logger.error(
             "[DELIVERY] the outbox lag check failed: %s; re-driving anyway",
-            sys.exc_info()[0].__name__,
+            getattr(sys.exc_info()[0], "__name__", "unknown"),
         )
 
     with transaction.atomic():

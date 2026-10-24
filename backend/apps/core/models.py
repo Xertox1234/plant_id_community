@@ -150,7 +150,7 @@ class EmailNotification(models.Model):
         self.sent_at = timezone.now()
         self.save(update_fields=["status", "sent_at"])
 
-    def mark_failed(self, error_message: str = None):
+    def mark_failed(self, error_message: str | None = None):
         """Mark email as failed."""
         self.status = self.STATUS_FAILED
         if error_message:

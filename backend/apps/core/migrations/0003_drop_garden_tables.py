@@ -53,7 +53,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL(
-            sql=DROP_STATEMENTS,
+            sql=DROP_STATEMENTS,  # type: ignore[arg-type]
             reverse_sql=migrations.RunSQL.noop,
         ),
         migrations.RunPython(

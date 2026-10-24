@@ -6,7 +6,7 @@ responsive email design and dynamic content.
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from django.conf import settings
 from django.template import TemplateDoesNotExist
@@ -174,7 +174,8 @@ This email was sent by {site_name}
 
         # Try to get context-specific preheader
         if "preheader_text" in context:
-            return context["preheader_text"]
+            preheader: str = context["preheader_text"]
+            return preheader
 
         # Use template-specific preheader
         return preheader_map.get(template_name, "New notification from Houseplant MD")
@@ -189,7 +190,9 @@ This email was sent by {site_name}
             "get_plant_emoji": self._get_plant_emoji,
         }
 
-    def _format_plant_name(self, scientific_name: str, common_name: str = None) -> str:
+    def _format_plant_name(
+        self, scientific_name: str, common_name: Optional[str] = None
+    ) -> str:
         """Format plant names for display in emails."""
         if common_name and scientific_name:
             return f"{common_name} ({scientific_name})"
@@ -239,7 +242,7 @@ This email was sent by {site_name}
         }
         return styles.get(button_type, styles["primary"])
 
-    def _get_plant_emoji(self, plant_type: str = None) -> str:
+    def _get_plant_emoji(self, plant_type: Optional[str] = None) -> str:
         """Get appropriate emoji for plant types."""
         plant_emojis = {
             "succulent": "🌵",
@@ -268,8 +271,8 @@ This email was sent by {site_name}
         plant_name: str,
         care_type: str,
         care_instructions: str,
-        next_care_date: str = None,
-        plant_image_url: str = None,
+        next_care_date: Optional[str] = None,
+        plant_image_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create template context for plant care emails."""
         return {
@@ -290,7 +293,7 @@ This email was sent by {site_name}
         author_name: str,
         post_excerpt: str,
         topic_url: str,
-        forum_name: str = None,
+        forum_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create template context for forum notification emails."""
         return {
@@ -309,7 +312,7 @@ This email was sent by {site_name}
         confidence: float,
         identifier_name: str,
         result_url: str,
-        plant_image_url: str = None,
+        plant_image_url: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create template context for identification result emails."""
         return {

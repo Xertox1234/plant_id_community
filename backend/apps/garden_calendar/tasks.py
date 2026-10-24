@@ -7,6 +7,7 @@ of their due tasks.
 """
 
 import logging
+import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
@@ -288,10 +289,11 @@ def _log_care_outcomes(outcomes: dict[int, str], retry_later: list[dict]) -> Non
         for outcome in outcomes.values():
             tally[outcome] += 1
         log_outcomes("push", "care_reminder", **tally)
-    except Exception as exc:
+    except Exception:
+        # No bound exception: a frame local would reach Sentry (todo 623).
         logger.error(
             "[FCM] care reminders: could not log the outcomes: %s",
-            type(exc).__name__,
+            getattr(sys.exc_info()[0], "__name__", "unknown"),
         )
 
 

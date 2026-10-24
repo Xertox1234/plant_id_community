@@ -281,7 +281,7 @@ def _suppress(addresses: Iterable[str], reason: str, svix_id: str) -> int:
     """Suppress each address, strengthening (never weakening) a row."""
     from .models import EmailSuppression
 
-    rank = {
+    rank: dict[str, int] = {
         EmailSuppression.Reason.COMPLAINT: 1,
         EmailSuppression.Reason.HARD_BOUNCE: 2,
     }

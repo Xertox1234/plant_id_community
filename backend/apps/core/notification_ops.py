@@ -267,7 +267,7 @@ def report_push_unconfigured(channel: str, context: str, *, has_work=None) -> bo
             logger.warning(
                 "[PUSH] could not check for %s work: %s",
                 channel,
-                sys.exc_info()[0].__name__,
+                getattr(sys.exc_info()[0], "__name__", "unknown"),
             )
             return False
     try:
