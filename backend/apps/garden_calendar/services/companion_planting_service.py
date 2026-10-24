@@ -31,7 +31,7 @@ class CompanionPlantingService:
 
     # Companion planting data
     # Format: {plant_name: {'companions': [...], 'antagonists': [...]}}
-    COMPANION_DATA = {
+    COMPANION_DATA: Dict[str, Dict[str, Any]] = {
         "tomato": {
             "companions": [
                 "basil",
@@ -222,7 +222,7 @@ class CompanionPlantingService:
         cache_key = CACHE_KEY_COMPANION_PLANTS.format(species_id=plant_name)
 
         # Try cache first
-        cached_data = cache.get(cache_key)
+        cached_data: Optional[Dict[str, Any]] = cache.get(cache_key)
         if cached_data:
             logger.info(f"[CACHE] HIT for companion data: {plant_name}")
             return cached_data

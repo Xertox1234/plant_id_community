@@ -70,10 +70,10 @@ class AuditActorMixin:
         # included, so the request's actor never outlives it.
         with ExitStack() as stack:
             self._audit_actor_stack = stack
-            return super().dispatch(request, *args, **kwargs)
+            return super().dispatch(request, *args, **kwargs)  # type: ignore[misc]
 
     def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
+        super().initial(request, *args, **kwargs)  # type: ignore[misc]
         user = request.user
         if user is not None and user.is_authenticated:
             self._audit_actor_stack.enter_context(garden_audit_actor(user))

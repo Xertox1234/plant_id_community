@@ -87,19 +87,16 @@ class CommunityEventAdmin(admin.ModelAdmin):
         ),
     )
 
+    @admin.display(description="Attendees")
     def attendee_count_display(self, obj):
         count = obj.attendee_count
         if obj.max_attendees:
             return f"{count}/{obj.max_attendees}"
         return str(count)
 
-    attendee_count_display.short_description = "Attendees"
-
+    @admin.display(description="Past Event", boolean=True)
     def is_past(self, obj):
         return obj.is_past
-
-    is_past.boolean = True
-    is_past.short_description = "Past Event"
 
 
 class EventAttendeeInline(admin.TabularInline):
@@ -169,10 +166,9 @@ class SeasonalTemplateAdmin(admin.ModelAdmin):
         ),
     )
 
+    @admin.display(description="Zones")
     def zones_display(self, obj):
         return obj.applicable_zones_display
-
-    zones_display.short_description = "Zones"
 
 
 @admin.register(WeatherAlert)
@@ -232,16 +228,13 @@ class WeatherAlertAdmin(admin.ModelAdmin):
         ),
     )
 
+    @admin.display(description="Location")
     def city_or_zip(self, obj):
         return obj.city if obj.city else obj.zip_code
 
-    city_or_zip.short_description = "Location"
-
+    @admin.display(description="Currently Active", boolean=True)
     def is_current(self, obj):
         return obj.is_current
-
-    is_current.boolean = True
-    is_current.short_description = "Currently Active"
 
 
 # =============================================================================
@@ -278,17 +271,15 @@ class GrowingZoneAdmin(admin.ModelAdmin):
         ),
     )
 
+    @admin.display(description="Temperature Range")
     def temp_range_display(self, obj):
         return f"{obj.temp_min}°F to {obj.temp_max}°F"
 
-    temp_range_display.short_description = "Temperature Range"
-
+    @admin.display(description="Frost-Free Period")
     def frost_dates_display(self, obj):
         if obj.first_frost_date and obj.last_frost_date:
             return f"{obj.last_frost_date} to {obj.first_frost_date}"
         return "Not set"
-
-    frost_dates_display.short_description = "Frost-Free Period"
 
 
 class PlantImageInline(admin.TabularInline):
@@ -374,14 +365,14 @@ class GardenBedAdmin(admin.ModelAdmin):
             fields.append("owner")
         return fields
 
+    @admin.display(description="Area")
     def area_display(self, obj):
         area = obj.area_square_feet
         if area:
             return f"{area} sq ft"
         return "Not set"
 
-    area_display.short_description = "Area"
-
+    @admin.display(description="Utilization")
     def utilization_display(self, obj):
         rate = obj.utilization_rate
         if rate is not None:
@@ -398,8 +389,6 @@ class GardenBedAdmin(admin.ModelAdmin):
                 '<span style="color: {};">{:d}%</span>', color, percentage
             )
         return "N/A"
-
-    utilization_display.short_description = "Utilization"
 
 
 @admin.register(Plant)
@@ -479,6 +468,7 @@ class PlantAdmin(admin.ModelAdmin):
         ),
     )
 
+    @admin.display(description="Health")
     def health_status_display(self, obj):
         from .constants import HEALTH_STATUS_COLORS
 
@@ -488,8 +478,6 @@ class PlantAdmin(admin.ModelAdmin):
             color,
             obj.get_health_status_display(),
         )
-
-    health_status_display.short_description = "Health"
 
 
 @admin.register(PlantImage)
@@ -602,6 +590,7 @@ class CareTaskAdmin(admin.ModelAdmin):
             obj.notification_sent = False
         super().save_model(request, obj, form, change)
 
+    @admin.display(description="Priority")
     def priority_display(self, obj):
         colors = {
             "low": "#10B981",  # Green
@@ -616,8 +605,7 @@ class CareTaskAdmin(admin.ModelAdmin):
             obj.get_priority_display(),
         )
 
-    priority_display.short_description = "Priority"
-
+    @admin.display(description="Status")
     def status_display(self, obj):
         if obj.completed:
             return format_html('<span style="color: green;">✓ Completed</span>')
@@ -627,8 +615,6 @@ class CareTaskAdmin(admin.ModelAdmin):
             return format_html('<span style="color: red;">⚠ Overdue</span>')
         else:
             return format_html('<span style="color: blue;">○ Pending</span>')
-
-    status_display.short_description = "Status"
 
 
 @admin.register(CareLog)
@@ -684,7 +670,6 @@ class HarvestAdmin(admin.ModelAdmin):
         ),
     )
 
+    @admin.display(description="Quantity")
     def quantity_display(self, obj):
         return f"{obj.quantity} {obj.get_unit_display()}"
-
-    quantity_display.short_description = "Quantity"

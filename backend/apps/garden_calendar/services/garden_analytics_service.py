@@ -13,9 +13,8 @@ This service handles:
 import logging
 from datetime import timedelta
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db.models import Avg, Count, Sum
 from django.utils import timezone
@@ -23,7 +22,9 @@ from django.utils import timezone
 from ..constants import CACHE_KEY_GARDEN_ANALYTICS, CACHE_TIMEOUT_ANALYTICS
 from ..models import CareTask, GardenBed, Harvest, Plant
 
-User = get_user_model()
+if TYPE_CHECKING:
+    from apps.users.models import User
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,7 +37,7 @@ class GardenAnalyticsService:
     """
 
     @staticmethod
-    def get_bed_utilization_stats(user: User) -> Dict[str, Any]:
+    def get_bed_utilization_stats(user: "User") -> Dict[str, Any]:
         """
         Calculate bed utilization statistics for a user's garden beds.
 
@@ -56,7 +57,7 @@ class GardenAnalyticsService:
         )
 
         # Try cache first
-        cached_data = cache.get(cache_key)
+        cached_data: Optional[Dict[str, Any]] = cache.get(cache_key)
         if cached_data:
             logger.info(f"[CACHE] HIT for bed utilization stats user {user.id}")
             return cached_data
@@ -76,7 +77,7 @@ class GardenAnalyticsService:
             }
 
         # Calculate utilization for each bed
-        utilization_data = {
+        utilization_data: Dict[str, List[Dict[str, Any]]] = {
             "underutilized": [],  # < 50%
             "well_utilized": [],  # 50-85%
             "overutilized": [],  # > 85%
@@ -124,7 +125,7 @@ class GardenAnalyticsService:
         return result
 
     @staticmethod
-    def get_plant_health_stats(user: User) -> Dict[str, Any]:
+    def get_plant_health_stats(user: "User") -> Dict[str, Any]:
         """
         Calculate plant health statistics for a user.
 
@@ -143,7 +144,7 @@ class GardenAnalyticsService:
         )
 
         # Try cache first
-        cached_data = cache.get(cache_key)
+        cached_data: Optional[Dict[str, Any]] = cache.get(cache_key)
         if cached_data:
             logger.info(f"[CACHE] HIT for plant health stats user {user.id}")
             return cached_data
@@ -197,7 +198,7 @@ class GardenAnalyticsService:
         return result
 
     @staticmethod
-    def get_care_task_stats(user: User, days: int = 30) -> Dict[str, Any]:
+    def get_care_task_stats(user: "User", days: int = 30) -> Dict[str, Any]:
         """
         Calculate care task statistics for a user.
 
@@ -262,7 +263,7 @@ class GardenAnalyticsService:
         }
 
     @staticmethod
-    def get_harvest_summary(user: User, year: Optional[int] = None) -> Dict[str, Any]:
+    def get_harvest_summary(user: "User", year: Optional[int] = None) -> Dict[str, Any]:
         """
         Calculate harvest summary for a user.
 
@@ -334,7 +335,7 @@ class GardenAnalyticsService:
         }
 
     @staticmethod
-    def get_comprehensive_dashboard(user: User) -> Dict[str, Any]:
+    def get_comprehensive_dashboard(user: "User") -> Dict[str, Any]:
         """
         Get comprehensive dashboard data for a user.
 
@@ -356,7 +357,7 @@ class GardenAnalyticsService:
         }
 
     @staticmethod
-    def invalidate_user_cache(user: User) -> None:
+    def invalidate_user_cache(user: "User") -> None:
         """
         Invalidate all analytics cache for a user.
 

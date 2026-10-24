@@ -54,9 +54,12 @@ class EventOrganizerSerializer(serializers.ModelSerializer):
         """
         if obj.avatar:
             request = self.context.get("request")
-            if request and hasattr(obj, "avatar_thumbnail"):
-                return request.build_absolute_uri(obj.avatar_thumbnail.url)
-            return obj.avatar_thumbnail.url
+            url: str = (
+                request.build_absolute_uri(obj.avatar_thumbnail.url)
+                if request and hasattr(obj, "avatar_thumbnail")
+                else obj.avatar_thumbnail.url
+            )
+            return url
         return None
 
 
@@ -124,7 +127,8 @@ class CommunityEventListSerializer(serializers.ModelSerializer):
             # lookup reuses the prefetch cache (no per-event query).
             for attendee in obj.attendees.all():
                 if attendee.user_id == request.user.id:
-                    return attendee.status
+                    rsvp: str = attendee.status
+                    return rsvp
         return None
 
 
@@ -157,7 +161,7 @@ class CommunityEventDetailSerializer(CommunityEventListSerializer):
         """Check if current user can edit this event."""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
-            return obj.organizer == request.user
+            return bool(obj.organizer == request.user)
         return False
 
     def get_can_rsvp(self, obj) -> bool:
@@ -181,7 +185,7 @@ class CommunityEventDetailSerializer(CommunityEventListSerializer):
             # lookup reuses the prefetch cache rather than firing a per-event query.
             for attendee in obj.attendees.all():
                 if attendee.user_id == request.user.id:
-                    return attendee.status != "going"
+                    return bool(attendee.status != "going")
             return False
 
         return True
@@ -358,7 +362,8 @@ class WeatherAlertSerializer(serializers.ModelSerializer):
 
     def get_city_or_zip(self, obj) -> str:
         """Get display location (city if available, otherwise ZIP)."""
-        return obj.city if obj.city else obj.zip_code
+        location: str = obj.city if obj.city else obj.zip_code
+        return location
 
 
 class RSVPSerializer(serializers.Serializer):
@@ -395,6 +400,8 @@ class OwnPlantMixin:
     create or update could attach a row to anyone's plant by UUID.
     """
 
+    context: dict[str, Any]  # provided by the Serializer it is mixed into
+
     def validate_plant(self, value):
         request = self.context.get("request")
         if request and request.user.is_authenticated:
@@ -426,9 +433,10 @@ class PlantImageSerializer(serializers.ModelSerializer):
         """Get full image URL."""
         if obj.image:
             request = self.context.get("request")
-            if request:
-                return request.build_absolute_uri(obj.image.url)
-            return obj.image.url
+            url: str = (
+                request.build_absolute_uri(obj.image.url) if request else obj.image.url
+            )
+            return url
         return None
 
     def get_thumbnail_url(self, obj) -> Optional[str]:
@@ -518,19 +526,25 @@ class PlantDetailSerializer(PlantListSerializer):
         """Get next 3 upcoming care tasks using prefetched data."""
         # Use prefetched care_tasks to avoid additional query
         tasks = list(obj.care_tasks.all())[:3]
-        return CareTaskListSerializer(tasks, many=True, context=self.context).data
+        data: list[dict[str, Any]] = CareTaskListSerializer(
+            tasks, many=True, context=self.context
+        ).data
+        return data
 
     def get_recent_logs(self, obj) -> list[dict[str, Any]]:
         """Get last 5 care logs using prefetched data."""
         # Use prefetched care_logs to avoid additional query
         logs = list(obj.care_logs.all())[:5]
-        return CareLogSerializer(logs, many=True, context=self.context).data
+        data: list[dict[str, Any]] = CareLogSerializer(
+            logs, many=True, context=self.context
+        ).data
+        return data
 
     def get_can_edit(self, obj) -> bool:
         """Check if current user can edit this plant."""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
-            return obj.owner_id == request.user.pk
+            return bool(obj.owner_id == request.user.pk)
         return False
 
 
@@ -653,7 +667,7 @@ class CareTaskDetailSerializer(CareTaskListSerializer):
         """Check if current user can edit this task."""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
-            return obj.plant.owner_id == request.user.pk
+            return bool(obj.plant.owner_id == request.user.pk)
         return False
 
 
@@ -841,7 +855,7 @@ class GardenBedDetailSerializer(GardenBedListSerializer):
         """Check if current user can edit this garden bed."""
         request = self.context.get("request")
         if request and request.user.is_authenticated:
-            return obj.owner == request.user
+            return bool(obj.owner == request.user)
         return False
 
 

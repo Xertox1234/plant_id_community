@@ -2,133 +2,21 @@
 Garden Calendar Signals
 
 Signal handlers for automatic actions when calendar events occur.
+
+The community-event, RSVP and weather-alert notification receivers were
+removed in todo 659: they called NotificationService methods that never
+existed, so every run raised an AttributeError that ``except Exception``
+swallowed, and none had ever sent anything (no templates, no clients).
 """
 
 import logging
 
-from apps.core.services.notification_service import NotificationService
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete
 from django.dispatch import receiver
 
-from .models import CommunityEvent, EventAttendee, WeatherAlert
+from .models import CommunityEvent
 
 logger = logging.getLogger(__name__)
-
-
-@receiver(post_save, sender=CommunityEvent)
-def notify_community_event_created(sender, instance, created, **kwargs):
-    """
-    Send notifications when a new community event is created.
-    """
-    if created and instance.privacy_level in ["public", "local"]:
-        try:
-            from apps.users.models import User
-
-            # Build location-based query
-            queryset = User.objects.filter(
-                email_notifications=True,
-                location_privacy__in=["zone_only", "city", "precise"],
-            ).exclude(id=instance.organizer.id)
-
-            # Filter by location based on privacy level
-            if instance.privacy_level == "local" and instance.city:
-                queryset = queryset.filter(location__icontains=instance.city)
-
-            # Further filter by hardiness zone if available
-            if instance.hardiness_zone:
-                queryset = queryset.filter(hardiness_zone=instance.hardiness_zone)
-
-            # Limit to prevent spam (max 100 notifications per event)
-            users_to_notify = queryset[:100]
-
-            for user in users_to_notify:
-                NotificationService.send_email_notification(
-                    user=user,
-                    subject=f"New {instance.get_event_type_display()} in your area",
-                    template="emails/community_event_created.html",
-                    context={
-                        "event": instance,
-                        "user": user,
-                        "organizer": instance.organizer,
-                    },
-                )
-
-        except Exception as e:
-            # Log error but don't fail the event creation
-            logger.exception(
-                "[NOTIFY] Failed to send community event notifications: %s", e
-            )
-
-
-@receiver(post_save, sender=EventAttendee)
-def notify_event_rsvp_updated(sender, instance, created, **kwargs):
-    """
-    Notify event organizer when someone RSVPs to their event.
-    """
-    if created and instance.status == "going":
-        try:
-            organizer = instance.event.organizer
-            if organizer.email_notifications and organizer != instance.user:
-                NotificationService.send_email_notification(
-                    user=organizer,
-                    subject=f"New RSVP for {instance.event.title}",
-                    template="emails/event_rsvp_notification.html",
-                    context={
-                        "event": instance.event,
-                        "attendee": instance.user,
-                        "organizer": organizer,
-                        "total_attendees": instance.event.attendee_count,
-                    },
-                )
-        except Exception as e:
-            logger.exception("[NOTIFY] Failed to send RSVP notification: %s", e)
-
-
-@receiver(post_save, sender=WeatherAlert)
-def notify_weather_alert_created(sender, instance, created, **kwargs):
-    """
-    Send notifications for high-severity weather alerts that affect gardening.
-    """
-    if created and instance.severity in ["high", "critical"] and instance.is_active:
-        try:
-            from apps.users.models import User
-
-            # Find users in the affected area
-            queryset = User.objects.filter(
-                care_reminder_notifications=True,  # Use care reminder setting for weather alerts
-                location_privacy__in=["zone_only", "city", "precise"],
-            )
-
-            # Filter by ZIP code (exact match) or city (partial match)
-            if instance.zip_code:
-                queryset = queryset.filter(zip_code=instance.zip_code)
-            elif instance.city:
-                queryset = queryset.filter(location__icontains=instance.city)
-
-            # Further filter by hardiness zone if available
-            if instance.hardiness_zone:
-                queryset = queryset.filter(hardiness_zone=instance.hardiness_zone)
-
-            # Limit to prevent spam
-            users_to_notify = queryset[:200]
-
-            for user in users_to_notify:
-                NotificationService.send_push_notification(
-                    user=user,
-                    title=f"⚠️ {instance.get_alert_type_display()}",
-                    message=instance.title,
-                    data={
-                        "type": "weather_alert",
-                        "alert_id": str(instance.id),
-                        "severity": instance.severity,
-                        "alert_type": instance.alert_type,
-                    },
-                )
-
-        except Exception as e:
-            logger.exception(
-                "[NOTIFY] Failed to send weather alert notifications: %s", e
-            )
 
 
 @receiver(post_delete, sender=CommunityEvent)
