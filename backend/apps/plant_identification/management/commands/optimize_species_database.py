@@ -9,16 +9,46 @@ This command:
 """
 
 import logging
+from typing import Dict, List, Sequence
 
+from apps.blog.models import BlogPostPage
+from apps.garden_calendar.models import Plant as GardenPlant
 from apps.plant_identification.exceptions import RateLimitExceeded
-from apps.plant_identification.models import PlantIdentificationResult, PlantSpecies
+from apps.plant_identification.models import (
+    PlantDiseaseDatabase,
+    PlantDiseaseRequest,
+    PlantIdentificationResult,
+    PlantSpecies,
+    SavedCareInstructions,
+    UserPlant,
+)
 from apps.plant_identification.services.species_lookup_service import (
     SpeciesLookupService,
 )
 from django.core.management.base import BaseCommand, CommandError
-from django.db.models import F
+from django.db import IntegrityError, transaction
+from django.db.models import Count, F
+from django.db.models.fields.reverse_related import ManyToManyRel
+from django.db.models.functions import Lower
 
 logger = logging.getLogger(__name__)
+
+# Every reference to a PlantSpecies row, moved onto the kept row before a
+# duplicate is deleted. The FKs are all SET_NULL, so deleting without moving
+# would silently unlink users' plants, garden plants and disease requests.
+SPECIES_FK_REFERENCES = (
+    (PlantIdentificationResult, "identified_species"),
+    (UserPlant, "species"),
+    (PlantDiseaseRequest, "plant_species"),
+    (SavedCareInstructions, "plant_species"),
+    (GardenPlant, "plant_species"),
+)
+# (through model, its FK to the owning model). Blog pages: only the live links
+# move; stored page revisions keep the old id.
+SPECIES_M2M_REFERENCES = (
+    (PlantDiseaseDatabase.affected_plants.through, "plantdiseasedatabase"),
+    (BlogPostPage.related_plant_species.through, "blogpostpage"),
+)
 
 
 class Command(BaseCommand):
@@ -105,56 +135,124 @@ class Command(BaseCommand):
             raise CommandError(f"Optimization failed: {str(e)}") from e
 
     def _run_cleanup_task(self):
-        """Remove duplicate and low-quality species entries."""
+        """Merge species rows whose scientific names differ only in case."""
         self.stdout.write(self.style.SUCCESS("TASK: Cleaning up duplicate species"))
 
-        # Find potential duplicates (same scientific name with different cases)
-        from django.db.models import Count
-
-        duplicates = (
-            PlantSpecies.objects.values("scientific_name__iexact")
-            .annotate(count=Count("scientific_name__iexact"))
+        # One key for grouping and membership: Lower() both times (iexact
+        # compiles to UPPER(), which can disagree on non-ASCII names).
+        keyed = PlantSpecies.objects.annotate(name_key=Lower("scientific_name"))
+        duplicate_keys = [
+            row["name_key"]
+            for row in keyed.values("name_key")
+            .annotate(count=Count("id"))
             .filter(count__gt=1)
-        )
+        ]
 
         removed_count = 0
-        for dup in duplicates:
-            # Get all species with this scientific name
-            similar_species = PlantSpecies.objects.filter(
-                scientific_name__iexact=dup["scientific_name__iexact"]
-            ).order_by("-identification_count", "-confidence_score", "created_at")
-
-            # Keep the best one, remove others
-            best_species = similar_species.first()
-            if best_species is None:  # removed since the duplicates query ran
-                continue
-            to_remove = similar_species.exclude(id=best_species.id)
-
-            if to_remove.exists():
-                self.stdout.write(
-                    f"Merging {to_remove.count()} duplicates into {best_species.scientific_name}"
+        for key in duplicate_keys:
+            group = list(
+                keyed.filter(name_key=key).order_by(
+                    "-identification_count", "-confidence_score", "created_at"
                 )
-
-                if not self.dry_run:
-                    # Merge identification results to the best species
-                    PlantIdentificationResult.objects.filter(
-                        identified_species__in=to_remove
-                    ).update(identified_species=best_species)
-
-                    # Update best species counts atomically
-                    count_to_add = sum(s.identification_count for s in to_remove)
-                    PlantSpecies.objects.filter(id=best_species.id).update(
-                        identification_count=F("identification_count") + count_to_add
+            )
+            best, duplicates = group[0], group[1:]
+            dup_ids = [species.pk for species in duplicates]
+            self.stdout.write(
+                f"Merging {len(duplicates)} duplicates into {best.scientific_name}: "
+                f"{self._species_references(dup_ids) or 'no references'}"
+            )
+            if self.dry_run:
+                continue
+            try:
+                with transaction.atomic():
+                    self._merge_species(best, duplicates)
+            except IntegrityError as e:
+                # e.g. one user holds both variants under the same nickname in
+                # one collection (UserPlant unique_together). Left for a human.
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"Skipped {best.scientific_name}: merging would break a "
+                        f"uniqueness rule ({self._constraint_name(e)}); resolve by hand"
                     )
-                    best_species.refresh_from_db()
-
-                    # Remove duplicates
-                    removed_count += to_remove.count()
-                    to_remove.delete()
+                )
+                continue
+            removed_count += len(duplicates)
 
         self.stdout.write(
             self.style.SUCCESS(f"Removed {removed_count} duplicate species")
         )
+
+    @staticmethod
+    def _constraint_name(error: IntegrityError) -> str:
+        diag = getattr(error.__cause__, "diag", None)
+        return getattr(diag, "constraint_name", None) or type(error).__name__
+
+    def _species_references(self, species_ids: List[int]) -> Dict[str, int]:
+        """Count the rows of every relation that point at these species."""
+        counts: Dict[str, int] = {}
+        for rel in PlantSpecies._meta.related_objects:
+            owner = rel.field.model  # the model that declares the relation
+            if isinstance(rel, ManyToManyRel):
+                through = rel.through
+                if through is None:  # set for every M2M once the app registry loads
+                    raise CommandError(
+                        f"{owner._meta.label}: M2M without a through model"
+                    )
+                lookup = f"{rel.field.m2m_reverse_field_name()}__in"
+                count = through._base_manager.filter(**{lookup: species_ids}).count()
+            else:
+                count = owner._base_manager.filter(
+                    **{f"{rel.field.name}__in": species_ids}
+                ).count()
+            if count:
+                counts[f"{owner._meta.label}.{rel.field.name}"] = count
+        return counts
+
+    def _merge_species(
+        self, best: PlantSpecies, duplicates: Sequence[PlantSpecies]
+    ) -> None:
+        """Move every reference onto ``best``, then delete ``duplicates``."""
+        dup_ids = [species.pk for species in duplicates]
+        for model, field in SPECIES_FK_REFERENCES:
+            model._base_manager.filter(**{f"{field}__in": dup_ids}).update(
+                **{field: best}
+            )
+        for through, owner in SPECIES_M2M_REFERENCES:
+            owner_id = f"{owner}_id"
+            owners = set(
+                through._base_manager.filter(plantspecies__in=dup_ids).values_list(
+                    owner_id, flat=True
+                )
+            )
+            through._base_manager.filter(plantspecies__in=dup_ids).delete()
+            already = set(
+                through._base_manager.filter(
+                    plantspecies=best, **{f"{owner_id}__in": owners}
+                ).values_list(owner_id, flat=True)
+            )
+            through._base_manager.bulk_create(
+                [
+                    through(**{owner_id: o, "plantspecies": best})
+                    for o in owners - already
+                ]
+            )
+        tags = {tag for species in duplicates for tag in species.tags.all()}
+        if tags:
+            best.tags.add(*tags)
+        PlantSpecies.objects.filter(pk=best.pk).update(
+            identification_count=F("identification_count")
+            + sum(species.identification_count for species in duplicates)
+        )
+
+        # A relation added to PlantSpecies without a rule above would be
+        # nulled or cascaded by the delete; refuse instead.
+        leftover = self._species_references(dup_ids)
+        if leftover:
+            raise CommandError(
+                f"Unmerged references to duplicate species: {leftover}; add them to "
+                "SPECIES_FK_REFERENCES / SPECIES_M2M_REFERENCES"
+            )
+        PlantSpecies.objects.filter(pk__in=dup_ids).delete()
 
     def _run_metadata_task(self):
         """Update species metadata and confidence scores."""
