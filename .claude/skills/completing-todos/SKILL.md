@@ -130,7 +130,11 @@ With `--limit N`, execute only the first ⌈N / workers⌉ waves and list the de
 3. On the notification: `python3 scripts/todos/state.py ingest-execute $RUN --output <task output file>`.
    It also compares each staged todo's Acceptance Criteria with the merge-base ones (todo 494): any change but a
    re-point the run recorded fails the todo, `acceptance criteria were edited`. A worker that reports a worktree
-   other than the one it was given fails too.
+   other than the one it was given fails too. So does a group whose worker's own `ac.json` has a criterion
+   with a command and `pass: false` (todo 658), `worker evidence incomplete`, even when the verifier's run
+   passed it: Land ticks a box only on the worker's pass, so that group would otherwise block at Land. The
+   verifier (`MODE: execute`) marks such an entry `worker run incomplete`, so the workflow's retry worker
+   normally re-runs it first; this catches what the retry did not.
 4. `failed` todos: retry once in a later wave with `state.py set $RUN <id> ready`, then `state.py group $RUN`
    (it appends new groups and waves). The failed attempt's worktree, tree, evidence and re-points move to
    `previous` (todo 494): the retry gets a fresh worktree, and a retried todo is never re-verified in place.

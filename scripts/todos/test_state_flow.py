@@ -2296,6 +2296,41 @@ def hardening_494_tests():
              "criteria=execute_criteria", "criteria=None")
         (wt / "todos" / "7-pending-p3-x.md").write_text(base)
 
+        # Todo 658: the CLI reads the worker's ac.json, so a criterion its own run did not pass fails at
+        # ingest instead of blocking at Land; the external criterion (no command, pass false) does not.
+        acp = wt / ".sweep-evidence" / "g1" / "ac.json"
+        acp.parent.mkdir(parents=True, exist_ok=True)
+
+        def write_ac(passed):
+            acp.write_text(json.dumps([
+                {"todo": "7", "index": 0, "text": "The code works. Pinned by tests.", "command": "pytest a",
+                 "evidence_path": ".sweep-evidence/g1/7-ac0.txt", "pass": passed},
+                {"todo": "7", "index": 1, "text": "A walkthrough", "command": "", "evidence_path": "",
+                 "pass": False}]))
+
+        def cli_stage(st, passed):
+            write_ac(passed)
+            state.save(run2, runfile)
+            rc = st.main(["ingest-execute", str(runfile), "--output", str(out)])
+            return rc, state.load(runfile)["todos"]["7"]
+
+        def cli_fails_unpassed(st):
+            rc, entry = cli_stage(st, False)
+            return rc == 0 and entry["stage"] == "failed" and "worker evidence incomplete" in entry["reason"] \
+                and "criterion 0" in entry["reason"]
+        both("658: ingest-execute (the CLI) fails a todo whose worker's own run did not pass a criterion",
+             cli_fails_unpassed, "worker_ac=worker_ac_problem", "worker_ac=None")
+        rc, entry = cli_stage(state, True)
+        check("658: the same todo with the worker's pass (and an external criterion) is verified",
+              rc == 0 and entry["stage"] == "verified", (rc, entry.get("stage"), entry.get("reason")))
+        acp.unlink()
+        state.save(run2, runfile)
+        state.main(["ingest-execute", str(runfile), "--output", str(out)])
+        entry = state.load(runfile)["todos"]["7"]
+        check("658: a missing ac.json fails closed at ingest",
+              entry["stage"] == "failed" and "could not read the worker's ac.json" in entry["reason"],
+              (entry.get("stage"), entry.get("reason")))
+
     # PR #982 round 2: one worktree per group, so one todo's edited criteria fail every todo of the group.
     def group_fails_together(st):
         run_g = ready_run([("1", ["a.py"]), ("2", ["a.py"])], workers=1)
@@ -2309,7 +2344,36 @@ def hardening_494_tests():
         return (bg["ids"] == ["1", "2"] and t["1"]["stage"] == t["2"]["stage"] == "failed"
                 and all("todo 2: criterion 0 was edited" in t[i]["reason"] for i in ("1", "2")))
     both("PR #982: an edited criterion on one todo fails its group-mates too", group_fails_together,
-         "if criteria and worker is not None", "if False and worker is not None")
+         "if criteria and trusted", "if False and trusted")
+
+    # Todo 658: the run 2026-10-18-0439 case. The worker ran out of time on the full suite (`pass: false`),
+    # the verifier's own run passed every criterion; that group must fail here, not block at Land.
+    def entries(passed):
+        return [{"todo": i, "index": 0, "command": "pytest", "pass": passed if i == "2" else True}
+                for i in ("1", "2")]
+    check("658: a criterion the worker ran and did not pass is a problem",
+          "todo 2 criterion 0" in (state.unpassed_criterion(worker(["1", "2"]), entries(False)) or ""))
+    check("658: every worker pass is no problem", state.unpassed_criterion(worker(["1", "2"]), entries(True)) is None)
+    check("658: re-pointed, owner-confirmed and external entries (no command, pass false) are no problem",
+          state.unpassed_criterion(worker(["1"]), [{"todo": "1", "index": 0, "command": "", "pass": False,
+                                                    "note": "re-pointed"}]) is None)
+    check("658: another group's entry is ignored",
+          state.unpassed_criterion(worker(["1"]), [{"todo": "9", "index": 0, "command": "x", "pass": False}]) is None)
+
+    def unpassed_fails_group(st):
+        run_u = ready_run([("1", ["a.py"]), ("2", ["a.py"])], workers=1)
+        st.apply_grouping(run_u)
+        bg = st.execute_args(run_u, 0, "/m")[0]
+        st.ingest_execute(run_u, [{"group": bg["group"], "ids": ["1", "2"], "retried": False,
+                                   "worker": worker(["1", "2"]), "verdict": verdict(["1", "2"]) | {"ac": [
+                                       {"todo": i, "index": 0, "verified": True, "note": "my run: exit 0"}
+                                       for i in ("1", "2")]}}],
+                          worker_ac=lambda w: st.unpassed_criterion(w, entries(False)))
+        t = run_u["todos"]
+        return (t["1"]["stage"] == t["2"]["stage"] == "failed"
+                and all("worker evidence incomplete: todo 2 criterion 0" in t[i]["reason"] for i in ("1", "2")))
+    both("658: a verifier-verified criterion the worker did not pass fails the group at ingest", unpassed_fails_group,
+         "elif unpassed:", "elif False:")
 
     # F1 in review: a kept round-1 repair whose criteria changed blocks the group.
     run = pr_open_run()

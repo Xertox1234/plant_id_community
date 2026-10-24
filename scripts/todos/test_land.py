@@ -223,7 +223,25 @@ def setup_reviews(tmp):
     return repo
 
 
+def tail_cases():
+    """Todo 658: a full pytest run ends in shutdown logging, so the plain tail can miss the summary."""
+    with tempfile.TemporaryDirectory() as tmp:
+        log = Path(tmp) / "ev.txt"
+        summary = "=========== 5552 passed, 8 skipped in 812.40s (0:13:32) ==========="
+        log.write_text("\n".join(["collecting", summary] + [f"Traceback line {i}" for i in range(8)]) + "\n")
+        tail = land._tail(log)
+        check("658: a summary before the tail leads it", tail[:2] == [summary, "…"] and tail[-1] == "Traceback line 7",
+              tail)
+        log.write_text("\n".join(["a", "b", "x", summary]) + "\n")
+        check("658: a summary already in the tail is not repeated", land._tail(log) == ["a", "b", "x", summary],
+              land._tail(log))
+        log.write_text("\n".join(f"line {i}" for i in range(9)) + "\n")
+        check("658: output with no pytest summary keeps the plain tail",
+              land._tail(log) == [f"line {i}" for i in range(4, 9)], land._tail(log))
+
+
 def main():
+    tail_cases()
     with tempfile.TemporaryDirectory() as tmp:
         repo = setup(tmp)
         rel = "todos/412-pending-p3-a.md"

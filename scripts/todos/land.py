@@ -180,11 +180,21 @@ def _url_password(value):
     return [password, unquote(password)] if password else []
 
 
+# pytest's closing summary, e.g. `==== 5552 passed, 8 skipped in 812.40s ====`.
+PYTEST_SUMMARY_RE = re.compile(r"^=+ .*\b\d+ (passed|failed|errors?)\b.* in [\d.]+s.* =+$")
+
+
 def _tail(path, secrets=()):
     """The last EVIDENCE_TAIL lines, with every .env value masked as *** -- the tail is
-    committed into the Work Log of a public repo."""
-    lines = Path(path).read_text(errors="replace").rstrip("\n").splitlines()[-EVIDENCE_TAIL:]
-    return [_mask(line, secrets) for line in lines]
+    committed into the Work Log of a public repo. When the last pytest summary line falls
+    before the tail (shutdown logging after a full suite, todo 658), it leads the tail."""
+    lines = Path(path).read_text(errors="replace").rstrip("\n").splitlines()
+    tail = lines[-EVIDENCE_TAIL:]
+    head = lines[:-EVIDENCE_TAIL]
+    summary = next((line for line in reversed(head) if PYTEST_SUMMARY_RE.match(line.strip())), None)
+    if summary is not None and not any(PYTEST_SUMMARY_RE.match(line.strip()) for line in tail):
+        tail = [summary, "…"] + tail
+    return [_mask(line, secrets) for line in tail]
 
 
 def _mask(text, secrets):

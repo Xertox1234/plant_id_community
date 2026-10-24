@@ -66,6 +66,10 @@ missing one, the verdict is `fail`, `reasons` gets `missing todo path`. `BASE` =
      listed criterion has no command: confirm its `text` matches the criterion, `pass` is false and the box is
      `[ ]` in the merge-base version, then `verified: true`, note `owner-confirmed`. Land ticks it and quotes
      the owner's words. An entry noted `owner-confirmed` that the line does not list is `verified: false`.
+   - In `MODE: execute`, an entry with a non-empty `command` and `pass` not true (the worker ran out of
+     time, or its run failed) gets `verified: false`, note `worker run incomplete`, without re-running it
+     (todo 658). Land ticks a box only on the worker's pass, so this sends the group to the retry worker,
+     which re-runs that criterion in the same worktree; `state.py ingest-execute` refuses it too.
    - Any other external or owner-only criterion gets `verified: false`, note `external`.
 4. Acceptance Criteria unchanged: for each todo, take its criteria from the merge-base version
    (`/usr/bin/git -C WT show BASE:<ORIGIN_PATH>`) and from the current file (`WT/<TODO_PATH>`), both using
