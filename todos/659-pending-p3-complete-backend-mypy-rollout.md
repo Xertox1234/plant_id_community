@@ -130,3 +130,40 @@ source errors in these areas cannot silently land.
 - Remaining: `apps/core` 79, `apps/garden_calendar` 102,
   `apps/plant_identification` 150 (331, measured 2026-10-19), plus the
   `apps.plant_identification.models` blanket suppression.
+
+### 2026-10-24 - Area 2 of 4: apps/garden_calendar gated (PR #1184, merged)
+
+- Remeasured with the CI env: 102 source errors, unchanged since 2026-10-19.
+  `apps/garden_calendar` added to `[tool.mypy] files`; no errors rippled into
+  already-gated apps (bare gate Success on 548 files).
+- Real bug found: three signal receivers (`notify_community_event_created`,
+  `notify_event_rsvp_updated`, `notify_weather_alert_created`) called
+  `NotificationService.send_email_notification` / `send_push_notification`,
+  which never existed. `except Exception` swallowed the AttributeError, so
+  nothing had been sent since 2025-10-22; their templates never existed and no
+  web or mobile client uses those endpoints. Owner chose to remove them (not
+  repair); the module docstring records why, and the test class that pinned
+  the swallowed-failure logging went with them.
+- The rest were annotations and narrowing: `@admin.display` for 15 attribute
+  assignments, `bool()` around permission and serializer comparisons,
+  TYPE_CHECKING `User` imports in the services, `garden_bed is None` checks,
+  an `isinstance(field, models.ForeignKey)` cache loop, and `# type: ignore[misc]`
+  on the audit-actor mixin `super()` calls. One small behavior change: an
+  image upload PIL reads with no format now gets a 400 instead of a 500
+  (`(img.format or "").lower()`).
+- `bin/test-mypy-gate.sh` gained a `garden=apps/garden_calendar` canary pair;
+  its "others" count now loops over every canary, so the next area only adds a
+  pair.
+- Verification: bare gate Success; self-test passes and fails for both
+  negative controls (path dropped from `files`; an extra planted error);
+  `mypy-staged` blocks a planted source error, skips a planted test file;
+  ruff/black/isort Passed; pytest garden_calendar + core + users 2842 passed,
+  1 skipped; CI on #1184 all green.
+- kimi-review WARNINGs declined: two "lazy-load" warnings on the
+  `garden_bed is None` checks are false (a null FK returns None without a
+  query, and the old code already loaded the bed for the message); the
+  `interval == 0` path in `_create_next_occurrence` is unreachable because the
+  caller returns first for a non-recurring task; the remaining no-op
+  `cleanup_orphaned_forum_topics` receiver needs no test.
+- Remaining: `apps/core` 79, `apps/plant_identification` 150 (229), plus the
+  `apps.plant_identification.models` blanket suppression.
