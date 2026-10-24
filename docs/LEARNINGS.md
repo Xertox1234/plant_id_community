@@ -7523,3 +7523,32 @@ version for Ubuntu 22.04 and 24.04, not 26.04. Pinning both backend jobs to
 `ubuntu-24.04` keeps the runner compatible without changing the project's Python
 version. When changing either pin, check that the manifest supports their
 combination; retrying an unavailable combination cannot fix setup.
+
+## 2026-10-24 — Two definitions of "verified" let a group pass the verifier and block at Land (todo 658, #1192)
+
+**What broke.** In run 2026-10-18-0439 a worker ran out of time on the full backend suite and
+recorded `pass: false`. The verifier's own run passed (5552 passed), so `ingest-execute` set the todo
+`verified`. Then `land.py flip-acs` refused the box: it ticks only on the worker's `pass` **and** the
+verifier's agreement **and** an evidence file. The group blocked at Land, and the only way out was a
+fresh re-execute (~21 min).
+
+**Root cause.** The gate upstream (`state.evaluate`) checked only the verifier's verdict, never the
+worker's `ac.json`, while the gate downstream required both. Whenever two stages each decide "done",
+the earlier one must enforce everything the later one will.
+
+**Where the check goes matters as much as the check.** Failing the todo at `ingest-execute` alone would
+only reach `failed → ready`, which gives it a fresh worktree on a later wave, so the same 21 minutes get
+spent and only the block moves. The in-place retry (same worktree, re-run only the affected criterion)
+fires only on a **verifier** `fail`. So the verifier (`MODE: execute`) marks the entry `worker run
+incomplete`, and `ingest_execute(worker_ac=…)` is the code backstop for a retry that also times out.
+
+**Two edges a first draft got wrong.**
+
+- Key the check on "has a `command`", not on `pass` alone. Re-pointed, owner-confirmed and external
+  criteria carry `pass: false` by design.
+- Scope an agent rule to the mode it protects. Verifier step 3 also runs in `MODE: repair`, after
+  Land has already flipped the boxes. There the rule would block a repair with no gate behind it.
+
+**Related.** `flip-acs` quotes the evidence file's last lines, and a full pytest run can end in
+shutdown tracebacks. `land._tail` now puts the last pytest summary line first in the quote when
+it falls outside the tail.
