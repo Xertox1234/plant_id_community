@@ -11,7 +11,7 @@ Follows pattern from: docs/patterns/security/file-upload.md
 """
 
 import io
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -247,6 +247,28 @@ class FileUploadSecurityTestCase(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Image dimensions too large", response.data["error"])
+
+    def test_image_without_format_rejected_as_invalid_format(self):
+        """Layer 4: an image PIL reads with no format fails the format check.
+
+        `img.format` can be None; `img.format.lower()` used to raise and fall
+        into the generic "Invalid image file" branch (todo 659, PR #1184).
+        """
+        img_io = self.create_test_image()
+        file = SimpleUploadedFile("plant.jpg", img_io.read(), content_type="image/jpeg")
+        formatless = MagicMock(format=None, size=(100, 100))
+
+        with patch("PIL.Image.open") as mock_open:
+            mock_open.return_value.__enter__.return_value = formatless
+            response = self.client.post(
+                f"/api/v1/calendar/api/plants/{self.plant.uuid}/upload_image/",
+                {"image": file},
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"], "Invalid image format")
+        self.assertEqual(PlantImage.objects.count(), 0)
 
     def test_decompression_bomb_rejected(self):
         """Layer 4: Decompression bombs should be rejected."""
