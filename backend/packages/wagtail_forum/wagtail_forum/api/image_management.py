@@ -70,7 +70,8 @@ class MyForumImagesView(
 
     permission_classes = [IsAuthenticated]
     pagination_class = ForumImageCursorPagination
-    filter_backends = []  # host filter-backend opt-out — see api/views.py BoardListView
+    # host filter-backend opt-out — see api/views.py BoardListView
+    filter_backends: list[type] = []
 
     def get_queryset(self):
         # Schema generation instantiates the view with no authenticated

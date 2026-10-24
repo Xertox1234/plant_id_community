@@ -1,6 +1,7 @@
 import html
 import re
 from dataclasses import dataclass
+from typing import Any
 
 from wagtail.embeds.blocks import EmbedValue
 from wagtail.rich_text import RichText
@@ -53,7 +54,7 @@ def extract_text(obj) -> str:
     body = getattr(obj, "body", None)
     if body is not None:
         for block in body:
-            value = getattr(block, "value", "")
+            value: Any = getattr(block, "value", "")
             # str(EmbedValue) is the provider's iframe HTML, fetched through
             # the embed finder on a cache miss — a second network call inside
             # the request, screening markup the author never wrote (todo 426).

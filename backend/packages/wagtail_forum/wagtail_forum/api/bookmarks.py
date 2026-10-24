@@ -66,7 +66,8 @@ class TopicBookmarkListView(
     serializer_class = TopicListSerializer
     pagination_class = BookmarkCursorPagination
     permission_classes = [IsAuthenticated]
-    filter_backends = []  # host filter-backend opt-out — see api/views.py BoardListView
+    # host filter-backend opt-out — see api/views.py BoardListView
+    filter_backends: list[type] = []
 
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
@@ -87,7 +88,7 @@ class TopicBookmarkListView(
         # leak into the Saved list (mirrors _visible_notifications' topic
         # clause, api/notifications.py).
         qs = (
-            Topic.objects.filter(
+            Topic.objects.filter(  # type: ignore[misc]  # taggit `tags` is untyped to the plugin
                 live=True, board__in=_visible_boards(), bookmarks__user=user
             )
             .select_related(

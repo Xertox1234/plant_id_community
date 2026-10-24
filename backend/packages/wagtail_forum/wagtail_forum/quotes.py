@@ -17,6 +17,7 @@ A `post_quote` block carries the quoted post's id and its text. Three rules:
 
 from __future__ import annotations
 
+from django.contrib.auth.models import AbstractBaseUser
 from django.db.models import Q
 
 from .conf import get_setting
@@ -72,7 +73,9 @@ def resolve_quotable_posts(ids, writer) -> dict[int, Post]:
     return {pid: p for pid, p in posts.items() if p.author_id not in paired}
 
 
-def resolve_quoted_authors(post, *, exclude_pks=()) -> list[tuple[object, Post]]:
+def resolve_quoted_authors(
+    post, *, exclude_pks=()
+) -> list[tuple[AbstractBaseUser, Post]]:
     """[(author, quoted_post)] for the posts `post` quotes — deduped per
     author (their first quoted post), capped at QUOTES_MAX_PER_POST, only
     visible quoted posts, excluding `exclude_pks` (the quoting author,
@@ -80,7 +83,7 @@ def resolve_quoted_authors(post, *, exclude_pks=()) -> list[tuple[object, Post]]
     (`_drop_blocked_pairs`), as for mentions."""
     ids = quoted_post_ids(post.body.raw_data)[: get_setting("QUOTES_MAX_PER_POST")]
     posts = visible_quoted_posts(ids)
-    out: list[tuple[object, Post]] = []
+    out: list[tuple[AbstractBaseUser, Post]] = []
     seen: set[int] = set()
     for pid in ids:
         quoted = posts.get(pid)
@@ -88,6 +91,9 @@ def resolve_quoted_authors(post, *, exclude_pks=()) -> list[tuple[object, Post]]
             continue
         if quoted.author_id in exclude_pks or quoted.author_id in seen:
             continue
+        author = quoted.author
+        if author is None:  # author_id is set, so never at runtime; narrows the type
+            continue
         seen.add(quoted.author_id)
-        out.append((quoted.author, quoted))
+        out.append((author, quoted))
     return out

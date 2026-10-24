@@ -40,7 +40,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from django.utils import timezone
@@ -88,7 +88,7 @@ class Paced:
         return max(ends) if ends else None
 
 
-def quiet_releases(user_ids, now) -> dict[int, object]:
+def quiet_releases(user_ids, now) -> dict[int, datetime]:
     """{user pk: release instant} for the members whose quiet hours hold a
     delivery right now. One query."""
     from wagtail_forum.models import ForumProfile

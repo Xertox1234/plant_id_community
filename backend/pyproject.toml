@@ -11,10 +11,17 @@ plugins = ["mypy_django_plugin.main"]
 # that is what the CI step, bin/test-mypy-gate.sh and the mypy-staged pre-commit
 # hook (scripts/mypy_staged.py, which blocks only for files under these paths)
 # all use. Widen the gate by adding a path here, nowhere else. Tests are
-# excluded from the gate by the `apps.*.tests.*` override below (owner
+# excluded from the gate by the tests overrides below (owner
 # decision 2026-10-19), so widening means fixing an app's SOURCE errors only;
 # the per-app source counts measured that day are in backend/CLAUDE.md "CI".
-files = ["apps/users", "apps/forum_host", "apps/blog", "plant_community_backend"]
+files = [
+    "apps/users",
+    "apps/forum_host",
+    "apps/blog",
+    "plant_community_backend",
+    # The reusable forum package's importable root (module `wagtail_forum.*`).
+    "packages/wagtail_forum/wagtail_forum",
+]
 # A module reached only by import is still analysed for types, but its own
 # errors are not reported; every file in `files` or named on the command line
 # always is.
@@ -45,10 +52,11 @@ ignore_errors = true
 # bare run would skip tests while the mypy-staged hook, which names staged
 # files on the command line, still blocked on them. ignore_errors applies in
 # both. `*` matches zero or more module components, so this covers
-# `apps.users.tests` and every submodule. Add `wagtail_forum.tests.*` here
-# when packages/wagtail_forum is gated (warn_unused_configs would flag it now).
+# `apps.users.tests` and every submodule; `wagtail_forum.tests.*` does the same
+# for the forum package (warn_unused_configs flags either pattern once it
+# stops matching).
 [[tool.mypy.overrides]]
-module = "apps.*.tests.*"
+module = ["apps.*.tests.*", "wagtail_forum.tests.*"]
 ignore_errors = true
 
 [tool.django-stubs]

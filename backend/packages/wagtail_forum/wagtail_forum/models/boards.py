@@ -96,7 +96,7 @@ class ForumBoard(Page):
     post_count = models.PositiveIntegerField(default=0, editable=False)
 
     parent_page_types = ["wagtail_forum.ForumIndex"]
-    subpage_types = []
+    subpage_types: list[str] = []
     content_panels = Page.content_panels + [FieldPanel("description")]
 
     def get_context(self, request, *args, **kwargs):

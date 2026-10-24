@@ -103,5 +103,6 @@ class TouchLastSeenMixin:
     """
 
     def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
+        # A mixin: the APIView it is mixed into supplies initial().
+        super().initial(request, *args, **kwargs)  # type: ignore[misc]
         touch_last_seen(request)

@@ -37,6 +37,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as wait_futures
+from functools import partial
 from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError
@@ -243,7 +244,7 @@ def fetch_snapshots(fetcher, urls) -> dict:
             timeout,
             log_host(url),
         )
-        future.add_done_callback(lambda fut, url=url: _log_late(url, fut))
+        future.add_done_callback(partial(_log_late, url))
     snapshots = {}
     for future in done:
         url = futures[future]
@@ -279,7 +280,9 @@ def link_preview_snapshots(raw_data) -> dict:
         if not isinstance(block, dict) or block.get("type") != "link_preview":
             continue
         value = block.get("value")
-        url = value.get("url") if isinstance(value, dict) else None
+        if not isinstance(value, dict):
+            continue  # is_card_url(None) already skipped it
+        url = value.get("url")
         if is_card_url(url) and url not in stored:
             image = value.get("image")
             stored[url] = {
