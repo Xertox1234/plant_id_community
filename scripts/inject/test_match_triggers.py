@@ -1685,5 +1685,47 @@ class TestRun1724Triggers(unittest.TestCase):
             "    return Response(serializer(obj).data, status=status.HTTP_200_OK)\n"
         )))
 
+
+class TestTodoEngineTriggers(unittest.TestCase):
+    """Todo 658 codification, against the REAL index. The positive fixtures are the shapes
+    that would reopen the bug; the negatives are the lines that shipped in #1192."""
+
+    @classmethod
+    def setUpClass(cls):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        cls.real = mt.load_triggers(root)
+
+    def hits(self, path, fragment):
+        tn, ti = edit(path, "x", fragment)
+        return ids(mt.find_matches(tn, ti, self.real, None))
+
+    def test_pass_false_without_command_fires(self):
+        for line in ('        if entry.get("pass") is not True:\n',
+                     '    if not entry["pass"]:\n',
+                     '    bad = [e for e in ac if e["pass"] == False]\n'):
+            self.assertIn("todo-ac-pass-false-without-command", self.hits("scripts/todos/state.py", line), line)
+
+    def test_shipped_pass_checks_silent(self):
+        # unpassed_criterion keys on the command; flip_acs reads `pass is True`; repoint writes False.
+        for line in ('        if str(entry.get("todo")) in ids and entry.get("command") '
+                     'and entry.get("pass") is not True:\n',
+                     '        if not (entry["pass"] is True and index in agreed and evidence):\n',
+                     '    mine[0]["pass"] = False\n'):
+            self.assertNotIn("todo-ac-pass-false-without-command", self.hits("scripts/todos/land.py", line), line)
+
+    def test_pass_trigger_skips_tests(self):
+        self.assertNotIn("todo-ac-pass-false-without-command",
+                         self.hits("scripts/todos/test_state_flow.py", '    ok = ac[1]["pass"] is False\n'))
+
+    def test_unscoped_verifier_bullet_fires(self):
+        draft = ("   - An entry with a non-empty `command` and `pass` not true gets\n"
+                 "     `verified: false`, note `worker run incomplete`.\n")
+        self.assertIn("todo-verifier-rule-unscoped-mode", self.hits(".claude/agents/todo-verifier.md", draft))
+
+    def test_mode_scoped_verifier_bullet_silent(self):
+        shipped = ("   - In `MODE: execute`, an entry with a non-empty `command` and `pass` not true (the worker ran out of\n"
+                   "     time, or its run failed) gets `verified: false`, note `worker run incomplete`, without re-running it\n")
+        self.assertNotIn("todo-verifier-rule-unscoped-mode", self.hits(".claude/agents/todo-verifier.md", shipped))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

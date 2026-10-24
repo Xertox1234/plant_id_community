@@ -2087,5 +2087,36 @@
     "source": "codify: docs/codify-p4-batch-2026-10-12",
     "added": "2026-10-12",
     "severity": "warn"
+  },
+  {
+    "id": "todo-ac-pass-false-without-command",
+    "domains": [
+      "todo-engine"
+    ],
+    "path_glob": [
+      "scripts/todos/state.py",
+      "scripts/todos/land.py"
+    ],
+    "content_present": "(?m)^(?![^\\n]*command)[^\\n]*(?:(?:\\[[\"']pass[\"']\\]|\\.get\\([\"']pass[\"']\\))\\s*(?:is\\s+not\\s+True|is\\s+False|==\\s*False|!=\\s*True)|\\bnot\\s+[\\w.]+(?:\\[[\"']pass[\"']\\]|\\.get\\([\"']pass[\"']\\)))",
+    "message": "Treating an ac.json entry's pass:false as a failure? Key it on a non-empty command too: re-pointed, owner-confirmed and external entries carry pass:false with an empty command by design (todo 658, state.unpassed_criterion).",
+    "pattern_ref": "docs/rules/todo-engine.md",
+    "source": "codify: fix/todo-658-worker-pass-gap",
+    "added": "2026-10-24",
+    "severity": "warn"
+  },
+  {
+    "id": "todo-verifier-rule-unscoped-mode",
+    "domains": [
+      "todo-engine"
+    ],
+    "path_glob": [
+      ".claude/agents/todo-verifier.md"
+    ],
+    "content_present": "(?m)^\\s*- (?:(?!MODE: )(?!\\n\\s*- )[\\s\\S])*?`verified: false`",
+    "message": "A verifier bullet that sets verified: false with no MODE: named. Step 3 runs in MODE: execute AND MODE: repair (Land has already flipped boxes by repair), so say which mode it applies to; ignore if it is mode-agnostic by design (todo 658).",
+    "pattern_ref": "docs/rules/todo-engine.md",
+    "source": "codify: fix/todo-658-worker-pass-gap",
+    "added": "2026-10-24",
+    "severity": "warn"
   }
 ]
