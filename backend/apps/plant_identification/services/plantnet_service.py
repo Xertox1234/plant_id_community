@@ -8,7 +8,7 @@ Documentation: https://my.plantnet.org/
 import hashlib
 import io
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, BinaryIO, Dict, List, Optional, Union
 
 import requests
 from apps.core.exceptions import ExternalAPIError
@@ -146,7 +146,7 @@ class PlantNetAPIService:
             )
             response.raise_for_status()
 
-            result = response.json()
+            result: dict[str, Any] | None = response.json()
 
             # Increment quota counter after successful API call
             self.quota_manager.increment_plantnet()
@@ -186,7 +186,7 @@ class PlantNetAPIService:
         """
         try:
             # Open image (Image.open accepts both file-like objects and paths)
-            image = Image.open(image_file)
+            image: Image.Image = Image.open(image_file)
 
             # Convert to RGB if necessary
             if image.mode in ("RGBA", "LA", "P"):
@@ -207,7 +207,7 @@ class PlantNetAPIService:
 
     def identify_plant(
         self,
-        images: List[Union[str, ContentFile]],
+        images: List[Union[str, ContentFile, BinaryIO]],
         project: str = "world",
         organs: Optional[List[str]] = None,
         modifiers: Optional[List[str]] = None,
@@ -280,7 +280,7 @@ class PlantNetAPIService:
             )
 
             # Check cache first
-            cached_result = cache.get(cache_key)
+            cached_result: dict[str, Any] | None = cache.get(cache_key)
             if cached_result:
                 logger.info(
                     f"[CACHE] HIT for PlantNet image {image_hash[:8]}... (instant response)"
@@ -321,7 +321,7 @@ class PlantNetAPIService:
                     data.append(("modifiers", modifier))
 
             # Call API through circuit breaker (99.97% faster fast-fail during outages)
-            result = self.circuit.call(
+            result: dict[str, Any] | None = self.circuit.call(
                 self._call_plantnet_api, url, params, files, data, cache_key, image_hash
             )
 
@@ -503,7 +503,8 @@ class PlantNetAPIService:
                 url, params=params, timeout=IMAGE_DOWNLOAD_TIMEOUT
             )
             response.raise_for_status()
-            return response.json()
+            data: Optional[List[Dict[str, Any]]] = response.json()
+            return data
 
         except requests.exceptions.RequestException as e:
             logger.error(

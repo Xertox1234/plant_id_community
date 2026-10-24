@@ -64,9 +64,9 @@ def classify_provider_failure(exc: BaseException) -> str:
         status = getattr(exc, "status_code", None)
         if status == 503:
             return "circuit-open"
-        return _STATUS_REASONS.get(
-            status, f"http-{status}" if status else "unavailable"
-        )
+        if not status:
+            return "unavailable"
+        return _STATUS_REASONS.get(status, f"http-{status}")
     if isinstance(exc, requests.exceptions.Timeout):
         return "timeout"
     if isinstance(exc, requests.exceptions.ConnectionError):

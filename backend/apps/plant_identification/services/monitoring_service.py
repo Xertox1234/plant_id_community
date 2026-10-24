@@ -6,7 +6,7 @@ alerts when thresholds are approaching.
 """
 
 import logging
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -48,7 +48,7 @@ class APIMonitoringService:
         self.current_hour = timezone.now().replace(minute=0, second=0, microsecond=0)
 
     def record_api_call(
-        self, api_name: str, endpoint: str = None, success: bool = True
+        self, api_name: str, endpoint: Optional[str] = None, success: bool = True
     ):
         """
         Record an API call for monitoring purposes.
@@ -304,7 +304,7 @@ class APIMonitoringService:
         Returns:
             Dictionary with detailed metrics
         """
-        metrics = {
+        metrics: Dict[str, Any] = {
             "export_timestamp": timezone.now().isoformat(),
             "hours_covered": hours,
             "api_usage": {},

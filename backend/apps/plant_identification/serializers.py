@@ -16,7 +16,7 @@ from .models import (
 )
 
 
-def serialize_image_urls(images, request):
+def serialize_image_urls(images, request) -> list[str]:
     """Serialize a model's image/thumbnail list to a list of URLs.
 
     Returns absolute URLs when a ``request`` is in serializer context — correct
@@ -30,7 +30,7 @@ def serialize_image_urls(images, request):
     these four ``get_images``/``get_image_thumbnails`` copies had drifted (one
     relative, three absolute — todo 221 / finding M4).
     """
-    urls = []
+    urls: list[str] = []
     for image in images:
         if not image:
             continue
@@ -86,7 +86,8 @@ class PlantSpeciesSerializer(serializers.ModelSerializer):
         if obj.primary_image:
             request = self.context.get("request")
             if request and hasattr(obj, "primary_image_thumbnail"):
-                return request.build_absolute_uri(obj.primary_image_thumbnail.url)
+                url: str = request.build_absolute_uri(obj.primary_image_thumbnail.url)
+                return url
         return None
 
 
@@ -136,8 +137,8 @@ class PlantIdentificationRequestSerializer(serializers.ModelSerializer):
     def get_results_count(self, obj) -> int:
         """Get count of identification results."""
         if hasattr(obj, "_results_count"):
-            return obj._results_count
-        return obj.identification_results.count()
+            return int(obj._results_count)
+        return int(obj.identification_results.count())
 
 
 # =============================================================================
@@ -194,8 +195,8 @@ class PlantDiseaseRequestSerializer(serializers.ModelSerializer):
     def get_results_count(self, obj) -> int:
         """Get count of diagnosis results."""
         if hasattr(obj, "_results_count"):
-            return obj._results_count
-        return obj.diagnosis_results.count()
+            return int(obj._results_count)
+        return int(obj.diagnosis_results.count())
 
 
 class PlantDiseaseRequestCreateSerializer(serializers.ModelSerializer):
@@ -390,7 +391,8 @@ class UserPlantSerializer(serializers.ModelSerializer):
         if obj.image:
             request = self.context.get("request")
             if request and hasattr(obj, "image_thumbnail"):
-                return request.build_absolute_uri(obj.image_thumbnail.url)
+                url: str = request.build_absolute_uri(obj.image_thumbnail.url)
+                return url
         return None
 
 
@@ -444,8 +446,8 @@ class PlantIdentificationRequestWithResultsSerializer(serializers.ModelSerialize
     def get_results_count(self, obj) -> int:
         """Get count of identification results."""
         if hasattr(obj, "_results_count"):
-            return obj._results_count
-        return obj.identification_results.count()
+            return int(obj._results_count)
+        return int(obj.identification_results.count())
 
 
 # Missing serializers for the disease diagnosis models
@@ -502,5 +504,5 @@ class PlantDiseaseRequestWithResultsSerializer(serializers.ModelSerializer):
     def get_results_count(self, obj) -> int:
         """Get count of diagnosis results."""
         if hasattr(obj, "_results_count"):
-            return obj._results_count
-        return obj.diagnosis_results.count()
+            return int(obj._results_count)
+        return int(obj.diagnosis_results.count())

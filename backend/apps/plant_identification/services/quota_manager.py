@@ -14,7 +14,7 @@ Features:
 
 import logging
 from datetime import datetime, time, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 from django_redis import get_redis_connection
 from redis import Redis
@@ -61,7 +61,7 @@ class QuotaManager:
             Redis client or None if Redis unavailable
         """
         try:
-            redis_client = get_redis_connection("default")
+            redis_client: Redis = get_redis_connection("default")
             # Verify connection
             redis_client.ping()
             return redis_client
@@ -131,7 +131,9 @@ class QuotaManager:
             return 0
 
         try:
-            count = self.redis_client.get(QUOTA_KEY_PREFIX_PLANT_ID_DAILY)
+            count = cast(
+                Optional[bytes], self.redis_client.get(QUOTA_KEY_PREFIX_PLANT_ID_DAILY)
+            )
             return int(count) if count else 0
         except Exception as e:
             logger.error(f"[QUOTA] Error getting Plant.id daily usage: {e}")
@@ -148,7 +150,10 @@ class QuotaManager:
             return 0
 
         try:
-            count = self.redis_client.get(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY)
+            count = cast(
+                Optional[bytes],
+                self.redis_client.get(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY),
+            )
             return int(count) if count else 0
         except Exception as e:
             logger.error(f"[QUOTA] Error getting Plant.id monthly usage: {e}")
@@ -166,7 +171,9 @@ class QuotaManager:
 
         try:
             # Increment daily counter
-            daily_count = self.redis_client.incr(QUOTA_KEY_PREFIX_PLANT_ID_DAILY)
+            daily_count = cast(
+                int, self.redis_client.incr(QUOTA_KEY_PREFIX_PLANT_ID_DAILY)
+            )
             if daily_count == 1:
                 # First call today - set expiration to midnight
                 ttl = self._seconds_until_midnight()
@@ -176,7 +183,9 @@ class QuotaManager:
                 )
 
             # Increment monthly counter
-            monthly_count = self.redis_client.incr(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY)
+            monthly_count = cast(
+                int, self.redis_client.incr(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY)
+            )
             if monthly_count == 1:
                 # First call this month - set expiration to end of month
                 ttl = self._seconds_until_month_end()
@@ -260,7 +269,9 @@ class QuotaManager:
             return 0
 
         try:
-            count = self.redis_client.get(QUOTA_KEY_PREFIX_PLANTNET_HOURLY)
+            count = cast(
+                Optional[bytes], self.redis_client.get(QUOTA_KEY_PREFIX_PLANTNET_HOURLY)
+            )
             return int(count) if count else 0
         except Exception as e:
             logger.error(f"[QUOTA] Error getting PlantNet hourly usage: {e}")
@@ -277,7 +288,9 @@ class QuotaManager:
             return 0
 
         try:
-            count = self.redis_client.get(QUOTA_KEY_PREFIX_PLANTNET_DAILY)
+            count = cast(
+                Optional[bytes], self.redis_client.get(QUOTA_KEY_PREFIX_PLANTNET_DAILY)
+            )
             return int(count) if count else 0
         except Exception as e:
             logger.error(f"[QUOTA] Error getting PlantNet daily usage: {e}")
@@ -295,7 +308,9 @@ class QuotaManager:
 
         try:
             # Increment hourly counter
-            hourly_count = self.redis_client.incr(QUOTA_KEY_PREFIX_PLANTNET_HOURLY)
+            hourly_count = cast(
+                int, self.redis_client.incr(QUOTA_KEY_PREFIX_PLANTNET_HOURLY)
+            )
             if hourly_count == 1:
                 # First call this hour - set expiration to 1 hour
                 self.redis_client.expire(QUOTA_KEY_PREFIX_PLANTNET_HOURLY, 3600)
@@ -304,7 +319,9 @@ class QuotaManager:
                 )
 
             # Increment daily counter
-            daily_count = self.redis_client.incr(QUOTA_KEY_PREFIX_PLANTNET_DAILY)
+            daily_count = cast(
+                int, self.redis_client.incr(QUOTA_KEY_PREFIX_PLANTNET_DAILY)
+            )
             if daily_count == 1:
                 # First call today - set expiration to midnight
                 ttl = self._seconds_until_midnight()

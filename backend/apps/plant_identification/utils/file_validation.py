@@ -19,14 +19,14 @@ except ImportError:
     _HAS_MAGIC = False
 
 import logging
-from typing import BinaryIO
 
+from django.core.files.uploadedfile import UploadedFile
 from rest_framework.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 
 
-def validate_image_file(image_file: BinaryIO) -> bool:
+def validate_image_file(image_file: UploadedFile) -> bool:
     """
     Validate image file using three layers of security.
 

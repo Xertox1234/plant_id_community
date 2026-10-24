@@ -22,7 +22,7 @@ try:
     from apps.core.ratelimit import ratelimit
 except ImportError:
     # Fallback decorator that does nothing if django-ratelimit is not installed
-    def ratelimit(**kwargs):
+    def ratelimit(**kwargs):  # type: ignore[misc]  # optional-import stand-in
         def decorator(func):
             return func
 

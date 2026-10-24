@@ -9,7 +9,7 @@ were removed on 2026-06-03 when that stack was retired.
 """
 
 import logging
-from typing import Dict
+from typing import Dict, Optional
 
 from .plantnet_service import PlantNetAPIService
 from .trefle_service import TrefleAPIService
@@ -25,7 +25,7 @@ class PlantIdentificationService:
     def __init__(self):
         """Initialize the identification service with API clients."""
         try:
-            self.trefle = TrefleAPIService()
+            self.trefle: Optional[TrefleAPIService] = TrefleAPIService()
         except ValueError:
             logger.warning(
                 "[IDENTIFY] Trefle API not available - continuing without it"
@@ -33,7 +33,7 @@ class PlantIdentificationService:
             self.trefle = None
 
         try:
-            self.plantnet = PlantNetAPIService()
+            self.plantnet: Optional[PlantNetAPIService] = PlantNetAPIService()
         except ValueError:
             logger.warning(
                 "[IDENTIFY] PlantNet API not available - continuing without it"

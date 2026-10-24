@@ -7,7 +7,7 @@ plant images with smart fallback logic and cost optimization.
 
 import logging
 import re
-from typing import Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from apps.core.utils.urls import safe_http_url
 from django.conf import settings
@@ -69,7 +69,7 @@ class PlantImageService:
         Returns:
             Dictionary mapping source names to image lists
         """
-        results = {}
+        results: Dict[str, Any] = {}
 
         # Search Unsplash
         try:
@@ -388,7 +388,7 @@ class PlantImageService:
             return self.attribution_from_image_tags(names), CREDIT_FROM_TAGS
 
         status, image_data = self.unsplash.lookup_photo(photo_ids[0])
-        if ((image_data or {}).get("photographer") or {}).get("name"):
+        if image_data and (image_data.get("photographer") or {}).get("name"):
             return (
                 (
                     self.get_attribution_text("unsplash", image_data),
@@ -458,7 +458,7 @@ class PlantImageService:
         Returns:
             Dictionary mapping plant names to results
         """
-        results = {}
+        results: Dict[str, Any] = {}
         ai_images_generated = 0
 
         for plant_info in plant_list:

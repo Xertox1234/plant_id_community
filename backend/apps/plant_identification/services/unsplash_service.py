@@ -8,7 +8,7 @@ Documentation: https://unsplash.com/documentation
 import logging
 import re
 from io import BytesIO
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
 import requests
@@ -90,7 +90,7 @@ class UnsplashImageService:
 
     def is_rate_limited(self) -> bool:
         """True while the shared request counter is at the hourly limit."""
-        return cache.get(self.RATE_LIMIT_KEY, 0) >= self.RATE_LIMIT
+        return bool(cache.get(self.RATE_LIMIT_KEY, 0) >= self.RATE_LIMIT)
 
     def _make_request(
         self, endpoint: str, params: Optional[Dict] = None
@@ -159,8 +159,8 @@ class UnsplashImageService:
             logger.error(
                 f"[UNSPLASH] Unsplash API request failed: {url} - {log_safe_api_error(e)}"
             )
-            response = getattr(e, "response", None)
-            return getattr(response, "status_code", None), None
+            err_response = getattr(e, "response", None)
+            return getattr(err_response, "status_code", None), None
 
     def search_plant_images(
         self,
@@ -195,7 +195,7 @@ class UnsplashImageService:
 
         # Check cache first
         cache_key = f"unsplash_search_{search_query.replace(' ', '_').lower()}_{limit}_{orientation}"
-        cached_result = cache.get(cache_key)
+        cached_result: list[dict[Any, Any]] | None = cache.get(cache_key)
         if cached_result:
             logger.info(f"[UNSPLASH] Using cached Unsplash results for: {plant_name}")
             return cached_result

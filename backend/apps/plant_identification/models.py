@@ -5,6 +5,7 @@ This module contains models for plant data, identification requests, and results
 """
 
 import uuid
+from typing import Any
 
 from apps.core.validators import validate_plant_identification_image
 from django.conf import settings
@@ -275,6 +276,15 @@ class RequestImagesMixin:
     they were byte-identical copies, the model-layer twin of the serializer dedup
     in todo 221 / M4. Properties only, so this adds no DB fields or migrations.
     """
+
+    # Provided by the concrete model's fields; bare annotations create no
+    # attribute, so the field descriptors still resolve.
+    image_1: Any
+    image_2: Any
+    image_3: Any
+    image_1_thumbnail: Any
+    image_2_thumbnail: Any
+    image_3_thumbnail: Any
 
     @property
     def images(self):

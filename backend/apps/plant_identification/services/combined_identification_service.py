@@ -387,17 +387,23 @@ class CombinedPlantIdentificationService:
                 return ProviderOutcome(None, reason)
 
         def call_plant_id() -> "ProviderOutcome":
+            plant_id = self.plant_id
+            if plant_id is None:  # never submitted unconfigured (see below)
+                return ProviderOutcome(None, configured=False)
             return call(
                 "Plant.id",
-                lambda: self.plant_id.identify_plant(
+                lambda: plant_id.identify_plant(
                     BytesIO(image_data), include_diseases=True
                 ),
             )
 
         def call_plantnet() -> "ProviderOutcome":
+            plantnet = self.plantnet
+            if plantnet is None:  # never submitted unconfigured (see below)
+                return ProviderOutcome(None, configured=False)
             return call(
                 "PlantNet",
-                lambda: self.plantnet.identify_plant(
+                lambda: plantnet.identify_plant(
                     [BytesIO(image_data)],  # PlantNet expects a list of images
                     organs=["leaf"],  # One organ per image - 'leaf' is most common
                 ),
@@ -406,7 +412,8 @@ class CombinedPlantIdentificationService:
         def gather(future, name: str, timeout: float) -> "ProviderOutcome":
             """Collect a submitted call, naming an executor-level failure too."""
             try:
-                return future.result(timeout=timeout)
+                outcome: ProviderOutcome = future.result(timeout=timeout)
+                return outcome
             except FuturesTimeoutError:
                 logger.error(
                     f"[ERROR] {name} executor timeout after {timeout}s",

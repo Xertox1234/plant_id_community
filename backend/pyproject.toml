@@ -12,14 +12,15 @@ plugins = ["mypy_django_plugin.main"]
 # hook (scripts/mypy_staged.py, which blocks only for files under these paths)
 # all use. Widen the gate by adding a path here, nowhere else. Tests are
 # excluded from the gate by the tests overrides below (owner
-# decision 2026-10-19), so widening means fixing an app's SOURCE errors only;
-# the per-app source counts measured that day are in backend/CLAUDE.md "CI".
+# decision 2026-10-19), so gating a new app means fixing its SOURCE errors
+# only. Every backend app and package is gated since todo 659.
 files = [
     "apps/users",
     "apps/forum_host",
     "apps/blog",
     "apps/core",
     "apps/garden_calendar",
+    "apps/plant_identification",
     "plant_community_backend",
     # The reusable forum package's importable root (module `wagtail_forum.*`).
     "packages/wagtail_forum/wagtail_forum",
@@ -36,11 +37,6 @@ disallow_untyped_defs = false  # Permissive for now, some services still need wo
 warn_unreachable = true
 strict_optional = true
 
-# Django-specific overrides
-[[tool.mypy.overrides]]
-module = "apps.plant_identification.models"
-ignore_errors = true
-
 # Generated migrations are excluded from the users gate (owner decision,
 # todo 580): they are machine-written and never hand-edited.
 [[tool.mypy.overrides]]
@@ -56,9 +52,20 @@ ignore_errors = true
 # both. `*` matches zero or more module components, so this covers
 # `apps.users.tests` and every submodule; `wagtail_forum.tests.*` does the same
 # for the forum package (warn_unused_configs flags either pattern once it
-# stops matching).
+# stops matching). A few older test modules sit at an app's root instead of
+# under tests/; `*` cannot match part of a component (`test_*`), so they are
+# named one by one (todo 659).
 [[tool.mypy.overrides]]
-module = ["apps.*.tests.*", "wagtail_forum.tests.*"]
+module = [
+    "apps.*.tests.*",
+    "wagtail_forum.tests.*",
+    "apps.core.test_basic",
+    "apps.plant_identification.test_api",
+    "apps.plant_identification.test_circuit_breaker_locks",
+    "apps.plant_identification.test_executor_caching",
+    "apps.plant_identification.test_models",
+    "apps.plant_identification.test_services",
+]
 ignore_errors = true
 
 [tool.django-stubs]
