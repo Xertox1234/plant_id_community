@@ -1012,6 +1012,31 @@ def evaluate(worker, verdict):
     return None
 
 
+def unpassed_criterion(worker, entries):
+    """Why the worker's own ac.json does not pass, or None (todo 658). Land ticks a box only on the
+    worker's `pass` plus the verifier's agreement plus an evidence file, so a criterion the worker ran
+    (a non-empty `command`) and did not pass would block at Land, however clean the verifier's run.
+    Re-pointed, owner-confirmed and external entries carry `pass: false` with no command by design."""
+    ids = {str(i) for i in worker["ids"]}
+    for entry in entries:
+        if str(entry.get("todo")) in ids and entry.get("command") and entry.get("pass") is not True:
+            return (f"todo {entry.get('todo')} criterion {entry.get('index')}: the worker's own run did not "
+                    "pass (ac.json `pass: false`), and Land never ticks a box without it")
+    return None
+
+
+def worker_ac_problem(worker):
+    """unpassed_criterion on the ac.json in the worker's worktree. A file that cannot be read is itself a
+    problem, so the check fails closed: Land reads the same file."""
+    try:
+        entries = json.loads(Path(worker["worktree"], worker["ac_file"]).read_text())
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        return f"could not read the worker's ac.json: {exc}"[:300]
+    if not isinstance(entries, list):
+        return "the worker's ac.json is not a list"
+    return unpassed_criterion(worker, [e for e in entries if isinstance(e, dict)])
+
+
 def _ac_text(box):
     """A criterion's text as land._normalize_ac_text compares it: no checkbox, whitespace collapsed."""
     return " ".join(todofile.CHECKBOX_RE.sub("", box[2], count=1).split())
@@ -1084,10 +1109,12 @@ def _same_path(a, b):
     return os.path.realpath(str(a)) == os.path.realpath(str(b))
 
 
-def ingest_execute(run, results, criteria=None):
+def ingest_execute(run, results, criteria=None, worker_ac=None):
     """Record a todo-execute output. `criteria(run, todo_id, worktree)` returns why a staged worktree's
     Acceptance Criteria differ from the merge-base ones, or None; the CLI always passes git_criteria (todo
-    494 F1). A worker that reports a worktree other than the one it was given fails (todo 528)."""
+    494 F1). `worker_ac(worker)` returns why the worker's own ac.json does not pass, or None; the CLI
+    always passes worker_ac_problem (todo 658). A worker that reports a worktree other than the one it was
+    given fails (todo 528)."""
     outcome = {}
     for result in results:
         worker, verdict = result.get("worker"), result.get("verdict")
@@ -1098,8 +1125,11 @@ def ingest_execute(run, results, criteria=None):
         work = {k: v for k, v in work.items() if v}
         # One worktree, one index: an edit to any todo's criteria fails the whole group, or Land would
         # commit the edited file with the group-mates that passed (round-2 review of PR #982).
-        edited = None
-        if criteria and worker is not None and worker.get("status") == "staged" and not evaluate(worker, verdict):
+        edited = unpassed = None
+        trusted = worker is not None and worker.get("status") == "staged" and not evaluate(worker, verdict)
+        if worker_ac and trusted:
+            unpassed = worker_ac(worker)
+        if criteria and trusted:
             for todo_id in result["ids"]:
                 # Todo 541 (#982-6): read in the worktree the group was given, never one the worker reports (a
                 # mismatched report fails below anyway).
@@ -1133,6 +1163,9 @@ def ingest_execute(run, results, criteria=None):
                     transition(run, todo_id, "failed", reason=_with_reasons(problem, verdict))
                 elif edited:
                     transition(run, todo_id, "failed", reason=f"acceptance criteria were edited: {edited}"[:500])
+                elif unpassed:
+                    # One worktree, one Land: a group-mate's unpassed criterion fails the whole group.
+                    transition(run, todo_id, "failed", reason=f"worker evidence incomplete: {unpassed}"[:500])
                 else:
                     transition(run, todo_id, "verified", test_edits=verdict["test_edits_flagged"],
                                verified_ac=verdict["ac"])
@@ -2391,7 +2424,7 @@ def main(argv=None):
             print(json.dumps({"run_id": run["run_id"], "briefs": briefs}))
         elif args.cmd == "ingest-execute":
             print(json.dumps(ingest_execute(run, records_from_output(args.output, "results"),
-                                            criteria=execute_criteria), indent=1))
+                                            criteria=execute_criteria, worker_ac=worker_ac_problem), indent=1))
         elif args.cmd == "followups-args":
             print(json.dumps({"run_id": run["run_id"], "groups": followups_args(run, args.main_root)}))
             return 0

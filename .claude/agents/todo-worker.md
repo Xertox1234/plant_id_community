@@ -80,6 +80,9 @@ origin/main...HEAD`, take the last line, drop its leading `^`.
   `text` is the whole criterion: the checkbox line and its wrapped continuation lines joined with single
   spaces, with the `- [ ]` / `- [x]` marker removed. `pass` is true only when the output proves the
   criterion as written.
+- Start a slow criterion (a full backend suite) early, in the background, so it finishes inside your budget
+  (todo 658). An entry with a `command` and `pass: false` fails verification and costs a retry, however
+  clean the verifier's own run: Land never ticks a box without your pass.
 - A criterion that was already checked (`- [x]`) **in the merge-base version** (`/usr/bin/git -C WT show
   BASE:<ORIGIN_PATH>`, same checkbox rules) gets `pass: true`, `command: ""`, `evidence_path: ""`,
   `note: "already checked"` — do not re-run anything for it. A box that is `[x]` in the current file but

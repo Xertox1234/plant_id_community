@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "658"
 tags: [todo-sweep, engine, land]
@@ -62,14 +62,14 @@ verifier's run.
 
 ## Acceptance Criteria
 
-- [ ] A group whose verifier verified every criterion, while the worker's
+- [x] A group whose verifier verified every criterion, while the worker's
       `ac.json` has `pass: false` on one of them, no longer reaches Land and
       blocks there. Either it fails earlier, at `ingest-execute`, into the
       normal retry path, or Land ticks it on verifier-owned evidence. A test in
       `scripts/todos/` drives that case.
-- [ ] The criterion `flip-acs` ticks is never ticked on the worker's word
+- [x] The criterion `flip-acs` ticks is never ticked on the worker's word
       alone. The existing tests for that still pass.
-- [ ] The completing-todos runbook describes the chosen behaviour.
+- [x] The completing-todos runbook describes the chosen behaviour.
 
 ## Work Log
 
@@ -78,3 +78,36 @@ verifier's run.
 - Filed at the owner's request after run 2026-10-18-0439. Group g1 was
   blocked at Land as described above, then 657 was reopened. Group g2 merged
   as PR #1154.
+
+### 2026-10-24 - Implemented by hand
+
+- Chose fix 1, placed where it saves the re-run: the verifier
+  (`.claude/agents/todo-verifier.md` step 3) marks an entry with a command
+  and `pass` not true `verified: false`, note `worker run incomplete`, so
+  the workflow's in-place retry worker re-runs just that criterion. A
+  failure at `ingest-execute` alone would only reach `failed → ready`, a
+  fresh worktree, the same ~21 minutes.
+- Backstop in code: `state.worker_ac_problem` reads the worker's `ac.json`
+  and `ingest_execute(worker_ac=…)` fails the whole group, `worker evidence
+  incomplete`, when a criterion with a command lacks the worker's pass. An
+  unreadable `ac.json` fails closed. Re-pointed, owner-confirmed and
+  external entries (no command, `pass: false`) are exempt.
+- Fix 2 declined: it gives the read-only verifier a write path and splits
+  evidence between two owners. Fix 3 added to the worker spec (start a
+  slow suite early, in the background).
+- Related finding fixed: `land._tail` now leads the quoted tail with the
+  last pytest summary line when shutdown logging pushed it out.
+- AC 1: `python3 scripts/todos/test_state_flow.py` → 549 PASS, 0 FAIL,
+  including "658: a verifier-verified criterion the worker did not pass
+  fails the group at ingest" and the CLI case, each with a mutation check
+  that fails with the guard removed.
+- AC 2: `flip_acs` is unchanged (still `entry["pass"] is True and index in
+  agreed and evidence`); `python3 scripts/todos/test_land.py` → 302 PASS,
+  0 FAIL. The rest of the harness-ci list (todofile, state, scan, group,
+  slot_env, `node scripts/todos/test_workflows.js`) passes.
+- AC 3: `.claude/skills/completing-todos/SKILL.md` Execute step 3
+  describes the ingest refusal and the verifier's retry.
+
+### 2026-10-24 - Completed
+
+- Archived by hand; verification is quoted above.
