@@ -151,6 +151,20 @@
     },
     {
       "globs": [
+        "scripts/todos/*",
+        ".claude/agents/todo-*.md",
+        ".claude/skills/completing-todos/*",
+        ".claude/skills/todo-*/*",
+        ".claude/workflows/todo-*.js"
+      ],
+      "domains": [
+        "todo-engine"
+      ],
+      "mode": "additive",
+      "_why": "The todo sweep engine (scripts/todos/, its agents, workflows and skills) routed to no domain: its .py files got only the scripts/*.py security rules and its specs got nothing, so a todo-engine rule had nowhere to live. Additive, placed after scripts/*.py so state.py keeps security too. Added by codify for todo 658."
+    },
+    {
+      "globs": [
         "firebase/*",
         "*firebase*"
       ],
