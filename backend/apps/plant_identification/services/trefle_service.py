@@ -8,7 +8,7 @@ Documentation: https://docs.trefle.io/
 import logging
 import time
 from functools import wraps
-from typing import Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, cast
 
 import requests
 from apps.core.utils.pii_safe_logging import log_safe_api_error
@@ -16,6 +16,9 @@ from django.conf import settings
 from django.core.cache import cache
 
 from ..exceptions import RateLimitExceeded
+
+if TYPE_CHECKING:
+    from .monitoring_service import APIMonitoringService
 
 logger = logging.getLogger(__name__)
 
@@ -133,10 +136,11 @@ class TrefleAPIService:
             raise ValueError("TREFLE_API_KEY must be set in Django settings")
 
         self.session = requests.Session()
-        self.session.params.update({"token": self.api_key})
+        # A new Session's params is a dict; the stub types every params shape.
+        cast(Dict[str, Any], self.session.params).update({"token": self.api_key})
 
         # Initialize monitoring (lazy import to avoid circular dependencies)
-        self.monitor = None
+        self.monitor: Optional["APIMonitoringService"] = None
         self._monitor_initialized = False
 
     def _get_monitor(self):
@@ -212,7 +216,8 @@ class TrefleAPIService:
             if monitor:
                 monitor.record_api_call("trefle", endpoint, success=True)
 
-            return response.json()
+            data: Optional[Dict] = response.json()
+            return data
 
         except requests.exceptions.Timeout:
             logger.error(
@@ -252,7 +257,7 @@ class TrefleAPIService:
             List of plant data dictionaries
         """
         cache_key = f"trefle_search_{query.lower().replace(' ', '_')}_{limit}"
-        cached_result = cache.get(cache_key)
+        cached_result: list[dict[Any, Any]] | None = cache.get(cache_key)
         if cached_result:
             logger.debug(f"[CACHE] Cache hit for Trefle search: {query}")
             return cached_result
@@ -263,7 +268,7 @@ class TrefleAPIService:
         if not result:
             return []
 
-        plants = result.get("data", [])
+        plants: list[dict[Any, Any]] = result.get("data", [])
 
         # Cache the results for better performance
         cache.set(cache_key, plants, self.CACHE_TIMEOUT)
@@ -282,7 +287,7 @@ class TrefleAPIService:
             Plant details dictionary or None if not found
         """
         cache_key = f"trefle_plant_{plant_id}"
-        cached_result = cache.get(cache_key)
+        cached_result: dict[Any, Any] | None = cache.get(cache_key)
         if cached_result:
             logger.debug(f"[CACHE] Cache hit for Trefle plant details: {plant_id}")
             return cached_result
@@ -291,7 +296,7 @@ class TrefleAPIService:
         if not result:
             return None
 
-        plant_data = result.get("data")
+        plant_data: dict[Any, Any] | None = result.get("data")
         if plant_data:
             cache.set(cache_key, plant_data, self.CACHE_TIMEOUT)
             logger.debug(f"[CACHE] Cached Trefle plant details for: {plant_id}")
@@ -309,7 +314,7 @@ class TrefleAPIService:
             Species data dictionary or None if not found
         """
         cache_key = f"trefle_species_{scientific_name.lower().replace(' ', '_')}"
-        cached_result = cache.get(cache_key)
+        cached_result: dict[Any, Any] | None = cache.get(cache_key)
         if cached_result:
             logger.debug(f"[CACHE] Cache hit for Trefle species: {scientific_name}")
             return cached_result
@@ -324,7 +329,7 @@ class TrefleAPIService:
         if not species_list:
             return None
 
-        species_data = species_list[0]
+        species_data: dict[Any, Any] | None = species_list[0]
         cache.set(cache_key, species_data, self.CACHE_TIMEOUT)
         logger.debug(f"[CACHE] Cached Trefle species for: {scientific_name}")
 
@@ -341,7 +346,7 @@ class TrefleAPIService:
             Detailed species data or None if not found
         """
         cache_key = f"trefle_species_details_{species_id}"
-        cached_result = cache.get(cache_key)
+        cached_result: dict[Any, Any] | None = cache.get(cache_key)
         if cached_result:
             logger.debug(f"[CACHE] Cache hit for Trefle species details: {species_id}")
             return cached_result
@@ -350,7 +355,7 @@ class TrefleAPIService:
         if not result:
             return None
 
-        species_data = result.get("data")
+        species_data: dict[Any, Any] | None = result.get("data")
         if species_data:
             cache.set(cache_key, species_data, self.CACHE_TIMEOUT)
             logger.debug(f"[CACHE] Cached Trefle species details for: {species_id}")
@@ -392,7 +397,8 @@ class TrefleAPIService:
         if not result:
             return []
 
-        return result.get("data", [])
+        data: List[Dict] = result.get("data", [])
+        return data
 
     def get_plant_images(self, plant_id: Union[int, str]) -> List[str]:
         """

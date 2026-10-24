@@ -126,6 +126,8 @@ class Command(BaseCommand):
 
             # Keep the best one, remove others
             best_species = similar_species.first()
+            if best_species is None:  # removed since the duplicates query ran
+                continue
             to_remove = similar_species.exclude(id=best_species.id)
 
             if to_remove.exists():

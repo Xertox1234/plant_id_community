@@ -6,7 +6,7 @@ local disease database (for cost efficiency) and plant.health API (for comprehen
 """
 
 import logging
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from django.db import IntegrityError, transaction
 from django.db.models import F, Value
@@ -306,7 +306,7 @@ class PlantDiseaseService:
     def __init__(self):
         """Initialize the disease diagnosis service."""
         try:
-            self.plant_health = PlantHealthAPIService()
+            self.plant_health: Optional[PlantHealthAPIService] = PlantHealthAPIService()
         except ValueError:
             logger.warning(
                 "[DIAGNOSIS] plant.health API not available - continuing without it"
@@ -482,6 +482,8 @@ class PlantDiseaseService:
         self, request: PlantDiseaseRequest, images: List
     ) -> List[PlantDiseaseResult]:
         """Diagnose disease using plant.health API."""
+        if not self.plant_health:
+            return []
         results = []
 
         try:
@@ -643,7 +645,7 @@ class PlantDiseaseService:
         Returns:
             Dictionary with service status information
         """
-        status = {
+        status: Dict[str, Dict[str, Any]] = {
             "plant_health": {"available": False},
             "local_database": {"available": False},
             "auto_storage": {"available": True},

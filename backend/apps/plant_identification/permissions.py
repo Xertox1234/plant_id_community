@@ -67,7 +67,7 @@ class IsAuthenticatedForIdentification(permissions.BasePermission):
             return True
 
         # Require authentication for POST (identification)
-        return request.user and request.user.is_authenticated
+        return bool(request.user and request.user.is_authenticated)
 
     message = (
         "Authentication required for plant identification. "

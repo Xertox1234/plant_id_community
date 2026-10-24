@@ -113,7 +113,7 @@ class PlantIDAPIService:
         try:
             from django_redis import get_redis_connection
 
-            redis_client = get_redis_connection("default")
+            redis_client: Redis = get_redis_connection("default")
 
             # Verify Redis is responsive (prevents silent failures)
             redis_client.ping()
@@ -166,7 +166,7 @@ class PlantIDAPIService:
             cache_key = f"plant_id:{self.API_VERSION}:{image_hash}:{include_diseases}"
 
             # Check cache first (before circuit breaker check - fastest path)
-            cached_result = cache.get(cache_key)
+            cached_result: dict[str, Any] | None = cache.get(cache_key)
             if cached_result:
                 logger.info(
                     f"[CACHE] HIT for image {image_hash[:8]}... (instant response)"
@@ -232,7 +232,7 @@ class PlantIDAPIService:
                         logger.info(
                             f"[LOCK] Calling Plant.id API for {image_hash[:8]}..."
                         )
-                        result = self.circuit.call(
+                        result: dict[str, Any] = self.circuit.call(
                             self._call_plant_id_api,
                             image_data,
                             cache_key,
@@ -564,7 +564,7 @@ class PlantIDAPIService:
         """
         # Check cache first
         cache_key = f"plant_id_details_{plant_name.lower()}"
-        cached_data = cache.get(cache_key)
+        cached_data: dict[str, Any] | None = cache.get(cache_key)
         if cached_data:
             logger.info(f"[CACHE] Retrieved plant details from cache: {plant_name}")
             return cached_data

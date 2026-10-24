@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Self-test for the CI mypy gate (a bare `python -m mypy`, which checks the
 # `files` list in pyproject.toml [tool.mypy]; apps/users since todo 580, the
-# wagtail_forum package, apps/garden_calendar and apps/core since todo 659).
+# wagtail_forum package, apps/garden_calendar, apps/core and
+# apps/plant_identification since todo 659).
 # Run from backend/: bash bin/test-mypy-gate.sh
 #
 # pyproject.toml sets follow_imports=silent, which hides errors in modules
@@ -14,7 +15,9 @@
 # `wagtail_forum.tests.*` ignore_errors overrides, owner decision 2026-10-19):
 # a second canary with the same error under each area's tests/ must NOT be
 # reported, so an exclusion cannot silently stop matching when a test layout
-# or an override pattern changes.
+# or an override pattern changes. Test modules at an app's root are named one
+# by one in the override; a name that stops matching prints mypy's "unused
+# section" note (warn_unused_configs), which fails this test too.
 set -uo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 cd "$here" || exit 2
@@ -22,8 +25,9 @@ cd "$here" || exit 2
 forum=packages/wagtail_forum/wagtail_forum
 garden=apps/garden_calendar
 core=apps/core
-canaries=("apps/users/_mypy_gate_canary.py" "$forum/_mypy_gate_canary.py" "$garden/_mypy_gate_canary.py" "$core/_mypy_gate_canary.py")
-test_canaries=("apps/users/tests/_mypy_gate_canary.py" "$forum/tests/_mypy_gate_canary.py" "$garden/tests/_mypy_gate_canary.py" "$core/tests/_mypy_gate_canary.py")
+pid=apps/plant_identification
+canaries=("apps/users/_mypy_gate_canary.py" "$forum/_mypy_gate_canary.py" "$garden/_mypy_gate_canary.py" "$core/_mypy_gate_canary.py" "$pid/_mypy_gate_canary.py")
+test_canaries=("apps/users/tests/_mypy_gate_canary.py" "$forum/tests/_mypy_gate_canary.py" "$garden/tests/_mypy_gate_canary.py" "$core/tests/_mypy_gate_canary.py" "$pid/tests/_mypy_gate_canary.py")
 all=("${canaries[@]}" "${test_canaries[@]}")
 for f in "${all[@]}"; do
   if [[ -e "$f" ]]; then
@@ -60,6 +64,10 @@ for test_canary in "${test_canaries[@]}"; do
     exit 1
   fi
 done
+if grep -q "unused section" <<<"$output"; then
+  echo "test-mypy-gate: FAIL: a [tool.mypy] override matches no module (unused section)" >&2
+  exit 1
+fi
 canary_patterns=()
 for canary in "${canaries[@]}"; do
   canary_patterns+=(-e "^$canary:")
@@ -69,4 +77,4 @@ if [[ $others -ne 0 ]]; then
   echo "test-mypy-gate: FAIL: $others error(s) besides the canaries; fix those first" >&2
   exit 1
 fi
-echo "test-mypy-gate: OK: the gate reports errors planted in apps/users, $forum, $garden and $core and ignores those in their tests/"
+echo "test-mypy-gate: OK: the gate reports errors planted in apps/users, $forum, $garden, $core and $pid and ignores those in their tests/"

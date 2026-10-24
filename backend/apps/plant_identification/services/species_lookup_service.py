@@ -9,7 +9,7 @@ import logging
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 from django.core.cache import cache
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 from ..exceptions import RateLimitExceeded
 from ..models import PlantSpecies
@@ -47,7 +47,7 @@ class SpeciesLookupService:
     def __init__(self):
         """Initialize the lookup service."""
         try:
-            self.trefle = TrefleAPIService()
+            self.trefle: Optional[TrefleAPIService] = TrefleAPIService()
         except ValueError:
             logger.warning("[SPECIES] Trefle API not available")
             self.trefle = None
@@ -207,7 +207,8 @@ class SpeciesLookupService:
     def _get_cached_species(self, scientific_name: str) -> Optional[Dict]:
         """Get species data from Redis cache."""
         cache_key = f"species:api:{scientific_name.lower().replace(' ', '_')}"
-        return cache.get(cache_key)
+        cached: Optional[Dict] = cache.get(cache_key)
+        return cached
 
     def _cache_species_data(
         self, scientific_name: str, data: Dict, timeout: int = 86400
@@ -254,7 +255,7 @@ class SpeciesLookupService:
 
     def _search_api_species(self, query: str, limit: int) -> List[Dict]:
         """Search for species using API."""
-        results = []
+        results: List[Dict] = []
 
         if not self.trefle:
             return results
@@ -299,7 +300,7 @@ class SpeciesLookupService:
             "community_confirmed": species.community_confirmed,
         }
 
-    def get_popular_species(self, limit: int = 20) -> List[PlantSpecies]:
+    def get_popular_species(self, limit: int = 20) -> QuerySet[PlantSpecies]:
         """Get most frequently identified species for cache warming."""
         return PlantSpecies.objects.filter(identification_count__gt=0).order_by(
             "-identification_count", "-confidence_score"

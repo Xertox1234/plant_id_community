@@ -7,7 +7,7 @@ Documentation: https://www.pexels.com/api/documentation/
 
 import logging
 from io import BytesIO
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from apps.core.utils.pii_safe_logging import log_safe_api_error
@@ -80,7 +80,8 @@ class PexelsImageService:
             cache.set(rate_limit_key, current_count + 1, self.RATE_LIMIT_CACHE_TIMEOUT)
 
             response.raise_for_status()
-            return response.json()
+            data: Optional[Dict] = response.json()
+            return data
 
         except requests.exceptions.RequestException as e:
             # NOT str(e): requests builds its message from the prepared URL,
@@ -124,7 +125,7 @@ class PexelsImageService:
 
         # Check cache first
         cache_key = f"pexels_search_{search_query.replace(' ', '_').lower()}_{limit}_{orientation}"
-        cached_result = cache.get(cache_key)
+        cached_result: list[dict[Any, Any]] | None = cache.get(cache_key)
         if cached_result:
             logger.info(f"[PEXELS] Using cached Pexels results for: {plant_name}")
             return cached_result

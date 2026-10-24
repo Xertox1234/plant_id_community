@@ -117,18 +117,19 @@ jobs:
         # The gated paths are `files` in pyproject.toml [tool.mypy] (apps/users
         # since todo 580, plant_community_backend, apps/forum_host and apps/blog
         # since 2026-10-19, packages/wagtail_forum/wagtail_forum,
-        # apps/garden_calendar and apps/core since todo 659), which a bare `python -m mypy`
-        # checks; the
+        # apps/garden_calendar, apps/core and apps/plant_identification since
+        # todo 659: every backend app and package), which a bare
+        # `python -m mypy` checks; the
         # mypy-staged pre-commit hook blocks on the same list at commit time.
         # pyproject.toml loads the django-stubs plugin with this job's settings
         # env and sets follow_imports=silent, so only the gated files report
         # errors. Tests are excluded (the `apps.*.tests.*` and
-        # `wagtail_forum.tests.*` ignore_errors overrides, owner decision
-        # 2026-10-19). Widen the gate by adding a
-        # path to `files`, nowhere else.
+        # `wagtail_forum.tests.*` ignore_errors overrides, plus the app-root
+        # test modules named in the same override; owner decision 2026-10-19).
+        # Widen the gate by adding a path to `files`, nowhere else.
         run: python -m mypy
 
-      - name: mypy gate self-test (planted errors in apps/users, wagtail_forum, garden_calendar and core must fail it; ones in their tests must not)
+      - name: mypy gate self-test (planted errors in apps/users, wagtail_forum, garden_calendar, core and plant_identification must fail it; ones in their tests must not)
         # follow_imports=silent hides errors in imported-only modules; this
         # proves the probed areas still report, so config drift cannot turn the
         # gate above green by emptiness (todo 599 item 4), and that the tests

@@ -7,7 +7,7 @@ Uses OpenAI DALL-E 3 to generate high-quality botanical images when stock photos
 import hashlib
 import logging
 from io import BytesIO
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import openai
 import requests
@@ -64,7 +64,8 @@ class AIBotanicalImageService:
 
     def get_daily_cost(self) -> float:
         """Get today's accumulated cost for AI image generation."""
-        return cache.get(self._get_cost_cache_key(), 0.0)
+        cost: float = cache.get(self._get_cost_cache_key(), 0.0)
+        return cost
 
     def _track_cost(self, cost: float) -> None:
         """Track the cost of AI image generation."""
@@ -177,7 +178,7 @@ class AIBotanicalImageService:
         # Check cache for identical requests
         prompt_hash = hashlib.md5(f"{prompt}_{quality}_{size}".encode()).hexdigest()
         cache_key = f"ai_plant_image_{prompt_hash}"
-        cached_result = cache.get(cache_key)
+        cached_result: dict[Any, Any] | None = cache.get(cache_key)
         if cached_result:
             logger.info(f"[CACHE] Using cached AI-generated image for: {plant_name}")
             return cached_result
@@ -187,7 +188,8 @@ class AIBotanicalImageService:
                 f"[AI] Generating AI image for: {plant_name} (style: {style}, quality: {quality})"
             )
 
-            response = self.client.images.generate(
+            # size/quality are plain str here; the API validates the values.
+            response = self.client.images.generate(  # type: ignore[call-overload]
                 model="dall-e-3",
                 prompt=prompt,
                 size=size,

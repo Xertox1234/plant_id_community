@@ -16,7 +16,7 @@ Usage:
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import sentry_sdk
 from apps.core.utils.pii_safe_logging import log_safe_api_error
@@ -77,10 +77,10 @@ class CircuitMonitor(CircuitBreakerListener):
             service_name: Name of the service being monitored (e.g., 'plant_id_api')
         """
         self.service_name = service_name
-        self.last_state_change = None
-        self.circuit_open_time = None
+        self.last_state_change: Optional[datetime] = None
+        self.circuit_open_time: Optional[datetime] = None
         self.consecutive_failures = 0
-        self.last_failure_reason = None
+        self.last_failure_reason: Optional[str] = None
 
     def state_change(self, cb, old_state, new_state):
         """
@@ -237,7 +237,8 @@ class CircuitMonitor(CircuitBreakerListener):
             elapsed = (datetime.now() - self.circuit_open_time).total_seconds()
             remaining = max(0, cb.reset_timeout - elapsed)
             return int(remaining)
-        return cb.reset_timeout
+        reset_timeout: int = cb.reset_timeout
+        return reset_timeout
 
 
 class CircuitStats:
@@ -296,7 +297,7 @@ class CircuitStats:
         Returns:
             True if circuit is closed, False otherwise
         """
-        return self.circuit.current_state == "closed"
+        return bool(self.circuit.current_state == "closed")
 
     def is_degraded(self) -> bool:
         """
@@ -305,7 +306,7 @@ class CircuitStats:
         Returns:
             True if circuit is testing recovery, False otherwise
         """
-        return self.circuit.current_state == "half_open"
+        return bool(self.circuit.current_state == "half_open")
 
     def is_unavailable(self) -> bool:
         """
@@ -314,7 +315,7 @@ class CircuitStats:
         Returns:
             True if circuit is open, False otherwise
         """
-        return self.circuit.current_state == "open"
+        return bool(self.circuit.current_state == "open")
 
 
 # Convenience function for creating monitored circuit breakers
@@ -357,7 +358,7 @@ def create_monitored_circuit(
 
     monitor = CircuitMonitor(service_name)
 
-    circuit_kwargs = {
+    circuit_kwargs: Dict[str, Any] = {
         "fail_max": fail_max,
         "reset_timeout": reset_timeout,
         "exclude": [KeyboardInterrupt],  # Never break on Ctrl+C

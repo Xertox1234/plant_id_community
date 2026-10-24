@@ -9,7 +9,7 @@ Documentation: https://www.kindwise.com/plant-health
 import base64
 import io
 import logging
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import requests
 from apps.core.utils.pii_safe_logging import log_safe_api_error
@@ -68,7 +68,7 @@ class PlantHealthAPIService:
         """
         try:
             # Open image (Image.open accepts both file-like objects and paths)
-            image = Image.open(image_file)
+            image: Image.Image = Image.open(image_file)
 
             # Convert to RGB if necessary
             if image.mode in ("RGBA", "LA", "P"):
@@ -156,7 +156,7 @@ class PlantHealthAPIService:
             response = self.session.post(url, json=payload, timeout=60)
             response.raise_for_status()
 
-            result = response.json()
+            result: dict[Any, Any] | None = response.json()
 
             # Log API usage for cost tracking
             logger.info(

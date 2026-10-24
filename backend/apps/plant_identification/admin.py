@@ -87,6 +87,7 @@ class PlantSpeciesAdmin(admin.ModelAdmin):
         ("Timestamps", {"fields": ("created_at", "updated_at")}),
     )
 
+    @admin.display(description="Common Names")
     def common_names_display(self, obj):
         """Display first common name."""
         if obj.common_names:
@@ -94,8 +95,7 @@ class PlantSpeciesAdmin(admin.ModelAdmin):
             return first_name[:50] + "..." if len(first_name) > 50 else first_name
         return "-"
 
-    common_names_display.short_description = "Common Names"
-
+    @admin.display(description="Image Preview")
     def primary_image_display(self, obj):
         """Display primary image thumbnail."""
         if obj.primary_image:
@@ -104,8 +104,6 @@ class PlantSpeciesAdmin(admin.ModelAdmin):
                 obj.primary_image_thumbnail.url,
             )
         return "No image"
-
-    primary_image_display.short_description = "Image Preview"
 
 
 @admin.register(PlantIdentificationRequest)
@@ -168,12 +166,12 @@ class PlantIdentificationRequestAdmin(admin.ModelAdmin):
         ("Timestamps", {"fields": ("created_at", "updated_at")}),
     )
 
+    @admin.display(description="Request ID")
     def request_id_short(self, obj):
         """Display shortened request ID."""
         return f"#{obj.request_id.hex[:8]}"
 
-    request_id_short.short_description = "Request ID"
-
+    @admin.display(description="Image 1")
     def image_1_display(self, obj):
         """Display image 1 thumbnail."""
         if obj.image_1:
@@ -183,8 +181,7 @@ class PlantIdentificationRequestAdmin(admin.ModelAdmin):
             )
         return "No image"
 
-    image_1_display.short_description = "Image 1"
-
+    @admin.display(description="Image 2")
     def image_2_display(self, obj):
         """Display image 2 thumbnail."""
         if obj.image_2:
@@ -194,8 +191,7 @@ class PlantIdentificationRequestAdmin(admin.ModelAdmin):
             )
         return "No image"
 
-    image_2_display.short_description = "Image 2"
-
+    @admin.display(description="Image 3")
     def image_3_display(self, obj):
         """Display image 3 thumbnail."""
         if obj.image_3:
@@ -204,8 +200,6 @@ class PlantIdentificationRequestAdmin(admin.ModelAdmin):
                 obj.image_3_thumbnail.url,
             )
         return "No image"
-
-    image_3_display.short_description = "Image 3"
 
 
 @admin.register(PlantIdentificationResult)
@@ -259,23 +253,20 @@ class PlantIdentificationResultAdmin(admin.ModelAdmin):
         ("Timestamps", {"fields": ("created_at", "updated_at")}),
     )
 
+    @admin.display(description="Request")
     def request_short(self, obj):
         """Display shortened request ID."""
         return f"#{obj.request.request_id.hex[:8]}"
 
-    request_short.short_description = "Request"
-
+    @admin.display(description="Confidence")
     def confidence_score_percent(self, obj):
         """Display confidence as percentage."""
         return f"{obj.confidence_score:.1%}"
 
-    confidence_score_percent.short_description = "Confidence"
-
+    @admin.display(description="Net Votes")
     def vote_score_display(self, obj):
         """Display vote score."""
         return obj.vote_score
-
-    vote_score_display.short_description = "Net Votes"
 
 
 @admin.register(UserPlant)
@@ -312,6 +303,7 @@ class UserPlantAdmin(admin.ModelAdmin):
         ("Timestamps", {"fields": ("created_at", "updated_at")}),
     )
 
+    @admin.display(description="Plant Image")
     def image_display(self, obj):
         """Display plant image thumbnail."""
         if obj.image:
@@ -320,5 +312,3 @@ class UserPlantAdmin(admin.ModelAdmin):
                 obj.image_thumbnail.url,
             )
         return "No image"
-
-    image_display.short_description = "Plant Image"
