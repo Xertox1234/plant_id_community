@@ -167,3 +167,36 @@ source errors in these areas cannot silently land.
   `cleanup_orphaned_forum_topics` receiver needs no test.
 - Remaining: `apps/core` 79, `apps/plant_identification` 150 (229), plus the
   `apps.plant_identification.models` blanket suppression.
+
+### 2026-10-24 - Area 3 of 4: apps/core gated (PR #1186, merged)
+
+- Remeasured with the CI env: 79 source errors, unchanged since 2026-10-19.
+  `apps/core` added to `[tool.mypy] files`; bare gate Success on 640 files,
+  also with `--warn-unused-ignores`.
+- Zero ripple, correcting the area 1 prediction: core is first-party, so mypy
+  already followed and typed it for gated callers. Only an editable install
+  treated as untyped (wagtail_forum) ripples. `backend/CLAUDE.md` says so.
+- Fixes: the todo 580 TYPE_CHECKING `User` pattern in `security.py`,
+  `email_service.py` and `notification_service.py` (runtime still resolves
+  `get_user_model()`); `Optional[...]` for None defaults; annotated locals where
+  an untyped call returned Any; `callable` -> `Callable[...]`;
+  `timezone.datetime` -> `datetime`. No real bugs found in this area.
+- Todo 623 alert paths keep the exception unbound so no frame local reaches
+  Sentry: `sys.exc_info()[0].__name__` became
+  `getattr(sys.exc_info()[0], "__name__", "unknown")` in `delivery.py` and
+  `notification_ops.py`. #1184 had bound the exception in
+  `garden_calendar/tasks.py` `_log_care_outcomes`; the unbound form was
+  restored there.
+- Narrow, explained ignores: `mail.mailers` in `checks.py` and
+  `django70_compat.py` (django-stubs 6.0.3 predates Django 6.1's MAILERS), the
+  mixin `super().send_messages` in `mail_backends.py`, and RunSQL's invariant
+  list parameter in migration 0003 (SQL unchanged).
+- Verification: self-test gained a `core=apps/core` canary pair, passes, and
+  fails for both negative controls (path dropped from `files`; an extra planted
+  error in `fcm.py`); `mypy-staged` blocks a planted core source error, skips a
+  planted test file; `makemigrations --check` clean; ruff/black/isort Passed;
+  full pytest 5689 passed, 8 skipped; CI on #1186 all green.
+- kimi-review WARNING declined: "canary files not in diff" — the self-test
+  plants them at run time and deletes them on exit.
+- Remaining: `apps/plant_identification` 150, plus the
+  `apps.plant_identification.models` blanket suppression.
