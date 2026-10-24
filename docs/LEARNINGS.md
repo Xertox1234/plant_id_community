@@ -7513,3 +7513,13 @@ resumed under fake async. The client never needed to wait for the cancel; it no 
 **4. `Scrollable.ensureVisible` on a card that is still growing lands short.** A `SizeTransition`
 from zero height measured 0, then the card grew and pushed itself below the viewport. Only animate
 the size of cards you aren't about to scroll to.
+
+## 2026-10-24 — A floating CI runner can outgrow an exact Python pin
+
+PR #1181's two backend jobs failed during `actions/setup-python`, before checks or
+tests ran: `ubuntu-latest` selected Ubuntu 26.04, but `.python-version` pins
+3.13.9. The actions/python-versions manifest lists Linux x64 builds of that
+version for Ubuntu 22.04 and 24.04, not 26.04. Pinning both backend jobs to
+`ubuntu-24.04` keeps the runner compatible without changing the project's Python
+version. When changing either pin, check that the manifest supports their
+combination; retrying an unavailable combination cannot fix setup.
