@@ -100,3 +100,33 @@ source errors in these areas cannot silently land.
 - Scoped to completing source type enforcement, preserving the owner's decision
   to exclude tests from mypy. The 396-error estimate is from 2026-10-19 and has
   not been remeasured for this filing.
+
+### 2026-10-24 - Area 1 of 4: wagtail_forum gated (PR #1182, merged)
+
+- Owner chose to continue, smallest area first. Remeasured with the CI env:
+  65 source errors (31 more in tests), unchanged since 2026-10-19.
+- `packages/wagtail_forum/wagtail_forum` added to `[tool.mypy] files`; its tests
+  are excluded by `wagtail_forum.tests.*` in the same override as
+  `apps.*.tests.*`. No "unused section" note, so the module naming matches.
+- All 65 fixed with annotations, Optional narrowing, a locals refactor of the
+  `sanitize` segment parser and `functools.partial` for the late-log callbacks.
+  Every runtime-touching edit is behavior-equivalent, so no regression tests
+  were needed; no real bugs found in this area.
+- Narrow, explained ignores only: drf-spectacular optional-import stand-ins,
+  mixin `super()` calls, the taggit `tags` prefetch, Wagtail's runtime
+  `snippet_viewset`, and the package's `AbstractBaseUser` hints vs the
+  host-resolved user FK. `--warn-unused-ignores` clean.
+- Limitation found: gating a package that gated code imports types its call
+  sites (follow_imports=silent had treated the editable install as untyped).
+  4 errors surfaced and were fixed in `apps/forum_host`. Expect the same, larger,
+  for `apps/core`; always run the bare gate, not the path.
+- Verification: bare `python -m mypy` Success on 503 files (also with a fresh
+  cache); `bin/test-mypy-gate.sh` now plants forum source + tests canaries and
+  passes, and fails for both negative controls (override renamed; path dropped
+  from `files`); `pre-commit run mypy-staged` Failed on a planted forum source
+  error, body exit 0 on a planted forum test error, Passed on clean files;
+  ruff/black/isort Passed; `pytest packages/wagtail_forum apps/forum_host`
+  2195 passed; CI on #1182 all green.
+- Remaining: `apps/core` 79, `apps/garden_calendar` 102,
+  `apps/plant_identification` 150 (331, measured 2026-10-19), plus the
+  `apps.plant_identification.models` blanket suppression.
