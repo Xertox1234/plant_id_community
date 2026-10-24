@@ -106,7 +106,8 @@ def user_can_view_queue(user):
 def _inspect_url(report):
     # Resolved, never hardcoded: the admin mount (/cms/ here) is host config
     # and this package is reusable (audit 2026-07-17 M1).
-    return reverse(Report.snippet_viewset.get_url_name("inspect"), args=[report.pk])
+    # snippet_viewset is attached by Wagtail's register_snippet at startup.
+    return reverse(Report.snippet_viewset.get_url_name("inspect"), args=[report.pk])  # type: ignore[attr-defined]
 
 
 def _trust_level_label(level):

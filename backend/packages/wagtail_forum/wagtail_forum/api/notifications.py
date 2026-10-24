@@ -12,8 +12,9 @@ from rest_framework.views import APIView
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
     from drf_spectacular.utils import extend_schema
 except ImportError:  # pragma: no cover
-
-    def extend_schema(**kwargs):
+    # The stand-ins below redefine the imported names; mypy sees drf-spectacular
+    # installed and flags each one. The optional dependency is deliberate.
+    def extend_schema(**kwargs):  # type: ignore[misc]
         def decorator(fn):
             return fn
 
@@ -77,7 +78,8 @@ class NotificationListView(
     serializer_class = NotificationSerializer
     pagination_class = ForumCursorPagination
     permission_classes = [IsAuthenticated]
-    filter_backends = []  # host filter-backend opt-out — see api/views.py BoardListView
+    # host filter-backend opt-out — see api/views.py BoardListView
+    filter_backends: list[type] = []
 
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):

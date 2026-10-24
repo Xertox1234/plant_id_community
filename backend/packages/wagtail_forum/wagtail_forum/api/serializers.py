@@ -1,4 +1,5 @@
 import math
+from typing import Any
 
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -39,14 +40,15 @@ try:  # Schema annotations are optional — hosts without drf-spectacular still 
     from drf_spectacular.types import OpenApiTypes
     from drf_spectacular.utils import extend_schema_field
 except ImportError:  # pragma: no cover
-
-    def extend_schema_field(field):
+    # The stand-ins below redefine the imported names; mypy sees drf-spectacular
+    # installed and flags each one. The optional dependency is deliberate.
+    def extend_schema_field(field):  # type: ignore[misc]
         def decorator(fn):
             return fn
 
         return decorator
 
-    class OpenApiTypes:
+    class OpenApiTypes:  # type: ignore[no-redef]
         BOOL = DATETIME = INT = STR = None
 
 
@@ -90,7 +92,7 @@ def normalize_topic_tags(value):
     # dict (not a list) for O(1) membership — a list made this loop O(n^2), which
     # an authenticated caller could drive into seconds of CPU with a large list
     # inside the 10MB body cap. dict preserves insertion order (3.7+).
-    seen = {}
+    seen: dict[str, None] = {}
     for raw in value:
         name = " ".join(str(raw).split()).lower()  # collapse inner whitespace too
         if not name:
@@ -140,7 +142,7 @@ class _BoundedTagListField(_BoundedListField):
 # Inline OpenAPI schemas so drf-spectacular types PostSerializer's
 # SerializerMethodFields precisely instead of defaulting each to `string`
 # (which also emits an "unable to resolve type hint" warning per method).
-AUTHOR_SCHEMA = {
+AUTHOR_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "username": {"type": "string"},

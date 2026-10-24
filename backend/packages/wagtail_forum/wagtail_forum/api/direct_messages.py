@@ -73,8 +73,9 @@ from .views import PrivateForumReadCacheMixin, _created_location, _replay_or_non
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
     from drf_spectacular.utils import extend_schema
 except ImportError:  # pragma: no cover
-
-    def extend_schema(**kwargs):
+    # The stand-ins below redefine the imported names; mypy sees drf-spectacular
+    # installed and flags each one. The optional dependency is deliberate.
+    def extend_schema(**kwargs):  # type: ignore[misc]
         def decorator(fn):
             return fn
 
@@ -294,7 +295,7 @@ class ConversationListView(
     serializer_class = ConversationSerializer
     pagination_class = ConversationCursorPagination
     permission_classes = [IsAuthenticated]
-    filter_backends = []
+    filter_backends: list[type] = []
 
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
@@ -510,7 +511,7 @@ class ConversationMessagesView(
     serializer_class = MessageSerializer
     pagination_class = MessageCursorPagination
     permission_classes = [IsAuthenticated]
-    filter_backends = []
+    filter_backends: list[type] = []
 
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):

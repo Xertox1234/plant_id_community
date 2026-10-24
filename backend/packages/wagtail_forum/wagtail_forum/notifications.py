@@ -41,7 +41,10 @@ def create_notifications(
     of relying on this return value.
     """
     to_create = [
-        Notification(
+        # recipient/actor are FKs to AUTH_USER_MODEL, which the plugin resolves
+        # to the host's concrete user; this reusable package types users as
+        # AbstractBaseUser so any host model fits.
+        Notification(  # type: ignore[misc]
             recipient=recipient,
             actor=actor,
             verb=verb,

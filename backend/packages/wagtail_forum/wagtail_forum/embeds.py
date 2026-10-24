@@ -29,6 +29,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as wait_futures
 from datetime import timedelta
+from functools import partial
 from urllib.parse import urlsplit
 
 import requests
@@ -214,7 +215,7 @@ def warm_embeds(urls) -> None:
             timeout,
             url,
         )
-        future.add_done_callback(lambda fut, url=url: _log_late(url, fut))
+        future.add_done_callback(partial(_log_late, url))
     for future in done:
         exc = future.exception()
         if exc is None:

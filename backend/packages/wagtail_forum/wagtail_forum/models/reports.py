@@ -104,7 +104,7 @@ class Report(models.Model):
         export resolves dotted paths with ``multigetattr``, which raises on
         the NULL ``post`` of a message report and would 500 the whole
         download."""
-        if self.post_id is None:
+        if self.post is None:
             return ""
         return self.post.topic.title
 
@@ -117,7 +117,7 @@ class Report(models.Model):
         3") gives a moderator nothing to decide on without opening a shell,
         and a `list_display` entry needs a small `str`, not a raw model
         instance — this is deliberately not `self.message` itself."""
-        if self.message_id is None:
+        if self.message is None:
             return ""
         body = self.message.body
         excerpt = body if len(body) <= 60 else body[:57] + "..."
@@ -131,7 +131,7 @@ class Report(models.Model):
         ``plain_text_excerpt`` reads ``raw_data`` so the excerpt never
         resolves image blocks (no per-row image query); imported lazily
         because ``api.views`` imports this module."""
-        if self.post_id is None:
+        if self.post is None:
             return self.message_summary
         from ..api.views import plain_text_excerpt
 

@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 from rest_framework.pagination import CursorPagination
 
 
@@ -5,7 +7,9 @@ class ForumCursorPagination(CursorPagination):
     page_size = 20
     max_page_size = 100
     page_size_query_param = "page_size"
-    ordering = "-id"  # stable, unique cursor ordering
+    # DRF accepts a field name or a sequence of them; declared wide here so
+    # the subclasses' tuple orderings check against it.
+    ordering: str | Sequence[str] = "-id"  # stable, unique cursor ordering
 
 
 class ForumImageCursorPagination(ForumCursorPagination):

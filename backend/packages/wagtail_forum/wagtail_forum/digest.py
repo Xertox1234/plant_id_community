@@ -22,14 +22,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import cast
 
 from django.conf import settings
+from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ImproperlyConfigured
 from django.core.mail import EmailMultiAlternatives
 from django.db.models import Count, Exists, Max, OuterRef
 from django.template.loader import render_to_string
-from django.utils import timezone
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext as _
 
@@ -63,7 +64,7 @@ class DigestTopic:
 
 @dataclass(frozen=True)
 class Digest:
-    user: object
+    user: AbstractUser
     since: datetime
     display_name: str = ""
     watched: list[DigestTopic] = field(default_factory=list)
@@ -102,7 +103,7 @@ def unsubscribe_links(user) -> dict | None:
     if not path:
         return None
     try:
-        return import_string(path)(user)
+        return cast("dict | None", import_string(path)(user))
     except Exception as exc:
         # A worker's soft time limit is the RUN being stopped, not the hook
         # failing: never swallow it (same rule as send_digest).
@@ -311,11 +312,11 @@ def is_due(profile: ForumProfile, now: datetime, window_days: int) -> bool:
     in one day does not."""
     if profile.last_digest_sent_at is None:
         return True
-    return profile.last_digest_sent_at <= now - timezone.timedelta(days=window_days - 1)
+    return profile.last_digest_sent_at <= now - timedelta(days=window_days - 1)
 
 
 def since_for(profile: ForumProfile, now: datetime, window_days: int) -> datetime:
     """Activity window start: the last digest, capped at one window back."""
-    floor = now - timezone.timedelta(days=window_days)
+    floor = now - timedelta(days=window_days)
     last = profile.last_digest_sent_at
     return max(last, floor) if last else floor

@@ -718,7 +718,7 @@ def _web_topic_path(topic_id: str | int | None, post_id: str | int | None) -> st
 
     topic = (
         Topic.objects.select_related("board").filter(pk=topic_id).first()
-        if str(topic_id or "").isdigit()
+        if topic_id and str(topic_id).isdigit()
         else None
     )
     if topic is None:

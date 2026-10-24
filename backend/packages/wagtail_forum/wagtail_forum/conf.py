@@ -1,8 +1,9 @@
 import copy
+from typing import Any
 
 from django.conf import settings
 
-DEFAULTS = {
+DEFAULTS: dict[str, Any] = {
     "SPAM_BACKEND": "wagtail_forum.spam.heuristic.HeuristicSpamBackend",
     "TRUST_AUTOPUBLISH_LEVEL": 2,  # TrustLevel.MEMBER
     # Authors who publish without moderation whatever their trust level

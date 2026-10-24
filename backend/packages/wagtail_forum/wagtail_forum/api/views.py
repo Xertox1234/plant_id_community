@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -47,29 +48,30 @@ try:  # Schema annotations are optional — hosts without drf-spectacular still 
         extend_schema_view,
     )
 except ImportError:  # pragma: no cover
-
-    def extend_schema(**kwargs):
+    # The stand-ins below redefine the imported names; mypy sees drf-spectacular
+    # installed and flags each one. The optional dependency is deliberate.
+    def extend_schema(**kwargs):  # type: ignore[misc]
         def decorator(fn):
             return fn
 
         return decorator
 
-    def extend_schema_view(**kwargs):
+    def extend_schema_view(**kwargs):  # type: ignore[misc]
         def decorator(cls):
             return cls
 
         return decorator
 
-    def OpenApiExample(*args, **kwargs):  # noqa: N802 - mirrors drf-spectacular API
+    def OpenApiExample(*args, **kwargs):  # type: ignore[no-redef]  # noqa: N802 - mirrors drf-spectacular API
         return None
 
-    class OpenApiParameter:  # noqa: N801 - mirrors drf-spectacular API
+    class OpenApiParameter:  # type: ignore[no-redef]  # noqa: N801 - mirrors drf-spectacular API
         QUERY = "query"
 
         def __init__(self, *args, **kwargs):
             pass
 
-    class OpenApiTypes:  # noqa: N801 - mirrors drf-spectacular API
+    class OpenApiTypes:  # type: ignore[no-redef]  # noqa: N801 - mirrors drf-spectacular API
         BOOL = "bool"
 
 
@@ -412,7 +414,8 @@ class PublicForumReadCacheMixin:
     _forum_read_public = True
 
     def finalize_response(self, request, response, *args, **kwargs):
-        response = super().finalize_response(request, response, *args, **kwargs)
+        # A mixin: the APIView it is mixed into supplies finalize_response().
+        response = super().finalize_response(request, response, *args, **kwargs)  # type: ignore[misc]
         if request.method in ("GET", "HEAD"):
             _apply_forum_read_cache_headers(
                 response, request, public=self._forum_read_public
@@ -485,7 +488,7 @@ class BoardListView(
     # pagination's pinned-first ordering, and 500s on dotted serializer sources
     # like author__get_username (both verified) — list order is a package
     # contract, not client-selectable.
-    filter_backends = []
+    filter_backends: list[type] = []
 
     def get_queryset(self):
         # `last_post_at` per board (todo 278 L2) as a correlated scalar
@@ -540,7 +543,7 @@ class TopicListView(
 ):
     serializer_class = TopicListSerializer
     pagination_class = TopicCursorPagination
-    filter_backends = []  # host filter-backend opt-out — see BoardListView
+    filter_backends: list[type] = []  # host filter-backend opt-out — see BoardListView
     # GET (list) is public; only the merged POST (create) needs auth — exactly
     # IsAuthenticatedOrReadOnly (also the project default), declared explicitly.
     permission_classes = [IsAuthenticatedOrReadOnly]
@@ -556,7 +559,7 @@ class TopicListView(
         # queries — select_related adds JOINs, not queries, so the list pin stays
         # flat (test_topics_list.py).
         qs = (
-            Topic.objects.filter(board=board, live=True).select_related(
+            Topic.objects.filter(board=board, live=True).select_related(  # type: ignore[misc]  # taggit `tags` is untyped to the plugin
                 "author__wagtail_forum_profile__avatar",
                 "last_post_author__wagtail_forum_profile__avatar",
             )
@@ -817,14 +820,14 @@ class TopicDetailView(
     UnversionedForumAPIMixin, PrivateForumReadCacheMixin, generics.RetrieveAPIView
 ):
     serializer_class = TopicDetailSerializer
-    filter_backends = []  # host filter-backend opt-out — see BoardListView
+    filter_backends: list[type] = []  # host filter-backend opt-out — see BoardListView
     lookup_url_kwarg = "topic_id"
 
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return Topic.objects.none()
         qs = (
-            Topic.objects.filter(live=True, board__in=_visible_boards())
+            Topic.objects.filter(live=True, board__in=_visible_boards())  # type: ignore[misc]  # taggit `tags` is untyped to the plugin
             .select_related(
                 "board",
                 "author__wagtail_forum_profile__avatar",
@@ -959,7 +962,7 @@ def _post_page_context(objects, request, base_context):
     # serializer's `reacted` field costs zero per-post queries — one query
     # for the whole page, like build_forum_image_map. Authed-only: an
     # anonymous list issues no reaction query, so its pin stays 3.
-    reacted_map = None
+    reacted_map: dict[int, list[str]] | None = None
     if request.user.is_authenticated:
         reacted_map = {}
         for post_id, rtype in Reaction.objects.filter(
@@ -987,7 +990,7 @@ class PostListView(
 ):
     serializer_class = PostSerializer
     pagination_class = PostCursorPagination
-    filter_backends = []  # host filter-backend opt-out — see BoardListView
+    filter_backends: list[type] = []  # host filter-backend opt-out — see BoardListView
     # GET (list) is public; only the merged POST (reply) needs auth — exactly
     # IsAuthenticatedOrReadOnly (also the project default), declared explicitly.
     permission_classes = [IsAuthenticatedOrReadOnly]
@@ -1390,7 +1393,7 @@ def _readable_post_revisions(request, post_id):
     return post, revisions
 
 
-REVISION_SCHEMA = {
+REVISION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "id": {"type": "integer"},
@@ -1737,7 +1740,7 @@ class MeProfileView(
 ):
     serializer_class = MeProfileSerializer
     permission_classes = [IsAuthenticated]
-    filter_backends = []  # host filter-backend opt-out — see BoardListView
+    filter_backends: list[type] = []  # host filter-backend opt-out — see BoardListView
     http_method_names = ["get", "patch", "head", "options"]
 
     def get_object(self):

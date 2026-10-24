@@ -494,7 +494,7 @@ def dispatch(event, **kwargs):
         from wagtail_forum.models import Post as ForumPost
 
         if isinstance(obj, ForumPost):
-            resolved_topic_id = obj.topic_id
+            resolved_topic_id: int | None = obj.topic_id
         else:
             resolved_topic_id = getattr(obj, "id", None)
         try:

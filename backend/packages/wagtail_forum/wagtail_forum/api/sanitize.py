@@ -15,6 +15,7 @@ import html
 import json
 import re
 from html.parser import HTMLParser
+from typing import Any
 from urllib.parse import urlsplit
 
 import nh3
@@ -172,24 +173,28 @@ class _LinkLineSplitter(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.segments = []
         self._stack = []
-        self._segment = None
+        self._segment: dict[str, Any] | None = None
 
-    def _new_line(self):
-        self._segment["lines"].append({"html": [], "text": [], "code": False})
+    @staticmethod
+    def _new_line(segment):
+        segment["lines"].append({"html": [], "text": [], "code": False})
 
     def _open(self, kind):
-        self._segment = {"kind": kind, "lines": [], "html": []}
+        segment = {"kind": kind, "lines": [], "html": []}
+        self._segment = segment
         if kind != "opaque":
-            self._new_line()
-        self.segments.append(self._segment)
+            self._new_line(segment)
+        self.segments.append(segment)
+        return segment
 
     def _emit(self, markup, text=" ", in_code=False):
-        if self._segment is None:
-            self._open("loose")
-        if self._segment["kind"] == "opaque":
-            self._segment["html"].append(markup)
+        segment = self._segment
+        if segment is None:
+            segment = self._open("loose")
+        if segment["kind"] == "opaque":
+            segment["html"].append(markup)
             return
-        line = self._segment["lines"][-1]
+        line = segment["lines"][-1]
         line["html"].append(markup)
         line["text"].append(text)
         if in_code and text.strip():
@@ -201,9 +206,10 @@ class _LinkLineSplitter(HTMLParser):
         if self._stack and self._stack != ["p"]:
             self._emit("<br>")
             return
-        if self._segment is None:
-            self._open("loose")  # the line before this break is empty
-        self._new_line()
+        segment = self._segment
+        if segment is None:
+            segment = self._open("loose")  # the line before this break is empty
+        self._new_line(segment)
 
     def handle_starttag(self, tag, attrs):
         if tag == "br":
@@ -323,7 +329,7 @@ def _split_link_lines(block, take=None):
         return "".join(parts)
 
     values = []
-    run = []
+    run: list[tuple] = []
     for entry in entries:
         if entry[3]:
             if run:
@@ -368,7 +374,7 @@ def _split_link_paragraphs(value, budget=None):
         "card": get_setting("MAX_LINK_PREVIEWS_PER_BODY"),
         "video": get_setting("MAX_EMBED_URLS_PER_BODY"),
     }
-    seen = {"card": set(), "video": set()}
+    seen: dict[str, set[str]] = {"card": set(), "video": set()}
     for block in value:
         block_value = block.get("value")
         if block["type"] == "embed" and isinstance(block_value, str):
@@ -1199,7 +1205,7 @@ def validate_forum_body(
         if link_types
         else None
     )
-    autolinked = {}
+    autolinked: dict[str, str] = {}
     if (
         _measured_body_chars(
             _stored_without_cards(

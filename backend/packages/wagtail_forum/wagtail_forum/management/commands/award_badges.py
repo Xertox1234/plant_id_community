@@ -7,6 +7,8 @@ qualified, or the one-time backfill when the engine first ships. Idempotent
 — evaluation never double-awards and never revokes.
 """
 
+from collections.abc import Iterable
+
 from django.core.management.base import BaseCommand
 
 
@@ -33,7 +35,7 @@ class Command(BaseCommand):
             if user is None:
                 self.stderr.write(self.style.ERROR(f"No user {options['username']!r}."))
                 return
-            user_ids = [user.pk]
+            user_ids: Iterable[int] = [user.pk]
         else:
             # Members without a ForumProfile have never written in the forum,
             # so every metric is zero for them — nothing to evaluate.
