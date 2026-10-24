@@ -1,5 +1,5 @@
 ---
-status: pending
+status: blocked
 priority: p3
 issue_id: "653"
 tags: [ai, evals, rag, forum, openrouter, research]
@@ -128,3 +128,36 @@ Then file the build as its own todo(s).
 Filed at the owner's request after todo 330 closed (PR #1142). The owner
 pointed at the OCRecipes coach eval system and has an OpenRouter API key to
 use. OCRecipes facts above were read from that repo on 2026-10-16.
+
+### 2026-10-24 - Deferred by the owner
+
+Owner decision (2026-10-24): "I'm not sure we need it yet." Status set to
+`blocked` so todo sweeps leave it alone. Nothing is changing that an eval
+would measure: the prompt is at `RAG_PROMPT_VERSION = 1`, the floor has
+moved once, and RAG is the only live AI feature (compose assist is
+flag-off, the LLM spam screen dormant, blog drafts owner spot-checked).
+
+**Revisit when any of these happens:**
+
+- `gpt-4o-mini` is deprecated or retired, or another model is to be tried
+- `RAG_PROMPT_VERSION` changes, or `RAG_SIMILARITY_FLOOR` needs re-tuning
+- RAG usage grows enough that a bad answer reaches real people
+- compose assist or the LLM spam screen is turned on
+
+**Scope agreed when it comes back** (smaller than the full OCRecipes design):
+
+1. First, a judge-free check: ~25 cases run by one management command,
+   locally against a dev DB with the corpus. Blocked questions → `referral`
+   (no API spend, `classify_blocked_question` runs before any provider call);
+   covered questions → expected source in the top-k above the floor;
+   off-corpus questions → nothing above it (embedding calls only). This
+   automates the todo 330 hand session.
+2. Only before a model or prompt swap: judged generation scoring through
+   OpenRouter, as a plain old-vs-new paired comparison on the same cases.
+   No stored baselines or nightly CI until changes are frequent.
+
+**Prerequisite found 2026-10-24:** the whole pipeline lives inside
+`PlantCareAskView.post` (`backend/apps/forum_host/rag.py`), and each call
+writes a `RagAnswer` row and charges `RAG_BUDGET_LIMIT`. Extract an
+`answer_question()`-style function the view and the eval both call, so
+eval runs neither write rows nor spend the live budget.
