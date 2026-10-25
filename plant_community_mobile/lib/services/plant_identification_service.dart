@@ -54,7 +54,16 @@ class PlantIdentificationService extends Notifier<void> {
         );
       }
 
-      final name = _stringValue(responseData, ['name', 'common_name']);
+      // The backend answers a refusal (e.g. no provider result) with a 200
+      // and `success: false`, so the status code alone is not an answer.
+      if (responseData['success'] == false) {
+        throw PlantIdentificationException(
+          _stringValue(responseData, ['error']) ??
+              'No plant could be identified from this image.',
+        );
+      }
+
+      final name = _stringValue(responseData, ['plant_name']);
       final scientificName = _stringValue(responseData, [
         'scientific_name',
         'scientificName',
@@ -74,7 +83,7 @@ class PlantIdentificationService extends Notifier<void> {
         name: name,
         scientificName: scientificName,
         description:
-            _stringValue(responseData, ['description']) ??
+            _topSuggestionDescription(responseData) ??
             'No description available.',
         care: _careInstructions(responseData),
         imageUrl: imageUrl,
@@ -121,8 +130,30 @@ class PlantIdentificationService extends Notifier<void> {
     return null;
   }
 
+  /// The backend carries the description on each suggestion, not at the top.
+  static String? _topSuggestionDescription(Map<String, dynamic> data) {
+    final suggestions = data['suggestions'];
+    if (suggestions is List && suggestions.isNotEmpty) {
+      final top = suggestions.first;
+      if (top is Map<String, dynamic>) {
+        return _stringValue(top, ['description']);
+      }
+    }
+    return null;
+  }
+
   static List<String> _careInstructions(Map<String, dynamic> data) {
     final value = data['care_instructions'] ?? data['care'];
+    // The backend sends a map of topic -> advice ({"watering": "...", ...}).
+    if (value is Map) {
+      final care = <String>[
+        for (final entry in value.entries)
+          if (entry.value is String &&
+              (entry.value as String).trim().isNotEmpty)
+            '${_careLabel(entry.key.toString())}: ${(entry.value as String).trim()}',
+      ];
+      if (care.isNotEmpty) return care;
+    }
     if (value is List) {
       return value
           .whereType<String>()
@@ -134,6 +165,12 @@ class PlantIdentificationService extends Notifier<void> {
     }
     return const ['Follow general care guidelines for this plant species.'];
   }
+}
+
+/// `common_issues` -> `Common issues`.
+String _careLabel(String key) {
+  final words = key.replaceAll('_', ' ').trim();
+  return words.isEmpty ? key : words[0].toUpperCase() + words.substring(1);
 }
 
 /// Error raised when identification cannot produce a valid plant result.

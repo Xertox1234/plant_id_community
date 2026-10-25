@@ -153,7 +153,7 @@ void main() {
 
       expect(response.statusCode, 200);
       expect(response.data, isA<Map<String, dynamic>>());
-      expect(response.data['name'], isNotNull);
+      expect(response.data['plant_name'], isNotNull);
     });
   });
 }
@@ -276,10 +276,13 @@ class OnlineApiService extends ApiService {
       requestOptions: RequestOptions(path: path),
       statusCode: 200,
       data: {
-        'name': 'Test Plant',
+        'success': true,
+        'plant_name': 'Test Plant',
         'scientific_name': 'Testus plantus',
-        'description': 'A test plant identified online',
-        'care_instructions': ['Water regularly'],
+        'suggestions': [
+          {'description': 'A test plant identified online'},
+        ],
+        'care_instructions': {'watering': 'Water regularly'},
         'confidence': 0.85,
         'source': 'plant_id',
         'cached': false,
