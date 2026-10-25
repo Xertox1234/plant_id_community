@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
+import 'package:plant_community_mobile/features/scan/scan_screen.dart';
 import 'package:plant_community_mobile/main.dart';
 import 'package:plant_community_mobile/services/plant_identification_service.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
@@ -36,7 +37,10 @@ void main() {
           firebaseStorageServiceProvider.overrideWith(
             () => MockFirebaseStorageService(),
           ),
-          authServiceProvider.overrideWithValue(const AuthState()),
+          // /camera is sign-in gated, so the flow starts signed in.
+          authServiceProvider.overrideWithValue(
+            const AuthState(jwtToken: 'test-token'),
+          ),
         ],
       );
     });
@@ -69,21 +73,16 @@ void main() {
         await tester.pumpAndSettle();
 
         // Verify we're on the camera screen
-        expect(find.text('Identify Plant'), findsOneWidget);
-        expect(
-          find.text('Upload a photo to identify the plant'),
-          findsOneWidget,
-        );
+        expect(find.byType(ScanScreen), findsOneWidget);
 
         // Step 2: Simulate selecting an image
         // Note: We can't actually pick an image in tests, so we'll test
         // the identify button becoming available after image selection
-        // This would require refactoring CameraScreen to be more testable
+        // This would require refactoring the scan screen to be more testable
         // (e.g., accepting a test image path as a parameter)
 
-        // For now, verify the UI elements are present
-        expect(find.text('Take Photo'), findsOneWidget);
-        expect(find.text('Upload from Gallery'), findsOneWidget);
+        // For now, verify the guided scan screen is up
+        expect(find.byType(ScanScreen), findsOneWidget);
 
         // Note: Full flow testing requires mocking ImagePicker
         // which is beyond the scope of this basic integration test.
@@ -108,10 +107,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // Verify we're on camera screen
-      expect(find.text('Take Photo'), findsOneWidget);
+      expect(find.byType(ScanScreen), findsOneWidget);
 
       // Go back (use AppBar back button or router.go since GoRouter.go() replaces stack)
-      // CameraScreen uses go() not push(), so navigate back to home explicitly
+      // The scan screen uses go() not push(), so navigate back to home explicitly
       final router = container.read(appRouterProvider);
       router.go(AppRoutes.home);
       await tester.pumpAndSettle();

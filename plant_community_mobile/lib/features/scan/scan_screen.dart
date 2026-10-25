@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../core/routing/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/app_typography.dart';
 import 'capture_session.dart';
@@ -15,10 +17,12 @@ import 'capture_steps.dart';
 import 'frame_quality.dart';
 import 'hint_stabilizer.dart';
 import 'scan_camera.dart';
+import 'scan_submitter.dart';
 import 'widgets/camera_permission_view.dart';
 import 'widgets/capture_controls.dart';
 import 'widgets/hint_chip.dart';
 import 'widgets/shot_tray.dart';
+import 'widgets/submit_overlay.dart';
 import 'widgets/step_chips.dart';
 import 'widgets/viewfinder_frame.dart';
 
@@ -60,6 +64,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   ScanCameraError? _error;
   bool _capturing = false;
   bool _torchOn = false;
+  bool _submitting = false;
   double _zoom = 1;
   double _zoomAtStart = 1;
 
@@ -72,6 +77,12 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   @override
   void initState() {
     super.initState();
+    // The preview crop assumes portrait; the app itself is not locked.
+    unawaited(
+      SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.portraitUp,
+      ]),
+    );
     WidgetsBinding.instance.addObserver(this);
     _resetAnalysis();
     ref.listenManual(
@@ -83,6 +94,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 
   @override
   void dispose() {
+    unawaited(SystemChrome.setPreferredOrientations(const []));
     WidgetsBinding.instance.removeObserver(this);
     _teardownCamera(rebuild: false);
     super.dispose();
@@ -244,7 +256,29 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       onDone(result);
       return;
     }
-    // Task 7 wires the submitter.
+    unawaited(_submit(result));
+  }
+
+  Future<void> _submit(CaptureResult result) async {
+    if (_submitting) return;
+    setState(() => _submitting = true);
+    try {
+      final plant = await ref
+          .read(scanSubmitterProvider.notifier)
+          .submit(result);
+      if (!mounted) return;
+      context.pushReplacement(AppRoutes.results, extra: plant);
+    } catch (e) {
+      if (!mounted) return;
+      // The session is untouched, so the shots are still in the tray.
+      setState(() => _submitting = false);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(scanErrorMessage(e)),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
   }
 
   Future<void> _toggleTorch() async {
@@ -279,6 +313,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(captureSessionProvider);
+    // Watched always, so the auto-dispose submitter outlives a submit.
+    final upload = ref.watch(scanSubmitterProvider);
     final theme = Theme.of(context);
     // The chrome sits on a camera image, which is always dark: resolve the
     // Canopy tokens in dark mode so ink stays legible in light mode too.
@@ -290,18 +326,24 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           );
     return Theme(
       data: chromeTheme,
-      child: Scaffold(
-        backgroundColor: chromeTheme.colorScheme.scrim,
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (_error == null) _buildPreview(),
-            SafeArea(
-              child: _error == null
-                  ? _buildGuide(session)
-                  : _buildError(_error!),
-            ),
-          ],
+      // No back-out mid-submit: the request cannot be cancelled.
+      child: PopScope(
+        canPop: !_submitting,
+        child: Scaffold(
+          backgroundColor: chromeTheme.colorScheme.scrim,
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (_error == null) _buildPreview(),
+              SafeArea(
+                child: _error == null
+                    ? _buildGuide(session)
+                    : _buildError(_error!),
+              ),
+              if (_submitting)
+                SubmitOverlay(progress: upload.hasValue ? upload.value : null),
+            ],
+          ),
         ),
       ),
     );

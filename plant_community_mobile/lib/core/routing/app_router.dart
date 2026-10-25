@@ -8,8 +8,8 @@ import '../../features/splash/splash_screen.dart';
 import '../../features/home/home_page.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
-import '../../features/camera/camera_screen.dart';
 import '../../features/results/results_screen.dart';
+import '../../features/scan/scan_screen.dart';
 import '../../features/profile/edit_profile_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import '../../features/settings/settings_screen.dart';
@@ -425,7 +425,7 @@ GoRouter appRouter(Ref ref) {
         pageBuilder: (context, state) => _buildPageWithTransition(
           context: context,
           state: state,
-          child: const CameraScreen(),
+          child: const ScanScreen(),
         ),
       ),
       GoRoute(
