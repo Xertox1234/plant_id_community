@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
-import 'package:plant_community_mobile/features/scan/scan_screen.dart';
+import 'package:plant_community_mobile/features/scan/scan_camera.dart';
 import 'package:plant_community_mobile/main.dart';
 import 'package:plant_community_mobile/services/plant_identification_service.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
@@ -11,46 +11,21 @@ import 'package:plant_community_mobile/models/plant.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../features/scan/fake_scan_camera.dart';
+
 /// Integration tests for plant identification flow.
 ///
-/// Tests the complete user journey:
-/// 1. Camera screen → select image
-/// 2. Identify plant via backend API
-/// 3. View results
-/// 4. Save to collection (future feature)
+/// The widget tests open the guided scan from Home (signed in, with a fake
+/// camera) and come back; the service tests identify through a mocked API
+/// and Firebase Storage. The capture → submit → results path is covered in
+/// test/features/scan/scan_screen_submit_test.dart.
 ///
 /// These tests mock the API and Firebase services to avoid
 /// requiring a live backend or Firebase project during testing.
 void main() {
   group('Plant Identification Flow Integration Tests', () {
-    late ProviderContainer container;
-
-    setUp(() {
-      // Create a fresh provider container for each test
-      container = ProviderContainer(
-        overrides: [
-          // Mock API service to return successful identification
-          apiServiceProvider.overrideWith((ref) {
-            final mockApiService = MockApiService();
-            return mockApiService;
-          }),
-          // Mock Firebase Storage service
-          firebaseStorageServiceProvider.overrideWith(
-            () => MockFirebaseStorageService(),
-          ),
-          // /camera is sign-in gated, so the flow starts signed in.
-          authServiceProvider.overrideWithValue(
-            const AuthState(jwtToken: 'test-token'),
-          ),
-        ],
-      );
-    });
-
-    tearDown(() {
-      container.dispose();
-    });
-
-    // /camera is a protected route, so flows that open it run signed in.
+    // /camera is a protected route, so flows that open it run signed in,
+    // with a fake camera so the guided scan renders its first step.
     ProviderContainer signedInContainer() {
       final signedIn = ProviderContainer(
         overrides: [
@@ -59,53 +34,41 @@ void main() {
             () => MockFirebaseStorageService(),
           ),
           authServiceProvider.overrideWith(_SignedInAuthNotifier.new),
+          scanCameraFactoryProvider.overrideWithValue(FakeScanCamera.new),
         ],
       );
       addTearDown(signedIn.dispose);
       return signedIn;
     }
 
-    testWidgets(
-      'Complete plant identification flow: camera → identify → results',
-      (WidgetTester tester) async {
-        // Build the app with mocked providers
-        final container = signedInContainer();
-        await tester.pumpWidget(
-          UncontrolledProviderScope(container: container, child: const MyApp()),
-        );
+    testWidgets('Get Started on Home opens the guided scan at its first step', (
+      WidgetTester tester,
+    ) async {
+      // Build the app with mocked providers
+      final container = signedInContainer();
+      await tester.pumpWidget(
+        UncontrolledProviderScope(container: container, child: const MyApp()),
+      );
 
-        // Wait for splash screen to complete
-        await tester.pumpAndSettle(const Duration(seconds: 3));
+      // Wait for splash screen to complete
+      await tester.pumpAndSettle(const Duration(seconds: 3));
 
-        // Verify we're on the home screen
-        expect(find.text('Houseplant MD'), findsOneWidget);
-        expect(find.textContaining('Identify plants with AI'), findsOneWidget);
+      // Verify we're on the home screen
+      expect(find.text('Houseplant MD'), findsOneWidget);
+      expect(find.textContaining('Identify plants with AI'), findsOneWidget);
 
-        // Step 1: Navigate to camera screen
-        final identifyButton = find.text('Get Started');
-        expect(identifyButton, findsOneWidget);
-        // Scroll to button if off-screen (home page may scroll)
-        await tester.ensureVisible(identifyButton);
-        await tester.tap(identifyButton);
-        await tester.pumpAndSettle();
+      // Open the guided scan
+      final identifyButton = find.text('Get Started');
+      expect(identifyButton, findsOneWidget);
+      // Scroll to button if off-screen (home page may scroll)
+      await tester.ensureVisible(identifyButton);
+      await tester.tap(identifyButton);
+      await tester.pumpAndSettle();
 
-        // Verify we're on the camera screen
-        expect(find.byType(ScanScreen), findsOneWidget);
-
-        // Step 2: Simulate selecting an image
-        // Note: We can't actually pick an image in tests, so we'll test
-        // the identify button becoming available after image selection
-        // This would require refactoring the scan screen to be more testable
-        // (e.g., accepting a test image path as a parameter)
-
-        // For now, verify the guided scan screen is up
-        expect(find.byType(ScanScreen), findsOneWidget);
-
-        // Note: Full flow testing requires mocking ImagePicker
-        // which is beyond the scope of this basic integration test.
-        // See plant_identification_service_test.dart for service-level tests.
-      },
-    );
+      // The guide is up on the diagnose mode's first step.
+      expect(find.text("Show me what's wrong"), findsOneWidget);
+      expect(find.text('Point at the problem'), findsOneWidget);
+    });
 
     testWidgets('Navigation: Home → Camera → Back to Home', (
       WidgetTester tester,
@@ -124,11 +87,11 @@ void main() {
       await tester.tap(getStarted);
       await tester.pumpAndSettle();
 
-      // Verify we're on camera screen
-      expect(find.byType(ScanScreen), findsOneWidget);
+      // Verify the guided scan is up
+      expect(find.text("Show me what's wrong"), findsOneWidget);
 
-      // Go back (use AppBar back button or router.go since GoRouter.go() replaces stack)
-      // The scan screen uses go() not push(), so navigate back to home explicitly
+      // The scan screen closes with Navigator.maybePop; going home through
+      // the router directly is the shortcut this test takes.
       final router = container.read(appRouterProvider);
       router.go(AppRoutes.home);
       await tester.pumpAndSettle();

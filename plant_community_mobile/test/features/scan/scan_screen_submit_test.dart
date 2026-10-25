@@ -88,8 +88,8 @@ void main() {
     await tester.tap(find.byKey(ScanScreen.shutterKey));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.byKey(const ValueKey('step-chip-problem')));
-    await tester.pump(const Duration(milliseconds: 400));
+    // Done straight from the Leaf step: one shot is enough.
+    expect(find.text('Now the whole leaf'), findsOneWidget);
     await tester.tap(find.byKey(ScanScreen.doneKey));
     await tester.pump();
   }
@@ -137,6 +137,11 @@ void main() {
     await tester.pump();
     expect(bar(tester).value, 0.4);
 
+    // Upload done, identify still running: back to an indeterminate bar.
+    service.report!(1.0);
+    await tester.pump();
+    expect(bar(tester).value, isNull);
+
     // The overlay blocks the controls underneath.
     await tester.tap(find.byKey(ScanScreen.shutterKey), warnIfMissed: false);
     expect(fake.takePictureCalls, 1);
@@ -144,6 +149,51 @@ void main() {
     service.completer.complete(_plant);
     await settleAsync(tester);
     expect(find.text('results-page'), findsOneWidget);
+  });
+
+  testWidgets('the camera is torn down while submitting', (tester) async {
+    fake.hasFlash = true;
+    await pump(tester);
+    await tester.tap(find.byKey(ScanScreen.torchKey));
+    await tester.pump();
+    expect(fake.torchOn, isTrue);
+    expect(fake.isStreaming, isTrue);
+
+    await shootAndDone(tester);
+    await tester.pump();
+    expect(find.text(SubmitOverlay.copy), findsOneWidget);
+    expect(fake.isStreaming, isFalse);
+    expect(fake.torchOn, isFalse);
+    expect(fake.disposeCalls, 1);
+
+    // A resume mid-submit must not bring the camera back under the overlay.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(fake.initializeCalls, 1);
+    expect(fake.isStreaming, isFalse);
+
+    service.completer.complete(_plant);
+    await settleAsync(tester);
+    expect(find.text('results-page'), findsOneWidget);
+  });
+
+  testWidgets('a failed submit starts the camera again', (tester) async {
+    await pump(tester);
+    await shootAndDone(tester);
+    await tester.pump();
+    expect(fake.disposeCalls, 1);
+    expect(fake.initializeCalls, 1);
+
+    service.completer.completeError(
+      PlantIdentificationException('No plant could be identified.'),
+    );
+    await settleAsync(tester);
+    await tester.pumpAndSettle();
+    expect(fake.initializeCalls, 2);
+    expect(fake.isStreaming, isTrue);
+    expect(find.byKey(const Key('fake-preview')), findsOneWidget);
   });
 
   testWidgets('a failure shows a SnackBar and keeps the shots', (tester) async {

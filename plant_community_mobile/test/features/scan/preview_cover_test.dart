@@ -31,6 +31,42 @@ void main() {
     expect(right.dy, 0);
   });
 
+  group('landscape viewport (iPad multitasking ignores the portrait lock)', () {
+    const landscape = Size(800, 600);
+
+    test('previewAspectFor un-inverts the ratio only in landscape', () {
+      expect(previewAspectFor(viewport, aspect), aspect);
+      expect(previewAspectFor(landscape, aspect), closeTo(4 / 3, 1e-9));
+      // Square counts as portrait; degenerate input passes through.
+      expect(previewAspectFor(const Size(500, 500), aspect), aspect);
+      expect(previewAspectFor(landscape, 0), 0);
+    });
+
+    test('a 4:3 landscape preview covers a 4:3 landscape screen exactly', () {
+      final a = previewAspectFor(landscape, aspect);
+      expect(coverSize(landscape, a), landscape);
+      expect(
+        focusPointFor(const Offset(400, 300), landscape, a),
+        const Offset(0.5, 0.5),
+      );
+      final corner = focusPointFor(const Offset(800, 0), landscape, a);
+      expect(corner.dx, closeTo(1, 1e-9));
+      expect(corner.dy, closeTo(0, 1e-9));
+    });
+
+    test(
+      'a wide landscape screen crops the landscape preview top and bottom',
+      () {
+        const wide = Size(1000, 600);
+        final a = previewAspectFor(wide, aspect);
+        expect(coverSize(wide, a), const Size(1000, 750));
+        final top = focusPointFor(const Offset(500, 0), wide, a);
+        expect(top.dx, closeTo(0.5, 1e-9));
+        expect(top.dy, closeTo(75 / 750, 1e-9));
+      },
+    );
+  });
+
   test('degenerate inputs stay in range', () {
     expect(
       focusPointFor(Offset.zero, Size.zero, aspect),

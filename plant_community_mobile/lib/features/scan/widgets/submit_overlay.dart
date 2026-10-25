@@ -6,7 +6,8 @@ import '../../../core/theme/app_typography.dart';
 /// Full-screen "Checking your plant…" cover shown while a scan uploads.
 ///
 /// Absorbs every touch so the controls underneath cannot be used. A null
-/// [progress] (nothing reported yet) draws an indeterminate bar.
+/// [progress] (nothing reported yet) draws an indeterminate bar, and so does
+/// a finished upload (1.0): the identify call is still running.
 class SubmitOverlay extends StatelessWidget {
   const SubmitOverlay({super.key, required this.progress});
 
@@ -42,7 +43,10 @@ class SubmitOverlay extends StatelessWidget {
                   const SizedBox(height: AppSpacing.lg),
                   LinearProgressIndicator(
                     key: const Key('scan-submit-progress'),
-                    value: progress?.clamp(0.0, 1.0).toDouble(),
+                    value: switch (progress) {
+                      final p? when p < 1 => p.clamp(0.0, 1.0).toDouble(),
+                      _ => null,
+                    },
                   ),
                 ],
               ),

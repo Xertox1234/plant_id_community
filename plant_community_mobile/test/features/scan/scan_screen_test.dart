@@ -120,7 +120,7 @@ void main() {
     handle.dispose();
   });
 
-  testWidgets('shutter fills the problem slot and moves to the leaf step', (
+  testWidgets('shutter fills the problem slot; Leaf shows Skip and Done', (
     tester,
   ) async {
     final handle = tester.ensureSemantics();
@@ -138,8 +138,10 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Now the whole leaf'), findsOneWidget);
+    // Done works any time after one shot, so both sit beside the shutter.
     expect(find.byKey(ScanScreen.skipKey), findsOneWidget);
-    expect(find.byKey(ScanScreen.doneKey), findsNothing);
+    expect(find.byKey(ScanScreen.doneKey), findsOneWidget);
+    expectDoneEnabled(tester, true);
     handle.dispose();
   });
 
@@ -251,6 +253,7 @@ void main() {
   testWidgets('a dark frame held for 450 ms shows the torch hint', (
     tester,
   ) async {
+    fake.hasFlash = true;
     await pumpScreen(tester);
     fake.emit(_dark);
     await advance(tester, const Duration(milliseconds: 450));
@@ -259,10 +262,25 @@ void main() {
     expect(find.text('Too dark, tap ⚡'), findsOneWidget);
   });
 
+  testWidgets('with no flash the dark hint drops the torch prompt', (
+    tester,
+  ) async {
+    fake.hasFlash = false;
+    await pumpScreen(tester);
+    fake.emit(_dark);
+    await advance(tester, const Duration(milliseconds: 450));
+    fake.emit(_dark);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Too dark'), findsOneWidget);
+    expect(find.textContaining('⚡'), findsNothing);
+  });
+
   testWidgets('a step change resets the hint to the step prompt', (
     tester,
   ) async {
-    fake.nextPicturePath = 'p.jpg';
+    fake
+      ..hasFlash = true
+      ..nextPicturePath = 'p.jpg';
     await pumpScreen(tester);
     fake.emit(_dark);
     await advance(tester, const Duration(milliseconds: 450));
@@ -365,35 +383,61 @@ void main() {
     expect(fake.zoom, greaterThan(1));
   });
 
-  testWidgets('the preview covers the screen, cropping the overflow', (
+  void usePortraitView(WidgetTester tester) {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+  }
+
+  testWidgets('the preview covers a portrait screen, cropping the overflow', (
     tester,
   ) async {
+    usePortraitView(tester);
     await pumpScreen(tester);
-    // 800x600 test surface, 3:4 portrait preview: width-bound cover.
+    // 400x800 screen, 3:4 portrait preview: height-bound cover.
     expect(
       tester.getSize(find.byKey(const Key('fake-preview'))),
-      const Size(800, 800 / 0.75),
+      const Size(600, 800),
     );
     expect(
       tester.getCenter(find.byKey(const Key('fake-preview'))),
-      const Offset(400, 300),
+      const Offset(200, 400),
     );
+  });
+
+  // iPadOS ignores the portrait lock in multitasking, so the screen can be
+  // landscape; the preview is then the sensor's un-inverted 4:3.
+  testWidgets('a landscape screen uses the landscape preview ratio', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    // The default 800x600 test surface is landscape and exactly 4:3.
+    expect(
+      tester.getSize(find.byKey(const Key('fake-preview'))),
+      const Size(800, 600),
+    );
+    await tester.tapAt(const Offset(400, 1));
+    await tester.pump();
+    final p = fake.lastFocusPoint!;
+    expect(p.dx, closeTo(0.5, 1e-9));
+    expect(p.dy, closeTo(1 / 600, 1e-9));
   });
 
   testWidgets('tap on the preview focuses that point of the preview image', (
     tester,
   ) async {
+    usePortraitView(tester);
     await pumpScreen(tester);
-    await tester.tapAt(const Offset(400, 300));
+    await tester.tapAt(const Offset(200, 400));
     await tester.pump();
     expect(fake.lastFocusPoint, const Offset(0.5, 0.5));
 
-    // The top of the screen is ~233 px into the preview: the crop is mapped.
-    await tester.tapAt(const Offset(400, 1));
+    // The left edge is 100 px into the 600 px wide preview: the crop is mapped.
+    await tester.tapAt(const Offset(1, 400));
     await tester.pump();
     final p = fake.lastFocusPoint!;
-    expect(p.dx, closeTo(0.5, 1e-9));
-    expect(p.dy, closeTo((1 + (800 / 0.75 - 600) / 2) / (800 / 0.75), 1e-9));
+    expect(p.dx, closeTo(101 / 600, 1e-9));
+    expect(p.dy, closeTo(0.5, 1e-9));
   });
 
   testWidgets('background and resume keeps the session and rebuilds once', (
@@ -466,7 +510,9 @@ void main() {
   testWidgets('a hint appearing does not resize the viewfinder', (
     tester,
   ) async {
-    fake.nextPicturePath = 'p.jpg';
+    fake
+      ..hasFlash = true
+      ..nextPicturePath = 'p.jpg';
     await pumpScreen(tester);
     await tapAndSettle(tester, find.byKey(ScanScreen.shutterKey));
     final before = tester.getRect(find.byType(ViewfinderFrame));
@@ -556,7 +602,8 @@ void main() {
   });
 
   testWidgets('frames from a replaced camera are dropped', (tester) async {
-    final second = FakeScanCamera();
+    fake.hasFlash = true;
+    final second = FakeScanCamera()..hasFlash = true;
     laterCameras.add(second);
     await pumpScreen(tester);
     final stale = fake.capturedOnSample!;
@@ -586,8 +633,8 @@ void main() {
     fake.nextPicturePath = 'p.jpg';
     await pumpScreen(tester);
     await tapAndSettle(tester, find.byKey(ScanScreen.shutterKey));
-    // Back on the shot required step, the right-hand control is Done.
-    await tapAndSettle(tester, find.byKey(const ValueKey('step-chip-problem')));
+    // Straight from the Leaf step: no jump back needed.
+    expect(find.text('Now the whole leaf'), findsOneWidget);
     await tapAndSettle(tester, find.byKey(ScanScreen.doneKey));
 
     expect(done, isNotNull);
@@ -595,9 +642,9 @@ void main() {
     expect(done!.shots, equals({CaptureRole.problem: 'p.jpg'}));
   });
 
-  // Judgement call beyond the brief: skip() no-ops on the last step, so a
-  // Skip there would be a dead button; it shows Done instead.
-  testWidgets('the unshot last step shows Done, not a dead Skip', (
+  // skip() no-ops on the last step, so Skip is hidden there (it would be a
+  // dead button); Done, shown on every step, is the way out.
+  testWidgets('the unshot last step shows Done and no dead Skip', (
     tester,
   ) async {
     fake.nextPicturePath = 'p.jpg';
@@ -627,7 +674,10 @@ void main() {
         expect(tester.takeException(), isNull);
         await tapAndSettle(tester, find.byKey(ScanScreen.shutterKey));
         expect(tester.takeException(), isNull);
+        // Leaf: gallery, Skip, shutter and Done all at once.
         expect(find.byKey(ScanScreen.skipKey), findsOneWidget);
+        expect(find.byKey(ScanScreen.doneKey), findsOneWidget);
+        expect(find.byKey(ScanScreen.galleryKey), findsOneWidget);
         // The longest title, on the last step.
         await tapAndSettle(tester, find.byKey(ScanScreen.skipKey));
         await tapAndSettle(tester, find.byKey(ScanScreen.skipKey));

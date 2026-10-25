@@ -6,10 +6,11 @@ import '../../../core/theme/app_typography.dart';
 import '../frame_quality.dart';
 
 /// Spec copy for a corrective hint; null for [FrameHint.none] and
-/// [FrameHint.good], where the step prompt shows instead.
-String? hintCopy(FrameHint? hint) => switch (hint) {
+/// [FrameHint.good], where the step prompt shows instead. Without a flash
+/// there is no torch to tap, so the dark hint is just "Too dark".
+String? hintCopy(FrameHint? hint, {required bool hasFlash}) => switch (hint) {
   FrameHint.moveCloser => 'Move closer',
-  FrameHint.tooDark => 'Too dark, tap ⚡',
+  FrameHint.tooDark => hasFlash ? 'Too dark, tap ⚡' : 'Too dark',
   FrameHint.holdSteady => 'Hold steady',
   FrameHint.none || FrameHint.good || null => null,
 };
@@ -17,18 +18,24 @@ String? hintCopy(FrameHint? hint) => switch (hint) {
 /// The pill under the step title: the stabilized hint, or the step [prompt]
 /// when there is nothing to correct. Announced as a live region.
 class HintChip extends StatelessWidget {
-  const HintChip({super.key, required this.hint, required this.prompt});
+  const HintChip({
+    super.key,
+    required this.hint,
+    required this.prompt,
+    required this.hasFlash,
+  });
 
   final FrameHint? hint;
   final String prompt;
+  final bool hasFlash;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final copy = hintCopy(hint);
+    final copy = hintCopy(hint, hasFlash: hasFlash);
     final locked = hint == FrameHint.good;
     final IconData? icon = switch (hint) {
-      FrameHint.tooDark => LucideIcons.zap,
+      FrameHint.tooDark => hasFlash ? LucideIcons.zap : LucideIcons.moon,
       FrameHint.holdSteady => LucideIcons.hand,
       FrameHint.moveCloser => LucideIcons.zoomIn,
       FrameHint.good => LucideIcons.check,

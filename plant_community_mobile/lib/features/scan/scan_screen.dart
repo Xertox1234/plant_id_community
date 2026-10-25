@@ -77,7 +77,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   @override
   void initState() {
     super.initState();
-    // The preview crop assumes portrait; the app itself is not locked.
+    // Portrait lock for phones. iPadOS ignores it in multitasking, so the
+    // preview crop follows the viewport's orientation (previewAspectFor).
     unawaited(
       SystemChrome.setPreferredOrientations(const [
         DeviceOrientation.portraitUp,
@@ -108,7 +109,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           AppLifecycleState.paused:
         _teardownCamera();
       case AppLifecycleState.resumed:
-        if (_camera == null && !_starting) {
+        // Mid-submit the camera stays off; the error path restarts it.
+        if (_camera == null && !_starting && !_submitting) {
           setState(() {});
           unawaited(_startCamera());
         }
@@ -168,9 +170,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     if (camera == null) return;
     _camera = null;
     _ready = false;
+    final torchWasOn = _torchOn;
     _torchOn = false;
     _capturing = false;
     final release = () async {
+      if (torchWasOn) await _quietly(() => camera.setTorch(false));
       await _quietly(camera.stopFrames);
       await _quietly(camera.dispose);
     }();
@@ -262,6 +266,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   Future<void> _submit(CaptureResult result) async {
     if (_submitting) return;
     setState(() => _submitting = true);
+    // Nothing to aim at under the overlay: torch off, frames and camera off.
+    final hadCamera = _camera != null || _starting;
+    _teardownCamera();
     try {
       final plant = await ref
           .read(scanSubmitterProvider.notifier)
@@ -272,6 +279,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       if (!mounted) return;
       // The session is untouched, so the shots are still in the tray.
       setState(() => _submitting = false);
+      if (hadCamera) unawaited(_startCamera());
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
           content: Text(scanErrorMessage(e)),
@@ -292,7 +300,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   void _focusAt(TapUpDetails d, Size size) {
     final camera = _camera;
     if (camera == null || !_ready || size.isEmpty) return;
-    final p = focusPointFor(d.localPosition, size, camera.previewAspectRatio);
+    final p = focusPointFor(
+      d.localPosition,
+      size,
+      previewAspectFor(size, camera.previewAspectRatio),
+    );
     unawaited(_quietly(() => camera.setFocusPoint(p)));
   }
 
@@ -369,7 +381,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 
   /// Full-bleed: the preview covers the screen and the overflow is cropped.
   Widget _cover(ScanCamera camera, Size viewport) {
-    final size = coverSize(viewport, camera.previewAspectRatio);
+    final size = coverSize(
+      viewport,
+      previewAspectFor(viewport, camera.previewAspectRatio),
+    );
     return ClipRect(
       child: OverflowBox(
         minWidth: size.width,
@@ -387,7 +402,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     if (!_capturing) f(v);
   };
 
-  Widget _buildTopBar({required bool showTorch}) {
+  Widget _buildTopBar({required bool showTorch, bool showGallery = false}) {
     final cs = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
@@ -401,6 +416,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             icon: const Icon(LucideIcons.x),
           ),
           const Spacer(),
+          if (showGallery)
+            IconButton(
+              key: ScanScreen.galleryKey,
+              tooltip: 'Choose from photos',
+              color: cs.onSurface,
+              onPressed: _pickFromGallery,
+              icon: const Icon(LucideIcons.images),
+            ),
           if (showTorch)
             IconButton(
               key: ScanScreen.torchKey,
@@ -420,15 +443,16 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     final role = session.currentRole;
     final title = titleFor(role, session.mode);
     final prompt = promptFor(role, session.mode);
+    final hasFlash = _ready && (_camera?.hasFlash ?? false);
     // The chip would only repeat the title; the frame shows the lock anyway.
-    final showChip = hintCopy(_hint) != null || prompt != title;
+    final showChip =
+        hintCopy(_hint, hasFlash: hasFlash) != null || prompt != title;
     final fade = MediaQuery.disableAnimationsOf(context)
         ? Duration.zero
         : const Duration(milliseconds: 180);
-    final camera = _camera;
     return Column(
       children: [
-        _buildTopBar(showTorch: _ready && (camera?.hasFlash ?? false)),
+        _buildTopBar(showTorch: hasFlash, showGallery: true),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
           child: Semantics(
@@ -475,7 +499,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
                     padding: const EdgeInsets.symmetric(
                       horizontal: AppSpacing.lg,
                     ),
-                    child: HintChip(hint: _hint, prompt: prompt),
+                    child: HintChip(
+                      hint: _hint,
+                      prompt: prompt,
+                      hasFlash: hasFlash,
+                    ),
                   ),
                 ),
             ],
@@ -510,19 +538,18 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         ),
         const SizedBox(height: AppSpacing.sm),
         CaptureControls(
-          // Skip on the last step would be a dead button (skip() no-ops
-          // there), so it becomes Done.
+          // Done shows on every step (enabled after the required shot).
+          // Skip is hidden on the last step, where skip() no-ops and it
+          // would be a dead button.
           showSkip:
               session.isCurrentSkippable &&
               !session.hasShotForCurrent &&
               !session.isLastStep,
           canFinish: session.canFinish,
           shutterEnabled: _ready && !_capturing,
-          onGallery: _pickFromGallery,
           onShutter: _shoot,
           onSkip: _session.skip,
           onDone: _finish,
-          galleryKey: ScanScreen.galleryKey,
           shutterKey: ScanScreen.shutterKey,
           skipKey: ScanScreen.skipKey,
           doneKey: ScanScreen.doneKey,

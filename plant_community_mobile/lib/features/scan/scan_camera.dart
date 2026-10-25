@@ -299,6 +299,14 @@ class PluginScanCamera implements ScanCamera {
   }
 }
 
+/// The preview's width / height for [viewport], from the camera's portrait
+/// ratio. iPadOS ignores the portrait lock for multitasking apps, so a
+/// landscape viewport gets the sensor's un-inverted landscape ratio.
+double previewAspectFor(Size viewport, double portraitAspect) {
+  if (!(portraitAspect > 0)) return portraitAspect;
+  return viewport.width > viewport.height ? 1 / portraitAspect : portraitAspect;
+}
+
 /// The size a preview of [previewAspect] (width / height) takes to cover
 /// [viewport] completely; the overflow is cropped evenly on both sides.
 Size coverSize(Size viewport, double previewAspect) {

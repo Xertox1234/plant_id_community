@@ -1,24 +1,23 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/green_thumb_extension.dart';
 
-/// Gallery (left), shutter (centre) and Skip-or-Done (right). The side slots
-/// share the leftover width equally so the shutter stays centred at any text
-/// size.
+/// Skip (left, when [showSkip]), shutter (centre) and Done (right, always;
+/// enabled once [canFinish]). The side slots share the leftover width equally
+/// so the shutter stays centred at any text size, and each holds a single
+/// button so 200% text on a 320 px screen still fits. The gallery button
+/// lives in the screen's top bar.
 class CaptureControls extends StatelessWidget {
   const CaptureControls({
     super.key,
     required this.showSkip,
     required this.canFinish,
     required this.shutterEnabled,
-    required this.onGallery,
     required this.onShutter,
     required this.onSkip,
     required this.onDone,
-    required this.galleryKey,
     required this.shutterKey,
     required this.skipKey,
     required this.doneKey,
@@ -27,11 +26,10 @@ class CaptureControls extends StatelessWidget {
   final bool showSkip;
   final bool canFinish;
   final bool shutterEnabled;
-  final VoidCallback onGallery;
   final VoidCallback onShutter;
   final VoidCallback onSkip;
   final VoidCallback onDone;
-  final Key galleryKey, shutterKey, skipKey, doneKey;
+  final Key shutterKey, skipKey, doneKey;
 
   @override
   Widget build(BuildContext context) {
@@ -43,23 +41,6 @@ class CaptureControls extends StatelessWidget {
           Expanded(
             child: Align(
               alignment: Alignment.centerLeft,
-              child: IconButton.filledTonal(
-                key: galleryKey,
-                tooltip: 'Choose from photos',
-                iconSize: 22,
-                constraints: const BoxConstraints(minWidth: 52, minHeight: 52),
-                onPressed: onGallery,
-                icon: const Icon(LucideIcons.images),
-              ),
-            ),
-          ),
-          _Shutter(
-            key: shutterKey,
-            onPressed: shutterEnabled ? onShutter : null,
-          ),
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
               child: showSkip
                   ? TextButton(
                       key: skipKey,
@@ -71,10 +52,20 @@ class CaptureControls extends StatelessWidget {
                       ),
                       child: const Text('Skip', textAlign: TextAlign.center),
                     )
-                  : _DoneButton(
-                      key: doneKey,
-                      onPressed: canFinish ? onDone : null,
-                    ),
+                  : const SizedBox.shrink(),
+            ),
+          ),
+          _Shutter(
+            key: shutterKey,
+            onPressed: shutterEnabled ? onShutter : null,
+          ),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: _DoneButton(
+                key: doneKey,
+                onPressed: canFinish ? onDone : null,
+              ),
             ),
           ),
         ],
@@ -113,7 +104,7 @@ class _DoneButton extends StatelessWidget {
                 constraints: const BoxConstraints(minHeight: 48, minWidth: 72),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.lg,
+                    horizontal: AppSpacing.md,
                     vertical: AppSpacing.sm,
                   ),
                   child: Center(
@@ -121,6 +112,7 @@ class _DoneButton extends StatelessWidget {
                     heightFactor: 1,
                     child: Text(
                       'Done',
+                      textAlign: TextAlign.center,
                       style: AppTypography.button.copyWith(color: cs.onPrimary),
                     ),
                   ),
