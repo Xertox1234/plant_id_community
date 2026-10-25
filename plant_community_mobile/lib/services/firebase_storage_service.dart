@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as path;
 import 'package:uuid/uuid.dart';
 
+import 'auth_service.dart';
+
 /// Provider for Firebase Storage uploads used by plant identification.
 final firebaseStorageServiceProvider =
     NotifierProvider<FirebaseStorageService, void>(FirebaseStorageService.new);
@@ -21,6 +23,11 @@ class FirebaseStorageService extends Notifier<void> {
     '.webp': 'image/webp',
     '.gif': 'image/gif',
   };
+
+  /// Storage object path. Must stay inside the folder `firebase/storage.rules`
+  /// permits: `plant-identifications/{userId}/{imageId}`.
+  static String plantImagePath(String uid, String imageId, String extension) =>
+      'plant-identifications/$uid/$imageId$extension';
 
   final Uuid _uuid = const Uuid();
 
@@ -65,8 +72,13 @@ class FirebaseStorageService extends Notifier<void> {
       );
     }
 
+    final uid = ref.read(currentUserIdProvider);
+    if (uid == null || uid.isEmpty) {
+      throw FirebaseStorageServiceException('Sign in to identify plants.');
+    }
+
     final imageId = _uuid.v4();
-    final storageRef = _storage.ref('plant_images/$imageId$extension');
+    final storageRef = _storage.ref(plantImagePath(uid, imageId, extension));
 
     StreamSubscription<TaskSnapshot>? progressSub;
     try {
