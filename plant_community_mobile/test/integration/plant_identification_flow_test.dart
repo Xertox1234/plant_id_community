@@ -9,6 +9,7 @@ import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/firebase_storage_service.dart';
 import 'package:plant_community_mobile/models/plant.dart';
 import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 /// Integration tests for plant identification flow.
 ///
@@ -49,10 +50,26 @@ void main() {
       container.dispose();
     });
 
+    // /camera is a protected route, so flows that open it run signed in.
+    ProviderContainer signedInContainer() {
+      final signedIn = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWith((ref) => MockApiService()),
+          firebaseStorageServiceProvider.overrideWith(
+            () => MockFirebaseStorageService(),
+          ),
+          authServiceProvider.overrideWith(_SignedInAuthNotifier.new),
+        ],
+      );
+      addTearDown(signedIn.dispose);
+      return signedIn;
+    }
+
     testWidgets(
       'Complete plant identification flow: camera → identify → results',
       (WidgetTester tester) async {
         // Build the app with mocked providers
+        final container = signedInContainer();
         await tester.pumpWidget(
           UncontrolledProviderScope(container: container, child: const MyApp()),
         );
@@ -93,6 +110,7 @@ void main() {
     testWidgets('Navigation: Home → Camera → Back to Home', (
       WidgetTester tester,
     ) async {
+      final container = signedInContainer();
       await tester.pumpWidget(
         UncontrolledProviderScope(container: container, child: const MyApp()),
       );
@@ -530,4 +548,20 @@ class MockFirebaseStorageService extends FirebaseStorageService {
     deletedImageUrls.add(imageUrl);
     await Future.delayed(const Duration(milliseconds: 100));
   }
+}
+
+class _FakeFirebaseAuth extends Fake implements FirebaseAuth {
+  @override
+  User? get currentUser => null;
+
+  @override
+  Stream<User?> authStateChanges() => const Stream.empty();
+}
+
+class _SignedInAuthNotifier extends AuthService {
+  @override
+  FirebaseAuth get firebaseAuth => _FakeFirebaseAuth();
+
+  @override
+  AuthState build() => const AuthState(jwtToken: 'mock-jwt-token');
 }
