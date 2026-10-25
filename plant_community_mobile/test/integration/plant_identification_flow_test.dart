@@ -277,18 +277,23 @@ class MockApiService extends ApiService {
       requestOptions: RequestOptions(path: path),
       statusCode: 200,
       data: {
-        'name': 'Echeveria elegans',
+        // The shape the backend's identify view returns.
+        'success': true,
+        'plant_name': 'Echeveria elegans',
         'scientific_name': 'Echeveria elegans',
-        'description':
-            'A popular succulent with rosette-shaped leaves, often called "Mexican Snowball".',
-        'care_instructions': [
-          'Water sparingly, allowing soil to dry completely',
-          'Requires bright, direct sunlight (4-6 hours)',
-          'Well-draining soil is essential',
+        'suggestions': [
+          {
+            'plant_name': 'Echeveria elegans',
+            'scientific_name': 'Echeveria elegans',
+            'description':
+                'A popular succulent with rosette-shaped leaves, often called "Mexican Snowball".',
+          },
         ],
+        'care_instructions': {
+          'watering': 'Water sparingly, allowing soil to dry completely',
+          'light': 'Requires bright, direct sunlight (4-6 hours)',
+        },
         'confidence': 0.95,
-        'source': 'plant_id',
-        'cached': false,
       },
     );
   }
@@ -442,10 +447,8 @@ class EmptyResponseApiService extends ApiService {
       requestOptions: RequestOptions(path: path),
       statusCode: 200,
       data: {
-        'name': null, // No plant identified
-        'scientific_name': null,
-        'description': '',
-        'care_instructions': [],
+        'success': false, // No plant identified
+        'error': 'No plant could be identified from this image.',
       },
     );
   }
