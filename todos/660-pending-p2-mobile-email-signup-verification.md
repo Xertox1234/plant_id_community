@@ -108,6 +108,6 @@ Found 2026-10-25 while creating a sim test account to check PR #1195 (Claude, pr
 ## Notes
 
 - p2: every mobile email sign-up silently fails; only Google works.
-- Not covered here: the same sim run hit `Quota for bucket plant-community-prod.firebasestorage.app exceeded`
-  on upload, which blocks every in-app identify. It waits on the owner's Firebase plan/billing check
-  (2026-10-25) and isn't tracked as a todo yet.
+- Not covered here, and resolved 2026-10-25: the same sim run hit `Quota for bucket
+  plant-community-prod.firebasestorage.app exceeded` on upload. The prod project was linked to a closed
+  free-trial billing account; the owner relinked it to the active one, and a probe upload then returned 200.
