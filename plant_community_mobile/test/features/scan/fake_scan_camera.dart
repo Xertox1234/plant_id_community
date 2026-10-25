@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:plant_community_mobile/features/scan/frame_quality.dart';
 import 'package:plant_community_mobile/features/scan/scan_camera.dart';
@@ -11,6 +13,14 @@ class FakeScanCamera implements ScanCamera {
   double minZoom = 1;
   @override
   double maxZoom = 1;
+  @override
+  double previewAspectRatio = 3 / 4;
+
+  /// When set, [dispose] waits for it (a slow camera release).
+  Completer<void>? disposeGate;
+
+  /// When set, [takePicture] waits for it (a capture in flight).
+  Completer<void>? pictureGate;
   int initializeCalls = 0;
   int disposeCalls = 0;
   String nextPicturePath = '/tmp/fake_scan.jpg';
@@ -41,6 +51,8 @@ class FakeScanCamera implements ScanCamera {
   @override
   Future<String> takePicture() async {
     takePictureCalls++;
+    final gate = pictureGate;
+    if (gate != null) await gate.future;
     return nextPicturePath;
   }
 
@@ -57,7 +69,11 @@ class FakeScanCamera implements ScanCamera {
 
   @override
   Future<void> startFrames(void Function(FrameSample sample) onSample) async =>
-      _onSample = onSample;
+      _onSample = capturedOnSample = onSample;
+
+  /// The last callback handed to [startFrames], kept after stop/dispose so a
+  /// test can play a stale camera's frames.
+  void Function(FrameSample sample)? capturedOnSample;
 
   @override
   Future<void> stopFrames() async => _onSample = null;
@@ -68,5 +84,7 @@ class FakeScanCamera implements ScanCamera {
     _disposed = true;
     disposeCalls++;
     _onSample = null;
+    final gate = disposeGate;
+    if (gate != null) await gate.future;
   }
 }

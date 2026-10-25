@@ -161,6 +161,7 @@ class _ShutterState extends State<_Shutter> {
       button: true,
       enabled: enabled,
       label: 'Take photo',
+      onTap: widget.onPressed,
       excludeSemantics: true,
       child: GestureDetector(
         onTapDown: enabled ? (_) => _setDown(true) : null,

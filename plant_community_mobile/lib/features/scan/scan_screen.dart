@@ -48,6 +48,14 @@ class ScanScreen extends ConsumerStatefulWidget {
 class _ScanScreenState extends ConsumerState<ScanScreen>
     with WidgetsBindingObserver {
   ScanCamera? _camera;
+
+  /// Bumped by every start and teardown; a start that sees it move aborts.
+  int _epoch = 0;
+  bool _starting = false;
+
+  /// The release of the previous camera; the next start waits for it so two
+  /// cameras are never open at once.
+  Future<void>? _teardown;
   bool _ready = false;
   ScanCameraError? _error;
   bool _capturing = false;
@@ -88,7 +96,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           AppLifecycleState.paused:
         _teardownCamera();
       case AppLifecycleState.resumed:
-        if (_camera == null) {
+        if (_camera == null && !_starting) {
           setState(() {});
           unawaited(_startCamera());
         }
@@ -106,12 +114,18 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   // ── camera lifecycle ─────────────────────────────────────────────────────
 
   Future<void> _startCamera() async {
-    final camera = ref.read(scanCameraFactoryProvider)();
+    final epoch = ++_epoch;
     // Plain assignment: this runs from initState, where setState is illegal;
     // the resume path schedules its own rebuild.
-    _camera = camera;
+    _starting = true;
     _ready = false;
     _error = null;
+    final previous = _teardown;
+    if (previous != null) await previous;
+    if (!mounted || epoch != _epoch) return;
+    final camera = ref.read(scanCameraFactoryProvider)();
+    _camera = camera;
+    _starting = false;
     try {
       await camera.initialize();
     } catch (e) {
@@ -131,20 +145,29 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       _ready = true;
       _zoom = camera.minZoom;
     });
-    await _quietly(() => camera.startFrames(_onSample));
+    await _quietly(() => camera.startFrames((s) => _onSample(camera, s)));
   }
 
   /// Stops and disposes the live camera once; a no-op when there is none.
   void _teardownCamera({bool rebuild = true}) {
+    _epoch++; // Cancels a start still waiting on a previous release.
+    _starting = false;
     final camera = _camera;
     if (camera == null) return;
     _camera = null;
     _ready = false;
     _torchOn = false;
-    unawaited(() async {
+    _capturing = false;
+    final release = () async {
       await _quietly(camera.stopFrames);
       await _quietly(camera.dispose);
-    }());
+    }();
+    _teardown = release;
+    unawaited(
+      release.whenComplete(() {
+        if (identical(_teardown, release)) _teardown = null;
+      }),
+    );
     if (rebuild && mounted) setState(_resetAnalysis);
   }
 
@@ -157,8 +180,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 
   // ── frame analysis ───────────────────────────────────────────────────────
 
-  void _onSample(FrameSample sample) {
-    if (!mounted) return;
+  void _onSample(ScanCamera from, FrameSample sample) {
+    if (!mounted || !identical(from, _camera)) return;
     final role = ref.read(captureSessionProvider).currentRole;
     final raw = assessFrame(sample, _previous, role);
     _previous = sample;
@@ -235,10 +258,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   void _focusAt(TapUpDetails d, Size size) {
     final camera = _camera;
     if (camera == null || !_ready || size.isEmpty) return;
-    final p = Offset(
-      (d.localPosition.dx / size.width).clamp(0.0, 1.0),
-      (d.localPosition.dy / size.height).clamp(0.0, 1.0),
-    );
+    final p = focusPointFor(d.localPosition, size, camera.previewAspectRatio);
     unawaited(_quietly(() => camera.setFocusPoint(p)));
   }
 
@@ -298,12 +318,32 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           onScaleStart: (_) => _zoomAtStart = _zoom,
           onScaleUpdate: _zoomBy,
           child: camera != null && _ready
-              ? Center(child: camera.buildPreview())
+              ? _cover(camera, constraints.biggest)
               : const SizedBox.expand(),
         ),
       ),
     );
   }
+
+  /// Full-bleed: the preview covers the screen and the overflow is cropped.
+  Widget _cover(ScanCamera camera, Size viewport) {
+    final size = coverSize(viewport, camera.previewAspectRatio);
+    return ClipRect(
+      child: OverflowBox(
+        minWidth: size.width,
+        maxWidth: size.width,
+        minHeight: size.height,
+        maxHeight: size.height,
+        child: camera.buildPreview(),
+      ),
+    );
+  }
+
+  /// Ignores step changes while a shot is in flight, so it lands on the step
+  /// that was showing when the shutter was pressed.
+  void Function(T) _unlessCapturing<T>(void Function(T) f) => (v) {
+    if (!_capturing) f(v);
+  };
 
   Widget _buildTopBar({required bool showTorch}) {
     final cs = Theme.of(context).colorScheme;
@@ -370,29 +410,41 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             ),
           ),
         ),
-        const SizedBox(height: AppSpacing.xs),
-        if (showChip)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-            child: HintChip(hint: _hint, prompt: prompt),
-          ),
+        // The chip floats over the top of the frame, so it appearing or
+        // going never resizes the viewfinder.
         Expanded(
-          child: IgnorePointer(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.xl,
-                vertical: AppSpacing.md,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.xl,
+                      vertical: AppSpacing.md,
+                    ),
+                    child: ViewfinderFrame(locked: _hint == FrameHint.good),
+                  ),
+                ),
               ),
-              child: ViewfinderFrame(locked: _hint == FrameHint.good),
-            ),
+              if (showChip)
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.lg,
+                    ),
+                    child: HintChip(hint: _hint, prompt: prompt),
+                  ),
+                ),
+            ],
           ),
         ),
         ShotTray(
           mode: session.mode,
           currentRole: role,
           shots: session.shots,
-          onRetake: _session.retake,
-          onJump: _session.jumpTo,
+          onRetake: _unlessCapturing(_session.retake),
+          onJump: _unlessCapturing(_session.jumpTo),
         ),
         const SizedBox(height: AppSpacing.sm),
         StepChips(
@@ -400,11 +452,12 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           currentRole: role,
           shotRoles: session.shots.keys.toSet(),
           modeChipKey: ScanScreen.modeChipKey,
-          onJump: (r) {
+          onJump: _unlessCapturing((CaptureRole r) {
             unawaited(HapticFeedback.selectionClick());
             _session.jumpTo(r);
-          },
+          }),
           onSwitchMode: () {
+            if (_capturing) return;
             unawaited(HapticFeedback.selectionClick());
             _session.setMode(
               session.mode == ScanMode.diagnose

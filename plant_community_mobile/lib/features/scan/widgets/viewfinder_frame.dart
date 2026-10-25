@@ -16,6 +16,9 @@ class ViewfinderFrame extends StatefulWidget {
 
   static const Duration snapDuration = Duration(milliseconds: 180);
 
+  /// Screen-reader announcement when the frame locks on.
+  static const String lockedLabel = 'Locked on';
+
   @override
   State<ViewfinderFrame> createState() => _ViewfinderFrameState();
 }
@@ -55,12 +58,18 @@ class _ViewfinderFrameState extends State<ViewfinderFrame>
     final color = widget.locked
         ? Theme.of(context).colorScheme.primary
         : context.canopy.line.withValues(alpha: 0.6);
-    return RepaintBoundary(
-      child: ScaleTransition(
-        scale: _scale,
-        child: CustomPaint(
-          painter: _FramePainter(color: color, locked: widget.locked),
-          child: const SizedBox.expand(),
+    // Announces the lock on every step, including those whose hint chip is
+    // hidden because it would repeat the title.
+    return Semantics(
+      liveRegion: true,
+      label: widget.locked ? ViewfinderFrame.lockedLabel : '',
+      child: RepaintBoundary(
+        child: ScaleTransition(
+          scale: _scale,
+          child: CustomPaint(
+            painter: _FramePainter(color: color, locked: widget.locked),
+            child: const SizedBox.expand(),
+          ),
         ),
       ),
     );

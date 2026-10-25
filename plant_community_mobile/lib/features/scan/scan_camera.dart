@@ -25,6 +25,9 @@ abstract interface class ScanCamera {
   /// Throws [ScanCameraException].
   Future<void> initialize();
   Widget buildPreview();
+
+  /// Width / height of [buildPreview] in portrait. Valid once initialized.
+  double get previewAspectRatio;
   bool get hasFlash;
   double get minZoom;
   double get maxZoom;
@@ -163,6 +166,18 @@ class PluginScanCamera implements ScanCamera {
   @override
   Widget buildPreview() => CameraPreview(_c);
 
+  // The plugin reports the sensor's landscape ratio; CameraPreview inverts it
+  // in portrait, and so do we.
+  @override
+  double get previewAspectRatio {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || c.value.previewSize == null) {
+      return 3 / 4;
+    }
+    final landscape = c.value.aspectRatio;
+    return landscape > 0 ? 1 / landscape : 3 / 4;
+  }
+
   @override
   Future<String> takePicture() async {
     final controller = _c;
@@ -282,6 +297,28 @@ class PluginScanCamera implements ScanCamera {
     _controller = null;
     await _safeDispose(c);
   }
+}
+
+/// The size a preview of [previewAspect] (width / height) takes to cover
+/// [viewport] completely; the overflow is cropped evenly on both sides.
+Size coverSize(Size viewport, double previewAspect) {
+  if (viewport.isEmpty || !(previewAspect > 0)) return viewport;
+  return viewport.aspectRatio > previewAspect
+      ? Size(viewport.width, viewport.width / previewAspect)
+      : Size(viewport.height * previewAspect, viewport.height);
+}
+
+/// Maps a [tap] in [viewport] coordinates to the 0..1 point of the preview
+/// image under it, after the cover crop of [coverSize].
+Offset focusPointFor(Offset tap, Size viewport, double previewAspect) {
+  final cover = coverSize(viewport, previewAspect);
+  if (cover.isEmpty) return const Offset(0.5, 0.5);
+  final dx = (viewport.width - cover.width) / 2;
+  final dy = (viewport.height - cover.height) / 2;
+  return Offset(
+    ((tap.dx - dx) / cover.width).clamp(0.0, 1.0),
+    ((tap.dy - dy) / cover.height).clamp(0.0, 1.0),
+  );
 }
 
 /// A factory so tests can override the camera. Screens call the result.

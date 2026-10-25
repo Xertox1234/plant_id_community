@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -45,12 +47,16 @@ void main() {
   late FakeScanCamera fake;
   late DateTime fakeNow;
   late int factoryCalls;
+
+  /// Cameras the factory hands out after the first; empty = reuse [fake].
+  late List<FakeScanCamera> laterCameras;
   CaptureResult? done;
 
   setUp(() {
     fake = FakeScanCamera();
     fakeNow = DateTime(2026, 10, 24, 12);
     factoryCalls = 0;
+    laterCameras = [];
     done = null;
   });
 
@@ -63,6 +69,9 @@ void main() {
         overrides: [
           scanCameraFactoryProvider.overrideWithValue(() {
             factoryCalls++;
+            if (factoryCalls > 1 && laterCameras.isNotEmpty) {
+              return laterCameras.removeAt(0);
+            }
             return fake;
           }),
           hintClockProvider.overrideWithValue(() => fakeNow),
@@ -356,16 +365,35 @@ void main() {
     expect(fake.zoom, greaterThan(1));
   });
 
-  testWidgets('tap on the preview sets a normalized focus point', (
+  testWidgets('the preview covers the screen, cropping the overflow', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    // 800x600 test surface, 3:4 portrait preview: width-bound cover.
+    expect(
+      tester.getSize(find.byKey(const Key('fake-preview'))),
+      const Size(800, 800 / 0.75),
+    );
+    expect(
+      tester.getCenter(find.byKey(const Key('fake-preview'))),
+      const Offset(400, 300),
+    );
+  });
+
+  testWidgets('tap on the preview focuses that point of the preview image', (
     tester,
   ) async {
     await pumpScreen(tester);
     await tester.tapAt(const Offset(400, 300));
     await tester.pump();
-    final p = fake.lastFocusPoint;
-    expect(p, isNotNull);
-    expect(p!.dx, inInclusiveRange(0, 1));
-    expect(p.dy, inInclusiveRange(0, 1));
+    expect(fake.lastFocusPoint, const Offset(0.5, 0.5));
+
+    // The top of the screen is ~233 px into the preview: the crop is mapped.
+    await tester.tapAt(const Offset(400, 1));
+    await tester.pump();
+    final p = fake.lastFocusPoint!;
+    expect(p.dx, closeTo(0.5, 1e-9));
+    expect(p.dy, closeTo((1 + (800 / 0.75 - 600) / 2) / (800 / 0.75), 1e-9));
   });
 
   testWidgets('background and resume keeps the session and rebuilds once', (
@@ -396,6 +424,160 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Now the whole leaf'), findsOneWidget);
+  });
+
+  testWidgets('shutter and a filled tray slot expose a tap action', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    fake.nextPicturePath = 'p.jpg';
+    await pumpScreen(tester);
+    expect(
+      tester.getSemantics(find.byKey(ScanScreen.shutterKey)),
+      isSemantics(hasTapAction: true, isButton: true),
+    );
+    await tapAndSettle(tester, find.byKey(ScanScreen.shutterKey));
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('tray-problem'))),
+      isSemantics(hasTapAction: true, isButton: true),
+    );
+    handle.dispose();
+  });
+
+  testWidgets('a lock is announced on a step whose hint chip is hidden', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    fake.nextPicturePath = 'p.jpg';
+    await pumpScreen(tester);
+    await tapAndSettle(tester, find.byKey(ScanScreen.shutterKey));
+    expect(find.text('Now the whole leaf'), findsOneWidget);
+    expect(find.bySemanticsLabel(ViewfinderFrame.lockedLabel), findsNothing);
+
+    fake.emit(_greenSharp);
+    await advance(tester, const Duration(milliseconds: 400));
+    fake.emit(_greenSharp);
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.bySemanticsLabel(ViewfinderFrame.lockedLabel), findsOneWidget);
+    handle.dispose();
+  });
+
+  testWidgets('a hint appearing does not resize the viewfinder', (
+    tester,
+  ) async {
+    fake.nextPicturePath = 'p.jpg';
+    await pumpScreen(tester);
+    await tapAndSettle(tester, find.byKey(ScanScreen.shutterKey));
+    final before = tester.getRect(find.byType(ViewfinderFrame));
+    fake.emit(_dark);
+    await advance(tester, const Duration(milliseconds: 450));
+    fake.emit(_dark);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Too dark, tap ⚡'), findsOneWidget);
+    expect(tester.getRect(find.byType(ViewfinderFrame)), before);
+  });
+
+  testWidgets(
+    'step, tray and mode taps are ignored while a shot is in flight',
+    (tester) async {
+      final gate = Completer<void>();
+      fake
+        ..nextPicturePath = 'p.jpg'
+        ..pictureGate = gate;
+      await pumpScreen(tester);
+      await tester.tap(find.byKey(ScanScreen.shutterKey));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('step-chip-whole')));
+      await tester.tap(find.byKey(const ValueKey('tray-flower')));
+      await tester.tap(find.byKey(ScanScreen.modeChipKey));
+      await tester.pump();
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('tray-problem')),
+          matching: find.byKey(const ValueKey('tray-check')),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Now the whole leaf'), findsOneWidget);
+      expect(find.text('Just identify it'), findsOneWidget);
+    },
+  );
+
+  testWidgets('a capture cut off by backgrounding never strands the shutter', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    final gate = Completer<void>();
+    fake.pictureGate = gate;
+    await pumpScreen(tester);
+    await tester.tap(find.byKey(ScanScreen.shutterKey));
+    await tester.pump();
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    fake.pictureGate = null;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSemantics(find.byKey(ScanScreen.shutterKey)),
+      isSemantics(hasEnabledState: true, isEnabled: true, hasTapAction: true),
+    );
+    gate.complete();
+    await tester.pumpAndSettle();
+    handle.dispose();
+  });
+
+  testWidgets('resume waits for the previous camera to finish disposing', (
+    tester,
+  ) async {
+    final gate = Completer<void>();
+    fake.disposeGate = gate;
+    await pumpScreen(tester);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(fake.disposeCalls, 1);
+    expect(fake.initializeCalls, 1);
+    expect(factoryCalls, 1);
+
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(fake.initializeCalls, 2);
+    expect(factoryCalls, 2);
+    expect(fake.isStreaming, isTrue);
+  });
+
+  testWidgets('frames from a replaced camera are dropped', (tester) async {
+    final second = FakeScanCamera();
+    laterCameras.add(second);
+    await pumpScreen(tester);
+    final stale = fake.capturedOnSample!;
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(second.isStreaming, isTrue);
+
+    stale(_dark);
+    await advance(tester, const Duration(milliseconds: 450));
+    stale(_dark);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Too dark, tap ⚡'), findsNothing);
+
+    second.emit(_dark);
+    await advance(tester, const Duration(milliseconds: 450));
+    second.emit(_dark);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Too dark, tap ⚡'), findsOneWidget);
   });
 
   testWidgets('Done after only the problem shot hands back that shot', (

@@ -82,6 +82,7 @@ class _Slot extends StatelessWidget {
       label: filled
           ? 'Retake ${role.chipLabel.toLowerCase()} photo'
           : '${role.chipLabel} photo, not taken',
+      onTap: onTap,
       excludeSemantics: true,
       child: GestureDetector(
         onTap: onTap,
