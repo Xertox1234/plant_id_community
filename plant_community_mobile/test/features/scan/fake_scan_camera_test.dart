@@ -48,6 +48,7 @@ void main() {
     final cam = FakeScanCamera();
     await cam.startFrames((_) {});
     await cam.dispose();
+    await cam.dispose();
     expect(cam.disposeCalls, 1);
     expect(cam.isStreaming, isFalse);
   });
