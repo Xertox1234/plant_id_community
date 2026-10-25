@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "661"
 tags: [backend, plant-identification]
@@ -91,12 +91,12 @@ Found 2026-10-25 by Claude while verifying PR #1199 end to end on the iPhone 17 
 
 ## Acceptance Criteria
 
-- [ ] The response's `confidence` belongs to the suggestion returned as `plant_name`, with a test where a
+- [x] The response's `confidence` belongs to the suggestion returned as `plant_name`, with a test where a
       PlantNet suggestion ranks first.
-- [ ] A response says which provider the top answer came from.
-- [ ] The cross-provider rule is documented and tested for agree, disagree and single-provider responses,
+- [x] A response says which provider the top answer came from.
+- [x] The cross-provider rule is documented and tested for agree, disagree and single-provider responses,
       including a scientific-name match that differs only by author suffix.
-- [ ] The full backend `pytest` passes.
+- [x] The full backend `pytest` passes.
 
 ## Work Log
 
@@ -105,3 +105,26 @@ Found 2026-10-25 by Claude while verifying PR #1199 end to end on the iPhone 17 
 - Saw *Adenium obesum* for a fiddle-leaf fig, with PlantNet's species *Ficus lyrata* in the same response.
   Read `_merge_suggestions` and found a mixed-scale sort, not the Plant.id-first merge the #1199 body
   described. Filed at the owner's request.
+
+### 2026-10-25 - Implemented by hand (interim rule)
+
+- `combined_identification_service.py`:
+  - `normalize_scientific_name` (lowercase genus + epithet, author dropped) is now the agreement match.
+  - `_merge_suggestions` no longer sorts across providers. Tiers: species both name (by Plant.id
+    probability), then Plant.id-only (by probability), then PlantNet-only (by score). The docstring
+    states the rule.
+  - `confidence_score` is now the top suggestion's own number. New `top_source`:
+    `plant_id` | `plantnet` | `both` (agreement; confidence is then Plant.id's).
+  - One `[MERGE]` info line per identify: each provider's own top name + raw score, `agree=`,
+    `top_source=`. No image data, no user.
+- `simple_views.py`: `top_source` in the response and the OpenAPI schema. `source` is unchanged.
+- Tests: `apps/plant_identification/tests/test_merge_ranking.py` (agree, author-suffix agree,
+  disagree, PlantNet-only first, Plant.id-only, no answer, summary vs confidence, log line, endpoint).
+- **Ruling, interim:** on disagreement Plant.id now leads regardless of raw scores. Before, a higher
+  PlantNet score could jump it. Neither choice is backed by data; this one stops comparing
+  incomparable numbers. It fixes the fiddle-leaf case only if Plant.id listed *Ficus lyrata* in its
+  top 5 (raw scores were never captured, so unknown).
+- The author-suffix test exercises a defensive path: Plant.id v3 `name` and PlantNet
+  `scientificNameWithoutAuthor` are normally both author-free.
+- **Not done here:** calibrating the disagree case from logged `[MERGE]` lines (Recommended Action
+  step 3). It has no todo of its own.
