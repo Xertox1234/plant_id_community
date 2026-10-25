@@ -326,7 +326,7 @@ void main() {
       },
     );
 
-    testWidgets('Should navigate to camera screen', (
+    testWidgets('Signed-out user is redirected from the camera to login', (
       WidgetTester tester,
     ) async {
       final container = ProviderContainer(
@@ -334,6 +334,41 @@ void main() {
           authServiceProvider.overrideWith(
             _MockUnauthenticatedAuthNotifier.new,
           ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final router = container.read(appRouterProvider);
+
+      // Screens may be Consumers (HomePage's onboarding card, todo 412), so
+      // the router's own container must be in scope.
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+
+      // Navigate to camera
+      router.go(AppRoutes.camera);
+      // Pump one frame to complete navigation (before splash timer fires at ~1.8s)
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(
+        router.routerDelegate.currentConfiguration.uri.path,
+        equals(AppRoutes.login),
+      );
+
+      // Drain remaining splash timers
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('Signed-in user reaches the camera', (
+      WidgetTester tester,
+    ) async {
+      final container = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(_MockAuthenticatedAuthNotifier.new),
         ],
       );
       addTearDown(container.dispose);

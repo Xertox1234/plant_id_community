@@ -196,7 +196,7 @@ void main() {
     testWidgets('opens the camera and can be left without force-quitting', (
       tester,
     ) async {
-      final h = await pumpShell(tester, loggedIn: false);
+      final h = await pumpShell(tester, loggedIn: true);
 
       // Land on a tab that is NOT Home, so the pop target is unambiguous.
       await tapTab(tester, LucideIcons.messagesSquare);
@@ -229,7 +229,7 @@ void main() {
     testWidgets('the camera covers the nav bar while capturing', (
       tester,
     ) async {
-      final h = await pumpShell(tester, loggedIn: false);
+      final h = await pumpShell(tester, loggedIn: true);
 
       await tester.tap(find.byKey(MainShell.identifyFabKey));
       await settle(tester);
@@ -238,6 +238,17 @@ void main() {
       // /camera sits on the ROOT navigator, outside every branch, so capture
       // is full-screen rather than framed by a tab bar.
       expect(find.byType(NavigationBar), findsNothing);
+
+      await tester.pump(const Duration(seconds: 4));
+    });
+    testWidgets('signed out, the Identify action lands on login', (
+      tester,
+    ) async {
+      final h = await pumpShell(tester, loggedIn: false);
+
+      await tester.tap(find.byKey(MainShell.identifyFabKey));
+      await settle(tester);
+      expect(h.path, AppRoutes.login);
 
       await tester.pump(const Duration(seconds: 4));
     });

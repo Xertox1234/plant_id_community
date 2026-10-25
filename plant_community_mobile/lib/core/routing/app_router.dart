@@ -107,6 +107,7 @@ GoRouter appRouter(Ref ref) {
   const protectedRoutes = {
     AppRoutes.garden,
     AppRoutes.diagnose,
+    AppRoutes.camera,
     AppRoutes.forumNotifications,
     AppRoutes.forumMessages,
     AppRoutes.forumBookmarks,
