@@ -404,14 +404,29 @@ void main() {
     fake.nextPicturePath = 'p.jpg';
     await pumpScreen(tester);
     await tapAndSettle(tester, find.byKey(ScanScreen.shutterKey));
-    // Skip to the last step, where Done replaces Skip.
-    await tapAndSettle(tester, find.byKey(ScanScreen.skipKey));
-    await tapAndSettle(tester, find.byKey(ScanScreen.skipKey));
+    // Back on the shot required step, the right-hand control is Done.
+    await tapAndSettle(tester, find.byKey(const ValueKey('step-chip-problem')));
     await tapAndSettle(tester, find.byKey(ScanScreen.doneKey));
 
     expect(done, isNotNull);
     expect(done!.mode, ScanMode.diagnose);
     expect(done!.shots, equals({CaptureRole.problem: 'p.jpg'}));
+  });
+
+  // Judgement call beyond the brief: skip() no-ops on the last step, so a
+  // Skip there would be a dead button; it shows Done instead.
+  testWidgets('the unshot last step shows Done, not a dead Skip', (
+    tester,
+  ) async {
+    fake.nextPicturePath = 'p.jpg';
+    await pumpScreen(tester);
+    await tapAndSettle(tester, find.byKey(ScanScreen.shutterKey));
+    await tapAndSettle(tester, find.byKey(ScanScreen.skipKey));
+    await tapAndSettle(tester, find.byKey(ScanScreen.skipKey));
+    expect(find.text('A flower, if it has one'), findsOneWidget);
+    expect(find.byKey(ScanScreen.skipKey), findsNothing);
+    await tapAndSettle(tester, find.byKey(ScanScreen.doneKey));
+    expect(done?.shots, equals({CaptureRole.problem: 'p.jpg'}));
   });
 
   for (final brightness in Brightness.values) {
