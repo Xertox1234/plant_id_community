@@ -32,7 +32,10 @@ void main() {
       // Drift guard: the 2026-10-24 bug was the app writing plant_images/ while
       // the rules only allowed plant-identifications/{userId}/.
       final rules = File('../firebase/storage.rules').readAsStringSync();
-      expect(rules, contains('match /plant-identifications/{userId}/{imageId}'));
+      expect(
+        rules,
+        contains('match /plant-identifications/{userId}/{imageId}'),
+      );
     });
 
     test('signed-out upload is refused before touching Storage', () async {

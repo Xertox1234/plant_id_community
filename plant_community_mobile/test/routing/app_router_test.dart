@@ -368,9 +368,7 @@ void main() {
     ) async {
       final container = ProviderContainer(
         overrides: [
-          authServiceProvider.overrideWith(
-            _MockAuthenticatedAuthNotifier.new,
-          ),
+          authServiceProvider.overrideWith(_MockAuthenticatedAuthNotifier.new),
         ],
       );
       addTearDown(container.dispose);

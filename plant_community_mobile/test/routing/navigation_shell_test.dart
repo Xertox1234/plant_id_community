@@ -241,7 +241,9 @@ void main() {
 
       await tester.pump(const Duration(seconds: 4));
     });
-    testWidgets('signed out, the Identify action lands on login', (tester) async {
+    testWidgets('signed out, the Identify action lands on login', (
+      tester,
+    ) async {
       final h = await pumpShell(tester, loggedIn: false);
 
       await tester.tap(find.byKey(MainShell.identifyFabKey));
