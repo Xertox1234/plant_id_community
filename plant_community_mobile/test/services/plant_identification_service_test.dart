@@ -42,13 +42,11 @@ void main() {
 
       expect(plant.description, 'A tree with large violin-shaped leaves.');
       expect(plant.imageUrl, 'https://firebase.storage/mock.jpg');
-      expect(
-        plant.care,
-        containsAll([
-          'Watering: Water when the top inch is dry',
-          'Light: Bright indirect light',
-        ]),
-      );
+      // Non-string entries (`common_issues: []`) are skipped.
+      expect(plant.care, [
+        'Watering: Water when the top inch is dry',
+        'Light: Bright indirect light',
+      ]);
     });
 
     test('surfaces the backend error from a success:false response', () {
