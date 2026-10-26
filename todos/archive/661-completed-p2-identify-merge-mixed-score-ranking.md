@@ -128,3 +128,25 @@ Found 2026-10-25 by Claude while verifying PR #1199 end to end on the iPhone 17 
   `scientificNameWithoutAuthor` are normally both author-free.
 - **Not done here:** calibrating the disagree case from logged `[MERGE]` lines (Recommended Action
   step 3). It has no todo of its own.
+
+### 2026-10-25 - Review round 1 (bundled /code-review, PR #1201)
+
+- **Fixed (blocking):**
+  - A weak agreement beat a confident answer. A Plant.id 5th-place 0.01 matched by PlantNet's 3rd result
+    unseated Plant.id's 0.95. Agreement now promotes only when the species is at least one provider's top
+    answer. The fiddle-leaf shape (PlantNet's #1 found anywhere in Plant.id's list) still promotes.
+  - Hybrid names: keeping the first two words kept the "×" marker, so every hybrid in a genus matched.
+    `x` and `×` also differed. The marker is now dropped in any spelling.
+  - When two PlantNet results matched one entry, the lower score overwrote the higher. The first (best)
+    is kept.
+  - Two PlantNet results for one species with no Plant.id counterpart were listed twice. The lower one is
+    dropped.
+  - `get_identification_summary` crashed on a `None` probability. This was pre-existing; it now uses `or 0`.
+- **Fixed by hand (non-blocking):** no `[MERGE]` line when no provider answered, since an all-None line
+  pollutes the calibration data.
+- **Declined:**
+  - Keeping `source` in line with `top_source`: `source` means "Plant.id answered", and
+    `test_provider_failure_visibility.py` pins that.
+  - Moving the two-word cut into `constants.py`: genus + epithet is what a species name is, not a tuning
+    knob.
+  - Reusing the merge's parse inside `_log_merge`: the duplicate work is trivial.

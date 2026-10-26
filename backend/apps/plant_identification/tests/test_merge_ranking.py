@@ -83,6 +83,18 @@ def test_normalize_handles_missing_names():
     assert normalize_scientific_name("   ") is None
 
 
+def test_normalize_drops_the_hybrid_marker_in_any_spelling():
+    """Keeping the first two words of a hybrid kept the marker, so every
+    hybrid in a genus compared equal ("mentha ×")."""
+    assert normalize_scientific_name("Mentha × piperita") == "mentha piperita"
+    assert normalize_scientific_name("Mentha x piperita") == "mentha piperita"
+    assert normalize_scientific_name("Mentha ×piperita") == "mentha piperita"
+    assert normalize_scientific_name("× Fatshedera lizei") == "fatshedera lizei"
+    assert normalize_scientific_name("Mentha × villosa") != normalize_scientific_name(
+        "Mentha × piperita"
+    )
+
+
 # --------------------------------------------------------------------------
 # agree / disagree / single provider
 # --------------------------------------------------------------------------
@@ -149,6 +161,90 @@ def test_disagreement_ranks_plant_id_before_plantnet_whatever_the_raw_scores():
     ]
     assert out["top_source"] == "plant_id"
     assert out["confidence_score"] == 0.30
+
+
+def test_a_weak_agreement_does_not_beat_a_confident_answer():
+    """Agreement is promoted only when the species is one provider's top
+    answer: a Plant.id 5th-place 0.01 matched by PlantNet's 3rd result must
+    not unseat Plant.id's 0.95."""
+    svc = build(
+        plant_id=provider(
+            plant_id_result(
+                ("Monstera deliciosa", 0.95),
+                ("Monstera adansonii", 0.02),
+                ("Epipremnum aureum", 0.01),
+                ("Rhaphidophora tetrasperma", 0.01),
+                ("Philodendron hederaceum", 0.01),
+            )
+        ),
+        plantnet=provider(
+            plantnet_result(
+                ("Ficus elastica", 0.5),
+                ("Ficus benjamina", 0.1),
+                ("Philodendron hederaceum", 0.03),
+            )
+        ),
+    )
+
+    out = svc.identify_plant(b"image-bytes")
+
+    assert out["combined_suggestions"][0]["scientific_name"] == "Monstera deliciosa"
+    assert out["top_source"] == "plant_id"
+    assert out["confidence_score"] == 0.95
+
+
+def test_agreement_on_plant_id_top_answer_reports_both():
+    svc = build(
+        plant_id=provider(
+            plant_id_result(("Monstera deliciosa", 0.9), ("Monstera adansonii", 0.05))
+        ),
+        plantnet=provider(
+            plantnet_result(("Ficus elastica", 0.5), ("Monstera deliciosa", 0.2))
+        ),
+    )
+
+    out = svc.identify_plant(b"image-bytes")
+
+    assert out["combined_suggestions"][0]["scientific_name"] == "Monstera deliciosa"
+    assert out["top_source"] == "both"
+
+
+def test_the_best_plantnet_score_is_kept_when_two_results_match_one_entry():
+    svc = build(
+        plant_id=provider(plant_id_result(("Ficus lyrata", 0.4))),
+        plantnet=provider(
+            plantnet_result(("Ficus lyrata", 0.6), ("Ficus lyrata Warb.", 0.05))
+        ),
+    )
+
+    out = svc.identify_plant(b"image-bytes")
+
+    assert len(out["combined_suggestions"]) == 1
+    assert out["combined_suggestions"][0]["plantnet_score"] == 0.6
+
+
+def test_plantnet_duplicates_of_one_species_collapse_to_the_best():
+    svc = build(
+        plant_id=None,
+        plantnet=provider(
+            plantnet_result(("Ficus lyrata", 0.6), ("Ficus lyrata Warb.", 0.05))
+        ),
+    )
+
+    out = svc.identify_plant(b"image-bytes")
+
+    assert [s["probability"] for s in out["combined_suggestions"]] == [0.6]
+
+
+def test_a_missing_probability_does_not_crash_the_summary():
+    result = plant_id_result(("Ficus lyrata", 0.4))
+    result["suggestions"][0]["probability"] = None
+    svc = build(plant_id=provider(result), plantnet=None)
+
+    out = svc.identify_plant(b"image-bytes")
+
+    assert out["confidence_score"] == 0
+    assert "0.0%" in svc.get_identification_summary(out)
 
 
 def test_plantnet_alone_ranks_first_with_its_own_confidence():
@@ -227,6 +323,18 @@ def test_the_merge_log_line_names_both_tops_and_nothing_private():
     assert "agree=False" in line
     assert "top_source=plant_id" in line
     assert "image-bytes" not in line
+
+
+def test_no_merge_log_line_when_no_provider_answered():
+    """An all-None line would pollute the calibration data."""
+    svc = build(plant_id=None, plantnet=None)
+
+    with patch(
+        "apps.plant_identification.services.combined_identification_service.logger"
+    ) as log:
+        svc.identify_plant(b"image-bytes")
+
+    assert not [c for c in log.info.call_args_list if "[MERGE]" in str(c.args[0])]
 
 
 # --------------------------------------------------------------------------

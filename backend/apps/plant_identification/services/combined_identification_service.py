@@ -15,7 +15,17 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from io import BytesIO
-from typing import TYPE_CHECKING, Any, Dict, List, NamedTuple, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 from django.conf import settings
 from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
@@ -42,13 +52,15 @@ logger = logging.getLogger(__name__)
 def normalize_scientific_name(name: Optional[str]) -> Optional[str]:
     """Reduce a scientific name to lowercase genus + epithet for matching.
 
-    Drops an author suffix ("Ficus lyrata Warb." -> "ficus lyrata"), case and
-    extra whitespace, so the two providers' names for one species compare
-    equal (todo 661). Returns None for a missing or blank name.
+    Drops an author suffix ("Ficus lyrata Warb." -> "ficus lyrata"), case,
+    extra whitespace and the hybrid marker in either spelling ("Mentha x
+    piperita" == "Mentha ×piperita"), so the two providers' names for one
+    species compare equal (todo 661). Returns None for a missing or blank name.
     """
     if not name:
         return None
-    tokens = name.lower().split()
+    tokens = [t.lstrip("×") for t in name.lower().split()]
+    tokens = [t for t in tokens if t and t != "x"]
     return " ".join(tokens[:2]) or None
 
 
@@ -322,7 +334,8 @@ class CombinedPlantIdentificationService:
             if top is None
             else "both" if top.get("plantnet_matched") else top.get("source")
         )
-        self._log_merge(plant_id_results, plantnet_results, results["top_source"])
+        if top is not None:
+            self._log_merge(plant_id_results, plantnet_results, results["top_source"])
 
         # A PARTIAL failure used to be completely silent: with Plant.id down and
         # PlantNet healthy, suggestions and care instructions were still
@@ -529,13 +542,16 @@ class CombinedPlantIdentificationService:
         and are not on one scale, so they are never sorted against each other
         (todo 661). The interim rule, to revisit from the ``[MERGE]`` log lines:
 
-        1. species both providers name (matched on ``normalize_scientific_name``),
-           by Plant.id probability;
-        2. then Plant.id-only species, by Plant.id probability;
+        1. species both providers name (matched on ``normalize_scientific_name``)
+           where the species is at least one provider's top answer, by Plant.id
+           probability -- a 5th-place Plant.id guess matched by PlantNet's 3rd
+           must not unseat a confident Plant.id answer;
+        2. then the other Plant.id species, by Plant.id probability;
         3. then PlantNet-only species, by PlantNet score.
 
         A matched entry keeps Plant.id's fields and probability and gains
-        ``plantnet_score`` / ``plantnet_matched``.
+        ``plantnet_score`` / ``plantnet_matched``. Lower-ranked PlantNet
+        results naming an already-listed species are dropped.
 
         Args:
             plant_id_results: Plant.id API results
@@ -545,6 +561,8 @@ class CombinedPlantIdentificationService:
             Merged suggestions list
         """
         combined: List[Dict[str, Any]] = []
+        # ids of matched entries that are either provider's top answer
+        promoted: Set[int] = set()
 
         # Plant.id suggestions first; PlantNet folds into them on a name match
         if plant_id_results and "suggestions" in plant_id_results:
@@ -569,30 +587,38 @@ class CombinedPlantIdentificationService:
 
         # Enrich with PlantNet data or add supplemental suggestions
         if plantnet_results and "results" in plantnet_results:
-            for result in plantnet_results["results"][:3]:  # Top 3
+            for pn_rank, result in enumerate(plantnet_results["results"][:3]):
                 species = result.get("species", {})
                 parsed = parse_plantnet_species(species)
                 scientific_name = parsed["scientific_name"]
 
-                # Check if this plant is already in our list (from Plant.id)
+                # Is this species already listed (by Plant.id, or by a better
+                # PlantNet result)?
                 key = normalize_scientific_name(scientific_name)
                 existing = next(
                     (
                         s
                         for s in combined
                         if key is not None
-                        and s.get("source") == "plant_id"
                         and normalize_scientific_name(s.get("scientific_name")) == key
                     ),
                     None,
                 )
 
-                if existing:
+                if existing is not None and (
+                    existing.get("source") == "plantnet"
+                    or existing.get("plantnet_matched")
+                ):
+                    # A lower-ranked PlantNet duplicate: keep the first, best one.
+                    continue
+                if existing is not None:
                     # Enrich existing entry with PlantNet data
                     existing["plantnet_score"] = result.get("score")
                     existing["plantnet_matched"] = True
                     existing["family"] = parsed["family"]
                     existing["genus"] = parsed["genus"]
+                    if pn_rank == 0 or existing is combined[0]:
+                        promoted.add(id(existing))
                 else:
                     # Add as supplemental suggestion
                     common_names = species.get("commonNames", [])
@@ -612,7 +638,7 @@ class CombinedPlantIdentificationService:
                     )
 
         def tier(suggestion: Dict[str, Any]) -> Tuple[int, float]:
-            if suggestion.get("plantnet_matched"):
+            if id(suggestion) in promoted:
                 rank = 0
             elif suggestion.get("source") == "plant_id":
                 rank = 1
@@ -667,7 +693,7 @@ class CombinedPlantIdentificationService:
         top = results["combined_suggestions"][0]
         plant_name = top.get("plant_name", "Unknown Plant")
         scientific_name = top.get("scientific_name", "")
-        confidence = top.get("probability", 0)
+        confidence = top.get("probability") or 0
 
         summary = f"Identified as: {plant_name}"
         if scientific_name:
