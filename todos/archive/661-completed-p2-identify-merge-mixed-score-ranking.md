@@ -127,7 +127,7 @@ Found 2026-10-25 by Claude while verifying PR #1199 end to end on the iPhone 17 
 - The author-suffix test exercises a defensive path: Plant.id v3 `name` and PlantNet
   `scientificNameWithoutAuthor` are normally both author-free.
 - **Not done here:** calibrating the disagree case from logged `[MERGE]` lines (Recommended Action
-  step 3). It has no todo of its own.
+  step 3). Re-pointed 2026-10-25 to todo 663 (owner: "keep as is and tune").
 
 ### 2026-10-25 - Review round 1 (bundled /code-review, PR #1201)
 
