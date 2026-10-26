@@ -4,6 +4,9 @@ priority: p2
 issue_id: "660"
 tags: [mobile, auth, firebase]
 dependencies: []
+triage: ready
+triaged: 2026-10-26
+owner_decision: "Owner: Option 1. Worker builds the mobile code; the main session investigates the verify-link API key restriction read-only and proposes the change, which the owner approves before it is applied (AC2 is owner/Console-side) (2026-10-26)"
 ---
 
 # Mobile email sign-up can never complete: no verification mail, a broken verify link, and no retry
