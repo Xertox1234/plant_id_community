@@ -191,6 +191,254 @@ void main() {
     });
   });
 
+  group('email verification (todo 660)', () {
+    test('registering sends the verification mail and reports that the '
+        'email must be verified', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      final ada = _FakeUser(uid: 'ada', emailVerified: false);
+      harness.firebaseAuth.createdUser = ada;
+      harness.container.read(authServiceProvider);
+
+      final needsVerification = await harness.container
+          .read(authServiceProvider.notifier)
+          .registerWithEmailPassword(
+            email: 'ada@example.com',
+            password: 'fake-pw-1', // pragma: allowlist secret
+            displayName: 'Ada',
+          );
+
+      expect(needsVerification, isTrue);
+      expect(ada.verificationEmailsSent, 1);
+      expect(ada.displayName, 'Ada');
+      expect(
+        harness.container.read(authServiceProvider).emailVerificationRequired,
+        isTrue,
+      );
+    });
+
+    test('the exchange 403 (the view\'s JSON) says to verify the email, not '
+        '"failed to connect"', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.api.postError = ApiException(
+        'Email address must be verified before logging in.',
+        statusCode: 403,
+      );
+      harness.container.read(authServiceProvider);
+
+      await harness.signIn(_FakeUser(uid: 'ada', emailVerified: false));
+
+      final state = harness.container.read(authServiceProvider);
+      expect(state.error, emailNotVerifiedMessage);
+      expect(state.emailVerificationRequired, isTrue);
+      expect(state.isAuthenticated, isFalse);
+      expect(state.firebaseUser?.uid, 'ada', reason: 'kept, so a retry works');
+    });
+
+    test('a proxy\'s HTML 403 is not read as an unverified email', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.api.postError = ApiException(
+        'Forbidden',
+        statusCode: 403,
+        unstructured: true,
+      );
+      harness.container.read(authServiceProvider);
+
+      await harness.signIn(_FakeUser(uid: 'ada'));
+
+      final state = harness.container.read(authServiceProvider);
+      expect(state.emailVerificationRequired, isFalse);
+      expect(state.error, isNot(emailNotVerifiedMessage));
+    });
+
+    test(
+      'an unverified user\'s exchange forces a token refresh, so a '
+      'relaunch does not resend the cached email_verified=false token',
+      () async {
+        final ada = _FakeUser(uid: 'ada', emailVerified: false);
+        final harness = _Harness(currentUser: ada);
+        addTearDown(harness.dispose);
+        harness.container.read(authServiceProvider);
+        await pumpEventQueue();
+
+        expect(ada.idTokenForceRefresh, [true]);
+      },
+    );
+
+    test('a verified user\'s launch exchange keeps the cached token', () async {
+      final ada = _FakeUser(uid: 'ada');
+      final harness = _Harness(currentUser: ada);
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      await pumpEventQueue();
+
+      expect(ada.idTokenForceRefresh, [false]);
+    });
+
+    test('"I\'ve verified" reloads, forces a token refresh and completes the '
+        'exchange without a relaunch', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.api.postError = ApiException(
+        'Email address must be verified before logging in.',
+        statusCode: 403,
+      );
+      final ada = _FakeUser(uid: 'ada', emailVerified: false);
+      harness.container.read(authServiceProvider);
+      await harness.signIn(ada);
+      expect(
+        harness.container.read(authServiceProvider).isAuthenticated,
+        isFalse,
+      );
+
+      // The link is opened: the server now says verified.
+      harness.api.postError = null;
+      ada.onReload = () => ada.emailVerified = true;
+      ada.idTokenForceRefresh.clear();
+
+      final signedIn = await harness.container
+          .read(authServiceProvider.notifier)
+          .confirmEmailVerified();
+
+      expect(signedIn, isTrue);
+      expect(ada.reloads, 1);
+      expect(ada.idTokenForceRefresh, [true]);
+      final state = harness.container.read(authServiceProvider);
+      expect(state.jwtToken, 'django-jwt');
+      expect(state.emailVerificationRequired, isFalse);
+      expect(harness.push.calls, contains('syncAfterLogin'));
+    });
+
+    test('"I\'ve verified" before the link is opened says so and sends '
+        'nothing to the backend', () async {
+      final ada = _FakeUser(uid: 'ada', emailVerified: false);
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.api.postError = ApiException('unverified', statusCode: 403);
+      harness.container.read(authServiceProvider);
+      await harness.signIn(ada);
+      final postsBefore = harness.api.postCalls.length;
+
+      final signedIn = await harness.container
+          .read(authServiceProvider.notifier)
+          .confirmEmailVerified();
+
+      expect(signedIn, isFalse);
+      expect(harness.api.postCalls.length, postsBefore);
+      final state = harness.container.read(authServiceProvider);
+      expect(state.error, emailStillUnverifiedMessage);
+      expect(state.emailVerificationRequired, isTrue);
+    });
+
+    test('signing in again as the SAME Firebase user runs the exchange '
+        'directly, with no auth-state event', () async {
+      // A failed exchange leaves the Firebase user signed in; signing in
+      // again with the same account changes no uid, so authStateChanges
+      // fires nothing (todo 660).
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.api.postError = ApiException('unverified', statusCode: 403);
+      final stale = _FakeUser(uid: 'ada', emailVerified: false);
+      harness.container.read(authServiceProvider);
+      await harness.signIn(stale);
+      expect(
+        harness.container.read(authServiceProvider).isAuthenticated,
+        isFalse,
+      );
+
+      harness.api.postError = null;
+      final fresh = _FakeUser(uid: 'ada'); // verified since
+      harness.firebaseAuth.signInUser = fresh;
+
+      final needsVerification = await harness.container
+          .read(authServiceProvider.notifier)
+          .signInWithEmailPassword('ada@example.com', 'secret1');
+
+      expect(needsVerification, isFalse);
+      expect(fresh.idTokenForceRefresh, [true]);
+      expect(
+        harness.container.read(authServiceProvider).jwtToken,
+        'django-jwt',
+      );
+    });
+
+    test('a same-uid sign-in whose exchange fails throws, so the screen '
+        'shows the error instead of dismissing', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.api.postError = ApiException('unverified', statusCode: 403);
+      harness.container.read(authServiceProvider);
+      await harness.signIn(_FakeUser(uid: 'ada', emailVerified: false));
+
+      harness.api.postError = ApiException('down', statusCode: 503);
+      harness.firebaseAuth.signInUser = _FakeUser(uid: 'ada');
+
+      await expectLater(
+        harness.container
+            .read(authServiceProvider.notifier)
+            .signInWithEmailPassword('ada@example.com', 'secret1'),
+        throwsA(isA<AuthException>()),
+      );
+      expect(
+        harness.container.read(authServiceProvider).isAuthenticated,
+        isFalse,
+      );
+    });
+
+    test('a same-uid sign-in still refused as unverified reports it', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.api.postError = ApiException('unverified', statusCode: 403);
+      harness.container.read(authServiceProvider);
+      await harness.signIn(_FakeUser(uid: 'ada', emailVerified: false));
+
+      // Firebase's cached user says verified, the backend still says no.
+      harness.firebaseAuth.signInUser = _FakeUser(uid: 'ada');
+
+      final needsVerification = await harness.container
+          .read(authServiceProvider.notifier)
+          .signInWithEmailPassword('ada@example.com', 'secret1');
+
+      expect(needsVerification, isTrue);
+    });
+
+    test('an unverified sign-in reports it and does not run the direct '
+        'same-uid exchange', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      final ada = _FakeUser(uid: 'ada', emailVerified: false);
+      harness.firebaseAuth.signInUser = ada;
+
+      final needsVerification = await harness.container
+          .read(authServiceProvider.notifier)
+          .signInWithEmailPassword('ada@example.com', 'secret1');
+
+      expect(needsVerification, isTrue);
+      expect(ada.idTokenForceRefresh, isEmpty);
+      expect(
+        harness.container.read(authServiceProvider).emailVerificationRequired,
+        isTrue,
+      );
+    });
+
+    test('Resend sends the verification mail to the current user', () async {
+      final ada = _FakeUser(uid: 'ada', emailVerified: false);
+      final harness = _Harness(currentUser: ada);
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      await pumpEventQueue();
+
+      await harness.container
+          .read(authServiceProvider.notifier)
+          .resendVerificationEmail();
+
+      expect(ada.verificationEmailsSent, 1);
+    });
+  });
+
   group('ordering', () {
     test('clearOnLogout runs BEFORE Firebase sign-out', () async {
       // The clear PATCH authenticates with the Django JWT, which sign-out
@@ -2000,17 +2248,91 @@ class _FakeFirebaseAuth implements FirebaseAuth {
     _currentUser = null;
   }
 
+  /// The user `signInWithEmailAndPassword` signs in (todo 660).
+  User? signInUser;
+
+  /// The user `createUserWithEmailAndPassword` creates (todo 660).
+  User? createdUser;
+
+  @override
+  Future<UserCredential> signInWithEmailAndPassword({
+    required String email,
+    required String password,
+  }) async {
+    _events.add('firebase.signInWithEmailAndPassword');
+    _currentUser = signInUser;
+    return _FakeUserCredential(signInUser);
+  }
+
+  @override
+  Future<UserCredential> createUserWithEmailAndPassword({
+    required String email,
+    required String password,
+  }) async {
+    _events.add('firebase.createUserWithEmailAndPassword');
+    _currentUser = createdUser;
+    return _FakeUserCredential(createdUser);
+  }
+
   /// Anything the notifier starts using that is not faked here fails loudly
   /// rather than silently no-op'ing.
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _FakeUserCredential implements UserCredential {
+  _FakeUserCredential(this.user);
+
+  @override
+  final User? user;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 class _FakeUser implements User {
-  _FakeUser({required this.uid, this.getIdTokenOverride});
+  _FakeUser({
+    required this.uid,
+    this.getIdTokenOverride,
+    this.emailVerified = true,
+  });
 
   @override
   final String uid;
+
+  /// Defaults to true, the state of every user the older tests sign in: the
+  /// exchange forces a token refresh for an unverified one (todo 660).
+  @override
+  bool emailVerified;
+
+  /// Each `getIdToken` call's `forceRefresh` argument, in order.
+  final List<bool> idTokenForceRefresh = [];
+
+  /// Run by `reload()`, e.g. to flip [emailVerified] the way opening the
+  /// mailed link does server-side.
+  void Function()? onReload;
+  int reloads = 0;
+  int verificationEmailsSent = 0;
+  @override
+  String? displayName;
+
+  @override
+  Future<void> reload() async {
+    reloads++;
+    onReload?.call();
+  }
+
+  @override
+  Future<void> sendEmailVerification([
+    ActionCodeSettings? actionCodeSettings,
+  ]) async {
+    verificationEmailsSent++;
+  }
+
+  @override
+  Future<void> updateDisplayName(String? displayName) async {
+    this.displayName = displayName;
+  }
 
   /// Read by AuthService's kDebugMode logging (via redactEmail), which is
   /// live under `flutter test` — a noSuchMethod fallthrough would throw.
@@ -2021,6 +2343,7 @@ class _FakeUser implements User {
 
   @override
   Future<String?> getIdToken([bool forceRefresh = false]) async {
+    idTokenForceRefresh.add(forceRefresh);
     final override = getIdTokenOverride;
     if (override != null) return override();
     return 'firebase-id-token';
