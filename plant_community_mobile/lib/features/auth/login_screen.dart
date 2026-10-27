@@ -7,6 +7,7 @@ import '../../core/routing/app_router.dart';
 import '../../shared/widgets/canopy_notice.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../services/auth_service.dart';
+import 'verify_email_screen.dart';
 
 /// Email/password sign-in.
 ///
@@ -42,6 +43,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _submitting = false;
+  bool _awaitingVerification = false;
   String? _error;
 
   @override
@@ -61,14 +63,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     });
 
     try {
-      await ref
+      final needsVerification = await ref
           .read(authServiceProvider.notifier)
           .signInWithEmailPassword(
             _emailController.text.trim(),
             _passwordController.text,
           );
       if (!mounted) return;
-      dismissAfterAuth(context);
+      if (needsVerification) {
+        // The backend refuses an unverified email (403): say so and offer
+        // the way through, instead of a silent signed-out Profile (todo 660).
+        setState(() => _awaitingVerification = true);
+      } else {
+        dismissAfterAuth(context);
+      }
     } on AuthException catch (e) {
       if (!mounted) return;
       setState(() => _error = e.message);
@@ -91,89 +99,100 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             padding: EdgeInsets.all(ext.padScreen),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Welcome back',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                      textAlign: TextAlign.center,
-                    ),
-                    SizedBox(height: ext.gapY * 2),
-                    TextFormField(
-                      controller: _emailController,
-                      decoration: const InputDecoration(
-                        labelText: 'Email',
-                        prefixIcon: Icon(LucideIcons.mail),
-                      ),
-                      keyboardType: TextInputType.emailAddress,
-                      textInputAction: TextInputAction.next,
-                      autofillHints: const [AutofillHints.email],
-                      autocorrect: false,
-                      enabled: !_submitting,
-                      validator: validateEmail,
-                    ),
-                    SizedBox(height: ext.gapY),
-                    TextFormField(
-                      controller: _passwordController,
-                      decoration: InputDecoration(
-                        labelText: 'Password',
-                        prefixIcon: const Icon(LucideIcons.lock),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscurePassword
-                                ? LucideIcons.eye
-                                : LucideIcons.eyeOff,
+              child: _awaitingVerification
+                  ? VerifyEmailPanel(
+                      onCancel: () =>
+                          setState(() => _awaitingVerification = false),
+                    )
+                  : Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            'Welcome back',
+                            style: Theme.of(context).textTheme.headlineSmall,
+                            textAlign: TextAlign.center,
                           ),
-                          tooltip: _obscurePassword
-                              ? 'Show password'
-                              : 'Hide password',
-                          onPressed: () => setState(
-                            () => _obscurePassword = !_obscurePassword,
+                          SizedBox(height: ext.gapY * 2),
+                          TextFormField(
+                            controller: _emailController,
+                            decoration: const InputDecoration(
+                              labelText: 'Email',
+                              prefixIcon: Icon(LucideIcons.mail),
+                            ),
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.email],
+                            autocorrect: false,
+                            enabled: !_submitting,
+                            validator: validateEmail,
                           ),
-                        ),
+                          SizedBox(height: ext.gapY),
+                          TextFormField(
+                            controller: _passwordController,
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              prefixIcon: const Icon(LucideIcons.lock),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? LucideIcons.eye
+                                      : LucideIcons.eyeOff,
+                                ),
+                                tooltip: _obscurePassword
+                                    ? 'Show password'
+                                    : 'Hide password',
+                                onPressed: () => setState(
+                                  () => _obscurePassword = !_obscurePassword,
+                                ),
+                              ),
+                            ),
+                            obscureText: _obscurePassword,
+                            textInputAction: TextInputAction.done,
+                            autofillHints: const [AutofillHints.password],
+                            enabled: !_submitting,
+                            validator: (v) => (v == null || v.isEmpty)
+                                ? 'Enter your password'
+                                : null,
+                            onFieldSubmitted: (_) => _submit(),
+                          ),
+                          if (_error != null) ...[
+                            SizedBox(height: ext.gapY),
+                            _AuthErrorBanner(message: _error!),
+                          ],
+                          SizedBox(height: ext.gapY * 2),
+                          FilledButton(
+                            onPressed: _submitting ? null : _submit,
+                            child: _submitting
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text('Sign in'),
+                          ),
+                          SizedBox(height: ext.gapY),
+                          GoogleSignInButton(enabled: !_submitting),
+                          SizedBox(height: ext.gapY),
+                          TextButton(
+                            // pushReplacement, not push: bouncing between sign-in and
+                            // register would otherwise stack a page per tap.
+                            onPressed: _submitting
+                                ? null
+                                : () => context.pushReplacement(
+                                    AppRoutes.register,
+                                  ),
+                            child: const Text(
+                              "Don't have an account? Create one",
+                            ),
+                          ),
+                        ],
                       ),
-                      obscureText: _obscurePassword,
-                      textInputAction: TextInputAction.done,
-                      autofillHints: const [AutofillHints.password],
-                      enabled: !_submitting,
-                      validator: (v) => (v == null || v.isEmpty)
-                          ? 'Enter your password'
-                          : null,
-                      onFieldSubmitted: (_) => _submit(),
                     ),
-                    if (_error != null) ...[
-                      SizedBox(height: ext.gapY),
-                      _AuthErrorBanner(message: _error!),
-                    ],
-                    SizedBox(height: ext.gapY * 2),
-                    FilledButton(
-                      onPressed: _submitting ? null : _submit,
-                      child: _submitting
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Sign in'),
-                    ),
-                    SizedBox(height: ext.gapY),
-                    GoogleSignInButton(enabled: !_submitting),
-                    SizedBox(height: ext.gapY),
-                    TextButton(
-                      // pushReplacement, not push: bouncing between sign-in and
-                      // register would otherwise stack a page per tap.
-                      onPressed: _submitting
-                          ? null
-                          : () => context.pushReplacement(AppRoutes.register),
-                      child: const Text("Don't have an account? Create one"),
-                    ),
-                  ],
-                ),
-              ),
             ),
           ),
         ),
@@ -184,9 +203,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
 /// "Continue with Google" -- shared by the sign-in and register screens.
 ///
-/// Prominent rather than tucked below the form, because it is currently the
-/// ONLY path that reaches a signed-in state: the backend 403s an unverified
-/// email/password token and this app sends no verification mail. See
+/// Prominent rather than tucked below the form: it is the one path that
+/// signs in at once, with no verification mail to open first. See
 /// [AuthService.signInWithGoogle].
 class GoogleSignInButton extends ConsumerStatefulWidget {
   const GoogleSignInButton({super.key, this.enabled = true});

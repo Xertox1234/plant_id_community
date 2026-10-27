@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "660"
 tags: [mobile, auth, firebase]
@@ -92,13 +92,13 @@ Found 2026-10-25 while creating a sim test account to check PR #1195 (Claude, pr
 
 ## Acceptance Criteria
 
-- [ ] A fresh email sign-up on a device or simulator receives a verification mail.
-- [ ] Opening the mailed link on the hosted page shows success. Record the date and the `accounts:lookup`
+- [x] A fresh email sign-up on a device or simulator receives a verification mail.
+- [x] Opening the mailed link on the hosted page shows success. Record the date and the `accounts:lookup`
       `emailVerified: true` result here.
-- [ ] After verifying, "I've verified" (or signing in again) completes the token exchange without a relaunch
+- [x] After verifying, "I've verified" (or signing in again) completes the token exchange without a relaunch
       and without waiting for the token to expire.
-- [ ] An unverified sign-in shows a user-facing message, not a silent signed-out Profile.
-- [ ] `flutter test` passes in full.
+- [x] An unverified sign-in shows a user-facing message, not a silent signed-out Profile.
+- [x] `flutter test` passes in full.
 
 ## Work Log
 
@@ -107,6 +107,66 @@ Found 2026-10-25 while creating a sim test account to check PR #1195 (Claude, pr
 - Created the sim test account in the app. The token exchange returned 403. The hosted verify page failed twice.
   Verified the account by POSTing the oobCode to `accounts:update`. A fresh simulator then signed in and the
   exchange succeeded.
+
+### 2026-10-26 - Implemented by the todo sweep (run 2026-10-26-2213)
+
+- `plant_community_mobile/lib/services/auth_service.dart`: registration now calls `sendEmailVerification()`
+  (a failed send does not fail the registration), and both email methods return whether the email still
+  needs verifying. New `resendVerificationEmail()` and `confirmEmailVerified()` ("I've verified": `reload()`,
+  then the exchange with `getIdToken(true)`; nothing goes to the backend while Firebase still says unverified).
+- The exchange forces a token refresh for a caller-requested retry and whenever the user reads as unverified,
+  so a relaunch after verifying no longer re-sends the cached `email_verified=false` token. Signing in again
+  as the same Firebase uid (no `authStateChanges` event) runs the exchange directly.
+- The view's JSON 403 now maps to `emailNotVerifiedMessage` with `AuthState.emailVerificationRequired`,
+  instead of "Failed to connect to server"; a proxy's HTML 403 is left as before.
+- New `lib/features/auth/verify_email_screen.dart` (`VerifyEmailPanel`: "Check your email", Resend, "I've
+  verified", "Use a different account") replaces the form inline on the sign-in and register screens, not as
+  a route, because a pushed sign-in screen keeps the location at `/profile`.
+- Tests: a `todo 660` group in `test/services/auth_service_test.dart` (fakes gained `emailVerified`,
+  `reload`, `sendEmailVerification` and the email sign-in methods) and
+  `test/features/auth/verify_email_screen_test.dart`. AC 1 and 2 (the real mail, the hosted link and its
+  API key restriction) stay with the owner and the main session.
+
+### 2026-10-27 - Verified by the todo sweep (run 2026-10-26-2213)
+
+- AC 3: `sh -c "cd plant_community_mobile && flutter test --no-pub test/services/auth_service_test.dart --plain-name 'todo 660'"` — evidence `.sweep-evidence/g1/660-ac2.txt` (not committed), last lines:
+
+  ```text
+  00:00 +9: email verification (todo 660) Resend sends the verification mail to the current user
+  [AUTH] Exchanging Firebase token for Django JWT
+  [AUTH] JWT token exchange successful
+  [AUTH] Cancelling auth state subscription
+  00:00 +10: All tests passed!
+  ```
+
+- AC 4: `sh -c "cd plant_community_mobile && flutter test --no-pub test/features/auth/verify_email_screen_test.dart"` — evidence `.sweep-evidence/g1/660-ac3.txt` (not committed), last lines:
+
+  ```text
+  00:00 +2: Resend sends the mail again and says so
+  00:00 +3: "I've verified" before the link is opened keeps the panel and says why
+  00:00 +4: "I've verified" once the link is opened signs in and leaves for Profile
+  00:00 +5: "Use a different account" signs out and shows the form again
+  00:00 +6: All tests passed!
+  ```
+
+- AC 5: `sh -c 'cd plant_community_mobile && flutter test'` — evidence `.sweep-evidence/g1/660-ac4.txt` (not committed), last lines:
+
+  ```text
+  01:11 +1385 ~9: plant_community_mobile/test/services/push_message_router_service_test.dart: PushMessageRouterService payload edge cases a moderation_decided-shaped payload (no post_id key) routes to the topic without a postId query param
+  01:11 +1386 ~9: plant_community_mobile/test/services/push_message_router_service_test.dart: PushMessageRouterService payload edge cases an unparseable topic_id does not navigate at all (silent no-op, not a crash)
+  01:11 +1387 ~9: plant_community_mobile/test/services/push_message_router_service_test.dart: pushBackgroundMessageHandler completes without throwing
+  [PUSH] Background message received: {topic_id: 42}
+  01:11 +1388 ~9: All tests passed!
+  ```
+
+### 2026-10-27 - Confirmed by the owner, ticked by the todo sweep (run 2026-10-26-2213)
+
+- AC 1: confirmed by the owner on 2026-10-27: "Owner: "My email was verified." (2026-10-27) — simtest2 fresh in-app sign-up on the iPhone 17 Pro sim; the verification mail arrived (Resend also delivered) and its link was opened" (`state.py confirm`; no command or evidence)
+- AC 2: confirmed by the owner on 2026-10-27: "Owner: "My email was verified." (2026-10-27) — hosted action page succeeded after the auth-action page got its own referrer-locked browser key; accounts:lookup for simtest2 returned emailVerified: true on 2026-10-27" (`state.py confirm`; no command or evidence)
+
+### 2026-10-27 - Completed by the todo sweep (run 2026-10-26-2213)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
 ## Notes
 
