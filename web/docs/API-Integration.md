@@ -245,12 +245,7 @@ export const plantIdService = {
       "rank": 2
     }
   ],
-  "care_instructions": {
-    "watering": "Moderate watering recommended",
-    "light": "Bright indirect light",
-    "temperature": "Room temperature (18-24°C)",
-    "humidity": "Average humidity"
-  },
+  "care_instructions": null,
   "disease_detection": {
     "is_healthy": true,
     "is_plant": true,
@@ -394,6 +389,7 @@ const handleIdentify = async () => {
    ```
 
 3. **HTTP Errors**
+
    ```javascript
    // Backend returned error status
    {
@@ -567,6 +563,7 @@ function IdentifyPage() {
    ```
 
 3. **User Authentication**
+
    ```javascript
    // POST /api/auth/login/
    login: async (email, password) => {

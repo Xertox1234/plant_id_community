@@ -4,7 +4,10 @@ Combined Plant Identification Service - Dual API Integration
 Integrates Plant.id (Kindwise) and PlantNet APIs to provide:
 1. High-accuracy AI identification (Plant.id)
 2. Disease detection (Plant.id)
-3. Comprehensive care instructions (PlantNet)
+3. A second species opinion and taxonomy (PlantNet)
+
+Care instructions are not provided: `care_instructions` is always None
+until a real per-species source exists (todo 662).
 """
 
 import atexit
@@ -40,7 +43,6 @@ from ..constants import (
     MAX_WORKER_THREADS,
     PLANT_ID_API_TIMEOUT,
     PLANTNET_API_TIMEOUT,
-    TEMPERATURE_RANGE_CELSIUS,
 )
 from ..provider_failures import UNKNOWN, classify_provider_failure
 from .plant_id_service import PlantIDAPIService
@@ -180,7 +182,7 @@ class CombinedPlantIdentificationService:
 
     Strategy:
     1. Use Plant.id for primary identification + disease detection (best accuracy)
-    2. Use PlantNet to supplement with care instructions (open source data)
+    2. Use PlantNet as a second opinion on the species (open source data)
     3. Merge results to provide comprehensive plant information
     """
 
@@ -314,10 +316,12 @@ class CombinedPlantIdentificationService:
         elif plant_id.failed:
             results["disease_detection_reason"] = plant_id.reason
 
-        # Process PlantNet results
-        if plantnet_results:
-            results["care_instructions"] = self._extract_care_info(plantnet_results)
-            logger.info("[SUCCESS] PlantNet care instructions retrieved")
+        # `care_instructions` stays None (todo 662). Neither provider returns
+        # plant-specific care: the old dict was one fixed set of placeholder
+        # strings for every plant, plus PlantNet's taxonomy, taken from
+        # PlantNet's top result even when the returned plant was Plant.id's.
+        # Clients hide the care section on null. Real care guides come with
+        # Scan 2.0 part 4 (docs/superpowers/specs/2026-10-24-scan-2-0-design.md).
 
         # Combine suggestions from both APIs
         results["combined_suggestions"] = self._merge_suggestions(
@@ -495,40 +499,6 @@ class CombinedPlantIdentificationService:
         )
 
         return plant_id_outcome, plantnet_outcome
-
-    def _extract_care_info(self, plantnet_results: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Extract care instructions from PlantNet results.
-
-        Args:
-            plantnet_results: PlantNet API response
-
-        Returns:
-            Care instructions dictionary
-        """
-        care_info = {
-            "watering": "Moderate watering recommended",
-            "light": "Bright indirect light",
-            "temperature": f"Room temperature ({TEMPERATURE_RANGE_CELSIUS})",
-            "humidity": "Average humidity",
-            "fertilizing": "Monthly during growing season",
-            "pruning": "Prune as needed",
-            "common_issues": [],
-        }
-
-        # PlantNet results structure
-        if plantnet_results and "results" in plantnet_results:
-            results_list = plantnet_results.get("results", [])
-            if results_list:
-                top_result = results_list[0]
-                species = top_result.get("species", {})
-
-                # Extract care data from species information
-                # Note: PlantNet API returns scientific data, care instructions
-                # would need to be enriched from other sources or databases
-                care_info.update(parse_plantnet_species(species))
-
-        return care_info
 
     def _merge_suggestions(
         self,

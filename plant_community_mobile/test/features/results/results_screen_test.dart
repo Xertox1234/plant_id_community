@@ -35,6 +35,15 @@ void main() {
     expect(find.text('Bright indirect light'), findsOneWidget);
   });
 
+  // Todo 662: the backend sends no care until it has plant-specific advice,
+  // and an empty card titled "Care Instructions" would still read as advice.
+  testWidgets('hides the care card when there is no care', (tester) async {
+    final plant = _mockPlant().copyWith(care: const []);
+    await tester.pumpWidget(_wrap(ResultsScreen(plant: plant)));
+    expect(find.text('Care Instructions'), findsNothing);
+    expect(find.text('Test Plant'), findsOneWidget);
+  });
+
   testWidgets('no crash on pump', (tester) async {
     await tester.pumpWidget(_wrap(ResultsScreen(plant: _mockPlant())));
     expect(tester.takeException(), isNull);
