@@ -105,7 +105,12 @@ _IDENTIFY_FAILURE = inline_serializer(
                     child=serializers.DictField(), required=False
                 ),
                 "care_instructions": serializers.DictField(
-                    required=False, allow_null=True
+                    required=False,
+                    allow_null=True,
+                    help_text=(
+                        "Always null for now: no provider returns plant-specific "
+                        "care, so clients hide their care section (todo 662)."
+                    ),
                 ),
                 "disease_detection": serializers.DictField(
                     required=False, allow_null=True
@@ -181,7 +186,7 @@ def identify_plant(request: Request) -> Response:
         "confidence": 0.95,
         "top_source": "both",
         "suggestions": [...],
-        "care_instructions": {...},
+        "care_instructions": null,
         "disease_detection": {...},
 
         "degraded": false,

@@ -35,6 +35,30 @@ describe('IdentificationResults', () => {
     expect(screen.queryByRole('button', { name: /82%/ })).not.toBeInTheDocument();
   });
 
+  // Todo 662: identify's care used to be the same placeholder text for every
+  // plant. The endpoint now sends null, and the results never show care.
+  it('shows no care section, even for a stale placeholder care dict', () => {
+    const withCare: PlantIdentificationResult = {
+      ...RESULTS,
+      care_instructions: { watering: 'Moderate watering recommended' },
+    };
+    const { rerender } = render(
+      <IdentificationResults results={withCare} loading={false} error={null} />
+    );
+    expect(screen.queryByText(/Moderate watering recommended/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/care/i)).not.toBeInTheDocument();
+
+    rerender(
+      <IdentificationResults
+        results={{ ...RESULTS, care_instructions: null }}
+        loading={false}
+        error={null}
+      />
+    );
+    expect(screen.getByText('Swiss cheese plant')).toBeInTheDocument();
+    expect(screen.queryByText(/care/i)).not.toBeInTheDocument();
+  });
+
   it('renders disease suggestions with a match-percentage pill', () => {
     const withDisease: PlantIdentificationResult = {
       ...RESULTS,

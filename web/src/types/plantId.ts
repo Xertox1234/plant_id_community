@@ -40,11 +40,17 @@ export interface PlantIdentificationResult {
   description?: string;
   watering?: string;
   propagation_methods?: string;
+  /**
+   * Always `null` from the identify endpoint for now (todo 662): no provider
+   * returns plant-specific care, so there is nothing to show. It used to be one
+   * fixed set of placeholder strings for every plant; do not render it as
+   * this plant's care if a value ever appears without a real source.
+   */
   care_instructions?: {
     watering?: string;
     propagation?: string;
     [key: string]: unknown;
-  };
+  } | null;
   source: string;
   image_url?: string;
   // Properties for compatibility with IdentificationResults component

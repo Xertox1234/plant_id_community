@@ -142,6 +142,12 @@ class PlantIdentificationService extends Notifier<void> {
     return null;
   }
 
+  /// Care advice for the identified plant, or empty when the backend has none.
+  ///
+  /// The backend sends `care_instructions: null` until it has plant-specific
+  /// care (todo 662), and the results screen hides its care card when this is
+  /// empty. Never substitute generic text: the same advice for every plant is
+  /// not care for this one.
   static List<String> _careInstructions(Map<String, dynamic> data) {
     final value = data['care_instructions'] ?? data['care'];
     // The backend sends a map of topic -> advice ({"watering": "...", ...}).
@@ -163,7 +169,7 @@ class PlantIdentificationService extends Notifier<void> {
     if (value is String && value.trim().isNotEmpty) {
       return [value.trim()];
     }
-    return const ['Follow general care guidelines for this plant species.'];
+    return const [];
   }
 }
 
