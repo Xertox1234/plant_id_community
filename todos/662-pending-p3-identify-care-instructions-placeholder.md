@@ -4,6 +4,9 @@ priority: p3
 issue_id: "662"
 tags: [backend, plant-identification, mobile]
 dependencies: []
+triage: ready
+triaged: 2026-10-27
+owner_decision: "Owner chose 'None for now (Recommended)': remove the placeholder care text and the taxonomy rows, return care_instructions null, hide the Care section on mobile and web; Scan 2.0 part 4 brings real care guides later (2026-10-27)"
 ---
 
 # Identify's "care instructions" are the same placeholder text for every plant, plus taxonomy rows
