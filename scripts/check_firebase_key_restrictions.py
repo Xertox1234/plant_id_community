@@ -91,6 +91,17 @@ EXPECTED_TARGETS = {
     "fcmregistrations.googleapis.com",         # Cloud Messaging
 }
 
+# The browser key of the "Auth action page" web app (todo 660). The hosted
+# email-action page (verify email, reset password) needs a key it may use; the
+# Android key in the mailed link is refused there. Todo 383 deleted the old,
+# unowned browser key on purpose; this one is narrower: two referrers, Auth only.
+BROWSER_KEY_UID = "12380a84-e4ea-4487-aeeb-16e16229eb1c"
+BROWSER_TARGETS = {"identitytoolkit.googleapis.com", "securetoken.googleapis.com"}
+BROWSER_REFERRERS = {
+    "https://plant-community-prod.firebaseapp.com/*",
+    "https://plant-community-prod.web.app/*",
+}
+
 
 class Indeterminate(Exception):
     """Could not look. Never the same thing as looking and finding nothing wrong."""
@@ -241,8 +252,16 @@ def check_config() -> int:
         targets = {t["service"] for t in r.get("apiTargets", [])}
         app = [x for x in r if x != "apiTargets"]
         label = k["displayName"][:34]
-        if "Browser" in label:
-            print(f"    NOTE         {label:36s} present; see todo 383 item 6")
+        if "browserKeyRestrictions" in r or "Browser" in label:
+            # Only the Auth action page key may exist, and only this narrow.
+            referrers = set(r.get("browserKeyRestrictions", {}).get("allowedReferrers", []))
+            ok = (k.get("uid") == BROWSER_KEY_UID and targets == BROWSER_TARGETS
+                  and referrers == BROWSER_REFERRERS and app == ["browserKeyRestrictions"])
+            failures += not ok
+            print(f"    {'PASS' if ok else 'FAIL':4s}         {label:36s} "
+                  f"browser key: {sorted(targets)}, referrers {sorted(referrers) or 'MISSING'}")
+            if k.get("uid") != BROWSER_KEY_UID:
+                print(f"                   unknown browser key uid {k.get('uid')} (todo 383/660)")
             continue
         ok_t = targets == EXPECTED_TARGETS
         ok_a = bool(app)
