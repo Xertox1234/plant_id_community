@@ -168,3 +168,10 @@ Round 1 was clean (7 reviewers, no blocking findings). The five lows:
 - **Declined (×2):** the web `IdentificationResults` test passes on main too, because the component never rendered `care_instructions`. It stays as a forward guard: the type now allows `null`, and the test fails if anyone starts rendering a care dict, including the old placeholder one.
 - **Declined:** the source-grep and `hasattr` checks overlap the behavioural tests. They are cheap guards against the placeholder dict coming back, and I'm keeping them.
 - **Declined:** the finding said plants saved before this change keep their old care strings. ResultsScreen is only opened from the camera flow (`camera_screen.dart`), with a freshly identified plant (`app_router.dart` reads `state.extra`). Saved `identified_plants` never reach that screen, so no saved care text is shown.
+
+### 2026-10-27 - Review round 2: non-blocking findings (PR #1209)
+
+Round 2 was clean (7 reviewers, no blocking findings). The three lows:
+
+- **Declined (×2):** the web `IdentificationResults` test is a guard only. This is the same finding as round 1, and it was declined there for the same reason.
+- **Declined:** `PlantSuggestion.care_instructions` is still non-nullable while the response-level field is `| null`. Every web reader is null-safe: `plantIdService.ts:125/127` uses `care_instructions?.…`, and `IdentifyPage.tsx:164` only passes the value through. Both fields are optional (`?:`), so a missing or null value cannot crash a save. Widening the suggestion type would change nothing at runtime.
