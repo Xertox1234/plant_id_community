@@ -83,8 +83,8 @@ const accountLinkFailedMessage =
 /// sign-in. Client-side wording, not the backend's, so a backend rewording
 /// cannot change what the user reads.
 const emailNotVerifiedMessage =
-    'Verify your email to finish signing in. Open the link we sent you, then '
-    'sign in again.';
+    'Verify your email to finish signing in: open the link in the email we '
+    'sent you.';
 
 /// "I've verified" was tapped, but Firebase still reports the email
 /// unverified.

@@ -187,6 +187,22 @@ Found 2026-10-25 while creating a sim test account to check PR #1195 (Claude, pr
   message appears inline and in the SnackBar (same double display every other auth error already
   has); there's no busy flag on "Use a different account" (`signOut` is idempotent and `onCancel` pops once).
 
+### 2026-10-27 - Review round 2 (PR #1205): clean; non-blocking findings
+
+- Fixed (a conflict the round-1 wording introduced): after register, the SnackBar said "then sign in
+  again" while the panel said "tap I've verified". `emailNotVerifiedMessage` now reads "Verify your
+  email to finish signing in: open the link in the email we sent you.", which fits the panel, the
+  SnackBar and the launch path alike. The tests assert the constant, not its wording.
+- Declined, low: same-uid sign-in where Firebase says verified but the backend still 403s loops on the
+  panel. The exchange forces a token refresh, so the token carries `email_verified: true` and the view
+  accepts it; the loop needs the backend and Firebase to disagree about one token.
+- Declined, low: `confirmEmailVerified` overtaken by a concurrent exchange or sign-out falls back to
+  "not verified yet". It needs a sign-out or user switch during the tap; the next tap recovers.
+- Declined, low: no widget test for the panel's auto-dismiss on an authentication that arrives some
+  other way. The "I've verified" path is tested end to end, and the listener is three lines that
+  call the same `_dismiss`.
+- Declined, low: the "Use a different account" busy flag, as in round 1.
+
 ## Notes
 
 - p2: every mobile email sign-up silently fails; only Google works.
