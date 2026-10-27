@@ -168,6 +168,25 @@ Found 2026-10-25 while creating a sim test account to check PR #1195 (Claude, pr
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-10-27 - Review round 1 (PR #1205): no blocking findings; mediums and lows handled by hand
+
+- Fixed, with tests (mutation-checked: removing the guard fails both new tests): when a same-uid
+  sign-in's direct exchange fails, `signInWithEmailPassword` now throws `AuthException(state.error)`
+  or returns `true` when the 403 still says unverified. Before, it returned `false` and the login
+  screen dismissed onto a signed-out Profile with the failure unseen.
+- Fixed: `emailNotVerifiedMessage` now ends "then sign in again" instead of "tap I've verified".
+  The launch exchange shows it in the global SnackBar, where no such button exists. The
+  `AuthState.emailVerificationRequired` doc no longer claims that screens watch the flag.
+- Fixed: the test "an unverified sign-in reports it and does not exchange" was renamed to say what
+  it proves (no direct same-uid exchange).
+- Declined: "any JSON 403 is read as unverified email" (two reviewers). The exchange view has one
+  403, the unverified-email one, and its OpenAPI schema documents 403 only as "The token's email
+  is not verified" (`backend/apps/users/firebase_auth_views.py`). Rate limits are mapped to 429.
+- Declined, low: offline launch for a saved unverified user shows the generic error rather than
+  the connectivity one (forced refresh only while unverified; rare and harmless); the still-unverified
+  message appears inline and in the SnackBar (same double display every other auth error already
+  has); there's no busy flag on "Use a different account" (`signOut` is idempotent and `onCancel` pops once).
+
 ## Notes
 
 - p2: every mobile email sign-up silently fails; only Google works.

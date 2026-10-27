@@ -29,8 +29,10 @@ class AuthState {
   final bool unverifiedAccountConflict;
 
   /// True when the Firebase account's email is not verified yet, so the
-  /// backend refuses the token exchange (403, todos 447/449/660). The sign-in
-  /// and register screens show the "Check your email" panel for it. Cleared
+  /// backend refuses the token exchange (403, todos 447/449/660). No screen
+  /// watches it: the sign-in and register screens show the "Check your
+  /// email" panel from their call's return value, and the launch exchange
+  /// only shows [emailNotVerifiedMessage], which reads without it. Cleared
   /// by [copyWith], like [unverifiedAccountConflict]: a successful exchange
   /// or a new attempt ends it.
   final bool emailVerificationRequired;
@@ -82,7 +84,7 @@ const accountLinkFailedMessage =
 /// cannot change what the user reads.
 const emailNotVerifiedMessage =
     'Verify your email to finish signing in. Open the link we sent you, then '
-    "tap \"I've verified\".";
+    'sign in again.';
 
 /// "I've verified" was tapped, but Firebase still reports the email
 /// unverified.
@@ -277,9 +279,19 @@ class AuthService extends _$AuthService {
       if (user != null && !needsVerification && previousUid == user.uid) {
         // Same uid: no auth-state event is coming, so exchange here.
         await _exchangeFirebaseTokenForJWT(user, forceRefresh: true);
+        if (!state.isAuthenticated) {
+          if (state.emailVerificationRequired) return true;
+          // Otherwise the screen would dismiss onto a signed-out Profile
+          // with the failure unseen (todo 660 review).
+          throw AuthException(
+            state.error ?? 'Sign in failed. Please try again.',
+          );
+        }
       }
       // Otherwise the auth state listener handles the token exchange.
       return needsVerification;
+    } on AuthException {
+      rethrow;
     } on FirebaseAuthException catch (e) {
       final errorMessage = _handleFirebaseAuthException(e);
       state = state.copyWith(isLoading: false, error: errorMessage);

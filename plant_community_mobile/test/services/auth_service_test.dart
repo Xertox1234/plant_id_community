@@ -364,7 +364,48 @@ void main() {
       );
     });
 
-    test('an unverified sign-in reports it and does not exchange', () async {
+    test('a same-uid sign-in whose exchange fails throws, so the screen '
+        'shows the error instead of dismissing', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.api.postError = ApiException('unverified', statusCode: 403);
+      harness.container.read(authServiceProvider);
+      await harness.signIn(_FakeUser(uid: 'ada', emailVerified: false));
+
+      harness.api.postError = ApiException('down', statusCode: 503);
+      harness.firebaseAuth.signInUser = _FakeUser(uid: 'ada');
+
+      await expectLater(
+        harness.container
+            .read(authServiceProvider.notifier)
+            .signInWithEmailPassword('ada@example.com', 'secret1'),
+        throwsA(isA<AuthException>()),
+      );
+      expect(
+        harness.container.read(authServiceProvider).isAuthenticated,
+        isFalse,
+      );
+    });
+
+    test('a same-uid sign-in still refused as unverified reports it', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.api.postError = ApiException('unverified', statusCode: 403);
+      harness.container.read(authServiceProvider);
+      await harness.signIn(_FakeUser(uid: 'ada', emailVerified: false));
+
+      // Firebase's cached user says verified, the backend still says no.
+      harness.firebaseAuth.signInUser = _FakeUser(uid: 'ada');
+
+      final needsVerification = await harness.container
+          .read(authServiceProvider.notifier)
+          .signInWithEmailPassword('ada@example.com', 'secret1');
+
+      expect(needsVerification, isTrue);
+    });
+
+    test('an unverified sign-in reports it and does not run the direct '
+        'same-uid exchange', () async {
       final harness = _Harness();
       addTearDown(harness.dispose);
       harness.container.read(authServiceProvider);
