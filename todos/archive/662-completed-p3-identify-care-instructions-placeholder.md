@@ -159,3 +159,12 @@ screenshot showed "Scientific name", "Family" and "Genus" rows in Care Instructi
 ### 2026-10-27 - Completed by the todo sweep (run 2026-10-27-1646)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-27 - Review round 1: non-blocking findings (PR #1209)
+
+Round 1 was clean (7 reviewers, no blocking findings). The five lows:
+
+- **Fixed:** `test_care_instructions.py` had a redundant taxonomy-key assertion after `assert care is None`. It could never fail, so I dropped it and its now-unused `TAXONOMY_KEYS` constant. The `is None` assertion still covers the criterion.
+- **Declined (×2):** the web `IdentificationResults` test passes on main too, because the component never rendered `care_instructions`. It stays as a forward guard: the type now allows `null`, and the test fails if anyone starts rendering a care dict, including the old placeholder one.
+- **Declined:** the source-grep and `hasattr` checks overlap the behavioural tests. They are cheap guards against the placeholder dict coming back, and I'm keeping them.
+- **Declined:** the finding said plants saved before this change keep their old care strings. ResultsScreen is only opened from the camera flow (`camera_screen.dart`), with a freshly identified plant (`app_router.dart` reads `state.extra`). Saved `identified_plants` never reach that screen, so no saved care text is shown.

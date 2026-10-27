@@ -19,7 +19,6 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-TAXONOMY_KEYS = {"scientific_name", "family", "genus"}
 PLACEHOLDER_CARE = {
     "Moderate watering recommended",
     "Bright indirect light",
@@ -90,7 +89,6 @@ def test_plantnet_taxonomy_never_lands_in_care_instructions():
 
     care = out["care_instructions"]
     assert care is None
-    assert not TAXONOMY_KEYS & set(care or {})
     # The taxonomy is still in the response, on the suggestion it describes.
     top = out["combined_suggestions"][0]
     assert top["scientific_name"] == "Ficus lyrata"
