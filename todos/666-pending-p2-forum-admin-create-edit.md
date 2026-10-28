@@ -4,6 +4,8 @@ priority: p2
 issue_id: "666"
 tags: [forum, forum-categories, backend, wagtail, admin]
 dependencies: ["665"]
+triage: ready
+triaged: 2026-10-28
 ---
 
 # Forum categories slice 2: Forum admin menu in Wagtail with create/edit forms
