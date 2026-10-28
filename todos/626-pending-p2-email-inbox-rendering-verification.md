@@ -4,10 +4,9 @@ priority: p2
 issue_id: "626"
 tags: [email, templates, accessibility, testing, owner]
 dependencies: []
-triage: blocked-external
-triaged: 2026-10-12
-blocked_on: "Todo 622 merging, then the owner running manual checks in approved Gmail, Apple Mail and Outlook test inboxes"
-owner_decision: "Owner: will not run the Gmail/Apple Mail/Outlook inbox checks now (2026-10-12); owner hand-off"
+triage: ready
+triaged: 2026-10-28
+owner_decision: "Unblocked: owner ran the real-inbox checks 2026-10-27/28 in Outlook for iOS ('much better' after #1211) and Gmail ('everything looks good in gmail'); Apple Mail split to new todo 664 ('new todo for Apple Mail') (2026-10-28); criterion 0 confirmed by the owner (2026-10-28): Outlook for iOS, owner 2026-10-28 after the #1211 fixes: \"much better\" (version: \"I am using the latest IOS version of outlook\", build number not recorded; iOS version not recorded). Gmail, same inbox: \"everything looks good in gmail\" (web/app not specified). Apple Mail: \"new todo for Apple Mail\", the accepted limitation, carried by new todo 664."
 ---
 
 # Verify redesigned emails in real Gmail, Apple Mail and Outlook inboxes
