@@ -147,25 +147,26 @@ def _visible_boards():
     flag is interim until per-forum permissions land (todos 675-677).
 
     The ForumIndex page still gates the whole forum (todo 665 round-1
-    review): while a ForumIndex is unpublished, or carries a Wagtail privacy
-    restriction on itself or any ancestor page, every forum is hidden, as
-    `.public()` hid every board page below a restricted index. Forums no
-    longer sit under the index in the page tree, so the gate is forum-wide;
-    with no ForumIndex at all there is nothing to close it. It is folded into
-    the one SQL query (`~Exists`), not checked eagerly: `.public()` fetched
-    every restriction in Python on each call, and the `board__in=` callers
-    rely on this queryset adding no query of its own.
+    review): when ForumIndex pages exist but none is open (live, with no
+    Wagtail privacy restriction on itself or any ancestor page), every forum
+    is hidden, as `.public()` hid every board page below a restricted index.
+    One open index is enough (round 3): a stray draft copy of the index must
+    not close a forum whose real index is live. With no ForumIndex at all
+    there is nothing to close it. It is folded into the one SQL query
+    (`Exists`), not checked eagerly: `.public()` fetched every restriction in
+    Python on each call, and the `board__in=` callers rely on this queryset
+    adding no query of its own.
     """
     # Treebeard paths: a restriction applies when its page's path is a prefix
     # of the index's (the index itself or an ancestor), as `.public()` tests.
     restriction_on_index_or_ancestor = PageViewRestriction.objects.annotate(
         index_path=ExpressionWrapper(OuterRef("path"), output_field=CharField())
     ).filter(index_path__startswith=F("page__path"))
-    closed_index = ForumIndex.objects.filter(
-        Q(live=False) | Exists(restriction_on_index_or_ancestor)
+    open_index = ForumIndex.objects.filter(
+        ~Exists(restriction_on_index_or_ancestor), live=True
     )
     return Forum.objects.filter(
-        ~Exists(closed_index),
+        Exists(open_index) | ~Exists(ForumIndex.objects.all()),
         forum_type=Forum.FORUM,
         is_hidden=False,
         parent__is_hidden=False,

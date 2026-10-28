@@ -43,11 +43,6 @@ export interface Forum {
 }
 
 /**
- * The forum home payload — boards plus the `ForumIndex` welcome copy the CMS
- * owns. One backend response (`GET boards/`), because both render on the same
- * screen and always change together (todo 278 L2).
- */
-/**
  * A forum category (todo 665): a header row on the forum index that holds
  * forums, never topics. Counts and `last_post_at` are summed by the backend
  * from the forums the viewer may see (`GET categories/`).
@@ -63,6 +58,11 @@ export interface Category {
   forums: Forum[];
 }
 
+/**
+ * The forum home payload — boards plus the `ForumIndex` welcome copy the CMS
+ * owns. One backend response (`GET boards/`), because both render on the same
+ * screen and always change together (todo 278 L2).
+ */
 export interface ForumIndexPayload {
   forums: Forum[];
   /** Sanitized HTML from the CMS; `''` when no intro is set. */

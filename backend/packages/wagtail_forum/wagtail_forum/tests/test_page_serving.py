@@ -11,7 +11,7 @@ from django.test import RequestFactory
 from django.urls import reverse
 from wagtail.models import Page
 from wagtail_forum.models import ForumIndex
-from wagtail_forum.tests.factories import make_forum
+from wagtail_forum.tests.factories import make_category, make_forum
 
 User = get_user_model()
 
@@ -42,6 +42,8 @@ def test_forum_index_serves_directly():
 def test_forum_index_lists_only_visible_forums():
     index, _board = _tree()
     make_forum(name="Staff room", slug="staff", is_hidden=True)
+    hidden_category = make_category(name="Mods", slug="mods-cat", is_hidden=True)
+    make_forum(name="Back office", slug="back-office", category=hidden_category)
 
     response = index.serve(RequestFactory().get("/forum/"))
     response.render()
@@ -49,6 +51,7 @@ def test_forum_index_lists_only_visible_forums():
     html = response.content.decode()
     assert "General" in html
     assert "Staff room" not in html
+    assert "Back office" not in html
 
 
 # Todo 299: the fallback pages share wagtail_forum/base.html, which renders

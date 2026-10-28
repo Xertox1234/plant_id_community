@@ -81,7 +81,7 @@ class ForumIndex(Page):
         # Same visibility rule as the API (`api.views._visible_boards`); a
         # local query so the model module never imports the API layer.
         context["boards"] = Forum.objects.filter(
-            forum_type=Forum.FORUM, is_hidden=False
+            forum_type=Forum.FORUM, is_hidden=False, parent__is_hidden=False
         ).order_by("parent__position", "position", "id")
         return context
 

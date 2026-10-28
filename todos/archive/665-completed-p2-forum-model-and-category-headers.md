@@ -208,6 +208,23 @@ Boards are Wagtail pages (`ForumBoard`) with no way to group them, so the forum 
 - `apps/forum_host/tests/test_seo.py`: the ancestor test is back to restricting only the ForumIndex. The hidden-category case is now a separate test. New API tests in `test_forum_categories_api.py` cover a restricted index, a restricted ancestor and an unpublished index (boards, board topics, topic detail, categories), plus a live public index that keeps the forum visible.
 - Round-1 finding (Topic board select): `Topic.board` gets `limit_choices_to={"forum_type": "forum"}` (migration `0045_topic_board_forums_only`), so the CMS snippet select offers forums only. `ForeignKey.validate` applies the limit on every `full_clean()`, which `save_revision()` runs, so no `Topic.clean` was added. A mutation check showed it would be dead code. Test: `test_boards.py::test_a_topic_cannot_sit_on_a_category_or_link`.
 
+### 2026-10-28 - Review round 3 (owner-approved) and non-blocking findings
+
+- Round 2 blocked on a regression from the round-1 fix: `_visible_boards` hid every forum when *any* ForumIndex was closed, so a stray draft copy of the index emptied the API, sitemap and feeds. The owner approved a round 3 (2026-10-28). The gate is now "an open index exists, or no index at all": `Exists(open_index) | ~Exists(ForumIndex)`, still inside the one query. Test: `test_forum_categories_api.py::test_a_stray_closed_forum_index_does_not_hide_the_forum` (draft and restricted). Mutation check: with the round-2 condition put back, both cases fail (2 failed, 10 passed). The file was restored from a copy and the guard line grepped.
+- Non-blocking, fixed:
+  - `ForumIndex.get_context` did not check `parent__is_hidden`, so the server-rendered fallback page listed forums under a hidden category. It now does. `test_page_serving.py::test_forum_index_lists_only_visible_forums` covers a forum under a hidden category.
+  - The `ForumIndexPayload` doc comment in `web/src/types/forum.ts` sat above `Category`. It is now back above `ForumIndexPayload`.
+- Non-blocking, declined:
+  - 0041's slug de-dupe suffix `{slug}-{pk}` is not re-checked against `taken` or the length limit. A collision needs a board whose literal slug is `<other slug>-<that board's pk>`. The migration is atomic on Postgres, so a collision aborts the deploy loudly and loses no data.
+  - 0041 bakes an index or ancestor restriction into `is_hidden`. That fails closed. Until the Forum admin lands (todo 666), you unhide in a shell with `Forum.objects.update(is_hidden=False)`.
+  - 0043 leaves board-page `WorkflowState` and search `IndexEntry` rows behind. They are inert rows for a deleted content type; boards were never submitted to a workflow (topics and posts are snippets).
+  - `apps/users/views.py` imports the private `_visible_boards`, which host modules already do elsewhere. A public alias belongs with the permissions slice (todo 676), which rewrites that rule.
+  - A Forum with `parent=NULL` has no DB CHECK. `clean()` enforces it, and the admin forms arrive in todo 666, the slice that owns validation.
+  - Board-rename redirects ride on `Forum.save()`, so a queryset `.update(slug=…)` makes none. Nothing calls one.
+  - `seed_demo_content` filters by `forum_type=forum`, so a future link with the same slug would collide. Links arrive in todo 670.
+  - The web category crumb makes one extra uncached `GET categories/` per thread page, and that crumb is plain text. It is a performance/UX polish for the category slices, and correctness is unaffected.
+  - `CategoryListPage` drops a forum that is in `boards/` but not in `categories/` (skew between endpoints). Both read `_visible_boards`, so they cannot disagree.
+
 ## Notes
 
 Largest slice — most of the effort is the mechanical test-fixture migration. Subforums are deliberately out of scope (owner, 2026-10-28).

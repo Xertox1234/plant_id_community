@@ -220,6 +220,30 @@ def test_a_live_public_forum_index_keeps_the_forum_visible():
     ]
 
 
+@pytest.mark.parametrize("closed", ["draft", "restricted"])
+def test_a_stray_closed_forum_index_does_not_hide_the_forum(closed):
+    """One open index keeps the forum visible: a second ForumIndex that is a
+    draft (e.g. an editor's unpublished copy) or privacy-restricted must not
+    close it (todo 665 round-2 review)."""
+    _forum_index()
+    stray = Page.objects.get(id=1).add_child(
+        instance=ForumIndex(title="Forum copy", slug="forum-copy")
+    )
+    if closed == "draft":
+        stray.unpublish()
+    else:
+        PageViewRestriction.objects.create(page=stray, restriction_type="login")
+    board = make_forum(name="General", slug="general")
+    topic = Topic.objects.create(board=board, title="T", slug="t", live=True)
+    client = APIClient()
+
+    assert [b["slug"] for b in client.get("/forum/boards/").json()["results"]] == [
+        "general"
+    ]
+    assert client.get(f"/forum/topics/{topic.id}/").status_code == 200
+    assert [c["id"] for c in _categories()] == [board.parent_id]
+
+
 def test_categories_query_count_is_flat():
     """Two queries whatever the size: the categories, then one prefetch of
     their visible forums carrying the last-post subquery."""
