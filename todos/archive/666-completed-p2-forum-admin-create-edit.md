@@ -110,3 +110,15 @@ Declined:
 - Low, position not recomputed when an edit moves a forum to another category: ordering only; the drag-and-drop structure tree (todo 668) owns positions.
 - Low, non-atomic `Max()+1` position on concurrent creates: ordering only, same owner (todo 668).
 - Low, no anonymous-client test: Wagtail's admin login gate is framework behaviour covered by its own suite; the permission test covers this viewset's part.
+
+### 2026-10-28 - Review round 2: non-blocking findings (PR #1218)
+
+No blocking findings. Fixed by hand: low, no test for a forum slug clashing with a link row (the `exclude(forum_type=CATEGORY)` arm). Added `test_form_rejects_a_forum_slug_already_used_by_a_link` (22 passed).
+
+Declined:
+
+- Low (x2), position kept when an edit moves a forum to another category; low (x2), unlocked `Max()+1` position on concurrent creates: ordering only, and the drag-and-drop structure tree (todo 668) owns positions.
+- Low, a non-Latin name slugifies to empty: the form says "Enter a slug, or a name it can be made from", so the admin types one; no silent failure.
+- Low, the slug pre-check is check-then-act, so two simultaneous identical creates could 500 on the constraint: admin-only, rare, and the constraint still keeps the data correct.
+- Low, the form's per-type slug check duplicates the model's partial constraints: the tests pin both arms (category, forum, link); todo 670, which adds link rows, works under them.
+- Low, the existing-link branch of the type choices is untested: no link row can be created until todo 670, which owns its edit form.

@@ -217,6 +217,20 @@ def test_form_rejects_a_duplicate_category_slug_but_not_a_forum_of_the_same_slug
 
 
 @pytest.mark.django_db
+def test_form_rejects_a_forum_slug_already_used_by_a_link(client):
+    category = make_category()
+    Forum.objects.create(
+        forum_type=Forum.LINK, parent=category, name="Shop", slug="shop"
+    )
+    client.force_login(_staff("editor", "add_forum", "change_forum"))
+
+    resp = client.post(_url("add"), _payload(slug="shop", parent=category.pk))
+
+    assert resp.status_code == 200
+    assert resp.context["form"].errors["slug"] == ["This slug is already in use."]
+
+
+@pytest.mark.django_db
 def test_editing_a_row_keeps_its_own_slug(client):
     forum = make_forum(name="Ferns", slug="ferns")
     client.force_login(_staff("editor", "add_forum", "change_forum"))
