@@ -68,6 +68,32 @@ def test_validation_rejects_a_forum_as_a_parent():
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("board_type", [Forum.CATEGORY, Forum.LINK])
+def test_a_topic_cannot_sit_on_a_category_or_link(board_type):
+    """Topic.board is limited to forums (todo 665 round-1 review): a topic on a
+    category or link would vanish from the API, which lists forums only."""
+    category = make_category()
+    if board_type == Forum.CATEGORY:
+        board = category
+    else:
+        board = Forum.objects.create(
+            forum_type=Forum.LINK, parent=category, name="Docs", slug="docs"
+        )
+
+    with pytest.raises(ValidationError) as exc:
+        Topic(board=board, title="T", slug="t").full_clean()
+    assert "board" in exc.value.message_dict
+    assert Topic._meta.get_field("board").get_limit_choices_to() == {
+        "forum_type": Forum.FORUM
+    }
+
+
+@pytest.mark.django_db
+def test_a_topic_on_a_forum_validates():
+    Topic(board=make_forum(), title="T", slug="t").full_clean()
+
+
+@pytest.mark.django_db
 def test_validation_accepts_a_forum_under_a_category():
     category = make_category()
     Forum(forum_type=Forum.FORUM, parent=category, name="Ok", slug="ok").full_clean()

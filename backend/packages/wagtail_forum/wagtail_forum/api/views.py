@@ -8,8 +8,10 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import IntegrityError, transaction
 from django.db.models import (
     BooleanField,
+    CharField,
     DateTimeField,
     Exists,
+    ExpressionWrapper,
     F,
     OuterRef,
     Prefetch,
@@ -38,6 +40,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from wagtail.actions.unpublish import UnpublishAction
 from wagtail.images import get_image_model
+from wagtail.models import PageViewRestriction
 from wagtail.search.backends import get_search_backend
 
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
@@ -142,9 +145,30 @@ def _visible_boards():
     are never "boards" — `/forum/boards/` (the Flutter contract) lists only
     forums. A forum is hidden by its own `is_hidden` or its category's; the
     flag is interim until per-forum permissions land (todos 675-677).
+
+    The ForumIndex page still gates the whole forum (todo 665 round-1
+    review): while a ForumIndex is unpublished, or carries a Wagtail privacy
+    restriction on itself or any ancestor page, every forum is hidden, as
+    `.public()` hid every board page below a restricted index. Forums no
+    longer sit under the index in the page tree, so the gate is forum-wide;
+    with no ForumIndex at all there is nothing to close it. It is folded into
+    the one SQL query (`~Exists`), not checked eagerly: `.public()` fetched
+    every restriction in Python on each call, and the `board__in=` callers
+    rely on this queryset adding no query of its own.
     """
+    # Treebeard paths: a restriction applies when its page's path is a prefix
+    # of the index's (the index itself or an ancestor), as `.public()` tests.
+    restriction_on_index_or_ancestor = PageViewRestriction.objects.annotate(
+        index_path=ExpressionWrapper(OuterRef("path"), output_field=CharField())
+    ).filter(index_path__startswith=F("page__path"))
+    closed_index = ForumIndex.objects.filter(
+        Q(live=False) | Exists(restriction_on_index_or_ancestor)
+    )
     return Forum.objects.filter(
-        forum_type=Forum.FORUM, is_hidden=False, parent__is_hidden=False
+        ~Exists(closed_index),
+        forum_type=Forum.FORUM,
+        is_hidden=False,
+        parent__is_hidden=False,
     )
 
 

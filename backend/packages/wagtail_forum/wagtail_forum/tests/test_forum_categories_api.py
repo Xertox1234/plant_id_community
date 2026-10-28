@@ -15,7 +15,8 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
-from wagtail_forum.models import Forum, Topic
+from wagtail.models import Page, PageViewRestriction
+from wagtail_forum.models import Forum, ForumIndex, Topic
 from wagtail_forum.tests.factories import make_category, make_forum
 
 pytestmark = [pytest.mark.django_db, pytest.mark.urls("wagtail_forum.tests.api.urls")]
@@ -170,6 +171,53 @@ def test_a_hidden_category_hides_its_forums_everywhere():
     assert _categories() == []
     assert client.get("/forum/boards/").json()["results"] == []
     assert client.get("/forum/boards/mods/topics/").status_code == 404
+
+
+def _forum_index():
+    return Page.objects.get(id=1).add_child(
+        instance=ForumIndex(title="Forum", slug="forum")
+    )
+
+
+@pytest.mark.parametrize("restrict", ["index", "ancestor"])
+def test_privacy_on_the_forum_index_hides_the_whole_forum(restrict):
+    """Privacy set on the ForumIndex page (or a page above it) still hides
+    every forum and topic, as `.public()` did when boards were its child
+    pages (todo 665 round-1 review)."""
+    index = _forum_index()
+    board = make_forum(name="General", slug="general")
+    topic = Topic.objects.create(board=board, title="T", slug="t", live=True)
+    client = APIClient()
+    assert client.get(f"/forum/topics/{topic.id}/").status_code == 200
+
+    page = index if restrict == "index" else index.get_parent()
+    PageViewRestriction.objects.create(page=page, restriction_type="login")
+
+    assert client.get("/forum/boards/").json()["results"] == []
+    assert client.get("/forum/boards/general/topics/").status_code == 404
+    assert client.get(f"/forum/topics/{topic.id}/").status_code == 404
+    assert _categories() == []
+
+
+def test_an_unpublished_forum_index_hides_the_whole_forum():
+    index = _forum_index()
+    make_forum(name="General", slug="general")
+    client = APIClient()
+    assert len(client.get("/forum/boards/").json()["results"]) == 1
+
+    index.unpublish()
+
+    assert client.get("/forum/boards/").json()["results"] == []
+    assert _categories() == []
+
+
+def test_a_live_public_forum_index_keeps_the_forum_visible():
+    _forum_index()
+    make_forum(name="General", slug="general")
+
+    assert [b["slug"] for b in APIClient().get("/forum/boards/").json()["results"]] == [
+        "general"
+    ]
 
 
 def test_categories_query_count_is_flat():

@@ -202,6 +202,12 @@ Boards are Wagtail pages (`ForumBoard`) with no way to group them, so the forum 
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-10-28 - Repaired by the todo sweep (run 2026-10-28-1737)
+
+- Round-1 finding (ForumIndex privacy): `_visible_boards` in `backend/packages/wagtail_forum/wagtail_forum/api/views.py` now hides every forum while a ForumIndex is unpublished or has a `PageViewRestriction` on itself or an ancestor page, as `.public()` did for board pages. It is a single `~Exists` in the same SQL query, so no pinned query count moves. With no ForumIndex at all, nothing closes the forum (index-less test fixtures depend on this). On main, `.live()` checked only the board's own flag. Gating on the index's `live` is new.
+- `apps/forum_host/tests/test_seo.py`: the ancestor test is back to restricting only the ForumIndex. The hidden-category case is now a separate test. New API tests in `test_forum_categories_api.py` cover a restricted index, a restricted ancestor and an unpublished index (boards, board topics, topic detail, categories), plus a live public index that keeps the forum visible.
+- Round-1 finding (Topic board select): `Topic.board` gets `limit_choices_to={"forum_type": "forum"}` (migration `0045_topic_board_forums_only`), so the CMS snippet select offers forums only. `ForeignKey.validate` applies the limit on every `full_clean()`, which `save_revision()` runs, so no `Topic.clean` was added. A mutation check showed it would be dead code. Test: `test_boards.py::test_a_topic_cannot_sit_on_a_category_or_link`.
+
 ## Notes
 
 Largest slice — most of the effort is the mechanical test-fixture migration. Subforums are deliberately out of scope (owner, 2026-10-28).

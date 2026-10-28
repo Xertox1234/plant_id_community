@@ -90,13 +90,12 @@ def test_rss_feed_excludes_draft_topic():
 
 @pytest.mark.django_db
 def test_sitemap_and_feed_exclude_ancestor_restricted_topics():
-    # A hidden ancestor hides its descendants. Boards were pages under the
-    # ForumIndex until todo 665; their ancestor is now their category, so hide
-    # that and assert the board + its topic vanish from both surfaces. The
-    # restricted ForumIndex (still a page) drops its own landing entry.
+    # Privacy on the ForumIndex hides the whole forum. Boards were pages under
+    # the index until todo 665 (`.public()` covered ancestors); they are Forum
+    # rows now, and `_visible_boards` gates them on the index directly. Only
+    # the index is restricted here, so this asserts that gate on its own.
     index, board = _tree()
     PageViewRestriction.objects.create(page=index, restriction_type="login")
-    Forum.objects.filter(pk=board.parent_id).update(is_hidden=True)
     topic = Topic.objects.create(board=board, title="Secret", slug="secret", live=True)
 
     sitemap = APIClient().get("/forum/sitemap.xml").content.decode()
@@ -106,6 +105,21 @@ def test_sitemap_and_feed_exclude_ancestor_restricted_topics():
     assert topic.get_absolute_url() not in feed
     assert f"/forum/{board.id}-general</loc>" not in sitemap
     assert "<loc>" + _SITE + "/forum</loc>" not in sitemap  # restricted index too
+
+
+@pytest.mark.django_db
+def test_sitemap_and_feed_exclude_topics_of_a_hidden_category():
+    # A hidden category hides its forums and their topics (todo 665).
+    _index, board = _tree()
+    Forum.objects.filter(pk=board.parent_id).update(is_hidden=True)
+    topic = Topic.objects.create(board=board, title="Secret", slug="secret", live=True)
+
+    sitemap = APIClient().get("/forum/sitemap.xml").content.decode()
+    feed = APIClient().get("/forum/rss/").content.decode()
+
+    assert topic.get_absolute_url() not in sitemap
+    assert topic.get_absolute_url() not in feed
+    assert f"/forum/{board.id}-general</loc>" not in sitemap
 
 
 @pytest.mark.django_db
