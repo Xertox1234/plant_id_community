@@ -9,6 +9,7 @@ from wagtail.snippets.models import register_snippet
 from wagtail.snippets.permissions import get_permission_name
 from wagtail.snippets.views.snippets import SnippetViewSet, SnippetViewSetGroup
 
+from .admin.forums import ForumViewSet
 from .models import Badge, ForumProfile, Post, Report, Topic
 
 
@@ -212,7 +213,10 @@ class BadgeViewSet(SnippetViewSet):
 
 
 class ForumViewSetGroup(SnippetViewSetGroup):
+    # ForumViewSet is a plain ModelViewSet (categories and forums are not
+    # snippets, todo 666); the group only gives it a place in this menu.
     items = (
+        ForumViewSet,
         TopicViewSet,
         PostViewSet,
         ForumProfileViewSet,
