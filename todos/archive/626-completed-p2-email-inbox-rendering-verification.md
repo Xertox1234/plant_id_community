@@ -37,6 +37,7 @@ Split from todo 622 at triage (run 2026-10-12-1637, owner decision 2026-10-12): 
 - Two issues found in Outlook for iOS: (a) the forum digest's topic dividers rendered as white lines and the underlined topic titles looked heavy; (b) the welcome email's amber/orange Tip box (#fef3c7 / #b45309 / #78350f) clashed with the green palette. Both fixed in PR #1211: digest sections are borderless #f0f7f2 cards, titles not underlined, an "N new" pill and a "Go to the forum" button; the Tip box is now #f0f7f2 background, #2c5f41 border/title, #333333 body. Tests: `test_forum_digest_is_cards_without_topic_dividers` and `test_welcome_tip_uses_the_brand_palette` in `backend/apps/users/tests/test_email_presentation.py`. The owner resent forum_digest + welcome at 2026-10-28 02:46 UTC: "much better".
 - Gmail, same inbox (one Gmail address): "everything looks good in gmail". Web vs app not specified.
 - Apple Mail: not checked; owner: "new todo for Apple Mail", carried by todo 664 (the accepted limitation for this todo). Also accepted and left unchanged: the password-reset email's amber security notice (`backend/templates/account/email/password_reset_key_message.html`).
+- Not recorded: an Outlook for iOS light-mode result, the Gmail client (web or app) and version, and Gmail light/dark/narrow results. The owner confirmed the criterion with these gaps on 2026-10-28; nothing above claims them.
 
 ### 2026-10-28 - Implemented by the todo sweep (run 2026-10-28-1052)
 
@@ -50,6 +51,7 @@ Split from todo 622 at triage (run 2026-10-12-1637, owner decision 2026-10-12): 
 ### 2026-10-28 - Completed by the todo sweep (run 2026-10-28-1052)
 
 - Archived by `land.py archive`; review is on the PR.
+- Review round 1 (PR #1213): no blocking findings. Three lows, all fixed by hand: two asked that the unrecorded views be named (the "Not recorded" line above), and one found that 622's link to this todo was already broken on main (fixed to the archived name).
 
 ## Notes
 
