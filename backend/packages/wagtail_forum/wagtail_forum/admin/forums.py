@@ -49,6 +49,18 @@ class ForumAdminForm(WagtailAdminModelForm):
         parent_field.help_text = _(
             "The category this forum is listed under. A category has none."
         )
+        # The panel's w-rules controller hides the picker while "Category" is
+        # chosen; hiding alone still posts the picked value, so a create
+        # switched to Category after choosing one would fail on a field the
+        # user can no longer see. Disabling the select keeps it out of the
+        # POST. A forged parent is still refused by Forum.clean.
+        parent_field.widget.attrs.update(
+            {
+                "data-w-rules-target": "enable",
+                "data-w-rules-enable": json.dumps({"forum_type": [Forum.CATEGORY]}),
+                "data-w-rules-enable-match": "not",
+            }
+        )
         allowed = list(CREATABLE_TYPES)
         if self.instance.pk:
             # The type is fixed once saved (changing it is slice 667). A
@@ -78,6 +90,26 @@ class ForumAdminForm(WagtailAdminModelForm):
                 _("Enter a slug, or a name it can be made from.")
             )
         return slug
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean()
+        slug = cleaned.get("slug")
+        forum_type = cleaned.get("forum_type")
+        if slug and forum_type:
+            # The partial UniqueConstraints would report a duplicate only as
+            # a non-field "Constraint ... is violated." error; say it on the
+            # slug field instead. Category slugs are unique among categories,
+            # forum and link slugs among each other (spec §4).
+            clashes = Forum.objects.filter(slug=slug)
+            if forum_type == Forum.CATEGORY:
+                clashes = clashes.filter(forum_type=Forum.CATEGORY)
+            else:
+                clashes = clashes.exclude(forum_type=Forum.CATEGORY)
+            if self.instance.pk:
+                clashes = clashes.exclude(pk=self.instance.pk)
+            if clashes.exists():
+                self.add_error("slug", _("This slug is already in use."))
+        return cleaned
 
     def save(self, commit: bool = True) -> Forum:
         instance: Forum = super().save(commit=False)

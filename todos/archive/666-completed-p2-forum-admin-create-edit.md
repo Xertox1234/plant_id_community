@@ -95,3 +95,18 @@ After slice 1 forums are plain models, so staff need somewhere to create and edi
 ### 2026-10-28 - Completed by the todo sweep (run 2026-10-28-2232)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-28 - Review round 1: non-blocking findings (PR #1218)
+
+No blocking findings. Fixed by hand, with tests (21 passed):
+
+- Medium, `admin/forums.py` w-rules: the Category picker was only hidden for a category, so a value picked before switching the type was still posted and the save failed on a field the user could not see. Fixed: the select is also a `w-rules` `enable` target, so it is disabled (and not posted) while "Category" is chosen; a forged parent is still refused by `Forum.clean` (`test_form_rejects_a_category_with_a_parent` unchanged). Browser behaviour not exercised (no Playwright lane this run); the test asserts the attributes reach the select.
+- Medium, duplicate slug surfaced only as Django's non-field "Constraint ... is violated." Fixed: `ForumAdminForm.clean` checks the slug per type (categories among categories, forums/links among each other, excluding the row being edited) and reports "This slug is already in use." on the slug field. Tests assert the field and message, a duplicate category slug, a forum sharing a category's slug, and an edit keeping its own slug. Mutation check: disabling the guard fails 2 tests.
+- Low, category branch of the end-of-level position untested. Added `test_a_new_category_goes_after_the_last_category` (a forum's higher position does not count).
+
+Declined:
+
+- Low, misleading second slug error when `name` itself fails and the slug is blank: the name error is shown alongside; cosmetic, and only on an already-invalid form.
+- Low, position not recomputed when an edit moves a forum to another category: ordering only; the drag-and-drop structure tree (todo 668) owns positions.
+- Low, non-atomic `Max()+1` position on concurrent creates: ordering only, same owner (todo 668).
+- Low, no anonymous-client test: Wagtail's admin login gate is framework behaviour covered by its own suite; the permission test covers this viewset's part.

@@ -1,6 +1,8 @@
 """The Forum create/edit admin (todo 666): a ModelViewSet for categories and
 forums under the Wagtail *Forum* menu, with delete switched off."""
 
+import json
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
@@ -189,8 +191,42 @@ def test_form_rejects_a_duplicate_forum_slug_as_a_field_error(client):
     )
 
     assert resp.status_code == 200
-    assert resp.context["form"].errors
+    assert resp.context["form"].errors["slug"] == ["This slug is already in use."]
     assert Forum.objects.filter(slug="ferns").count() == 1
+
+
+@pytest.mark.django_db
+def test_form_rejects_a_duplicate_category_slug_but_not_a_forum_of_the_same_slug(
+    client,
+):
+    category = Forum.objects.create(
+        forum_type=Forum.CATEGORY, name="Outdoor", slug="outdoor"
+    )
+    client.force_login(_staff("editor", "add_forum", "change_forum"))
+
+    dup = client.post(
+        _url("add"),
+        _payload(forum_type=Forum.CATEGORY, name="Outdoor 2", slug="outdoor"),
+    )
+    ok = client.post(_url("add"), _payload(slug="outdoor", parent=category.pk))
+
+    assert dup.status_code == 200
+    assert dup.context["form"].errors["slug"] == ["This slug is already in use."]
+    assert ok.status_code == 302
+    assert Forum.objects.filter(slug="outdoor").count() == 2
+
+
+@pytest.mark.django_db
+def test_editing_a_row_keeps_its_own_slug(client):
+    forum = make_forum(name="Ferns", slug="ferns")
+    client.force_login(_staff("editor", "add_forum", "change_forum"))
+
+    resp = client.post(
+        _url("edit", forum.pk),
+        _payload(parent=forum.parent_id, name="Ferns!", slug="ferns"),
+    )
+
+    assert resp.status_code == 302
 
 
 @pytest.mark.django_db
@@ -258,6 +294,15 @@ def test_create_form_offers_only_category_and_forum_and_wires_the_parent_rule(cl
     html = resp.content.decode()
     assert 'data-controller="w-rules"' in html
     assert 'data-w-rules-show-match="not"' in html
+    # The picker is also disabled (not just hidden) for a category, so a
+    # value picked before switching the type is not posted.
+    parent_attrs = resp.context["form"].fields["parent"].widget.attrs
+    assert parent_attrs["data-w-rules-target"] == "enable"
+    assert parent_attrs["data-w-rules-enable-match"] == "not"
+    assert json.loads(parent_attrs["data-w-rules-enable"]) == {
+        "forum_type": [Forum.CATEGORY]
+    }
+    assert 'data-w-rules-target="enable"' in html
 
 
 @pytest.mark.django_db
@@ -273,6 +318,24 @@ def test_new_rows_go_to_the_end_of_their_level_and_blank_slug_is_derived(client)
     assert resp.status_code == 302
     forum = Forum.objects.get(slug="air-plants")
     assert forum.position == 5
+
+
+@pytest.mark.django_db
+def test_a_new_category_goes_after_the_last_category(client):
+    category = make_category()
+    Forum.objects.filter(pk=category.pk).update(position=7)
+    # A forum's higher position must not count: categories rank among
+    # categories only.
+    make_forum(name="Ferns", slug="ferns", category=category, position=20)
+    client.force_login(_staff("editor", "add_forum", "change_forum"))
+
+    resp = client.post(
+        _url("add"),
+        _payload(forum_type=Forum.CATEGORY, name="Outdoor", slug="outdoor"),
+    )
+
+    assert resp.status_code == 302
+    assert Forum.objects.get(slug="outdoor").position == 8
 
 
 # --- AC2: delete is not exposed in this slice ---
