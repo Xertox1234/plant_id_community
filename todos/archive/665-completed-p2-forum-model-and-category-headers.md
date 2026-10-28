@@ -225,6 +225,15 @@ Boards are Wagtail pages (`ForumBoard`) with no way to group them, so the forum 
   - The web category crumb makes one extra uncached `GET categories/` per thread page, and that crumb is plain text. It is a performance/UX polish for the category slices, and correctness is unaffected.
   - `CategoryListPage` drops a forum that is in `boards/` but not in `categories/` (skew between endpoints). Both read `_visible_boards`, so they cannot disagree.
 
+### 2026-10-28 - Review round 3: clean; non-blocking findings
+
+- Fixed: the crawl-surface rule in `docs/rules/forum.md` still described `.live().public()` boards. It now states the `Forum`-row rule: hidden forum, hidden category, and the open-ForumIndex gate.
+- Declined:
+  - A slug renamed by 0041's de-dupe gets no `Redirect` rows. Only boards sharing a slug are renamed (none are known), and the web resolves topics by id.
+  - The 0041 and 0043 reverses are `noop`, so a rollback past 0042 with topics in the database cannot work. Rolling back this slice means restoring a backup, as with any table-dropping migration.
+  - `Forum.clean()` allows changing `forum_type` away from forum while topics exist. Change type with its content choice is todo 667, and nothing exposes `forum_type` editing before then.
+  - Repeats of earlier findings (de-dupe suffix, private `_visible_boards` import, orphan `IndexEntry`/`WorkflowState` rows, uncached categories fetch, endpoint skew) keep the round-2 reasons above.
+
 ## Notes
 
 Largest slice — most of the effort is the mechanical test-fixture migration. Subforums are deliberately out of scope (owner, 2026-10-28).

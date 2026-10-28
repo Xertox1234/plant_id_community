@@ -65,11 +65,13 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
 - **Public crawl surfaces enforce board visibility too.** The forum
   `sitemap.xml` + RSS feed (`apps/forum_host/{sitemaps,feeds}.py`, todo 256 H9)
   are the widest-blast-radius surface — anonymous, cacheable, search-indexed —
-  so both filter topics through `board__in=_visible_boards()` (`.live().public()`)
-  and list only `ForumIndex.objects.live().public()` boards. `.public()` excludes
-  a restricted board AND every descendant of a restricted ancestor, so a
-  restriction on the `ForumIndex` hides the whole tree; a coverage test must
-  exercise the ancestor case, not just a directly-restricted board. Draft
+  so both filter topics through `board__in=_visible_boards()`. Since todo 665
+  boards are `Forum` rows, not pages: `_visible_boards()` keeps
+  `forum_type="forum"` rows that are not `is_hidden` and whose category is not
+  hidden, and closes the whole forum when ForumIndex pages exist but none is
+  live and unrestricted (index or ancestor). A coverage test must exercise a
+  hidden category and a restricted or unpublished `ForumIndex`, not just a
+  hidden forum. Draft
   (`live=False`) topics need their own exclusion test per surface — the sitemap's
   and the feed's `live=True` guards are independent.
 - **A settable image/file reference on a user resource (e.g. profile `avatar_id`)
