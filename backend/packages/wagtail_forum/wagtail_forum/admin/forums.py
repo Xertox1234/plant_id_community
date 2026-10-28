@@ -92,7 +92,7 @@ class ForumAdminForm(WagtailAdminModelForm):
         return slug
 
     def clean(self) -> dict[str, Any]:
-        cleaned = super().clean()
+        cleaned: dict[str, Any] = super().clean()
         slug = cleaned.get("slug")
         forum_type = cleaned.get("forum_type")
         if slug and forum_type:
