@@ -4,6 +4,9 @@ priority: p2
 issue_id: "665"
 tags: [forum, forum-categories, backend, web, migration]
 dependencies: []
+triage: ready
+triaged: 2026-10-28
+owner_decision: "Web: rename the board types to Forum/ForumCard and use Category for real categories; sitemap lists forum_type=forum rows only from the Forum model (2026-10-28)"
 ---
 
 # Forum categories slice 1: Forum model, migration off Wagtail pages, category headers on the web index
