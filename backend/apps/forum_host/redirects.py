@@ -18,10 +18,11 @@ keeps moving:
   double-insert would make ``.get()`` raise inside every later save.
 
 Scope: topic slug/board changes (the receivers below) and **board slug
-renames** (``page_slug_changed`` on ``ForumBoard``, todo 334). A board's slug
-is part of every topic path beneath it, and Wagtail's own auto-redirects only
-cover the Page ``url_path``, so a rename fans the same three steps over every
-live topic as a fixed number of bulk statements — ``redirect_board_topics``.
+renames** (``pre_save``/``post_save`` on ``Forum``, todo 334; boards stopped
+being Wagtail pages in todo 665, so ``page_slug_changed`` no longer fires for
+them). A board's slug is part of every topic path beneath it, so a rename fans
+the same three steps over every live topic as a fixed number of bulk
+statements — ``redirect_board_topics``.
 
 Reach, honestly stated: the web app resolves topic routes by the leading id
 and treats the slug as decorative, so an old link already renders there.
@@ -42,8 +43,7 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from wagtail.contrib.redirects import api as redirects_api
 from wagtail.contrib.redirects.models import Redirect
-from wagtail.signals import page_slug_changed
-from wagtail_forum.models import ForumBoard, Topic
+from wagtail_forum.models import Forum, Topic
 
 from .constants import REDIRECT_BULK_CREATE_BATCH_SIZE
 
@@ -184,17 +184,41 @@ def board_topic_prefix(board_id, slug):
     return f"/forum/{board_id}-{slug}/"
 
 
+# Stashed on a Forum between pre_save and post_save: its slug before the save.
+_OLD_BOARD_SLUG_ATTR = "_forum_redirect_old_board_slug"
+
+
 @receiver(
-    page_slug_changed,
-    sender=ForumBoard,
+    pre_save,
+    sender="wagtail_forum.Forum",
+    dispatch_uid="forum_host.redirects.board_pre_save",
+)
+def remember_old_board_slug(sender, instance, update_fields=None, raw=False, **kwargs):
+    setattr(instance, _OLD_BOARD_SLUG_ATTR, None)
+    if raw or instance.pk is None or instance.forum_type != Forum.FORUM:
+        return
+    if update_fields is not None and "slug" not in update_fields:
+        return
+    old_slug = sender.objects.filter(pk=instance.pk).values_list("slug", flat=True)
+    setattr(instance, _OLD_BOARD_SLUG_ATTR, old_slug.first())
+
+
+@receiver(
+    post_save,
+    sender="wagtail_forum.Forum",
     dispatch_uid="forum_host.redirects.board_slug_changed",
 )
-def redirect_board_topics_on_slug_change(sender, instance, instance_before, **kwargs):
-    # Wagtail sends this from transaction.on_commit with the SPECIFIC page
-    # instances, so the board's own save has already committed by now.
-    if not isinstance(instance, ForumBoard):
+def redirect_board_topics_on_slug_change(
+    sender, instance, created, raw=False, **kwargs
+):
+    old_slug = getattr(instance, _OLD_BOARD_SLUG_ATTR, None)
+    if raw or created or not old_slug or old_slug == instance.slug:
         return
-    redirect_board_topics(instance_before, instance)
+    board_before = Forum(pk=instance.pk, slug=old_slug)
+    # After the save commits, as the page-era ``page_slug_changed`` ran: a
+    # rolled-back rename writes nothing, and redirect_board_topics opens its
+    # own transaction.
+    transaction.on_commit(lambda: redirect_board_topics(board_before, instance))
 
 
 def redirect_board_topics(board_before, board):

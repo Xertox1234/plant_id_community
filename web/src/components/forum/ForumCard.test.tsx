@@ -1,23 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
-import CategoryCard from './CategoryCard';
-import { createMockCategory } from '../../tests/forumUtils';
+import ForumCard from './ForumCard';
+import { createMockForum } from '../../tests/forumUtils';
 
 /**
- * Helper to render CategoryCard with Router context
+ * Helper to render ForumCard with Router context
  */
 function renderCategoryCard(category) {
   return render(
     <BrowserRouter>
-      <CategoryCard category={category} />
+      <ForumCard forum={category} />
     </BrowserRouter>
   );
 }
 
-describe('CategoryCard', () => {
+describe('ForumCard', () => {
   it('renders category name and description', () => {
-    const category = createMockCategory({
+    const category = createMockForum({
       name: 'Plant Care Tips',
       description: 'Learn how to care for your plants',
     });
@@ -29,7 +29,7 @@ describe('CategoryCard', () => {
   });
 
   it('renders category icon when present', () => {
-    const category = createMockCategory({ icon: '🌱' });
+    const category = createMockForum({ icon: '🌱' });
 
     renderCategoryCard(category);
 
@@ -37,7 +37,7 @@ describe('CategoryCard', () => {
   });
 
   it('renders category stats (thread and post counts)', () => {
-    const category = createMockCategory({
+    const category = createMockForum({
       thread_count: 150,
       post_count: 1250,
     });
@@ -51,7 +51,7 @@ describe('CategoryCard', () => {
   });
 
   it('handles zero counts gracefully', () => {
-    const category = createMockCategory({
+    const category = createMockForum({
       thread_count: 0,
       post_count: 0,
     });
@@ -64,7 +64,7 @@ describe('CategoryCard', () => {
   });
 
   it('links to category page with hybrid id+slug', () => {
-    const category = createMockCategory({ id: 'cat-1', slug: 'plant-care' });
+    const category = createMockForum({ id: 'cat-1', slug: 'plant-care' });
 
     renderCategoryCard(category);
 
@@ -73,7 +73,7 @@ describe('CategoryCard', () => {
   });
 
   it('renders subcategories when present', () => {
-    const category = createMockCategory({
+    const category = createMockForum({
       children: [
         {
           id: 'sub-1',
@@ -102,7 +102,7 @@ describe('CategoryCard', () => {
   });
 
   it('does not render subcategories section when none exist', () => {
-    const category = createMockCategory({ children: [] });
+    const category = createMockForum({ children: [] });
 
     renderCategoryCard(category);
 
@@ -110,7 +110,7 @@ describe('CategoryCard', () => {
   });
 
   it('renders without description when not provided', () => {
-    const category = createMockCategory({ description: null });
+    const category = createMockForum({ description: null });
 
     renderCategoryCard(category);
 
@@ -120,7 +120,7 @@ describe('CategoryCard', () => {
 
   it('shows a last-activity timestamp when the board has activity (audit L2)', () => {
     const lastPost = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-    renderCategoryCard(createMockCategory({ last_post_at: lastPost }));
+    renderCategoryCard(createMockForum({ last_post_at: lastPost }));
 
     const time = screen.getByText(/hours ago/i);
     expect(time.tagName).toBe('TIME');
@@ -131,13 +131,13 @@ describe('CategoryCard', () => {
   });
 
   it('says so in words when a board has no activity yet', () => {
-    renderCategoryCard(createMockCategory({ last_post_at: null }));
+    renderCategoryCard(createMockForum({ last_post_at: null }));
 
     expect(screen.getByText('No activity yet')).toBeInTheDocument();
   });
 
   it('category name heading is rendered inside the clickable link', () => {
-    const category = createMockCategory({ name: 'Plant Care' });
+    const category = createMockForum({ name: 'Plant Care' });
     renderCategoryCard(category);
     const link = screen.getByRole('link', { name: /Plant Care/ });
     expect(within(link).getByRole('heading', { level: 3, name: 'Plant Care' })).toBeInTheDocument();

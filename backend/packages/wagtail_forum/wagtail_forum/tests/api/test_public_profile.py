@@ -3,24 +3,15 @@ from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    ForumProfile,
-    Post,
-    Topic,
-    TrustLevel,
-)
+from wagtail_forum.models import ForumProfile, Post, Topic, TrustLevel
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _board(slug="general"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug=slug))
+    return make_forum(name="General", slug=slug)
 
 
 @pytest.mark.django_db
@@ -129,10 +120,9 @@ def test_public_profile_hides_restricted_board_activity():
     # The other half of recent-activity visibility (besides live=False): content
     # on a board behind a Wagtail PageViewRestriction must not surface, since the
     # endpoint is public. Guards the `board__in=_visible_boards()` filter.
-    from wagtail.models import PageViewRestriction
 
     board = _board()
-    PageViewRestriction.objects.create(page=board, restriction_type="login")
+    hide_forum(board)
     ada = User.objects.create_user(username="ada")
     topic = Topic.objects.create(
         board=board, title="Secret", slug="secret", author=ada, live=True
@@ -199,7 +189,9 @@ def test_public_profile_query_count_is_bounded():
     # query; can_block is pure Python (no DB hit).
     # 4 -> 5 (todo 348): earned badges, ONE query joining award -> badge,
     # flat regardless of how many badges the member holds.
-    assert len(ctx.captured_queries) == 5
+    # 5 -> 4 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 4
 
 
 @pytest.mark.django_db

@@ -1,8 +1,8 @@
 import pytest
 from django.contrib.auth import get_user_model
-from wagtail.models import Page, PageViewRestriction
 from wagtail_forum.mentions import resolve_mentioned_users
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import Post, Topic
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 User = get_user_model()
 
@@ -14,11 +14,9 @@ def _topic_and_post(
     is_opening_post=False,
     restricted=False,
 ):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     if restricted:
-        PageViewRestriction.objects.create(page=board, restriction_type="login")
+        hide_forum(board)
     topic = Topic.objects.create(board=board, title="T", slug="t", author=topic_author)
     body = [{"type": "paragraph", "value": f"<p>{body_text}</p>"}] if body_text else []
     post = Post.objects.create(
@@ -136,9 +134,7 @@ def test_ignores_at_token_inside_code_block():
     stringification of a code block's value would otherwise expose this)."""
     author = User.objects.create_user(username="author11")
     User.objects.create_user(username="property")
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum11", slug="forum11"))
-    board = index.add_child(instance=ForumBoard(title="General11", slug="general11"))
+    board = make_forum(name="General11", slug="general11")
     topic = Topic.objects.create(board=board, title="T11", slug="t11", author=author)
     post = Post.objects.create(
         topic=topic,
@@ -185,9 +181,7 @@ def test_ignores_at_token_inside_link_attribute_but_resolves_link_label():
 def test_parses_title_for_opening_post():
     author = User.objects.create_user(username="author8")
     alice = User.objects.create_user(username="alice8")
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum8", slug="forum8"))
-    board = index.add_child(instance=ForumBoard(title="General8", slug="general8"))
+    board = make_forum(name="General8", slug="general8")
     topic = Topic.objects.create(
         board=board, title="Hello @alice8", slug="t8", author=author
     )
@@ -207,9 +201,7 @@ def test_reply_does_not_parse_topic_title():
     must not leak into a reply's mention resolution."""
     author = User.objects.create_user(username="author9")
     User.objects.create_user(username="alice9")
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum9", slug="forum9"))
-    board = index.add_child(instance=ForumBoard(title="General9", slug="general9"))
+    board = make_forum(name="General9", slug="general9")
     topic = Topic.objects.create(
         board=board, title="Hello @alice9", slug="t9", author=author
     )

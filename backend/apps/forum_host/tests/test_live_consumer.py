@@ -25,7 +25,7 @@ from django.test import RequestFactory, override_settings
 from plant_community_backend.asgi import application
 from rest_framework_simplejwt.tokens import AccessToken
 from wagtail.actions.unpublish import UnpublishAction
-from wagtail_forum.models import ForumBoard
+from wagtail_forum.models import Forum
 
 User = get_user_model()
 
@@ -153,7 +153,7 @@ def test_unpublished_topic_closes_4404():
 @pytest.mark.django_db
 def test_hidden_board_closes_4404():
     topic, _o, author = _thread("ws-hidden")
-    ForumBoard.objects.filter(pk=topic.board_id).update(live=False)
+    Forum.objects.filter(pk=topic.board_id).update(is_hidden=True)
     assert _open_once(topic.pk, author) == ("closed_after_accept", 4404)
 
 
@@ -437,7 +437,7 @@ def test_board_made_private_closes_4404_on_next_recheck(fast_recheck):
 
     topic, _o, author = _thread("ws-recheck-board")
     hide = database_sync_to_async(
-        lambda: ForumBoard.objects.filter(pk=topic.board_id).update(live=False)
+        lambda: Forum.objects.filter(pk=topic.board_id).update(is_hidden=True)
     )
 
     async def run():

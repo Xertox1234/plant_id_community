@@ -19,16 +19,9 @@ from apps.users.email_unsubscribe import LISTS, read_token
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.test import override_settings
-from wagtail.models import Page
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    ForumProfile,
-    Post,
-    Topic,
-    TopicSubscription,
-)
+from wagtail_forum.models import ForumProfile, Post, Topic, TopicSubscription
 from wagtail_forum.preferences import merge_preferences, wants_channel
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 TASKS = "apps.forum_host.tasks"
@@ -50,12 +43,7 @@ def _member(username, **cells):
 
 
 def _topic(prefix, author):
-    index = Page.objects.get(id=1).add_child(
-        instance=ForumIndex(title=f"{prefix} forum", slug=f"{prefix}-forum")
-    )
-    board = index.add_child(
-        instance=ForumBoard(title=f"{prefix} board", slug=f"{prefix}-board")
-    )
+    board = make_forum(name=f"{prefix} board", slug=f"{prefix}-board")
     topic = Topic.objects.create(
         board=board, title="Fungus gnats", slug=f"{prefix}-gnats", author=author
     )

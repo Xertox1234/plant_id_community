@@ -26,6 +26,7 @@ from .user_mutes import MyMutesView, UserMuteView
 from .user_search import UserMentionSearchView
 from .views import (
     BoardListView,
+    CategoryListView,
     EventHeroView,
     ExpertsView,
     MeProfileView,
@@ -49,6 +50,7 @@ app_name = "wagtail_forum_api"
 
 urlpatterns = [
     path("boards/", BoardListView.as_view(), name="board-list"),
+    path("categories/", CategoryListView.as_view(), name="category-list"),
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),
     path("topics/recent/", RecentTopicsView.as_view(), name="topics-recent"),
     # MUST come before topics/<int:topic_id>/ — literal-over-capture, same rule

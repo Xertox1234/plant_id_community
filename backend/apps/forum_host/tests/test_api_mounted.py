@@ -1,6 +1,7 @@
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
@@ -88,15 +89,10 @@ def test_embed_blocks_ship_through_the_host_mount_as_envelopes():
     so prove it through the REAL /api/v1/forum/ mount (docs/rules/forum.md)
     — and that the host's default has embeds ON."""
     from django.conf import settings
-    from wagtail.models import Page
-    from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+    from wagtail_forum.models import Post, Topic
 
     assert settings.WAGTAILFORUM_ALLOW_EMBED_BLOCKS is True
-    root = Page.objects.get(id=1)
-    index = root.add_child(
-        instance=ForumIndex(title="Forum", slug="forum-mounted-embed")
-    )
-    board = index.add_child(instance=ForumBoard(title="General", slug="mounted-embed"))
+    board = make_forum(name="General", slug="mounted-embed")
     author = User.objects.create_user(username="mounted-embed-author")
     topic = Topic.objects.create(
         board=board, title="V", slug="mounted-embed-t", live=True, author=author
@@ -161,21 +157,9 @@ def test_poll_vote_endpoint_is_mounted_and_throttled():
     test_block_endpoint_is_mounted_and_throttled. The 4-week-old commit this
     feature was cherry-picked from shipped without this — every sibling
     write endpoint added in the same window (block, DM) has it."""
-    from wagtail.models import Page
-    from wagtail_forum.models import (
-        ForumBoard,
-        ForumIndex,
-        Poll,
-        PollOption,
-        Post,
-        Topic,
-    )
+    from wagtail_forum.models import Poll, PollOption, Post, Topic
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(
-        instance=ForumIndex(title="Forum", slug="forum-mounted-poll")
-    )
-    board = index.add_child(instance=ForumBoard(title="General", slug="mounted-poll"))
+    board = make_forum(name="General", slug="mounted-poll")
     author = User.objects.create_user(username="mounted-poll-author")
     voter = User.objects.create_user(username="mounted-poll-voter")
     topic = Topic.objects.create(

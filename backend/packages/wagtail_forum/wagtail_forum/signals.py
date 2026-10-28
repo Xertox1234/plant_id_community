@@ -114,9 +114,9 @@ def _refresh_topic_counters(topic_id):
 
 
 def _refresh_board_counters(board_id):
-    from .models import ForumBoard, Post, Topic
+    from .models import Forum, Post, Topic
 
-    ForumBoard.objects.filter(pk=board_id).update(
+    Forum.objects.filter(pk=board_id).update(
         post_count=Coalesce(
             Subquery(
                 # topic__live too: posts of an unpublished (taken-down) topic

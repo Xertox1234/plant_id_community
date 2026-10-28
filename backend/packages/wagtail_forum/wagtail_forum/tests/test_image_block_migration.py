@@ -21,8 +21,9 @@ from django.apps import apps as global_apps
 from django.contrib.auth import get_user_model
 from wagtail.images import get_image_model
 from wagtail.images.tests.utils import get_test_image_file
-from wagtail.models import Page, Revision
+from wagtail.models import Revision
 from wagtail_forum.collections import get_forum_image_collection
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
@@ -90,12 +91,10 @@ def _bare_pk_count():
 
 @pytest.fixture
 def topic(db):
-    from wagtail_forum.models import ForumBoard, ForumIndex, Topic
+    from wagtail_forum.models import Topic
 
     author = User.objects.create_user(username="mig-author")
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     return author, Topic.objects.create(
         board=board, title="T", slug="t", author=author, live=True
     )

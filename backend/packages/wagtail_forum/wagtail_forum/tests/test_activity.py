@@ -7,16 +7,14 @@ from datetime import date
 import pytest
 from django.contrib.auth import get_user_model
 from freezegun import freeze_time
-from wagtail.models import Page
-from wagtail_forum.models import ForumActivityDate, ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import ForumActivityDate, Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
 
 def _topic(author, slug="t"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    board = index.add_child(instance=ForumBoard(title="General", slug=slug))
+    board = make_forum(name="General", slug=slug)
     return Topic.objects.create(board=board, title="T", slug=slug, author=author)
 
 

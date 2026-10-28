@@ -15,7 +15,7 @@ from ..conf import get_setting
 from ..embeds import embed_envelope
 from ..link_previews import link_preview_envelope
 from ..models import (
-    ForumBoard,
+    Forum,
     ForumProfile,
     Notification,
     PollVote,
@@ -307,9 +307,12 @@ class BoardSerializer(serializers.ModelSerializer):
     # per-board round-trip (todo 278 L2). Null for a board nobody has posted
     # in yet; the only caller is BoardListView, which always annotates it.
     last_post_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    # The page-era key, kept for the Flutter board list (todo 665): the model
+    # field is `name` now, but the response shape is a client contract.
+    title = serializers.CharField(source="name", read_only=True)
 
     class Meta:
-        model = ForumBoard
+        model = Forum
         fields = [
             "id",
             "title",
@@ -319,6 +322,33 @@ class BoardSerializer(serializers.ModelSerializer):
             "post_count",
             "last_post_at",
         ]
+
+
+class ForumCategorySerializer(serializers.Serializer):
+    """One category of ``GET /forum/categories/`` with its visible forums.
+
+    Not a ModelSerializer: the counts and ``last_post_at`` are not columns on
+    a category row — CategoryListView sums them from the forums it prefetched
+    (phpBB's read-time aggregation, spec 2026-10-28 §4), so a hidden forum
+    never leaks into a category's numbers.
+    """
+
+    id = serializers.IntegerField(read_only=True)
+    title = serializers.CharField(source="name", read_only=True)
+    slug = serializers.CharField(read_only=True)
+    description = serializers.CharField(read_only=True)
+    position = serializers.IntegerField(read_only=True)
+    topic_count = serializers.IntegerField(read_only=True)
+    post_count = serializers.IntegerField(read_only=True)
+    last_post_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    forums = BoardSerializer(many=True, read_only=True, source="visible_forums")
+
+
+class ForumCategoryListSerializer(serializers.Serializer):
+    """Schema-only envelope of ``GET /forum/categories/``: flat ``results``,
+    like the board list (see the README's ``## List envelopes``)."""
+
+    results = ForumCategorySerializer(many=True, read_only=True)
 
 
 class TopicListSerializer(serializers.ModelSerializer):

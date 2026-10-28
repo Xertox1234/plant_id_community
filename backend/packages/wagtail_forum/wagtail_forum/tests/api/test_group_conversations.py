@@ -359,15 +359,21 @@ def test_migration_0036_backfills_participants_with_read_markers():
 
     executor = MigrationExecutor(connection)
     executor.migrate([("wagtail_forum", "0036_group_conversations")])
-
-    conv = Conversation.objects.get(pk=old.pk)
-    assert conv.kind == ConversationKind.DIRECT
-    marks = dict(
-        ConversationParticipant.objects.filter(conversation=conv).values_list(
-            "user_id", "read_at"
+    try:
+        conv = Conversation.objects.get(pk=old.pk)
+        assert conv.kind == ConversationKind.DIRECT
+        marks = dict(
+            ConversationParticipant.objects.filter(conversation=conv).values_list(
+                "user_id", "read_at"
+            )
         )
-    )
-    assert marks == {a.pk: read, b.pk: None}
+        assert marks == {a.pk: read, b.pk: None}
+    finally:
+        # Never leave the test DB on an old schema: the teardown flush lists
+        # the CURRENT models' tables, and since todo 665 the 0036 schema has a
+        # `forumboard` table the current models do not (TRUNCATE then refuses).
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
 
 
 @pytest.mark.django_db

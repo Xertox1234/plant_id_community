@@ -163,8 +163,9 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   a moderator silences their official notices (todo 347 review, INFO).
 - **Host code that counts or lists a user's forum content applies the
   forum's OWN visibility**: posts `live=True, topic__live=True`, topics and
-  posts on `ForumBoard.objects.live().public()` boards (the package's
-  `_visible_boards()` / `_get_visible_post`). A reply stays `live=True` when a
+  posts on visible boards — call the package's `_visible_boards()` /
+  `_get_visible_post`, never a second copy of the rule (boards are `Forum`
+  rows since todo 665, hidden by `is_hidden`). A reply stays `live=True` when a
   moderator takes its TOPIC down, so filtering on the row's own `live` alone
   counts it and links it to a 404 (PR #821).
 - **A server-derived body block is re-derived on every write, never trusted

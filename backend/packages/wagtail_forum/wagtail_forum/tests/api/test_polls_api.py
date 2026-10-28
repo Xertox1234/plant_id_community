@@ -8,25 +8,15 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    Poll,
-    PollOption,
-    PollVote,
-    Post,
-    Topic,
-)
+from wagtail_forum.models import Poll, PollOption, PollVote, Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _board(slug="general"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    return index.add_child(instance=ForumBoard(title="General", slug=slug))
+    return make_forum(name="General", slug=slug)
 
 
 def _topic(slug="t", live=True, board=None, author=None):
@@ -784,7 +774,9 @@ def test_multi_choice_poll_costs_no_more_queries_than_single_choice():
     # unchanged_by_the_poll_field) + ONE options query that carries the
     # distinct-voter subquery. A regression that made the total a separate
     # query would move both counts together and pass the equality alone.
-    assert len(multi_ctx.captured_queries) == 5
+    # 5 -> 4 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(multi_ctx.captured_queries) == 4
 
 
 @pytest.mark.django_db
@@ -909,14 +901,17 @@ def test_a_poll_less_topic_detail_query_count_is_unchanged_by_the_poll_field():
     with CaptureQueriesContext(connection) as anon_ctx:
         anon = APIClient().get(f"/forum/topics/{topic.id}/")
     assert anon.data["poll"] is None
-    assert len(anon_ctx.captured_queries) == 4
+    # 4 -> 3 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(anon_ctx.captured_queries) == 3
 
     client = APIClient()
     client.force_authenticate(viewer)
     with CaptureQueriesContext(connection) as auth_ctx:
         auth = client.get(f"/forum/topics/{topic.id}/")
     assert auth.data["poll"] is None
-    assert len(auth_ctx.captured_queries) == 9
+    # 9 -> 8 (todo 665): the board-side PageViewRestriction query is gone.
+    assert len(auth_ctx.captured_queries) == 8
 
 
 @pytest.mark.django_db

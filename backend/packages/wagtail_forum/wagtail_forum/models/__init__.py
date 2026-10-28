@@ -1,6 +1,6 @@
 from .activity import ForumActivityDate
 from .badges import Badge, BadgeMetric, BadgeRule, UserBadge
-from .boards import ForumBoard, ForumIndex
+from .boards import Forum, ForumIndex
 from .bookmarks import TopicBookmark
 from .identifications import ForumIdentificationAttachment
 from .messages import Conversation, ConversationKind, ConversationParticipant, Message
@@ -27,7 +27,7 @@ __all__ = [
     "ConversationKind",
     "ConversationParticipant",
     "ForumActivityDate",
-    "ForumBoard",
+    "Forum",
     "ForumIdentificationAttachment",
     "ForumIndex",
     "ForumProfile",

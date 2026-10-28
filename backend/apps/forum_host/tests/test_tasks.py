@@ -10,8 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
+from wagtail_forum.models import ForumProfile, Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
@@ -362,11 +362,7 @@ def _make_reply(slug_prefix, author=None):
         username=f"{slug_prefix}-replier", email=f"{slug_prefix}-replier@example.com"
     )
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title=slug_prefix, slug=slug_prefix))
-    board = index.add_child(
-        instance=ForumBoard(title=f"{slug_prefix}-board", slug=f"{slug_prefix}-board")
-    )
+    board = make_forum(name=f"{slug_prefix}-board", slug=f"{slug_prefix}-board")
     topic = Topic.objects.create(
         board=board,
         title="How to care for succulents?",

@@ -4,17 +4,10 @@ content (Spec 2 Q2). Mirrors the PR-2a spike, now against the real helper."""
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import override_settings
-from wagtail.models import Page
 from wagtail_forum.blocks import ForumBodyBlock
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    ForumProfile,
-    Post,
-    Topic,
-    TrustLevel,
-)
+from wagtail_forum.models import ForumProfile, Post, Topic, TrustLevel
 from wagtail_forum.signals import moderation_decided
+from wagtail_forum.tests.factories import make_forum
 from wagtail_forum.workflow import (
     ensure_default_workflow,
     submit_edit_for_moderation,
@@ -26,9 +19,7 @@ pytestmark = pytest.mark.django_db
 
 
 def _board():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug="general"))
+    return make_forum(name="General", slug="general")
 
 
 def _author(username, trust):

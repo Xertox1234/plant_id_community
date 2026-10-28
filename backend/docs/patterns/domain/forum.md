@@ -48,8 +48,10 @@ The forum is a reusable, Wagtail-native package — no django-machina, no
 - **Idempotency** for write endpoints follows `api/idempotency.py` (hash the
   user key, scope by endpoint+user, replay the original status, `cache.add()` an
   in-flight sentinel → 409 on concurrent twins).
-- **Visibility**: filter page querysets with `.live().public()`; gate child-object
-  queries via the visible-board set (`PageViewRestriction` is not auto-enforced in
+- **Visibility**: gate every forum query through `_visible_boards()` (`Forum`
+  rows of type `forum`, not `is_hidden`, in a category that is not hidden —
+  todo 665). Boards are not pages any more; `.live().public()` still applies to
+  the `ForumIndex` page itself (`PageViewRestriction` is not auto-enforced in
   custom views/APIs).
 
 ## Moderation permission scope is global, deliberately (audit M19)
@@ -59,7 +61,7 @@ with `change_topic`/`change_post` etc. — there is no per-board moderator conce
 This is a **deliberate decision, not an oversight**:
 
 - `Topic`/`Post` are snippets, not Pages — Wagtail's `GroupPagePermission` (which
-  `ForumBoard`, itself a Page, could otherwise use) has no snippet analog. A
+  boards could use while they were Pages, before todo 665) has no snippet analog. A
   board-scoped check would mean a new group↔board mapping model consulted from
   every permission check site (`Post.edit_block`/`delete_block`,
   `_edit_is_trusted`'s `acting_as_moderator`, the bulk-unpublish action's
@@ -163,10 +165,10 @@ public identity + recent activity. Four load-bearing rules:
   `TopicListSerializer`.** The heavy serializers would recompute `reacted` for the
   *profile user* (meaningless — it's the viewer's state that matters) and re-trigger
   the body/author N+1s. Lightweight dicts keep the pin at ~4 (user+profile+avatar
-  join, the `.public()` restriction lookup, one topics query, one posts query — the
+  join, one topics query, one posts query — the
   `board__in=_visible_boards()` subqueries inline). Filter recent activity by
   `_visible_boards()` + `live=True` (+ `topic__live=True` for posts) and pin BOTH the
-  `live=False` and the restricted-board (PageViewRestriction) exclusions.
+  `live=False` and the hidden-board (`is_hidden`) exclusions.
 - **Single-source identity via `serialize_forum_author(user, request)`** then spread
   in bio/signature/post_count/joined_at — same absolute-URL avatar as posts.
 
@@ -681,7 +683,7 @@ the host (`apps/forum_host/`) does the Wagtail-contrib wiring behind them.
 |---|---|---|
 | `conf.register_override_provider(fn)` / `conf.MISSING` | `forum_settings.provide` reads the `ForumSettings` generic setting | `wagtail.contrib.settings` |
 | `SearchView.record_search(request, *, query, page)` (no-op) | `search_hits.record_query_hit` on page 1 | `wagtail.contrib.search_promotions` |
-| plain `pre_save`/`post_save` on `Topic`, `page_slug_changed` on `ForumBoard` | `redirects.py` writes/repairs `Redirect` rows (per topic, or in bulk for every live topic on a board rename); `RedirectsAPIViewSet` mounted at `/api/v2/redirects/` | `wagtail.contrib.redirects` |
+| plain `pre_save`/`post_save` on `Topic` and on `Forum` (board slug renames; `page_slug_changed` until todo 665) | `redirects.py` writes/repairs `Redirect` rows (per topic, or in bulk for every live topic on a board rename); `RedirectsAPIViewSet` mounted at `/api/v2/redirects/` | `wagtail.contrib.redirects` |
 | nothing — snippets are already indexed | `signals.py` (package) warns on deleting an image a live post shows | `ReferenceIndex` |
 
 ### Override provider: process memo + commit-rotated token
@@ -726,8 +728,9 @@ rows whose `redirect_link == old` to `new` (chain collapse); then
 matched (Postgres does not enforce `unique_together` on a NULL `site`). Gate
 on the topic's **new** `live` state so an auto-hidden topic whose slug a
 moderator fixes on the way back to published still redirects its once-public
-URL. A **board** slug rename (`page_slug_changed` on `ForumBoard`, sent from
-`transaction.on_commit`, so the handler opens its own `atomic()`) fans the same
+URL. A **board** slug rename (`pre_save`/`post_save` on `Forum` since todo 665,
+which defers the fan-out to `transaction.on_commit`, so the handler opens its
+own `atomic()`) fans the same
 three steps over every live topic as bulk statements — the query count is
 pinned equal at 3 and 1,000 topics (only the INSERT splits past
 `REDIRECT_BULK_CREATE_BATCH_SIZE`): `old_path__in` delete, one prefix

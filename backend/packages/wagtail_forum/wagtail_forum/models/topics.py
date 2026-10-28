@@ -20,8 +20,11 @@ class Topic(
     index.Indexed,
     models.Model,
 ):
+    # PROTECT, not CASCADE (todo 665): deleting a forum must never take its
+    # topics with it. The field keeps the name `board` from the page era so
+    # topic URLs, the API and every `board_id` reader are unchanged.
     board = models.ForeignKey(
-        "wagtail_forum.ForumBoard", on_delete=models.CASCADE, related_name="topics"
+        "wagtail_forum.Forum", on_delete=models.PROTECT, related_name="topics"
     )
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255)

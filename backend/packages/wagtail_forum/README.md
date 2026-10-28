@@ -11,7 +11,7 @@ The core imports nothing host-specific and uses `settings.AUTH_USER_MODEL`.
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Bootstrap: workflow and moderator group](#bootstrap-workflow-and-moderator-group)
-- [Creating the page tree](#creating-the-page-tree)
+- [Creating the forum structure](#creating-the-forum-structure)
 - [Previews](#previews)
 - [Mounting the API](#mounting-the-api)
 - [Settings](#settings)
@@ -131,24 +131,33 @@ def connect():
 Call `connect()` from your app config's `ready()`, and list your app **after**
 `wagtail_forum` in `INSTALLED_APPS` so the permission rows exist when it runs.
 
-## Creating the page tree
+## Creating the forum structure
 
-Boards live in the Wagtail page tree so a host can place the forum wherever it
-likes:
+One page places the forum on the site; the structure itself is plain data:
 
-- `ForumIndex` — the root forum node. Allowed child: `ForumBoard`.
-- `ForumBoard` — one board/category. No children.
+- `ForumIndex` — a Wagtail page, the forum's place in the page tree (welcome
+  copy, the landing-page event hero). No child pages.
+- `Forum` — a plain model (not a page) with a `forum_type` of `category`,
+  `forum` or `link` (todo 665). A category holds forums and links and never
+  topics; a forum holds topics; every forum and link has a category `parent`.
+  Depth is exactly two. `position` orders siblings. Forum and link slugs are
+  unique forum-wide (a partial constraint); category slugs only among
+  categories. `Topic.board` points at a `forum` row with `on_delete=PROTECT`.
 
-Create a `ForumIndex` under your site root in the Wagtail admin, then add
-`ForumBoard` children. Both render a minimal server-side fallback template so
-"View live", sitemaps, and crawlers do not 500; the DRF API is the intended UI.
-The two page templates extend a shared `wagtail_forum/base.html` skeleton that
-also renders `{% wagtailuserbar %}`, so an editor landing on "View live" has a
-route back to the admin. Hosts may override any of the three templates under
+Create a `ForumIndex` under your site root in the Wagtail admin, and the
+categories and forums as `Forum` rows (`manage.py seed_default_forum` in the
+reference host makes one of each). The index renders a minimal server-side
+fallback template so "View live", sitemaps, and crawlers do not 500; the DRF
+API is the intended UI. It extends a shared `wagtail_forum/base.html` skeleton
+that also renders `{% wagtailuserbar %}`, so an editor landing on "View live"
+has a route back to the admin. Hosts may override either template under
 `templates/wagtail_forum/`.
 
-Board visibility is enforced through Wagtail: a board with a `PageViewRestriction`
-(or any descendant of a restricted ancestor) is invisible to the entire API.
+Forum visibility is the interim `Forum.is_hidden` flag: a hidden forum, or any
+forum in a hidden category, is invisible to the entire API (per-forum
+permissions replace it in a later slice). Boards were Wagtail pages until
+migrations 0041–0044 copied each into a `Forum` row with the same id, so topic
+URLs survive.
 
 ## Previews
 
@@ -221,7 +230,7 @@ The package ships **no authentication and no throttling** by design — see
 The page types are deliberately **not** registered with Wagtail API v2 and
 declare no `api_fields`. The DRF API above is the sole content contract:
 `ForumIndex.intro` is delivered — expanded and nh3-sanitized — inside the
-board-list envelope, and `ForumBoard.description` inside each board object.
+board-list envelope, and `Forum.description` inside each board object.
 Declaring `api_fields` would open a second delivery path that serves rich text
 in raw DB form (v2 does not run `expand_db_html`) and bypasses the sanitizer.
 A host's generic `pages` endpoint still lists the forum pages with base `Page`
@@ -832,7 +841,8 @@ an LLM) can flatten a large body once and screen the same string twice.
 
 ## List envelopes
 
-The forum API ships **five** list-collection shapes. They are not converging:
+The forum API ships **five** list-collection shapes (`categories/` reuses the
+flat shape without `intro`). They are not converging:
 each one carries information the cursor envelope cannot express, and the audit
 that raised this (M40) asked for one documented contract *or* a documented
 divergence. This is the divergence, stated deliberately.
@@ -840,7 +850,8 @@ divergence. This is the divergence, stated deliberately.
 | Endpoint(s) | Envelope | Why not cursor |
 |---|---|---|
 | topic list, post list, notification list | `{results, next, previous}` (DRF `CursorPagination`) | — this is the default; use it for any new collection. |
-| `GET boards/` | `{results, intro}` — flat, no cursor | Boards are a handful of Wagtail pages rendered as one nav tree. `pagination_class = None`; a `next` that is always `null` would imply paging that does not exist. `intro` is the `ForumIndex` welcome copy (expanded + sanitized HTML, `""` when unset) — it belongs to the same screen as the boards and is always fetched with them, so it rides the envelope instead of costing a second round-trip. Media embeds and images are stripped *before* expansion, never after: expanding one would fire Wagtail's untimed oEmbed `requests.get` (or generate a rendition) on this public, CDN-fronted endpoint, and sanitizing only the output would discard the result while still paying for it. |
+| `GET categories/` | `{results}` — flat, no cursor | Categories in `position` order, each with its visible forums nested under `forums` (the `boards/` row shape). A category's `topic_count`, `post_count` and `last_post_at` are summed from those forums at read time; a category with no visible forum is omitted. Same reason as `boards/`: a handful of rows, never paged. |
+| `GET boards/` | `{results, intro}` — flat, no cursor | Boards (`forum_type="forum"` rows only — never categories or links) are a handful of rows rendered as one nav tree. `pagination_class = None`; a `next` that is always `null` would imply paging that does not exist. `intro` is the `ForumIndex` welcome copy (expanded + sanitized HTML, `""` when unset) — it belongs to the same screen as the boards and is always fetched with them, so it rides the envelope instead of costing a second round-trip. Media embeds and images are stripped *before* expansion, never after: expanding one would fire Wagtail's untimed oEmbed `requests.get` (or generate a rendition) on this public, CDN-fronted endpoint, and sanitizing only the output would discard the result while still paying for it. |
 | `GET search/` | `{topics, posts, topics_has_more, posts_has_more, page}` | **Two** independently-paged result sets in one response. A cursor envelope has one `results`; splitting search into two round-trips would double the query cost of every keystroke. Offset-paged (not keyset) because the ordering is relevance, which a concurrent write reshuffles — so `page` is echoed back and clients dedup by id when appending. |
 | `GET sync/` | `{topics, deleted, has_more, next_since, next_since_id}` | A delta poll, not a page. `deleted` carries tombstones (ids to evict) that no `results` list can represent, and the cursor is a compound `(updated_at, id)` the client persists across sessions — DRF's opaque cursor is per-response and not resumable days later. |
 | `GET topics/recent/`, `GET users/experts/` | `{results}` — bare, no cursor, no `intro` | Fixed-size landing-rail snapshots (`?limit=`/`RECENT_TOPICS_MAX_LIMIT`, `EXPERTS_LIMIT`), not incrementally paged — there is no `next` page to request, and neither carries a sibling field like `intro` to justify the flat envelope's extra key. |
@@ -1045,9 +1056,9 @@ Two deliberate omissions:
   adopting the mixin would add `locale`/`translation_key` fields and a
   `unique_together(translation_key, locale)` constraint interacting with the
   existing slug and opening-post constraints, plus migrations on live tables —
-  cost with no current consumer. Note that `ForumIndex`/`ForumBoard` are Wagtail
-  `Page` subclasses and therefore *already* carry `locale`/`translation_key`, so
-  board structure is translatable today. Revisit if a host adopts
+  cost with no current consumer. Note that `ForumIndex` is a Wagtail `Page`
+  subclass and therefore *already* carries `locale`/`translation_key`; `Forum`
+  rows (boards, since todo 665) do not. Revisit if a host adopts
   wagtail-localize and genuinely needs per-locale topic content.
 
 ## Development

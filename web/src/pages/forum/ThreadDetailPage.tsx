@@ -70,6 +70,7 @@ import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useTopicLive } from '../../hooks/useTopicLive';
+import { useForumCategory } from '../../hooks/useForumCategory';
 import {
   markMissingOutShown,
   mayShowMissingOut,
@@ -801,6 +802,8 @@ export default function ThreadDetailPage() {
   const [boardThreads, setBoardThreads] = useState<Thread[]>([]);
   const railVisible = useMediaQuery(RAIL_MEDIA_QUERY);
   const boardSlug = thread?.category?.slug;
+  // The board's own category, for the Category › Forum breadcrumb (todo 665).
+  const parentCategory = useForumCategory(thread?.category?.id);
   useEffect(() => {
     // Reset before fetching: navigating to a thread on another board (or a
     // fetch failure) must not leave the previous board's list in the rail.
@@ -1366,6 +1369,12 @@ export default function ThreadDetailPage() {
             </Link>
           </li>
           <li aria-hidden="true">/</li>
+          {parentCategory && (
+            <>
+              <li>{parentCategory.name}</li>
+              <li aria-hidden="true">/</li>
+            </>
+          )}
           <li>
             <Link to={`/forum/${categorySlug}`} viewTransition className="hover:text-primary">
               {thread.category.name}

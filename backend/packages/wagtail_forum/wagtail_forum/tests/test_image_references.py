@@ -13,8 +13,9 @@ import pytest
 from django.contrib.auth import get_user_model
 from wagtail.images import get_image_model
 from wagtail.images.tests.utils import get_test_image_file
-from wagtail.models import Page, ReferenceIndex
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail.models import ReferenceIndex
+from wagtail_forum.models import Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 LOGGER = "wagtail_forum"
@@ -30,9 +31,7 @@ def _image():
 
 def _post_showing(image, *, live=True):
     author = User.objects.create_user(username="author")
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     topic = Topic.objects.create(
         board=board, title="Seedling help", slug="seedling-help", author=author
     )

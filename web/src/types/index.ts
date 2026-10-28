@@ -13,6 +13,7 @@ export type { User, LoginCredentials, SignupData, AuthResponse } from './auth';
 
 // Forum types
 export type {
+  Forum,
   Category,
   Thread,
   Post,

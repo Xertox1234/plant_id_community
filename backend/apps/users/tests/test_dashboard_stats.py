@@ -10,8 +10,8 @@ from apps.plant_identification.models import PlantIdentificationRequest
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
@@ -25,11 +25,7 @@ class DashboardStatsForumTests(TestCase):
         self.client = APIClient()
         self.user = User.objects.create_user(username="ada", password="TestPass123!")
         # Build the wagtail_forum page tree: root -> ForumIndex -> ForumBoard
-        root = Page.objects.get(id=1)
-        index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-        self.board = index.add_child(
-            instance=ForumBoard(title="General", slug="general")
-        )
+        self.board = make_forum(name="General", slug="general")
 
     def _topic(self, slug, *, live):
         return Topic.objects.create(
@@ -168,10 +164,7 @@ class DashboardStatsForumTests(TestCase):
         self.assertEqual(resp.data["recent_activity"], [])
 
     def test_content_on_an_unpublished_board_is_hidden(self):
-        hidden = self.board.get_parent().add_child(
-            instance=ForumBoard(title="Staff", slug="staff")
-        )
-        hidden.unpublish()
+        hidden = make_forum(name="Staff", slug="staff", is_hidden=True)
         topic = Topic.objects.create(
             board=hidden, title="Secret", slug="secret", author=self.user, live=True
         )
@@ -240,9 +233,10 @@ class DashboardStatsForumTests(TestCase):
             )
 
         self.client.force_authenticate(user=self.user)
-        # Five: the view-restriction lookup behind .public() (PR #821), two
-        # aggregates, two select_related lists.
-        with self.assertNumQueries(5):
+        # Four: two aggregates, two select_related lists. (Five until todo
+        # 665: boards were pages, filtered with .public(), which cost a
+        # view-restriction lookup — PR #821.)
+        with self.assertNumQueries(4):
             resp = self.client.get(DASHBOARD_URL)
 
         self.assertEqual(resp.status_code, 200)

@@ -1,8 +1,9 @@
 import pytest
 from django.contrib.auth.models import Group
-from wagtail.models import GroupCollectionPermission, Page, Workflow
+from wagtail.models import GroupCollectionPermission, Workflow
 from wagtail_forum.collections import get_forum_image_collection
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import Post, Topic
+from wagtail_forum.tests.factories import make_forum
 from wagtail_forum.workflow import DEFAULT_WORKFLOW_NAME
 
 
@@ -60,9 +61,7 @@ def test_moderator_group_can_view_and_change_reports():
 
 @pytest.mark.django_db
 def test_post_resolves_the_default_workflow():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     topic = Topic.objects.create(board=board, title="T", slug="t")
     post = Post.objects.create(topic=topic, is_opening_post=True)
 

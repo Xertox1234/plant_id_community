@@ -33,6 +33,7 @@ from wagtail_forum.api.user_mutes import MyMutesView
 # a throttled write handler come from the host wrappers in .api.
 from wagtail_forum.api.views import (
     BoardListView,
+    CategoryListView,
     EventHeroView,
     ExpertsView,
     MeStatsView,
@@ -100,6 +101,8 @@ urlpatterns = [
         name="care-answer-report",
     ),
     path("boards/", BoardListView.as_view(), name="board-list"),
+    # GET-only + AllowAny, like the board list it groups (todo 665).
+    path("categories/", CategoryListView.as_view(), name="category-list"),
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),
     # GET-only + AllowAny, mounted straight from the package (no throttle
     # wrapper) — same treatment as BoardListView above. Before

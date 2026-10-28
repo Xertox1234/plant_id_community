@@ -4,6 +4,9 @@ from pathlib import Path
 from apps.forum_host.management.commands.seed_default_forum import (
     DEFAULT_BOARD_SLUG as LEGACY_STARTER_SLUG,
 )
+from apps.forum_host.management.commands.seed_default_forum import (
+    ensure_default_category,
+)
 from apps.forum_host.seed_content import (
     BOARDS,
     TOPICS,
@@ -20,9 +23,8 @@ from wagtail.images import get_image_model
 from wagtail.rich_text import RichText
 from wagtail_forum.collections import get_forum_image_collection
 from wagtail_forum.models import (
-    ForumBoard,
+    Forum,
     ForumIdentificationAttachment,
-    ForumIndex,
     Post,
     Reaction,
     Topic,
@@ -71,10 +73,9 @@ class Command(BaseCommand):
 
         # Prerequisites: ForumIndex + image collection (idempotent, tested).
         call_command("seed_default_forum")
-        index = ForumIndex.objects.first()
 
         users = self._seed_users()
-        boards = self._seed_boards(index)
+        boards = self._seed_boards()
         self._remove_empty_starter_board()
         created = [spec for spec in TOPICS if self._seed_topic(spec, boards, users)]
         self.stdout.write(
@@ -113,25 +114,30 @@ class Command(BaseCommand):
 
     # -- boards --------------------------------------------------------------
 
-    def _seed_boards(self, index):
+    def _seed_boards(self):
         boards = {}
-        for spec in BOARDS:
-            board = ForumBoard.objects.filter(slug=spec["slug"]).first()
+        category = ensure_default_category()
+        for position, spec in enumerate(BOARDS):
+            board = Forum.objects.filter(
+                forum_type=Forum.FORUM, slug=spec["slug"]
+            ).first()
             if board is None:
-                board = index.add_child(
-                    instance=ForumBoard(
-                        title=spec["title"],
-                        slug=spec["slug"],
-                        description=spec["description"],
-                    )
+                board = Forum.objects.create(
+                    forum_type=Forum.FORUM,
+                    parent=category,
+                    position=position,
+                    name=spec["title"],
+                    slug=spec["slug"],
+                    description=spec["description"],
                 )
-                board.save_revision().publish()
                 self.stdout.write(f"Created board {spec['slug']}.")
             boards[spec["slug"]] = board
         return boards
 
     def _remove_empty_starter_board(self):
-        starter = ForumBoard.objects.filter(slug=LEGACY_STARTER_SLUG).first()
+        starter = Forum.objects.filter(
+            forum_type=Forum.FORUM, slug=LEGACY_STARTER_SLUG
+        ).first()
         if starter is None:
             return
         if starter.topics.exists():

@@ -12,18 +12,16 @@ from django.contrib.auth.models import Permission
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
-from wagtail.models import Page
 from wagtail_forum.api.serializers import build_forum_image_map, serialize_forum_body
-from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
+from wagtail_forum.models import Forum, ForumProfile, Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _board(slug):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    return index.add_child(instance=ForumBoard(title="General", slug=slug))
+    return make_forum(name="General", slug=slug)
 
 
 def _moderator(username):
@@ -425,7 +423,7 @@ def test_revision_endpoints_inherit_the_board_visibility_guard():
     author = User.objects.create_user(username="rev-hidden")
     post = _post_with_history("rev-p", author)
     revision = post.revisions.first()
-    ForumBoard.objects.filter(pk=post.topic.board_id).update(live=False)
+    Forum.objects.filter(pk=post.topic.board_id).update(is_hidden=True)
 
     client = APIClient()
     client.force_authenticate(author)

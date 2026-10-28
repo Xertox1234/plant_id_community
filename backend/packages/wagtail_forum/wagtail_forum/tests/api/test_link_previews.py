@@ -14,8 +14,8 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, TrustLevel
+from wagtail_forum.models import ForumProfile, Post, TrustLevel
+from wagtail_forum.tests.factories import make_forum
 
 from ..test_embeds import YOUTUBE_VIMEO_FINDERS
 
@@ -88,9 +88,7 @@ def reset_calls():
 
 
 def _board(slug="general"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    return index.add_child(instance=ForumBoard(title="General", slug=slug))
+    return make_forum(name="General", slug=slug)
 
 
 def _member(username="author"):

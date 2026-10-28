@@ -4,17 +4,10 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from rest_framework.test import APIClient
-from wagtail.models import Page
 from wagtail_forum.api.views import PostWriteView
 from wagtail_forum.blocks import ForumBodyBlock
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    ForumProfile,
-    Post,
-    Topic,
-    TrustLevel,
-)
+from wagtail_forum.models import Forum, ForumProfile, Post, Topic, TrustLevel
+from wagtail_forum.tests.factories import make_forum
 from wagtail_forum.workflow import ensure_default_workflow, submit_for_moderation
 
 User = get_user_model()
@@ -33,9 +26,7 @@ def clear_idempotency_cache():
 
 
 def _board():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug="general"))
+    return make_forum(name="General", slug="general")
 
 
 def _member(username):
@@ -242,7 +233,7 @@ def test_delete_on_hidden_board_is_404():
     board = _board()
     author = _member("ada")
     _topic, _opening, reply = _topic_with_reply(board, author)
-    ForumBoard.objects.filter(id=board.id).update(live=False)  # board now hidden
+    Forum.objects.filter(id=board.id).update(is_hidden=True)  # board now hidden
     client = APIClient()
     client.force_authenticate(author)
     resp = client.delete(f"/forum/posts/{reply.id}/")
@@ -595,7 +586,9 @@ def test_delete_query_count_is_pinned():
     # 34 -> 35 (todo 301): the presence touch — one UPDATE on the caller's own
     # ForumProfile, throttled to once per ~5 min, paid by every authenticated
     # forum request (api/presence.py).
-    assert len(ctx.captured_queries) == 35, len(ctx.captured_queries)
+    # 35 -> 34 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 34, len(ctx.captured_queries)
 
 
 def test_edit_query_count_is_pinned():
@@ -644,7 +637,9 @@ def test_edit_query_count_is_pinned():
     # 73 -> 74 (todo 347): the mute flag has the same single-object fallback
     # as the block flag above — PostSerializer.get_is_muted pays ONE
     # UserMute.exists() when no author_is_muted annotation is present.
-    assert len(ctx.captured_queries) == 74, len(ctx.captured_queries)
+    # 74 -> 73 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 73, len(ctx.captured_queries)
 
 
 def test_patch_retry_with_idempotency_key_writes_one_revision():
