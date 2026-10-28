@@ -14,11 +14,10 @@ from django.core import mail
 from django.core.management import call_command
 from django.test import override_settings
 from django.utils import timezone
-from wagtail.models import Page, PageViewRestriction
+from wagtail.models import Page
 from wagtail_forum.digest import build_digest, is_due, render_digest, since_for
 from wagtail_forum.models import (
     DigestFrequency,
-    ForumBoard,
     ForumIndex,
     ForumProfile,
     Notification,
@@ -27,6 +26,7 @@ from wagtail_forum.models import (
     TopicRead,
     UserBlock,
 )
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 User = get_user_model()
 
@@ -108,11 +108,11 @@ def _index():
 
 
 def _board(index, slug, *, live=True, restricted=False):
-    board = index.add_child(instance=ForumBoard(title=slug.title(), slug=slug))
+    board = make_forum(name=slug.title(), slug=slug)
     if not live:
-        board.unpublish()
+        hide_forum(board)
     if restricted:
-        PageViewRestriction.objects.create(page=board, restriction_type="login")
+        hide_forum(board)
     return board
 
 
@@ -557,7 +557,9 @@ def test_build_digest_query_count_is_pinned():
     assert len(digest.watched) == 3 and len(digest.trending) == 3
     # Flat in the number of topics: blocked ids (blocker/blocked), followed
     # ids, grouped watched, watched topics, trending.
-    assert len(ctx.captured_queries) == 7
+    # 7 -> 6 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 6
 
 
 @pytest.mark.django_db

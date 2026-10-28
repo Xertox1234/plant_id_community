@@ -42,8 +42,8 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
@@ -123,10 +123,7 @@ def summary(out, candidates, kept, deleted, verb="deleted"):
 
 @pytest.fixture
 def board(db):
-    index = Page.objects.get(id=1).add_child(
-        instance=ForumIndex(title="Forum", slug="forum")
-    )
-    return index.add_child(instance=ForumBoard(title="General", slug="general"))
+    return make_forum(name="General", slug="general")
 
 
 # --- the real thing ----------------------------------------------------------

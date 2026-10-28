@@ -1,17 +1,15 @@
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
-from wagtail.models import Page, PageViewRestriction
-from wagtail_forum.models import ForumBoard, ForumIndex, Topic, TopicSubscription
+from wagtail_forum.models import Topic, TopicSubscription
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _board(slug="general"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    return index.add_child(instance=ForumBoard(title="General", slug=slug))
+    return make_forum(name="General", slug=slug)
 
 
 def _topic(slug="t", live=True, board=None):
@@ -105,7 +103,7 @@ def test_unsubscribe_succeeds_when_board_is_restricted():
     board = _board("sub-b11")
     topic = _topic("sub-t11", board=board)
     TopicSubscription.subscribe(user, topic)
-    PageViewRestriction.objects.create(page=board, restriction_type="login")
+    hide_forum(board)
 
     client = APIClient()
     client.force_authenticate(user)
@@ -164,7 +162,7 @@ def test_subscribe_to_restricted_board_topic_404s():
     user = User.objects.create_user(username="sub8")
     board = _board("sub-b8")
     topic = _topic("sub-t8", board=board)
-    PageViewRestriction.objects.create(page=board, restriction_type="login")
+    hide_forum(board)
 
     client = APIClient()
     client.force_authenticate(user)

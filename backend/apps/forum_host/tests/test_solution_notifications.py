@@ -20,24 +20,15 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    Notification,
-    NotificationVerb,
-    Post,
-    Topic,
-)
+from wagtail_forum.models import Notification, NotificationVerb, Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
 
 def _thread(slug):
     """A live topic (asker) with an opening post and one live reply (answerer)."""
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    board = index.add_child(instance=ForumBoard(title="General", slug=slug))
+    board = make_forum(name="General", slug=slug)
     asker = User.objects.create_user(username=f"asker-{slug}")
     answerer = User.objects.create_user(username=f"answerer-{slug}")
     topic = Topic.objects.create(

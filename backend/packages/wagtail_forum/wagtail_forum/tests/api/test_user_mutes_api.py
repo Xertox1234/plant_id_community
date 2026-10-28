@@ -15,10 +15,7 @@ from django.contrib.auth.models import Permission
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
-from wagtail.models import Page
 from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
     ForumProfile,
     Message,
     NotificationVerb,
@@ -27,15 +24,14 @@ from wagtail_forum.models import (
     UserMute,
 )
 from wagtail_forum.notifications import create_notifications
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _board(slug="general"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    return index.add_child(instance=ForumBoard(title="General", slug=slug))
+    return make_forum(name="General", slug=slug)
 
 
 def _topic(board, author, slug, title="Monstera propagation tips"):

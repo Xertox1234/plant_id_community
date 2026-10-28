@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import * as ReactRouter from 'react-router-dom';
 import ThreadListPage from './ThreadListPage';
-import { createMockCategory, createMockThread } from '../../tests/forumUtils';
+import { createMockCategory, createMockForum, createMockThread } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
 import * as blogService from '../../services/blogService';
 
@@ -54,7 +54,7 @@ describe('ThreadListPage', () => {
   });
 
   it('shows loading spinner while fetching data', () => {
-    vi.spyOn(forumService, 'fetchCategory').mockImplementation(() => new Promise(() => {}));
+    vi.spyOn(forumService, 'fetchForum').mockImplementation(() => new Promise(() => {}));
     vi.spyOn(forumService, 'fetchThreads').mockImplementation(() => new Promise(() => {}));
 
     renderThreadListPage();
@@ -63,7 +63,7 @@ describe('ThreadListPage', () => {
   });
 
   it('fetches category then threads by board slug on mount', async () => {
-    const mockCategory = createMockCategory({
+    const mockCategory = createMockForum({
       slug: 'plant-care',
       name: 'Plant Care',
     });
@@ -72,9 +72,7 @@ describe('ThreadListPage', () => {
       meta: { count: 1, next: null, previous: null },
     };
 
-    const fetchCategorySpy = vi
-      .spyOn(forumService, 'fetchCategory')
-      .mockResolvedValue(mockCategory);
+    const fetchCategorySpy = vi.spyOn(forumService, 'fetchForum').mockResolvedValue(mockCategory);
     const fetchThreadsSpy = vi.spyOn(forumService, 'fetchThreads').mockResolvedValue(mockThreads);
 
     renderThreadListPage();
@@ -89,14 +87,14 @@ describe('ThreadListPage', () => {
   });
 
   it('displays category name and description', async () => {
-    const mockCategory = createMockCategory({
+    const mockCategory = createMockForum({
       slug: 'plant-care',
       name: 'Plant Care Tips',
       description: 'Learn how to care for your plants',
       icon: '🌱',
     });
 
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(mockCategory);
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: [],
       meta: { count: 0 },
@@ -117,10 +115,10 @@ describe('ThreadListPage', () => {
   });
 
   it("drops board A's header while board B loads instead of showing it over B's skeleton", async () => {
-    const boardA = createMockCategory({ id: 'cat-3', slug: 'plant-care', name: 'Plant Care' });
-    const boardB = createMockCategory({ id: 'cat-4', slug: 'pests', name: 'Pests' });
-    let resolveB: (value: ReturnType<typeof createMockCategory>) => void = () => {};
-    vi.spyOn(forumService, 'fetchCategory').mockImplementation((id) =>
+    const boardA = createMockForum({ id: 'cat-3', slug: 'plant-care', name: 'Plant Care' });
+    const boardB = createMockForum({ id: 'cat-4', slug: 'pests', name: 'Pests' });
+    let resolveB: (value: ReturnType<typeof createMockForum>) => void = () => {};
+    vi.spyOn(forumService, 'fetchForum').mockImplementation((id) =>
       id === 3
         ? Promise.resolve(boardA)
         : new Promise((resolve) => {
@@ -152,9 +150,9 @@ describe('ThreadListPage', () => {
   });
 
   it('restores the cached board header when navigating back before the new board resolves', async () => {
-    const boardA = createMockCategory({ id: 'cat-3', slug: 'plant-care', name: 'Plant Care' });
+    const boardA = createMockForum({ id: 'cat-3', slug: 'plant-care', name: 'Plant Care' });
     const fetchCategorySpy = vi
-      .spyOn(forumService, 'fetchCategory')
+      .spyOn(forumService, 'fetchForum')
       .mockImplementation((id) => (id === 3 ? Promise.resolve(boardA) : new Promise(() => {})));
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({ items: [], meta: { count: 0 } });
 
@@ -187,8 +185,8 @@ describe('ThreadListPage', () => {
   });
 
   it('shows the error state, not an empty board, when the category loads but the threads fetch fails', async () => {
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
-      createMockCategory({ slug: 'plant-care', name: 'Plant Care' })
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(
+      createMockForum({ slug: 'plant-care', name: 'Plant Care' })
     );
     vi.spyOn(forumService, 'fetchThreads').mockRejectedValue(new Error('Server error'));
 
@@ -202,7 +200,7 @@ describe('ThreadListPage', () => {
   });
 
   it('renders threads when API call succeeds', async () => {
-    const mockCategory = createMockCategory({ slug: 'plant-care' });
+    const mockCategory = createMockForum({ slug: 'plant-care' });
     const mockThreads = {
       items: [
         createMockThread({
@@ -219,7 +217,7 @@ describe('ThreadListPage', () => {
       meta: { count: 2, next: null, previous: null },
     };
 
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(mockCategory);
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue(mockThreads);
 
     renderThreadListPage();
@@ -234,7 +232,7 @@ describe('ThreadListPage', () => {
   it('displays error message when category fetch fails', async () => {
     const errorMessage = 'Category not found';
 
-    vi.spyOn(forumService, 'fetchCategory').mockRejectedValue(new Error(errorMessage));
+    vi.spyOn(forumService, 'fetchForum').mockRejectedValue(new Error(errorMessage));
     vi.spyOn(forumService, 'fetchThreads').mockRejectedValue(new Error(errorMessage));
 
     renderThreadListPage();
@@ -247,9 +245,9 @@ describe('ThreadListPage', () => {
   });
 
   it('shows empty state when no threads exist', async () => {
-    const mockCategory = createMockCategory({ slug: 'plant-care' });
+    const mockCategory = createMockForum({ slug: 'plant-care' });
 
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(mockCategory);
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: [],
       meta: { count: 0 },
@@ -265,12 +263,12 @@ describe('ThreadListPage', () => {
   });
 
   it('renders breadcrumb navigation with Forum link', async () => {
-    const mockCategory = createMockCategory({
+    const mockCategory = createMockForum({
       slug: 'plant-care',
       name: 'Plant Care',
     });
 
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(mockCategory);
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: [],
       meta: { count: 0 },
@@ -292,9 +290,9 @@ describe('ThreadListPage', () => {
   // dedicated /forum/search page, pre-filtered to this board. That is the honest
   // behavior (the board topics endpoint has no full-text filter); assert the redirect.
   it('search submit redirects to /forum/search pre-filtered to this board', async () => {
-    const mockCategory = createMockCategory({ slug: 'plant-care' });
+    const mockCategory = createMockForum({ slug: 'plant-care' });
 
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(mockCategory);
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: [],
       meta: { count: 0 },
@@ -315,9 +313,9 @@ describe('ThreadListPage', () => {
   });
 
   it('re-fetches threads with the new sort when a sort chip is clicked', async () => {
-    const mockCategory = createMockCategory({ slug: 'plant-care' });
+    const mockCategory = createMockForum({ slug: 'plant-care' });
 
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(mockCategory);
     const fetchThreadsSpy = vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: [],
       meta: { count: 0 },
@@ -351,9 +349,9 @@ describe('ThreadListPage', () => {
   });
 
   it('shows Load More button when meta.next is present', async () => {
-    const mockCategory = createMockCategory({ slug: 'plant-care' });
+    const mockCategory = createMockForum({ slug: 'plant-care' });
 
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(mockCategory);
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: Array.from({ length: 20 }, (_, i) => createMockThread({ id: `thread-${i}` })),
       meta: { count: 0, next: 'http://api/next-cursor', previous: null },
@@ -367,9 +365,9 @@ describe('ThreadListPage', () => {
   });
 
   it('shows an honest remaining count on Load More when the board total is known (M30)', async () => {
-    const mockCategory = createMockCategory({ slug: 'plant-care', thread_count: 25 });
+    const mockCategory = createMockForum({ slug: 'plant-care', thread_count: 25 });
 
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(mockCategory);
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: Array.from({ length: 20 }, (_, i) => createMockThread({ id: `thread-${i}` })),
       meta: { count: 0, next: 'http://api/next-cursor', previous: null },
@@ -382,10 +380,10 @@ describe('ThreadListPage', () => {
   });
 
   it('calls fetchThreads with cursor when Load More is clicked', async () => {
-    const mockCategory = createMockCategory({ slug: 'plant-care' });
+    const mockCategory = createMockForum({ slug: 'plant-care' });
     const nextCursorUrl = 'http://api/next-cursor';
 
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(mockCategory);
     const fetchThreadsSpy = vi
       .spyOn(forumService, 'fetchThreads')
       .mockResolvedValueOnce({
@@ -414,9 +412,9 @@ describe('ThreadListPage', () => {
   });
 
   it('hides Load More button when meta.next is null', async () => {
-    const mockCategory = createMockCategory({ slug: 'plant-care' });
+    const mockCategory = createMockForum({ slug: 'plant-care' });
 
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(mockCategory);
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: Array.from({ length: 20 }, (_, i) => createMockThread({ id: `thread-${i}` })),
       meta: { count: 0, next: null, previous: null },
@@ -430,9 +428,9 @@ describe('ThreadListPage', () => {
   });
 
   it('renders New Thread button with correct link', async () => {
-    const mockCategory = createMockCategory({ slug: 'plant-care' });
+    const mockCategory = createMockForum({ slug: 'plant-care' });
 
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(mockCategory);
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: [],
       meta: { count: 0 },
@@ -450,9 +448,9 @@ describe('ThreadListPage', () => {
   });
 
   it('hides pagination when only one page exists', async () => {
-    const mockCategory = createMockCategory({ slug: 'plant-care' });
+    const mockCategory = createMockForum({ slug: 'plant-care' });
 
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(mockCategory);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(mockCategory);
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: [createMockThread()],
       meta: { count: 1 },
@@ -470,8 +468,8 @@ describe('ThreadListPage', () => {
 
   describe('tag filter (audit M5)', () => {
     it('passes ?tag= from the URL through to the backend query', async () => {
-      vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
-        createMockCategory({ slug: 'plant-care', name: 'Plant Care' })
+      vi.spyOn(forumService, 'fetchForum').mockResolvedValue(
+        createMockForum({ slug: 'plant-care', name: 'Plant Care' })
       );
       const fetchThreadsSpy = vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
         items: [createMockThread({ id: '1', title: 'Tagged Thread', tags: ['monstera'] })],
@@ -490,8 +488,8 @@ describe('ThreadListPage', () => {
     });
 
     it('shows the active filter and a clear control while filtering', async () => {
-      vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
-        createMockCategory({ slug: 'plant-care', name: 'Plant Care' })
+      vi.spyOn(forumService, 'fetchForum').mockResolvedValue(
+        createMockForum({ slug: 'plant-care', name: 'Plant Care' })
       );
       vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
         items: [createMockThread({ id: '1', title: 'Tagged Thread', tags: ['monstera'] })],
@@ -505,8 +503,8 @@ describe('ThreadListPage', () => {
     });
 
     it('re-queries with the tag when a tag chip is clicked', async () => {
-      vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
-        createMockCategory({ slug: 'plant-care', name: 'Plant Care' })
+      vi.spyOn(forumService, 'fetchForum').mockResolvedValue(
+        createMockForum({ slug: 'plant-care', name: 'Plant Care' })
       );
       const fetchThreadsSpy = vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
         items: [createMockThread({ id: '1', title: 'Tagged Thread', tags: ['monstera'] })],
@@ -526,8 +524,8 @@ describe('ThreadListPage', () => {
     });
 
     it('explains an empty result as a filter miss, not an empty board', async () => {
-      vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
-        createMockCategory({ slug: 'plant-care', name: 'Plant Care' })
+      vi.spyOn(forumService, 'fetchForum').mockResolvedValue(
+        createMockForum({ slug: 'plant-care', name: 'Plant Care' })
       );
       vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
         items: [],
@@ -547,8 +545,8 @@ describe('ThreadListPage', () => {
     // new cursor with a stale one — and the loadGen guard cannot catch it,
     // because handleLoadMore reads loadGenRef at CLICK time, by which point the
     // reload has already bumped it to the same value.
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
-      createMockCategory({ slug: 'plant-care', name: 'Plant Care' })
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(
+      createMockForum({ slug: 'plant-care', name: 'Plant Care' })
     );
     vi.spyOn(forumService, 'fetchThreads')
       .mockResolvedValueOnce({
@@ -575,8 +573,8 @@ describe('ThreadListPage', () => {
     // category.thread_count is the board's UNFILTERED total, so subtracting the
     // filtered page length invents a number ("380 remaining" for a 25-result
     // filter) — the exact dishonest-count class audit M30 removed.
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
-      createMockCategory({ slug: 'plant-care', name: 'Plant Care', thread_count: 400 })
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(
+      createMockForum({ slug: 'plant-care', name: 'Plant Care', thread_count: 400 })
     );
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: [createMockThread({ id: '1', title: 'Tagged Thread', tags: ['monstera'] })],
@@ -591,8 +589,8 @@ describe('ThreadListPage', () => {
   });
 
   it('still shows the honest remaining-count when no tag filter is active', async () => {
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue(
-      createMockCategory({ slug: 'plant-care', name: 'Plant Care', thread_count: 400 })
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(
+      createMockForum({ slug: 'plant-care', name: 'Plant Care', thread_count: 400 })
     );
     vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
       items: [createMockThread({ id: '1', title: 'A Thread' })],
@@ -603,5 +601,35 @@ describe('ThreadListPage', () => {
 
     const button = await screen.findByRole('button', { name: /load more/i });
     expect(button).toHaveTextContent('399 remaining');
+  });
+
+  it('shows the Category › Forum breadcrumb once the category resolves (todo 665)', async () => {
+    const forum = createMockForum({ id: '3', slug: 'plant-care', name: 'Plant Care' });
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(forum);
+    vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({ items: [], meta: { count: 0 } });
+    vi.mocked(forumService.fetchForumCategory).mockResolvedValue(
+      createMockCategory({ id: '1', name: 'Indoor plants', forums: [forum] })
+    );
+
+    renderThreadListPage();
+
+    const crumbs = await screen.findByRole('navigation', { name: 'Breadcrumb' });
+    await waitFor(() =>
+      expect(crumbs.textContent?.replace(/\s+/g, '')).toBe('Forum/Indoorplants/PlantCare')
+    );
+    expect(forumService.fetchForumCategory).toHaveBeenCalledWith('3');
+  });
+
+  it('keeps the two-level breadcrumb when the category cannot be told', async () => {
+    const forum = createMockForum({ id: '3', slug: 'plant-care', name: 'Plant Care' });
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue(forum);
+    vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({ items: [], meta: { count: 0 } });
+    vi.mocked(forumService.fetchForumCategory).mockResolvedValue(null);
+
+    renderThreadListPage();
+
+    const crumbs = await screen.findByRole('navigation', { name: 'Breadcrumb' });
+    await waitFor(() => expect(forumService.fetchForumCategory).toHaveBeenCalledWith('3'));
+    expect(crumbs.textContent?.replace(/\s+/g, '')).toBe('Forum/PlantCare');
   });
 });

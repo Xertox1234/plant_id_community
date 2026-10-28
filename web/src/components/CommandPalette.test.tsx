@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import CommandPalette from './CommandPalette';
 import * as forumService from '../services/forumService';
 import type { ForumUserSearchResult } from '../services/forumService';
-import type { Category, SearchForumResponse, Thread } from '../types/forum';
+import type { Forum, SearchForumResponse, Thread } from '../types/forum';
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -17,12 +17,12 @@ const mockAuth = { isAuthenticated: false };
 vi.mock('../contexts/AuthContext', () => ({ useAuth: () => mockAuth }));
 
 vi.mock('../services/forumService', () => ({
-  fetchCategories: vi.fn(),
+  fetchForums: vi.fn(),
   searchForum: vi.fn(),
   searchForumUsers: vi.fn(),
 }));
 
-function makeCategory(overrides: Partial<Category> = {}): Category {
+function makeForum(overrides: Partial<Forum> = {}): Forum {
   return {
     id: '2',
     name: 'Care & Problems',
@@ -37,7 +37,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     id: '101',
     title: 'Why are my monstera leaves yellow?',
     slug: 'why-are-my-monstera-leaves-yellow',
-    category: makeCategory(),
+    category: makeForum(),
     author: { username: 'ada', display_name: 'Ada', avatar: null, trust_level: 0 },
     created_at: '',
     last_activity_at: '',
@@ -78,7 +78,7 @@ function getInput() {
 describe('CommandPalette', () => {
   beforeEach(() => {
     mockAuth.isAuthenticated = false;
-    vi.mocked(forumService.fetchCategories).mockResolvedValue([]);
+    vi.mocked(forumService.fetchForums).mockResolvedValue([]);
     vi.mocked(forumService.searchForum).mockResolvedValue(makeSearchResponse([]));
     vi.mocked(forumService.searchForumUsers).mockResolvedValue([]);
   });
@@ -96,8 +96,8 @@ describe('CommandPalette', () => {
   });
 
   it('shows one Quick actions row per board once categories load', async () => {
-    const board = makeCategory({ id: '3', name: 'Show & Tell', slug: 'show-tell' });
-    vi.mocked(forumService.fetchCategories).mockResolvedValue([board]);
+    const board = makeForum({ id: '3', name: 'Show & Tell', slug: 'show-tell' });
+    vi.mocked(forumService.fetchForums).mockResolvedValue([board]);
     renderPalette();
 
     expect(await screen.findByRole('link', { name: 'Show & Tell' })).toBeInTheDocument();

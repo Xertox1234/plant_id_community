@@ -16,12 +16,9 @@ from django.db import connection
 from django.test import RequestFactory
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
-from wagtail.models import Page
 from wagtail_forum.admin_views import ModerationQueueMenuItem
 from wagtail_forum.models import (
     Conversation,
-    ForumBoard,
-    ForumIndex,
     ForumProfile,
     Message,
     Post,
@@ -29,6 +26,7 @@ from wagtail_forum.models import (
     Topic,
     TrustLevel,
 )
+from wagtail_forum.tests.factories import make_forum
 from wagtail_forum.wagtail_hooks import register_moderation_queue_menu_item
 
 User = get_user_model()
@@ -37,9 +35,7 @@ pytestmark = pytest.mark.django_db
 
 
 def _board():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug="general"))
+    return make_forum(name="General", slug="general")
 
 
 def _post(board, author, title, body_text):

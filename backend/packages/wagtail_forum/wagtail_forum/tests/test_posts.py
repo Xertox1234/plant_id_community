@@ -1,15 +1,13 @@
 import pytest
 from django.contrib.auth import get_user_model
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
 
 def _topic(user):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     return Topic.objects.create(board=board, title="T", slug="t", author=user)
 
 

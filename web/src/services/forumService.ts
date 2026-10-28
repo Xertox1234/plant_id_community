@@ -18,13 +18,15 @@ import {
   resetCapabilityAvailability,
 } from './capabilityLatch';
 import {
-  mapBoardToCategory,
+  mapBoardToForum,
+  mapCategory,
   mapTopicListItemToThread,
   mapTopicDetailToThread,
   mapPostToPost,
   mapSearchTopicToThread,
   mapSearchPostToPost,
   type BackendBoard,
+  type BackendCategory,
   type BackendTopicListItem,
   type BackendTopicDetail,
   type BackendPost,
@@ -33,6 +35,7 @@ import {
 } from './forumMappers';
 import type {
   Category,
+  Forum,
   ForumAuthor,
   ForumIndexPayload,
   Thread,
@@ -143,13 +146,39 @@ export async function fetchForumIndex(): Promise<ForumIndexPayload> {
     `${FORUM_BASE}/boards/`
   );
   return {
-    categories: (data.results || []).map(mapBoardToCategory),
+    forums: (data.results || []).map(mapBoardToForum),
     intro: data.intro || '',
   };
 }
 
+export async function fetchForums(): Promise<Forum[]> {
+  return (await fetchForumIndex()).forums;
+}
+
+/**
+ * Fetch the forum's categories, each with its visible forums nested
+ * (`GET categories/`, todo 665). Flat `{results}`, in the categories'
+ * `position` order; a category with no forum the viewer may see is omitted.
+ */
 export async function fetchCategories(): Promise<Category[]> {
-  return (await fetchForumIndex()).categories;
+  const data = await authenticatedFetch<{ results: BackendCategory[] }>(
+    `${FORUM_BASE}/categories/`
+  );
+  return (data.results || []).map(mapCategory);
+}
+
+/**
+ * The category a forum sits under, for the Category › Forum breadcrumb, or
+ * null when it cannot be told (fetch failed, forum not listed). Never throws:
+ * the crumb is decoration, so a failure must not fail the page.
+ */
+export async function fetchForumCategory(forumId: number | string): Promise<Category | null> {
+  try {
+    const categories = await fetchCategories();
+    return categories.find((c) => c.forums.some((f) => f.id === String(forumId))) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -157,10 +186,10 @@ export async function fetchCategories(): Promise<Category[]> {
  * Fetches the boards list and scans for the matching id string.
  * (Slug-based lookup is Task 6 — callers still pass a numeric id from parseLeadingId.)
  */
-export async function fetchCategory(forumId: number): Promise<Category> {
-  const categories = await fetchCategories();
+export async function fetchForum(forumId: number): Promise<Forum> {
+  const categories = await fetchForums();
   const match = categories.find((c) => c.id === String(forumId));
-  if (!match) throw new Error('Category not found');
+  if (!match) throw new Error('Forum not found');
   return match;
 }
 

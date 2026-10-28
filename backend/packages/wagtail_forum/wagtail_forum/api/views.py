@@ -8,10 +8,13 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import IntegrityError, transaction
 from django.db.models import (
     BooleanField,
+    CharField,
     DateTimeField,
     Exists,
+    ExpressionWrapper,
     F,
     OuterRef,
+    Prefetch,
     Q,
     Subquery,
     Value,
@@ -37,6 +40,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from wagtail.actions.unpublish import UnpublishAction
 from wagtail.images import get_image_model
+from wagtail.models import PageViewRestriction
 from wagtail.search.backends import get_search_backend
 
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
@@ -80,7 +84,7 @@ from ..collections import get_forum_image_collection
 from ..conf import get_setting
 from ..link_previews import link_preview_snapshots
 from ..models import (
-    ForumBoard,
+    Forum,
     ForumIdentificationAttachment,
     ForumIndex,
     ForumProfile,
@@ -106,6 +110,8 @@ from .serializers import (
     AUTHOR_SCHEMA,
     FORUM_BODY_SCHEMA,
     BoardSerializer,
+    ForumCategoryListSerializer,
+    ForumCategorySerializer,
     MeProfileSerializer,
     PostEditSerializer,
     PostSerializer,
@@ -132,13 +138,39 @@ MAX_SLUG_ATTEMPTS = 5
 
 
 def _visible_boards():
-    """Boards the API may expose: live AND without a Wagtail view restriction.
+    """Boards the API may expose: `forum_type="forum"` rows that are not hidden.
 
-    `PageViewRestriction` (login/password/group privacy) is not enforced
-    automatically by custom views — `.public()` is the opt-in (audit M7).
-    Restricted boards are conservatively invisible to the whole API.
+    Boards are `Forum` rows since todo 665 (they were Wagtail pages, filtered
+    with `.live().public()`). Categories and links never hold topics, so they
+    are never "boards" — `/forum/boards/` (the Flutter contract) lists only
+    forums. A forum is hidden by its own `is_hidden` or its category's; the
+    flag is interim until per-forum permissions land (todos 675-677).
+
+    The ForumIndex page still gates the whole forum (todo 665 round-1
+    review): when ForumIndex pages exist but none is open (live, with no
+    Wagtail privacy restriction on itself or any ancestor page), every forum
+    is hidden, as `.public()` hid every board page below a restricted index.
+    One open index is enough (round 3): a stray draft copy of the index must
+    not close a forum whose real index is live. With no ForumIndex at all
+    there is nothing to close it. It is folded into the one SQL query
+    (`Exists`), not checked eagerly: `.public()` fetched every restriction in
+    Python on each call, and the `board__in=` callers rely on this queryset
+    adding no query of its own.
     """
-    return ForumBoard.objects.live().public()
+    # Treebeard paths: a restriction applies when its page's path is a prefix
+    # of the index's (the index itself or an ancestor), as `.public()` tests.
+    restriction_on_index_or_ancestor = PageViewRestriction.objects.annotate(
+        index_path=ExpressionWrapper(OuterRef("path"), output_field=CharField())
+    ).filter(index_path__startswith=F("page__path"))
+    open_index = ForumIndex.objects.filter(
+        ~Exists(restriction_on_index_or_ancestor), live=True
+    )
+    return Forum.objects.filter(
+        Exists(open_index) | ~Exists(ForumIndex.objects.all()),
+        forum_type=Forum.FORUM,
+        is_hidden=False,
+        parent__is_hidden=False,
+    )
 
 
 def visible_topics():
@@ -178,20 +210,16 @@ def _get_visible_topic(topic_id):
 
 
 def _get_board(slug):
-    """Resolve a board by slug, 404ing hidden boards and 409ing ambiguity.
+    """Resolve a visible board by slug, 404ing hidden or unknown ones.
 
-    Wagtail slugs are unique only among siblings, so two boards under
-    different ForumIndex pages can share a slug — `.get()` would raise
-    `MultipleObjectsReturned` → 500 (audit M8).
+    Forum and link slugs are unique forum-wide (a partial DB constraint,
+    todo 665), so the page-era 409 for a slug shared across forum trees
+    (audit M8) can no longer happen.
     """
-    boards = list(_visible_boards().filter(slug=slug)[:2])
-    if not boards:
+    board = _visible_boards().filter(slug=slug).first()
+    if board is None:
         raise NotFound()
-    if len(boards) > 1:
-        raise Conflict(
-            _("Board slug is ambiguous across forum trees; contact the site admin.")
-        )
-    return boards[0]
+    return board
 
 
 def _annotate_topic_unread(qs, user):
@@ -493,21 +521,11 @@ class BoardListView(
     def get_queryset(self):
         # `last_post_at` per board (todo 278 L2) as a correlated scalar
         # subquery — same idiom as _annotate_topic_unread, so it folds into the
-        # single SELECT rather than adding a GROUP BY over the Page join.
-        # `last_post_at__isnull=False` is load-bearing, not defensive: Postgres
-        # orders DESC as NULLS FIRST, so a live topic that never got a
-        # published post would otherwise win the sort and blank the column.
-        latest_activity = (
-            Topic.objects.filter(
-                board=OuterRef("pk"), live=True, last_post_at__isnull=False
-            )
-            .order_by("-last_post_at")
-            .values("last_post_at")[:1]
-        )
+        # single SELECT rather than adding a GROUP BY.
         return (
             _visible_boards()
-            .annotate(last_post_at=Subquery(latest_activity))
-            .order_by("path")
+            .annotate(last_post_at=_board_last_post_subquery())
+            .order_by("parent__position", "parent_id", "position", "id")
         )
 
     def list(self, request, *args, **kwargs):
@@ -523,6 +541,82 @@ class BoardListView(
                 "intro": serialize_forum_intro(index.intro) if index else "",
             }
         )
+
+
+def _board_last_post_subquery():
+    """The newest live topic's `last_post_at` for the board in `OuterRef("pk")`.
+
+    `last_post_at__isnull=False` is load-bearing: Postgres orders DESC as NULLS
+    FIRST, so a live topic that never got a published post would otherwise win
+    the sort and blank the column (todo 278 L2).
+    """
+    return Subquery(
+        Topic.objects.filter(
+            board=OuterRef("pk"), live=True, last_post_at__isnull=False
+        )
+        .order_by("-last_post_at")
+        .values("last_post_at")[:1]
+    )
+
+
+@extend_schema(
+    responses={
+        200: ForumCategoryListSerializer,
+    },
+    description=(
+        "List the forum's categories in `position` order, each with its "
+        "visible forums nested under `forums` (same row shape as "
+        "`/forum/boards/`). A category's `topic_count`, `post_count` and "
+        "`last_post_at` are summed from its visible forums at read time; a "
+        "category with no visible forum is omitted. Flat and unpaginated."
+    ),
+)
+class CategoryListView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
+    """`GET /forum/categories/` — the index grouped by category (todo 665).
+
+    Additive: `/forum/boards/` keeps its flat forum list for Flutter. Two
+    queries whatever the number of categories or forums: the categories, and
+    one prefetch of their visible forums with the last-post subquery.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        forums = (
+            _visible_boards()
+            .annotate(last_post_at=_board_last_post_subquery())
+            .order_by("position", "id")
+        )
+        categories = (
+            Forum.objects.filter(forum_type=Forum.CATEGORY, is_hidden=False)
+            .order_by("position", "id")
+            .prefetch_related(
+                Prefetch("children", queryset=forums, to_attr="visible_forums")
+            )
+        )
+        rows = []
+        for category in categories:
+            # Any: each row carries the `last_post_at` annotation, which the
+            # Prefetch(to_attr=...) list type does not know about.
+            visible: list[Any] = category.visible_forums
+            if not visible:
+                continue  # phpBB skips a category with nothing to show
+            stamps = [f.last_post_at for f in visible if f.last_post_at]
+            rows.append(
+                {
+                    "id": category.pk,
+                    "name": category.name,
+                    "slug": category.slug,
+                    "description": category.description,
+                    "position": category.position,
+                    "topic_count": sum(f.topic_count for f in visible),
+                    "post_count": sum(f.post_count for f in visible),
+                    "last_post_at": max(stamps) if stamps else None,
+                    "visible_forums": visible,
+                }
+            )
+        data = ForumCategorySerializer(rows, many=True).data
+        return Response({"results": data})
 
 
 @extend_schema(

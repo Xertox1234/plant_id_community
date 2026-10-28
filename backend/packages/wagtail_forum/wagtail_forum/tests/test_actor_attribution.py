@@ -9,15 +9,9 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from rest_framework.test import APIClient
-from wagtail.models import ModelLogEntry, Page
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    ForumProfile,
-    Post,
-    Topic,
-    TrustLevel,
-)
+from wagtail.models import ModelLogEntry
+from wagtail_forum.models import ForumProfile, Post, Topic, TrustLevel
+from wagtail_forum.tests.factories import make_forum
 from wagtail_forum.workflow import ensure_default_workflow
 
 User = get_user_model()
@@ -32,9 +26,7 @@ def clear_idempotency_cache():
 
 
 def _board():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug="general"))
+    return make_forum(name="General", slug="general")
 
 
 def _member(username):

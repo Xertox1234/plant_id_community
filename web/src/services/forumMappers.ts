@@ -1,6 +1,7 @@
 import type { StreamFieldBlock } from '../types/blog';
 import type {
   Category,
+  Forum,
   Thread,
   Post,
   ForumAuthor,
@@ -22,6 +23,19 @@ export interface BackendBoard {
   post_count?: number;
   /** Newest live topic's activity; null for a board nobody has posted in. */
   last_post_at?: string | null;
+}
+
+/** One row of `GET categories/` (todo 665): a category with its forums. */
+export interface BackendCategory {
+  id: number;
+  title: string;
+  slug: string;
+  description?: string;
+  position: number;
+  topic_count: number;
+  post_count: number;
+  last_post_at: string | null;
+  forums: BackendBoard[];
 }
 
 export interface BackendTopicListItem {
@@ -180,7 +194,7 @@ function mapAuthor(a: BackendAuthor | null): ForumAuthor {
 // Mappers
 // ---------------------------------------------------------------------------
 
-export function mapBoardToCategory(b: BackendBoard): Category {
+export function mapBoardToForum(b: BackendBoard): Forum {
   return {
     id: String(b.id),
     name: b.title,
@@ -190,6 +204,19 @@ export function mapBoardToCategory(b: BackendBoard): Category {
     post_count: b.post_count ?? 0,
     created_at: '',
     last_post_at: b.last_post_at ?? null,
+  };
+}
+
+export function mapCategory(c: BackendCategory): Category {
+  return {
+    id: String(c.id),
+    name: c.title,
+    slug: c.slug,
+    description: c.description,
+    thread_count: c.topic_count,
+    post_count: c.post_count,
+    last_post_at: c.last_post_at,
+    forums: (c.forums || []).map(mapBoardToForum),
   };
 }
 
@@ -222,7 +249,7 @@ export function mapTopicListItemToThread(t: BackendTopicListItem): Thread {
 }
 
 export function mapTopicDetailToThread(t: BackendTopicDetail): Thread {
-  const category: Category = {
+  const category: Forum = {
     id: String(t.board.id),
     name: t.board.title,
     slug: t.board.slug,

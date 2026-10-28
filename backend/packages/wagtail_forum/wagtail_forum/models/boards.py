@@ -1,11 +1,9 @@
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 from wagtail.admin.panels import FieldPanel, MultiFieldPanel
 from wagtail.fields import RichTextField
 from wagtail.models import Page
-
-# Cap for the server-rendered fallback topic list (audit 2026-07-11 H17) —
-# the SPA is the real UI; this bounds the fallback page's query.
-SERVED_TOPICS_LIMIT = 50
 
 
 class ForumIndex(Page):
@@ -60,7 +58,9 @@ class ForumIndex(Page):
         help_text="Hero description shown under the featured topic's own title.",
     )
 
-    subpage_types = ["wagtail_forum.ForumBoard"]
+    # Forums are plain rows of `Forum` (todo 665), not child pages: the page
+    # tree carries only this index, which places the forum on the site.
+    subpage_types: list[str] = []
     content_panels = Page.content_panels + [
         FieldPanel("intro"),
         MultiFieldPanel(
@@ -78,31 +78,117 @@ class ForumIndex(Page):
         # are live-routable, so direct serving (admin "View live", sitemaps,
         # crawlers) must render instead of 500ing with TemplateDoesNotExist.
         context = super().get_context(request, *args, **kwargs)
-        context["boards"] = self.get_children().live().public().specific()
+        # Same visibility rule as the API (`api.views._visible_boards`); a
+        # local query so the model module never imports the API layer.
+        context["boards"] = Forum.objects.filter(
+            forum_type=Forum.FORUM, is_hidden=False, parent__is_hidden=False
+        ).order_by("parent__position", "position", "id")
         return context
 
 
-class ForumBoard(Page):
-    """A board/category — a low-volume structural node."""
+class Forum(models.Model):
+    """A category, forum or link row (todo 665; spec 2026-10-28 §4).
 
+    Replaces the old ``ForumBoard`` page. Depth is exactly two: a *category*
+    holds forums and never topics; a *forum* holds topics; a *link* is a row
+    that sends the reader to a URL (later slice). Every forum and link sits
+    under one category. An adjacency list (``parent`` + ``position``), not a
+    tree library, because every move is a one-row update at this depth.
+
+    ``Topic.board`` points here; the field kept its name so topic URLs
+    (``/forum/{board.id}-{board.slug}/...``) and the API stay unchanged, and
+    the migration copied every board's page id across for the same reason.
+    """
+
+    CATEGORY = "category"
+    FORUM = "forum"
+    LINK = "link"
+    FORUM_TYPE_CHOICES = [
+        (CATEGORY, _("Category")),
+        (FORUM, _("Forum")),
+        (LINK, _("Link")),
+    ]
+
+    forum_type = models.CharField(
+        max_length=16, choices=FORUM_TYPE_CHOICES, default=FORUM
+    )
+    # PROTECT: a category with forums under it can never be deleted out from
+    # under them (the safe delete with "move forums to…" is a later slice).
+    parent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="children",
+        limit_choices_to={"forum_type": CATEGORY},
+    )
+    position = models.PositiveIntegerField(default=0)
+    name = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=255)
     # Plain TextField, not RichTextField, by design: the API serves the value
-    # verbatim and every client (web CategoryCard, the Flutter board list)
+    # verbatim and every client (web ForumCard, the Flutter board list)
     # renders it as escaped text. Rich text here would flip the contract to
     # HTML for all consumers and require the intro expand+sanitize pipeline —
     # for a one-line card blurb. Rich text belongs in ForumIndex.intro.
     description = models.TextField(blank=True)
-    # Denormalized counters (maintained as topics/posts change; see Task 7 / Plan 1B).
+    # Denormalized counters (maintained as topics/posts change; see
+    # signals._refresh_board_counters). Meaningful on forum rows only; a
+    # category's numbers are summed from its visible forums at read time.
     topic_count = models.PositiveIntegerField(default=0, editable=False)
     post_count = models.PositiveIntegerField(default=0, editable=False)
+    # Interim visibility switch until per-forum permissions land (todos
+    # 675-677). Hidden = invisible to the whole API, as a non-live or
+    # view-restricted board page was.
+    is_hidden = models.BooleanField(default=False)
 
-    parent_page_types = ["wagtail_forum.ForumIndex"]
-    subpage_types: list[str] = []
-    content_panels = Page.content_panels + [FieldPanel("description")]
+    class Meta:
+        ordering = ["position", "id"]
+        constraints = [
+            # `/forum/boards/{slug}/` only ever resolves forums, so a forum or
+            # link slug is unique across the whole forum. Categories are left
+            # out: their slugs share a namespace only with each other, which
+            # is also why the migration's default "General" category can never
+            # collide with an existing board's slug.
+            models.UniqueConstraint(
+                fields=["slug"],
+                condition=~models.Q(forum_type="category"),
+                name="uniq_forum_slug_non_category",
+            ),
+            models.UniqueConstraint(
+                fields=["slug"],
+                condition=models.Q(forum_type="category"),
+                name="uniq_forum_category_slug",
+            ),
+        ]
 
-    def get_context(self, request, *args, **kwargs):
-        # See ForumIndex.get_context — same H17 fallback rationale.
-        context = super().get_context(request, *args, **kwargs)
-        context["topics"] = self.topics.filter(live=True).order_by(
-            "-is_pinned", "-last_post_at", "-id"
-        )[:SERVED_TOPICS_LIMIT]
-        return context
+    def __str__(self):
+        return self.name
+
+    @property
+    def title(self):
+        """The old ``ForumBoard.title`` (a Page title), kept read-only so the
+        API's ``title`` key and every ``topic.board.title`` reader stay as they
+        were. Write ``name``."""
+        return self.name
+
+    def clean(self):
+        super().clean()
+        if self.forum_type == self.CATEGORY:
+            if self.parent_id is not None:
+                raise ValidationError({"parent": _("A category cannot have a parent.")})
+            return
+        if self.parent_id is None:
+            raise ValidationError(
+                {"parent": _("A forum or link must belong to a category.")}
+            )
+        parent_type = (
+            self.parent.forum_type
+            if self.parent is not None
+            else Forum.objects.filter(pk=self.parent_id)
+            .values_list("forum_type", flat=True)
+            .first()
+        )
+        if parent_type != self.CATEGORY:
+            raise ValidationError(
+                {"parent": _("Only a category can hold forums and links.")}
+            )

@@ -8,28 +8,24 @@ from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-from wagtail.models import Page
 from wagtail_forum.badges import award_badges_for_user, user_metrics
 from wagtail_forum.models import (
     Badge,
     BadgeMetric,
     BadgeRule,
     ForumActivityDate,
-    ForumBoard,
-    ForumIndex,
     ForumProfile,
     Post,
     Topic,
     UserBadge,
 )
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
 
 def _board(slug="general"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    return index.add_child(instance=ForumBoard(title="General", slug=slug))
+    return make_forum(name="General", slug=slug)
 
 
 def _badge(slug, *rules, active=True, order=0):

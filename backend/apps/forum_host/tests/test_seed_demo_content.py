@@ -1,6 +1,6 @@
 """Tests for `manage.py seed_demo_content` (Task 7, Canopy forum content).
 
-Page-creating (ForumBoard/ForumIndex are Wagtail pages) — run locally with
+Page-creating (ForumIndex is a Wagtail page; boards are Forum rows since todo 665) — run locally with
 --create-db on a partial re-run (see backend/CLAUDE.md's stale-test-DB gotcha).
 
 Controller ruling (2026-08-15): the brief's test list says "4 topics solved"
@@ -21,9 +21,8 @@ from django.core.management.base import CommandError
 from django.test import override_settings
 from django.utils import timezone
 from wagtail.images import get_image_model
-from wagtail.models import Site
 from wagtail_forum.models import (
-    ForumBoard,
+    Forum,
     ForumIdentificationAttachment,
     ForumProfile,
     Post,
@@ -60,7 +59,7 @@ EXPECTED_IMAGE_ASSETS = {
 def _world_counts():
     return (
         User.objects.count(),
-        ForumBoard.objects.count(),
+        Forum.objects.filter(forum_type=Forum.FORUM).count(),
         Topic.objects.count(),
         Post.objects.count(),
         Reaction.objects.count(),
@@ -151,7 +150,12 @@ def test_refuses_to_adopt_a_superuser_holding_a_demo_username():
 
     # Nothing from the demo world was created off the back of this run.
     assert Topic.objects.count() == 0
-    assert ForumBoard.objects.exclude(slug=LEGACY_STARTER_SLUG).count() == 0
+    assert (
+        Forum.objects.filter(forum_type=Forum.FORUM)
+        .exclude(slug=LEGACY_STARTER_SLUG)
+        .count()
+        == 0
+    )
     demo_usernames = {u["username"] for u in USERS} - {"iris_delgado"}
     assert not User.objects.filter(username__in=demo_usernames).exists()
 
@@ -160,36 +164,48 @@ def test_refuses_to_adopt_a_superuser_holding_a_demo_username():
 @pytest.mark.django_db
 def test_seeds_the_five_boards_and_removes_empty_starter():
     call_command("seed_default_forum")
-    assert ForumBoard.objects.filter(slug=LEGACY_STARTER_SLUG).exists()
+    assert (
+        Forum.objects.filter(forum_type=Forum.FORUM)
+        .filter(slug=LEGACY_STARTER_SLUG)
+        .exists()
+    )
 
     call_command("seed_demo_content")
 
-    slugs = set(ForumBoard.objects.values_list("slug", flat=True))
+    slugs = set(
+        Forum.objects.filter(forum_type=Forum.FORUM).values_list("slug", flat=True)
+    )
     expected = {b["slug"] for b in BOARDS}
     assert expected <= slugs
     assert LEGACY_STARTER_SLUG not in slugs
 
-    # Regression guard (audit 2026-07-17 H1): a board attached outside the
-    # Site's routable tree has page.url == None and is never served. That
-    # bug hit the pre-existing starter board; nothing previously asserted it
-    # for boards created by THIS command.
-    site_root = Site.objects.get(is_default_site=True).root_page
-    for board in ForumBoard.objects.filter(slug__in=expected):
-        assert board.is_descendant_of(site_root)
-        assert board.get_url() is not None
+    # Todo 665: boards are Forum rows, not pages (the old routable-tree guard,
+    # audit 2026-07-17 H1, has nothing left to check); every board this
+    # command creates must sit under a category, in catalogue order.
+    boards = list(
+        Forum.objects.filter(forum_type=Forum.FORUM, slug__in=expected).order_by(
+            "position"
+        )
+    )
+    assert [b.slug for b in boards] == [b["slug"] for b in BOARDS]
+    assert {b.parent.forum_type for b in boards} == {Forum.CATEGORY}
 
 
 @override_settings(DEBUG=True)
 @pytest.mark.django_db
 def test_keeps_starter_board_with_topics():
     call_command("seed_default_forum")
-    starter = ForumBoard.objects.get(slug=LEGACY_STARTER_SLUG)
+    starter = Forum.objects.filter(forum_type=Forum.FORUM).get(slug=LEGACY_STARTER_SLUG)
     Topic.objects.create(board=starter, title="Keep me", slug="keep-me")
 
     call_command("seed_demo_content")
 
-    assert ForumBoard.objects.filter(slug=LEGACY_STARTER_SLUG).exists()
-    assert ForumBoard.objects.count() == len(BOARDS) + 1
+    assert (
+        Forum.objects.filter(forum_type=Forum.FORUM)
+        .filter(slug=LEGACY_STARTER_SLUG)
+        .exists()
+    )
+    assert Forum.objects.filter(forum_type=Forum.FORUM).count() == len(BOARDS) + 1
 
 
 @override_settings(DEBUG=True)
@@ -264,7 +280,9 @@ def test_world_shape():
     # actually read, so a signal regression here must fail loudly, not
     # render as an empty-looking board.
     board_slugs = {b["slug"] for b in BOARDS}
-    for board in ForumBoard.objects.filter(slug__in=board_slugs):
+    for board in Forum.objects.filter(forum_type=Forum.FORUM).filter(
+        slug__in=board_slugs
+    ):
         assert board.topic_count > 0
         assert board.post_count > 0
 

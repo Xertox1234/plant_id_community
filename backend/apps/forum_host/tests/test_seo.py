@@ -9,7 +9,8 @@ import pytest
 from django.conf import settings
 from rest_framework.test import APIClient
 from wagtail.models import Page, PageViewRestriction
-from wagtail_forum.models import ForumBoard, ForumIndex, Topic
+from wagtail_forum.models import Forum, ForumIndex, Topic
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 _SITE = settings.SITE_URL.rstrip("/")
 
@@ -17,7 +18,7 @@ _SITE = settings.SITE_URL.rstrip("/")
 def _tree():
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     return index, board
 
 
@@ -52,7 +53,7 @@ def test_sitemap_and_feed_exclude_restricted_board_topics():
     # (_visible_boards uses .public()); its topics must not leak into the public
     # crawl surface either.
     _index, board = _tree()
-    PageViewRestriction.objects.create(page=board, restriction_type="login")
+    hide_forum(board)
     topic = Topic.objects.create(board=board, title="Secret", slug="secret", live=True)
 
     sitemap = APIClient().get("/forum/sitemap.xml").content.decode()
@@ -89,9 +90,10 @@ def test_rss_feed_excludes_draft_topic():
 
 @pytest.mark.django_db
 def test_sitemap_and_feed_exclude_ancestor_restricted_topics():
-    # `.public()` excludes not just directly-restricted pages but descendants of
-    # a restricted ancestor. Restrict the ForumIndex and assert the board + its
-    # topic vanish from both surfaces — locks in the inheritance the code relies on.
+    # Privacy on the ForumIndex hides the whole forum. Boards were pages under
+    # the index until todo 665 (`.public()` covered ancestors); they are Forum
+    # rows now, and `_visible_boards` gates them on the index directly. Only
+    # the index is restricted here, so this asserts that gate on its own.
     index, board = _tree()
     PageViewRestriction.objects.create(page=index, restriction_type="login")
     topic = Topic.objects.create(board=board, title="Secret", slug="secret", live=True)
@@ -103,6 +105,21 @@ def test_sitemap_and_feed_exclude_ancestor_restricted_topics():
     assert topic.get_absolute_url() not in feed
     assert f"/forum/{board.id}-general</loc>" not in sitemap
     assert "<loc>" + _SITE + "/forum</loc>" not in sitemap  # restricted index too
+
+
+@pytest.mark.django_db
+def test_sitemap_and_feed_exclude_topics_of_a_hidden_category():
+    # A hidden category hides its forums and their topics (todo 665).
+    _index, board = _tree()
+    Forum.objects.filter(pk=board.parent_id).update(is_hidden=True)
+    topic = Topic.objects.create(board=board, title="Secret", slug="secret", live=True)
+
+    sitemap = APIClient().get("/forum/sitemap.xml").content.decode()
+    feed = APIClient().get("/forum/rss/").content.decode()
+
+    assert topic.get_absolute_url() not in sitemap
+    assert topic.get_absolute_url() not in feed
+    assert f"/forum/{board.id}-general</loc>" not in sitemap
 
 
 @pytest.mark.django_db
@@ -126,7 +143,9 @@ def test_sitemap_and_feed_query_counts_are_flat():
     rss_queries = len(ctx.captured_queries)
 
     # Flat regardless of topic count (select_related('board') covers the only FK).
-    # sitemap = 8 (two sections, each with a .public() PageViewRestriction lookup);
-    # rss = 2 (topics query + one .public() lookup). Exact, not <= (docs/rules).
-    assert sitemap_queries == 8, sitemap_queries
-    assert rss_queries == 2, rss_queries
+    # sitemap = 6: 8 before todo 665, minus the two board-side .public()
+    # PageViewRestriction lookups (boards are Forum rows now; the ForumIndex
+    # landing entry keeps its own); rss = 1, the topics query (2 before todo
+    # 665, with its .public() lookup). Exact, not <= (docs/rules).
+    assert sitemap_queries == 6, sitemap_queries
+    assert rss_queries == 1, rss_queries

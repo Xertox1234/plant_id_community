@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, FormEvent } from 'react';
 import { useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
-import { createThread, fetchCategories, fetchCategory } from '../../services/forumService';
+import { createThread, fetchForums, fetchForum } from '../../services/forumService';
 import { parseLeadingId, threadPath, categoryPath } from '../../utils/forumUrls';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import { useIdentitySwap } from '../../hooks/useIdentitySwap';
@@ -21,7 +21,7 @@ import {
   toComposerDoc,
 } from '../../utils/forumBody';
 import { logger } from '../../utils/logger';
-import type { Category, CreateIdentificationInput } from '@/types';
+import type { Forum, CreateIdentificationInput } from '@/types';
 import type { JSONContent } from '@tiptap/react';
 
 /**
@@ -149,10 +149,10 @@ export default function NewThreadPage() {
     () => handoff?.identification ?? null
   );
 
-  const [category, setCategory] = useState<Category | null>(null);
+  const [category, setCategory] = useState<Forum | null>(null);
   // Boards for the composer picker when no `?category=` was supplied (L4) — lets
   // a user start a thread without first navigating into a specific board.
-  const [boards, setBoards] = useState<Category[]>([]);
+  const [boards, setBoards] = useState<Forum[]>([]);
   const newThreadDraftKey = draftKey('new-thread', categoryParam ?? 'unknown');
   // Parse the saved draft once (per key), not once per field.
   // `body` is the composer's TipTap document since todo 526; a draft saved
@@ -254,10 +254,10 @@ export default function NewThreadPage() {
         if (forumId == null) {
           // No board pre-selected — load the list and let the user pick (L4)
           // instead of dead-ending on an "invalid board" error.
-          const list = await fetchCategories();
+          const list = await fetchForums();
           if (!ignore) setBoards(list);
         } else {
-          const cat = await fetchCategory(forumId);
+          const cat = await fetchForum(forumId);
           if (!ignore) setCategory(cat);
         }
       } catch (err) {

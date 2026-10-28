@@ -6,10 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
-from wagtail.models import Page
 from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
     Notification,
     NotificationVerb,
     Post,
@@ -17,16 +14,13 @@ from wagtail_forum.models import (
     TopicSubscription,
     UserBlock,
 )
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
 
 def _board(slug):
-    root = Page.objects.get(id=1)
-    index = root.add_child(
-        instance=ForumIndex(title=f"Forum {slug}", slug=f"forum-{slug}")
-    )
-    return index.add_child(instance=ForumBoard(title=f"General {slug}", slug=slug))
+    return make_forum(name=f"General {slug}", slug=slug)
 
 
 def _quote(post, text="quoted"):

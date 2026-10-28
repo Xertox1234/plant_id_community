@@ -1,14 +1,12 @@
 import pytest
-from wagtail.models import Page
 from wagtail.search.backends import get_search_backend
-from wagtail_forum.models import ForumBoard, ForumIndex, Topic
+from wagtail_forum.models import Topic
+from wagtail_forum.tests.factories import make_forum
 
 
 @pytest.mark.django_db
 def test_topic_is_searchable_by_title():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     Topic.objects.create(board=board, title="Monstera propagation", slug="monstera")
 
     backend = get_search_backend()

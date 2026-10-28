@@ -16,8 +16,8 @@ from django.core.cache import cache
 from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
@@ -33,9 +33,7 @@ def _clear_cache():
 
 
 def _topic(title="Tomato blight", body="tomato blight on leaves"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     author = User.objects.create_user(username="poster")
     topic = Topic.objects.create(
         board=board, title=title, slug="tomato-blight", author=author

@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import SearchPage from './SearchPage';
-import { createMockCategory, createMockThread } from '../../tests/forumUtils';
+import { createMockForum, createMockThread } from '../../tests/forumUtils';
 import { mapSearchPostToPost } from '../../services/forumMappers';
 import * as forumService from '../../services/forumService';
 
@@ -49,8 +49,8 @@ describe('SearchPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Mock fetchCategories to return empty array by default
-    vi.spyOn(forumService, 'fetchCategories').mockResolvedValue([]);
+    // Mock fetchForums to return empty array by default
+    vi.spyOn(forumService, 'fetchForums').mockResolvedValue([]);
 
     // Mock searchForum to return empty results by default
     vi.spyOn(forumService, 'searchForum').mockResolvedValue(createMockSearchResults());
@@ -93,16 +93,16 @@ describe('SearchPage', () => {
 
     it('fetches categories for filter dropdown on mount', async () => {
       const mockCategories = [
-        createMockCategory({ id: '1', name: 'Plant Care', slug: 'plant-care' }),
-        createMockCategory({ id: '2', name: 'Pest Control', slug: 'pest-control' }),
+        createMockForum({ id: '1', name: 'Plant Care', slug: 'plant-care' }),
+        createMockForum({ id: '2', name: 'Pest Control', slug: 'pest-control' }),
       ];
 
-      vi.spyOn(forumService, 'fetchCategories').mockResolvedValue(mockCategories);
+      vi.spyOn(forumService, 'fetchForums').mockResolvedValue(mockCategories);
 
       renderSearchPage();
 
       await waitFor(() => {
-        expect(forumService.fetchCategories).toHaveBeenCalled();
+        expect(forumService.fetchForums).toHaveBeenCalled();
       });
     });
   });
@@ -153,7 +153,7 @@ describe('SearchPage', () => {
     });
 
     it('announces a failed search for screen readers (audit M4)', async () => {
-      vi.spyOn(forumService, 'fetchCategories').mockResolvedValue([]);
+      vi.spyOn(forumService, 'fetchForums').mockResolvedValue([]);
       vi.spyOn(forumService, 'searchForum').mockRejectedValue(new Error('Search failed'));
 
       renderSearchPage('/forum/search?q=watering');
@@ -425,11 +425,9 @@ describe('SearchPage', () => {
 
   describe('Filters', () => {
     it('displays filter section with category dropdown', async () => {
-      const mockCategories = [
-        createMockCategory({ id: '1', name: 'Plant Care', slug: 'plant-care' }),
-      ];
+      const mockCategories = [createMockForum({ id: '1', name: 'Plant Care', slug: 'plant-care' })];
 
-      vi.spyOn(forumService, 'fetchCategories').mockResolvedValue(mockCategories);
+      vi.spyOn(forumService, 'fetchForums').mockResolvedValue(mockCategories);
 
       renderSearchPage();
 
@@ -443,11 +441,9 @@ describe('SearchPage', () => {
     });
 
     it('applies category filter when selected', async () => {
-      const mockCategories = [
-        createMockCategory({ id: '1', name: 'Plant Care', slug: 'plant-care' }),
-      ];
+      const mockCategories = [createMockForum({ id: '1', name: 'Plant Care', slug: 'plant-care' })];
 
-      vi.spyOn(forumService, 'fetchCategories').mockResolvedValue(mockCategories);
+      vi.spyOn(forumService, 'fetchForums').mockResolvedValue(mockCategories);
 
       renderSearchPage('/forum/search?q=watering');
 

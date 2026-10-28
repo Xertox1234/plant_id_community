@@ -12,8 +12,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from PIL import Image
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic, TopicBookmark
+from wagtail_forum.models import Post, Topic, TopicBookmark
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
@@ -38,11 +38,7 @@ class OnboardingChecklistTests(TestCase):
         self.client = APIClient()
         self.user = User.objects.create_user(username="ada", password="TestPass123!")
         self.client.force_authenticate(user=self.user)
-        root = Page.objects.get(id=1)
-        index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-        self.board = index.add_child(
-            instance=ForumBoard(title="General", slug="general")
-        )
+        self.board = make_forum(name="General", slug="general")
 
     def _topic(self, slug="hi"):
         return Topic.objects.create(

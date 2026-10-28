@@ -14,17 +14,15 @@ from django.db import connection
 from django.db.models import F
 from django.test.utils import CaptureQueriesContext
 from wagtail.contrib.redirects.models import Redirect
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Topic
+from wagtail_forum.models import Forum, Topic
+from wagtail_forum.tests.factories import make_forum
 
 pytestmark = pytest.mark.django_db
 
 
 def _boards():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    general = index.add_child(instance=ForumBoard(title="General", slug="general"))
-    pests = index.add_child(instance=ForumBoard(title="Pests", slug="pests"))
+    general = make_forum(name="General", slug="general")
+    pests = make_forum(name="Pests", slug="pests")
     return general, pests
 
 
@@ -241,8 +239,8 @@ def _topic_links():
 
 
 def _rename_board(board, slug, capture_on_commit):
-    # page_slug_changed is sent from transaction.on_commit, which a
-    # transactional test never reaches on its own.
+    # The rename fans out from transaction.on_commit, which a test inside the
+    # test transaction never reaches on its own.
     with capture_on_commit(execute=True):
         board.slug = slug
         board.save()
@@ -370,7 +368,7 @@ def test_board_rename_query_count_is_flat_in_topic_count():
     )
 
     def rename(board, slug):
-        before = ForumBoard.objects.get(pk=board.pk)
+        before = Forum.objects.get(pk=board.pk)
         board.slug = slug
         with CaptureQueriesContext(connection) as ctx:
             redirect_board_topics(before, board)
@@ -394,18 +392,24 @@ def test_board_rename_with_no_live_topics_writes_nothing(
     assert _topic_rows() == []
 
 
-def test_board_rename_through_the_admin_publish_path(
+def test_board_rename_through_an_update_fields_save(
     django_capture_on_commit_callbacks,
 ):
-    """The promote-tab edit lands via save_revision().publish(), not a bare
-    save(); the signal must fire from that path too."""
+    """Boards are Forum rows since todo 665 (no revision/publish path); the
+    receiver must still fire for a save that names ``slug`` in
+    ``update_fields`` and stay quiet for one that does not."""
     general, _ = _boards()
     topic = _topic(general, "aphids")
     old_path = topic.get_absolute_url()
 
     with django_capture_on_commit_callbacks(execute=True):
+        general.description = "Chat"
+        general.save(update_fields=["description"])
+    assert _topic_links() == []
+
+    with django_capture_on_commit_callbacks(execute=True):
         general.slug = "general-chat"
-        general.save_revision().publish()
+        general.save(update_fields=["slug"])
 
     general.refresh_from_db()
     assert general.slug == "general-chat"

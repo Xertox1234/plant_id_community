@@ -30,6 +30,7 @@ from django.core.management import call_command
 from django.utils import timezone
 from kombu.exceptions import OperationalError as KombuOperationalError
 from plant_community_backend.sentry_config import sentry_integrations
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 Kind = DeliveryIntent.Kind
@@ -451,21 +452,11 @@ class TestBrokerFailure:
         self, caplog, django_capture_on_commit_callbacks
     ):
         from apps.forum_host.notifications import dispatch
-        from wagtail.models import Page
-        from wagtail_forum.models import (
-            ForumBoard,
-            ForumIndex,
-            Post,
-            Topic,
-            TopicSubscription,
-        )
+        from wagtail_forum.models import Post, Topic, TopicSubscription
 
         author = User.objects.create_user(username="ta623", email=ADDRESS)
         replier = User.objects.create_user(username="re623")
-        index = Page.objects.get(id=1).add_child(
-            instance=ForumIndex(title="F623", slug="f623")
-        )
-        board = index.add_child(instance=ForumBoard(title="B623", slug="b623"))
+        board = make_forum(name="B623", slug="b623")
         topic = Topic.objects.create(board=board, title="T", slug="t623", author=author)
         TopicSubscription.subscribe(author, topic)
 

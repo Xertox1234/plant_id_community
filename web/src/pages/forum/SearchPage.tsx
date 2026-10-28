@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { Search, SearchX } from 'lucide-react';
-import { searchForum, fetchCategories } from '../../services/forumService';
+import { searchForum, fetchForums } from '../../services/forumService';
 import ThreadCard from '../../components/forum/ThreadCard';
 import PlantCareAskPanel from '../../components/forum/PlantCareAskPanel';
 import { SearchResultsSkeleton } from '../../components/forum/ForumSkeleton';
@@ -13,7 +13,7 @@ import { sanitizeSearchQuery } from '../../utils/validation';
 import { threadPath } from '../../utils/forumUrls';
 import { stripHtml } from '../../utils/sanitize';
 import PageMeta from '../../components/PageMeta';
-import type { Category, SearchForumResponse } from '@/types';
+import type { Forum, SearchForumResponse } from '@/types';
 
 function highlightText(text: string | undefined, query: string) {
   if (!text || !query.trim()) return text || '';
@@ -63,7 +63,7 @@ export default function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [searchResults, setSearchResults] = useState<SearchForumResponse | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<Forum[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState<string>('');
@@ -97,9 +97,9 @@ export default function SearchPage() {
   useEffect(() => {
     const loadCategories = async () => {
       try {
-        // fetchCategories already unwraps pagination to a flat Category[]; guard
+        // fetchForums already unwraps pagination to a flat Forum[]; guard
         // with Array.isArray rather than the prior `as unknown as` double cast.
-        const data = await fetchCategories();
+        const data = await fetchForums();
         setCategories(Array.isArray(data) ? data : []);
       } catch (err) {
         logger.error('Error loading categories', {

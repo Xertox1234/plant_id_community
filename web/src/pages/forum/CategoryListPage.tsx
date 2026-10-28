@@ -2,13 +2,14 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Layers, MessagesSquare, Reply } from 'lucide-react';
 import {
+  fetchCategories,
   fetchForumIndex,
   fetchRecentTopics,
   fetchMyStats,
   fetchEventHero,
 } from '../../services/forumService';
 import { createSafeMarkup, SANITIZE_PRESETS } from '../../utils/sanitize';
-import CategoryCard from '../../components/forum/CategoryCard';
+import ForumCard from '../../components/forum/ForumCard';
 import SeasonStatsGrid from '../../components/forum/SeasonStatsGrid';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import { CategoryListSkeleton } from '../../components/forum/ForumSkeleton';
@@ -29,7 +30,7 @@ import { logger } from '../../utils/logger';
 import { eventHeroTopicPath } from '../../utils/forumUrls';
 import { boardIdentity } from '../../utils/forumTones';
 import { resolveBoardFilter } from '../../utils/forumBoardFilter';
-import type { Category, ForumMyStats, RecentTopic, EventHeroTopic } from '@/types';
+import type { Category, Forum, ForumMyStats, RecentTopic, EventHeroTopic } from '@/types';
 import { FEATURED_ART_WIDTH } from '../../components/ui/dimensions';
 
 // The landing rail's recent-activity fetch, passed through to
@@ -49,7 +50,12 @@ const RECENT_TOPICS_FETCH_LIMIT = 5;
 export default function CategoryListPage() {
   useScrollToTop();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
-  const [categories, setCategories] = useState<Category[]>([]);
+  // Every visible forum, flat (`GET boards/`): the stats row and the chips.
+  const [categories, setCategories] = useState<Forum[]>([]);
+  // The same forums grouped under their categories (`GET categories/`, todo
+  // 665). null = not available (fetch failed, or an older backend without the
+  // endpoint): the board list then renders flat, as it did before categories.
+  const [sections, setSections] = useState<Category[] | null>(null);
   // CMS-authored welcome copy (ForumIndex.intro, audit L2). Sanitized
   // server-side too — this is the second layer, not the only one.
   const [intro, setIntro] = useState<string>('');
@@ -80,8 +86,20 @@ export default function CategoryListPage() {
         setLoading(true);
         setError(null);
 
-        const [{ categories: boards, intro: welcome }, recent, event] = await Promise.all([
+        const [{ forums: boards, intro: welcome }, grouped, recent, event] = await Promise.all([
           fetchForumIndex(),
+          // The category headers. A failure degrades to the flat list rather
+          // than failing the page: every forum is still in `boards`. Wrapped
+          // in a `.then` so even a synchronous throw lands in the `.catch`.
+          Promise.resolve()
+            .then(() => fetchCategories())
+            .catch((err) => {
+              logger.error('Error loading forum categories', {
+                component: 'CategoryListPage',
+                error: err,
+              });
+              return null;
+            }),
           // ActiveNowModule's feed — a nice-to-have on top of the board
           // list, not a dependency of it, so a failure here must never
           // surface the page's error state.
@@ -105,6 +123,7 @@ export default function CategoryListPage() {
         ]);
         if (ignore) return;
         setCategories(boards);
+        setSections(Array.isArray(grouped) && grouped.length > 0 ? grouped : null);
         setIntro(welcome);
         setRecentTopics(recent);
         setEventHero(event.topic);
@@ -346,10 +365,38 @@ export default function CategoryListPage() {
               Identify a plant in the meantime →
             </Link>
           </Card>
+        ) : sections ? (
+          /* One header per category with its forums beneath (todo 665). The
+             chip filter narrows each section; a section left empty by it is
+             skipped, as the backend skips a category with nothing visible. */
+          <div className="mt-6 flex flex-col gap-8">
+            {sections.map((section) => {
+              const forums = section.forums.filter(
+                (f) => effectiveBoard === null || f.slug === effectiveBoard
+              );
+              if (forums.length === 0) return null;
+              const headingId = `forum-category-${section.id}`;
+              return (
+                <section key={section.id} aria-labelledby={headingId}>
+                  <h3 id={headingId} className="gt-label text-ink-2">
+                    {section.name}
+                  </h3>
+                  {section.description && (
+                    <p className="mt-1 max-w-prose text-sm text-ink-2">{section.description}</p>
+                  )}
+                  <div className="mt-3 flex flex-col gap-3">
+                    {forums.map((forum) => (
+                      <ForumCard key={forum.id} forum={forum} headingLevel="h4" />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
         ) : (
           <div className="mt-6 flex flex-col gap-3">
-            {visibleCategories.map((category) => (
-              <CategoryCard key={category.id} category={category} />
+            {visibleCategories.map((forum) => (
+              <ForumCard key={forum.id} forum={forum} />
             ))}
           </div>
         )}

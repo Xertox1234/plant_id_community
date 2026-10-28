@@ -30,17 +30,9 @@ from django.core import mail
 from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    ForumProfile,
-    Post,
-    Topic,
-    TopicRead,
-    TopicSubscription,
-)
+from wagtail_forum.models import ForumProfile, Post, Topic, TopicRead, TopicSubscription
 from wagtail_forum.preferences import merge_preferences
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 Kind = DeliveryIntent.Kind
@@ -80,12 +72,7 @@ def _member(username, *, quiet=False, zone="America/Denver", **cells):
 
 
 def _topic(prefix, *members):
-    index = Page.objects.get(id=1).add_child(
-        instance=ForumIndex(title=f"{prefix} forum", slug=f"{prefix}-forum")
-    )
-    board = index.add_child(
-        instance=ForumBoard(title=f"{prefix} board", slug=f"{prefix}-board")
-    )
+    board = make_forum(name=f"{prefix} board", slug=f"{prefix}-board")
     author = _member(f"{prefix}author")
     topic = Topic.objects.create(
         board=board, title="Root rot", slug=f"{prefix}-rot", author=author

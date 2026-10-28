@@ -1,4 +1,4 @@
-import type { Category, EventHeroTopic, RecentTopic, Thread } from '../types/forum';
+import type { Forum, EventHeroTopic, RecentTopic, Thread } from '../types/forum';
 
 /** Lowercase, hyphenate, strip non-alphanumerics. Falls back to "topic" when empty. */
 export function slugifyTitle(input: string): string {
@@ -18,14 +18,14 @@ export function parseLeadingId(param: string | undefined): number | null {
 }
 
 /** /forum/{id}-{slug} — id is the lookup key, slug is decorative. */
-export function categoryPath(category: Pick<Category, 'id' | 'slug' | 'name'>): string {
+export function categoryPath(category: Pick<Forum, 'id' | 'slug' | 'name'>): string {
   const slug = category.slug || slugifyTitle(category.name);
   return `/forum/${category.id}-${slug}`;
 }
 
 /** /forum/{catId}-{catSlug}/{topicId}-{topicSlug} */
 export function threadPath(
-  category: Pick<Category, 'id' | 'slug' | 'name'>,
+  category: Pick<Forum, 'id' | 'slug' | 'name'>,
   thread: Pick<Thread, 'id' | 'slug' | 'title'>
 ): string {
   const tSlug = thread.slug || slugifyTitle(thread.title);
@@ -61,7 +61,7 @@ export function groupConversationPath(conversationId: number): string {
  *
  * Delegates to `threadPath` (which itself composes `categoryPath`) instead of
  * re-authoring the template — `RecentTopic.board.id`/`RecentTopic.id` are
- * `number` while `Category.id`/`Thread.id` are `string`, so the id fields are
+ * `number` while `Forum.id`/`Thread.id` are `string`, so the id fields are
  * cast to `string` at the call site rather than widening either helper's
  * parameter types repo-wide. Output stays byte-identical to the old literal
  * template for the normal case (board.slug/topic.slug always populated), and

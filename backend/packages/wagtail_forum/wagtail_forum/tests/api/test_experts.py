@@ -9,17 +9,15 @@ from django.test.utils import CaptureQueriesContext, override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile
+from wagtail_forum.models import ForumProfile
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _board(board_slug="general", board_title="General"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title=board_title, slug=board_slug))
+    return make_forum(name=board_title, slug=board_slug)
 
 
 @pytest.mark.django_db

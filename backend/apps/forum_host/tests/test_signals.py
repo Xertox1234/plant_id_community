@@ -2,10 +2,7 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
-from wagtail.models import Page, PageViewRestriction
 from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
     Notification,
     NotificationVerb,
     Post,
@@ -13,6 +10,7 @@ from wagtail_forum.models import (
     TopicRead,
     TopicSubscription,
 )
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 User = get_user_model()
 
@@ -27,9 +25,7 @@ def test_publishing_a_reply_dispatches_a_host_notification(monkeypatch):
     )
 
     author = User.objects.create_user(username="ada")
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     topic = Topic.objects.create(board=board, title="T", slug="t", author=author)
 
     opening = Post.objects.create(topic=topic, author=author, is_opening_post=True)
@@ -56,9 +52,7 @@ def test_reply_added_enqueues_push_for_topic_author(django_capture_on_commit_cal
     topic_author = User.objects.create_user(username="topicowner")
     replier = User.objects.create_user(username="replier")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum2", slug="forum2"))
-    board = index.add_child(instance=ForumBoard(title="General2", slug="general2"))
+    board = make_forum(name="General2", slug="general2")
     topic = Topic.objects.create(
         board=board, title="T2", slug="t2", author=topic_author
     )
@@ -108,9 +102,7 @@ def test_reply_added_does_not_notify_a_recipient_who_blocked_the_replier(
     replier = User.objects.create_user(username="replier-blocked")
     UserBlock.block(topic_author, replier)
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum3", slug="forum3"))
-    board = index.add_child(instance=ForumBoard(title="General3", slug="general3"))
+    board = make_forum(name="General3", slug="general3")
     topic = Topic.objects.create(
         board=board, title="T3", slug="t3", author=topic_author
     )
@@ -143,9 +135,7 @@ def test_reply_added_does_not_notify_a_subscriber_who_muted_the_replier(
     replier = User.objects.create_user(username="replier-muted")
     UserMute.mute(topic_author, replier)
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum4", slug="forum4"))
-    board = index.add_child(instance=ForumBoard(title="General4", slug="general4"))
+    board = make_forum(name="General4", slug="general4")
     topic = Topic.objects.create(
         board=board, title="T4", slug="t4", author=topic_author
     )
@@ -180,9 +170,7 @@ def test_reply_added_still_notifies_a_subscriber_the_replier_has_muted(
     replier = User.objects.create_user(username="replier-who-mutes")
     UserMute.mute(replier, topic_author)  # reverse direction
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum5", slug="forum5"))
-    board = index.add_child(instance=ForumBoard(title="General5", slug="general5"))
+    board = make_forum(name="General5", slug="general5")
     topic = Topic.objects.create(
         board=board, title="T5", slug="t5", author=topic_author
     )
@@ -213,9 +201,7 @@ def test_reply_added_does_not_notify_a_mentioned_user_who_blocked_the_replier(
     mentioned = User.objects.create_user(username="mentioned-blocker")
     UserBlock.block(mentioned, replier)
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum4", slug="forum4"))
-    board = index.add_child(instance=ForumBoard(title="General4", slug="general4"))
+    board = make_forum(name="General4", slug="general4")
     topic = Topic.objects.create(
         board=board, title="T4", slug="t4", author=topic_author
     )
@@ -254,9 +240,7 @@ def test_reply_added_enqueues_email_for_topic_author(
     topic_author = User.objects.create_user(username="topicowner12")
     replier = User.objects.create_user(username="replier12")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum12", slug="forum12"))
-    board = index.add_child(instance=ForumBoard(title="General12", slug="general12"))
+    board = make_forum(name="General12", slug="general12")
     topic = Topic.objects.create(
         board=board, title="T12", slug="t12", author=topic_author
     )
@@ -292,9 +276,7 @@ def test_reply_added_fans_out_to_all_subscribers_excluding_replier(
     subscriber_b = User.objects.create_user(username="fanout-sub-b")
     replier = User.objects.create_user(username="fanout-replier")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="ForumFO", slug="forum-fo"))
-    board = index.add_child(instance=ForumBoard(title="GeneralFO", slug="general-fo"))
+    board = make_forum(name="GeneralFO", slug="general-fo")
     topic = Topic.objects.create(
         board=board, title="TFO", slug="t-fo", author=topic_author
     )
@@ -343,9 +325,7 @@ def test_reply_added_notifies_subscribers_when_topic_author_is_deleted(
     subscriber = User.objects.create_user(username="fanout-survivor")
     replier = User.objects.create_user(username="fanout-replier2")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="ForumGH", slug="forum-gh"))
-    board = index.add_child(instance=ForumBoard(title="GeneralGH", slug="general-gh"))
+    board = make_forum(name="GeneralGH", slug="general-gh")
     topic = Topic.objects.create(
         board=board, title="TGH", slug="t-gh", author=ghost_author
     )
@@ -377,9 +357,7 @@ def test_reply_added_auto_subscribes_the_replier(django_capture_on_commit_callba
     topic_author = User.objects.create_user(username="autosub-author")
     first_replier = User.objects.create_user(username="autosub-first")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="ForumAS", slug="forum-as"))
-    board = index.add_child(instance=ForumBoard(title="GeneralAS", slug="general-as"))
+    board = make_forum(name="GeneralAS", slug="general-as")
     topic = Topic.objects.create(
         board=board, title="TAS", slug="t-as", author=topic_author
     )
@@ -403,9 +381,7 @@ def test_reply_added_auto_subscribes_the_replier(django_capture_on_commit_callba
 def test_topic_created_auto_subscribes_the_author():
     author = User.objects.create_user(username="topiccreate-author")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="ForumTC", slug="forum-tc"))
-    board = index.add_child(instance=ForumBoard(title="GeneralTC", slug="general-tc"))
+    board = make_forum(name="GeneralTC", slug="general-tc")
     topic = Topic.objects.create(board=board, title="TTC", slug="t-tc", author=author)
 
     from apps.forum_host.notifications import dispatch
@@ -419,9 +395,7 @@ def test_topic_created_auto_subscribes_the_author():
 def test_topic_created_without_author_does_not_raise():
     """An admin-created topic can have no author (Topic.author is nullable) —
     there's nobody to auto-subscribe; dispatch must not raise."""
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="ForumTC2", slug="forum-tc2"))
-    board = index.add_child(instance=ForumBoard(title="GeneralTC2", slug="general-tc2"))
+    board = make_forum(name="GeneralTC2", slug="general-tc2")
     topic = Topic.objects.create(board=board, title="TTC2", slug="t-tc2", author=None)
 
     from apps.forum_host.notifications import dispatch
@@ -441,9 +415,7 @@ def test_reply_added_marks_the_repliers_own_topic_as_read(
     topic_author = User.objects.create_user(username="ownread-author")
     replier = User.objects.create_user(username="ownread-replier")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="ForumOR", slug="forum-or"))
-    board = index.add_child(instance=ForumBoard(title="GeneralOR", slug="general-or"))
+    board = make_forum(name="GeneralOR", slug="general-or")
     topic = Topic.objects.create(
         board=board, title="TOR", slug="t-or", author=topic_author
     )
@@ -467,11 +439,7 @@ def test_topic_created_marks_the_authors_own_topic_as_read():
     253 slice 5 review, Angle A) — mirrors the reply_added fix above."""
     author = User.objects.create_user(username="ownread-tc-author")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="ForumORTC", slug="forum-ortc"))
-    board = index.add_child(
-        instance=ForumBoard(title="GeneralORTC", slug="general-ortc")
-    )
+    board = make_forum(name="GeneralORTC", slug="general-ortc")
     topic = Topic.objects.create(
         board=board, title="TORTC", slug="t-ortc", author=author
     )
@@ -491,11 +459,7 @@ def test_topic_created_with_no_opening_post_does_not_mark_read():
     resolution above) of skipping post-dependent behavior when post is None."""
     author = User.objects.create_user(username="ownread-tc-noauthor")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="ForumORTC2", slug="forum-ortc2"))
-    board = index.add_child(
-        instance=ForumBoard(title="GeneralORTC2", slug="general-ortc2")
-    )
+    board = make_forum(name="GeneralORTC2", slug="general-ortc2")
     topic = Topic.objects.create(
         board=board, title="TORTC2", slug="t-ortc2", author=author
     )
@@ -522,13 +486,7 @@ def test_reply_added_read_marker_keeps_pace_with_real_publish_timing(
     topic_author = User.objects.create_user(username="timing-author")
     replier = User.objects.create_user(username="timing-replier")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(
-        instance=ForumIndex(title="ForumTiming", slug="forum-timing")
-    )
-    board = index.add_child(
-        instance=ForumBoard(title="GeneralTiming", slug="general-timing")
-    )
+    board = make_forum(name="GeneralTiming", slug="general-timing")
     topic = Topic.objects.create(
         board=board, title="TTiming", slug="t-timing", author=topic_author
     )
@@ -572,13 +530,7 @@ def test_reply_added_write_path_query_count_is_independent_of_subscriber_count(
 
     def _dispatch_reply(n_subscribers, slug):
         topic_author = User.objects.create_user(username=f"qc-author-{slug}")
-        root = Page.objects.get(id=1)
-        index = root.add_child(
-            instance=ForumIndex(title=f"ForumQC{slug}", slug=f"forum-qc-{slug}")
-        )
-        board = index.add_child(
-            instance=ForumBoard(title=f"GeneralQC{slug}", slug=f"general-qc-{slug}")
-        )
+        board = make_forum(name=f"GeneralQC{slug}", slug=f"general-qc-{slug}")
         topic = Topic.objects.create(
             board=board, title="T", slug=f"t-{slug}", author=topic_author
         )
@@ -613,9 +565,7 @@ def test_reply_added_does_not_notify_for_self_reply(django_capture_on_commit_cal
     not by an early-return on topic_author-equals-post_author)."""
     author = User.objects.create_user(username="selfie")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum3", slug="forum3"))
-    board = index.add_child(instance=ForumBoard(title="General3", slug="general3"))
+    board = make_forum(name="General3", slug="general3")
     topic = Topic.objects.create(board=board, title="T3", slug="t3", author=author)
     TopicSubscription.subscribe(author, topic)
 
@@ -639,9 +589,7 @@ def test_moderation_decided_enqueues_push_for_post_author():
     """moderation_decided must enqueue send_forum_push for the post's author."""
     author = User.objects.create_user(username="modauthor")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum4", slug="forum4"))
-    board = index.add_child(instance=ForumBoard(title="General4", slug="general4"))
+    board = make_forum(name="General4", slug="general4")
     topic = Topic.objects.create(board=board, title="T4", slug="t4", author=author)
     post = Post(topic=topic, author=author)
 
@@ -664,9 +612,7 @@ def test_moderation_decided_without_topic_kwarg_does_not_send_none_topic_id():
     """
     author = User.objects.create_user(username="modauthor2")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum5", slug="forum5"))
-    board = index.add_child(instance=ForumBoard(title="General5", slug="general5"))
+    board = make_forum(name="General5", slug="general5")
     topic = Topic.objects.create(board=board, title="T5", slug="t5", author=author)
     post = Post(topic=topic, author=author)
 
@@ -689,9 +635,7 @@ def test_reply_added_swallows_push_delay_failure(
     topic_author = User.objects.create_user(username="topicowner2")
     replier = User.objects.create_user(username="replier2")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum6", slug="forum6"))
-    board = index.add_child(instance=ForumBoard(title="General6", slug="general6"))
+    board = make_forum(name="General6", slug="general6")
     topic = Topic.objects.create(
         board=board, title="T6", slug="t6", author=topic_author
     )
@@ -729,9 +673,7 @@ def test_reply_added_persists_notification_row(django_capture_on_commit_callback
     topic_author = User.objects.create_user(username="topicowner9")
     replier = User.objects.create_user(username="replier9")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum9", slug="forum9"))
-    board = index.add_child(instance=ForumBoard(title="General9", slug="general9"))
+    board = make_forum(name="General9", slug="general9")
     topic = Topic.objects.create(
         board=board, title="T9", slug="t9", author=topic_author
     )
@@ -769,9 +711,7 @@ def test_reply_added_notification_and_push_roll_back_together():
     topic_author = User.objects.create_user(username="topicowner10")
     replier = User.objects.create_user(username="replier10")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum10", slug="forum10"))
-    board = index.add_child(instance=ForumBoard(title="General10", slug="general10"))
+    board = make_forum(name="General10", slug="general10")
     topic = Topic.objects.create(
         board=board, title="T10", slug="t10", author=topic_author
     )
@@ -802,9 +742,7 @@ def test_reply_added_skips_push_when_notification_write_fails(
     topic_author = User.objects.create_user(username="topicowner11")
     replier = User.objects.create_user(username="replier11")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum11", slug="forum11"))
-    board = index.add_child(instance=ForumBoard(title="General11", slug="general11"))
+    board = make_forum(name="General11", slug="general11")
     topic = Topic.objects.create(
         board=board, title="T11", slug="t11", author=topic_author
     )
@@ -833,9 +771,7 @@ def test_moderation_decided_swallows_push_delay_failure(caplog):
     """A Celery/broker failure on enqueue must not propagate out of dispatch() (todo 252)."""
     author = User.objects.create_user(username="modauthor3")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum7", slug="forum7"))
-    board = index.add_child(instance=ForumBoard(title="General7", slug="general7"))
+    board = make_forum(name="General7", slug="general7")
     topic = Topic.objects.create(board=board, title="T7", slug="t7", author=author)
     post = Post(topic=topic, author=author)
 
@@ -865,9 +801,7 @@ def test_reply_mentioning_a_user_creates_mention_notification(
     mentioned = User.objects.create_user(username="mentionbob")
     replier = User.objects.create_user(username="mention-replier")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="ForumM1", slug="forum-m1"))
-    board = index.add_child(instance=ForumBoard(title="GeneralM1", slug="general-m1"))
+    board = make_forum(name="GeneralM1", slug="general-m1")
     topic = Topic.objects.create(
         board=board, title="TM1", slug="t-m1", author=topic_author
     )
@@ -916,9 +850,7 @@ def test_reply_mention_suppresses_duplicate_subscriber_notification(
     plain_subscriber = User.objects.create_user(username="mention-sub-plain")
     replier = User.objects.create_user(username="mention-sub-replier")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="ForumM2", slug="forum-m2"))
-    board = index.add_child(instance=ForumBoard(title="GeneralM2", slug="general-m2"))
+    board = make_forum(name="GeneralM2", slug="general-m2")
     topic = Topic.objects.create(
         board=board, title="TM2", slug="t-m2", author=topic_author
     )
@@ -966,9 +898,7 @@ def test_reply_mention_suppresses_duplicate_subscriber_notification(
 def test_reply_mention_excludes_self_mention(django_capture_on_commit_callbacks):
     topic_author = User.objects.create_user(username="mentionselfauthor")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="ForumM3", slug="forum-m3"))
-    board = index.add_child(instance=ForumBoard(title="GeneralM3", slug="general-m3"))
+    board = make_forum(name="GeneralM3", slug="general-m3")
     topic = Topic.objects.create(
         board=board, title="TM3", slug="t-m3", author=topic_author
     )
@@ -1005,10 +935,8 @@ def test_reply_mention_on_restricted_board_does_not_notify(
     mentioned = User.objects.create_user(username="mentionrestrictedbob")
     replier = User.objects.create_user(username="mention-restricted-replier")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="ForumM4", slug="forum-m4"))
-    board = index.add_child(instance=ForumBoard(title="GeneralM4", slug="general-m4"))
-    PageViewRestriction.objects.create(page=board, restriction_type="login")
+    board = make_forum(name="GeneralM4", slug="general-m4")
+    hide_forum(board)
     topic = Topic.objects.create(
         board=board, title="TM4", slug="t-m4", author=topic_author
     )
@@ -1045,9 +973,7 @@ def test_topic_created_mentioning_a_user_notifies_via_opening_post(
     topic_author = User.objects.create_user(username="mention-topic-author")
     mentioned = User.objects.create_user(username="mentiontopicbob")
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="ForumM5", slug="forum-m5"))
-    board = index.add_child(instance=ForumBoard(title="GeneralM5", slug="general-m5"))
+    board = make_forum(name="GeneralM5", slug="general-m5")
     topic = Topic.objects.create(
         board=board, title="TM5", slug="t-m5", author=topic_author
     )
@@ -1085,13 +1011,7 @@ def test_mention_resolution_query_count_is_independent_of_mention_count(
 
     def _dispatch_mentions(n_mentions, slug):
         topic_author = User.objects.create_user(username=f"mqc-author-{slug}")
-        root = Page.objects.get(id=1)
-        index = root.add_child(
-            instance=ForumIndex(title=f"ForumMQC{slug}", slug=f"forum-mqc-{slug}")
-        )
-        board = index.add_child(
-            instance=ForumBoard(title=f"GeneralMQC{slug}", slug=f"general-mqc-{slug}")
-        )
+        board = make_forum(name=f"GeneralMQC{slug}", slug=f"general-mqc-{slug}")
         topic = Topic.objects.create(
             board=board, title="T", slug=f"t-{slug}", author=topic_author
         )
@@ -1147,15 +1067,7 @@ def test_reply_added_enqueue_count_is_constant_regardless_of_subscriber_count(
 
     def _dispatch_reply(n_subscribers, slug):
         topic_author = User.objects.create_user(username=f"const-author-{slug}")
-        root = Page.objects.get(id=1)
-        index = root.add_child(
-            instance=ForumIndex(title=f"ForumConst{slug}", slug=f"forum-const-{slug}")
-        )
-        board = index.add_child(
-            instance=ForumBoard(
-                title=f"GeneralConst{slug}", slug=f"general-const-{slug}"
-            )
-        )
+        board = make_forum(name=f"GeneralConst{slug}", slug=f"general-const-{slug}")
         topic = Topic.objects.create(
             board=board, title="TC", slug=f"t-const-{slug}", author=topic_author
         )

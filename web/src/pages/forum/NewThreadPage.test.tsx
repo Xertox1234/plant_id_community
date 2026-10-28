@@ -74,7 +74,7 @@ function renderPage() {
 // switch to finish -- the fetch resolved and the page re-rendered with it --
 // rather than for the fetch to start (todo 634).
 function serveBoardFive() {
-  vi.mocked(forumService.fetchCategory).mockImplementation(async (id) =>
+  vi.mocked(forumService.fetchForum).mockImplementation(async (id) =>
     Number(id) === 5
       ? { id: '5', name: 'Pests', slug: 'pests', created_at: '' }
       : { id: '3', name: 'Plant Care', slug: 'plant-care', created_at: '' }
@@ -94,7 +94,7 @@ describe('NewThreadPage', () => {
       new URLSearchParams('category=3-plant-care'),
       vi.fn(),
     ]);
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue({
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue({
       id: '3',
       name: 'Plant Care',
       slug: 'plant-care',
@@ -446,7 +446,7 @@ describe('NewThreadPage', () => {
 
   it('offers a board picker when no ?category= is supplied, and lets you pick one (L4)', async () => {
     vi.mocked(ReactRouter.useSearchParams).mockReturnValue([new URLSearchParams(''), vi.fn()]);
-    vi.spyOn(forumService, 'fetchCategories').mockResolvedValue([
+    vi.spyOn(forumService, 'fetchForums').mockResolvedValue([
       { id: '3', name: 'Plant Care', slug: 'plant-care', created_at: '' },
       { id: '4', name: 'Pests', slug: 'pests', created_at: '' },
     ]);
@@ -688,7 +688,7 @@ describe('NewThreadPage', () => {
         </AnnouncerProvider>
       </MemoryRouter>
     );
-    await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(forumService.fetchForum).toHaveBeenCalledWith(5));
     // Board B's draft is loaded into the form (todo 575), not left unseen
     // under a form the next keystroke would save over it.
     await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue('Board B words'));
@@ -724,7 +724,7 @@ describe('NewThreadPage', () => {
         </AnnouncerProvider>
       </MemoryRouter>
     );
-    await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(forumService.fetchForum).toHaveBeenCalledWith(5));
     await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue('Pest question'));
     expect(screen.getByLabelText('body')).toHaveValue('<p>aphids</p>');
     expect(screen.getByLabelText(/tags/i)).toHaveValue('bugs');
@@ -760,7 +760,7 @@ describe('NewThreadPage', () => {
         </AnnouncerProvider>
       </MemoryRouter>
     );
-    await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(forumService.fetchForum).toHaveBeenCalledWith(5));
     // B has a stored draft, so the form switches to it — empty, as on mount.
     await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue(''));
     expect(loadDraft(keyB)).toBe(storedB);
@@ -1031,7 +1031,7 @@ describe('NewThreadPage', () => {
         </AnnouncerProvider>
       </MemoryRouter>
     );
-    await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(forumService.fetchForum).toHaveBeenCalledWith(5));
     expect(loadDraft(keyB)).toBeNull();
     // Board B has no stored draft, so the form keeps board A's text (owner
     // decision 2026-10-11) and A's draft stays saved under A's key.
@@ -1101,7 +1101,7 @@ describe('NewThreadPage', () => {
       // ?category= — so the live path is the board-picker one (L4), not the
       // pre-selected board every other test here mocks.
       vi.mocked(ReactRouter.useSearchParams).mockReturnValue([new URLSearchParams(''), vi.fn()]);
-      vi.spyOn(forumService, 'fetchCategories').mockResolvedValue([
+      vi.spyOn(forumService, 'fetchForums').mockResolvedValue([
         { id: '3', name: 'Plant Care', slug: 'plant-care', created_at: '' },
       ]);
       vi.spyOn(forumService, 'createThread').mockResolvedValue({

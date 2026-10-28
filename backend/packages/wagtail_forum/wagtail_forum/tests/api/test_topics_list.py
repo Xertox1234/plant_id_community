@@ -6,24 +6,15 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    ForumProfile,
-    Topic,
-    TopicRead,
-    UserBlock,
-)
+from wagtail_forum.models import ForumProfile, Topic, TopicRead, UserBlock
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _board():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug="general"))
+    return make_forum(name="General", slug="general")
 
 
 @pytest.mark.django_db
@@ -58,7 +49,9 @@ def test_topics_list_is_cursor_paginated_with_bounded_queries():
     # test_topic_tags.py).
     # Pinned EXACTLY (docs/rules/testing.md) — an N+1 hiding under a <= ceiling
     # passes silently; if this changes, explain the new number here.
-    assert len(ctx.captured_queries) == 4
+    # 4 -> 3 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 3
 
 
 @pytest.mark.django_db
@@ -411,7 +404,9 @@ def test_topics_list_authenticated_query_count_is_still_pinned_at_3():
     # — a pre-existing test-isolation gap, unrelated to this change. Run
     # `redis-cli -n 1 flushdb` (or wait out the TTL) before trusting a
     # standalone re-run of this test.
-    assert len(ctx.captured_queries) == 7
+    # 7 -> 6 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 6
 
 
 @pytest.mark.django_db
@@ -692,7 +687,9 @@ def test_topic_list_query_count_unaffected_by_blocks():
         resp = client.get(f"/forum/boards/{board.slug}/topics/")
 
     assert resp.status_code == 200
-    assert len(ctx.captured_queries) == 7  # same pin as the 0-blocks case above
+    # 7 -> 6 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 6  # same pin as the 0-blocks case above
 
 
 @pytest.mark.django_db

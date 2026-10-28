@@ -10,8 +10,8 @@ from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
-from wagtail.models import PageViewRestriction
 from wagtail_forum.models import Post, UserBlock
+from wagtail_forum.tests.factories import hide_forum
 
 from .test_post_list import _topic_with_image_posts, _topic_with_posts
 
@@ -75,7 +75,7 @@ def test_get_post_in_unpublished_topic_404():
 @pytest.mark.django_db
 def test_get_post_on_restricted_board_404():
     topic = _topic_with_posts(1)
-    PageViewRestriction.objects.create(page=topic.board, restriction_type="login")
+    hide_forum(topic.board)
     resp = _client().get(f"/forum/posts/{_first_post(topic).id}/")
     assert resp.status_code == 404
 
@@ -119,6 +119,8 @@ def test_get_post_query_count_flat():
     # post itself (topic + board visibility as a subquery, author and avatar
     # joined), the viewer's reactions, the batched image fetch and its
     # renditions. Flat: the same maps the list builds for a page.
-    assert len(ctx.captured_queries) == 6, [
+    # 6 -> 5 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 5, [
         q["sql"][:120] for q in ctx.captured_queries
     ]

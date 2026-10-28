@@ -4,7 +4,12 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import * as ReactRouter from 'react-router-dom';
 import ThreadDetailPage, { NEW_REPLIES_POLL_INTERVAL_MS } from './ThreadDetailPage';
-import { createMockThread, createMockPost } from '../../tests/forumUtils';
+import {
+  createMockCategory,
+  createMockForum,
+  createMockThread,
+  createMockPost,
+} from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
 import * as blogService from '../../services/blogService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -223,6 +228,27 @@ describe('ThreadDetailPage', () => {
     const breadcrumb = screen.getByLabelText('Breadcrumb');
     expect(breadcrumb).toHaveTextContent('Forum');
     expect(breadcrumb).toHaveTextContent('Plant Care');
+  });
+
+  it('puts the forum category between Forum and the board in the breadcrumb (todo 665)', async () => {
+    const board = createMockForum({ id: '3', name: 'Plant Care', slug: 'plant-care' });
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ title: 'Watering tips', category: board })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    vi.mocked(forumService.fetchForumCategory).mockResolvedValue(
+      createMockCategory({ id: '1', name: 'Indoor plants', forums: [board] })
+    );
+
+    renderThreadDetailPage();
+
+    const breadcrumb = await screen.findByLabelText('Breadcrumb');
+    await waitFor(() =>
+      expect(breadcrumb.textContent?.replace(/\s+/g, '')).toBe(
+        'Forum/Indoorplants/PlantCare/Wateringtips'
+      )
+    );
+    expect(forumService.fetchForumCategory).toHaveBeenCalledWith('3');
   });
 
   it('displays pinned badge when thread is pinned', async () => {

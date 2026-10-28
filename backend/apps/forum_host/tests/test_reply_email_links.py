@@ -13,8 +13,8 @@ from apps.forum_host.tasks import send_forum_email_batch
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.test import override_settings
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 HREF = re.compile(r'href="([^"]*)"')
@@ -27,12 +27,7 @@ def _reply(prefix):
     replier = User.objects.create_user(
         username=f"{prefix}-replier", email=f"{prefix}-replier@example.com"
     )
-    index = Page.objects.get(id=1).add_child(
-        instance=ForumIndex(title=prefix, slug=prefix)
-    )
-    board = index.add_child(
-        instance=ForumBoard(title=f"{prefix} board", slug=f"{prefix}-board")
-    )
+    board = make_forum(name=f"{prefix} board", slug=f"{prefix}-board")
     topic = Topic.objects.create(
         board=board, title="Yellow leaves", slug="yellow-leaves", author=owner
     )

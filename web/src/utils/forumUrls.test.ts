@@ -8,7 +8,7 @@ import {
   conversationPath,
   groupConversationPath,
 } from './forumUrls';
-import type { Category, Thread } from '../types/forum';
+import type { Forum, Thread } from '../types/forum';
 
 describe('forumUrls', () => {
   it('slugifies titles', () => {
@@ -24,7 +24,7 @@ describe('forumUrls', () => {
   });
 
   it('builds id-anchored category and thread paths', () => {
-    const category = { id: '3', name: 'Plant Care', slug: 'plant-care' } as Category;
+    const category = { id: '3', name: 'Plant Care', slug: 'plant-care' } as Forum;
     const thread = {
       id: '12',
       title: 'Succulent help',

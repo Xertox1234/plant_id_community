@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 from django.test import override_settings
 from rest_framework.test import APIClient
 from wagtail_forum.models import ForumProfile
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
@@ -192,20 +193,11 @@ def test_the_link_is_the_topic_at_the_post():
 @pytest.mark.django_db
 def test_a_reply_enqueues_the_web_push_beside_fcm(django_capture_on_commit_callbacks):
     from apps.forum_host.notifications import dispatch
-    from wagtail.models import Page
-    from wagtail_forum.models import (
-        ForumBoard,
-        ForumIndex,
-        Post,
-        Topic,
-        TopicSubscription,
-    )
+    from wagtail_forum.models import Post, Topic, TopicSubscription
 
     topic_author = User.objects.create_user(username="wp-owner")
     replier = User.objects.create_user(username="wp-replier")
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="ForumWP", slug="forum-wp"))
-    board = index.add_child(instance=ForumBoard(title="WP", slug="wp"))
+    board = make_forum(name="WP", slug="wp")
     topic = Topic.objects.create(board=board, title="T", slug="t", author=topic_author)
     TopicSubscription.subscribe(topic_author, topic)
 

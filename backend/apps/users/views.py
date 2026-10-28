@@ -771,15 +771,16 @@ def dashboard_stats(request: Request) -> Response:
     from datetime import timedelta
 
     from django.db.models import Count, Q
-    from wagtail_forum.models import ForumBoard, Post, Topic
+    from wagtail_forum.api.views import _visible_boards
+    from wagtail_forum.models import Post, Topic
 
     thirty_days_ago = timezone.now() - timedelta(days=30)
     # Only what the forum itself would show (PR #821 review): a topic on a
-    # live, unrestricted board, and a post in such a live topic. Mirrors the
-    # package's api.views._visible_boards() and its own post recount
-    # (live=True, topic__live=True), so a taken-down topic's replies stop
-    # counting and never link to a 404.
-    visible_boards = ForumBoard.objects.live().public()
+    # visible forum, and a post in such a live topic. Uses the package's own
+    # api.views._visible_boards() (todo 665: no second copy of the rule) and
+    # its post recount (live=True, topic__live=True), so a taken-down topic's
+    # replies stop counting and never link to a 404.
+    visible_boards = _visible_boards()
     my_topics = Topic.objects.filter(
         author=request.user, live=True, board__in=visible_boards
     )

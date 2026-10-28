@@ -11,24 +11,15 @@ Covers the 2026-06-10 forum audit findings:
 import pytest
 from django.contrib.auth import get_user_model
 from wagtail.actions.unpublish import UnpublishAction
-from wagtail.models import Page
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    ForumProfile,
-    Post,
-    Topic,
-    TrustLevel,
-)
+from wagtail_forum.models import ForumProfile, Post, Topic, TrustLevel
 from wagtail_forum.signals import reply_added, topic_created
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
 
 def _board():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug="general"))
+    return make_forum(name="General", slug="general")
 
 
 def _topic(board, author, slug="t"):

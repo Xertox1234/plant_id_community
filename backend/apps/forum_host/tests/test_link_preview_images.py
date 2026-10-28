@@ -26,6 +26,7 @@ from django.test import override_settings
 from PIL import Image
 from rest_framework.test import APIClient
 from wagtail_forum.link_previews import is_cached_image_name, link_preview_envelope
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
@@ -434,14 +435,11 @@ def test_a_racing_duplicate_is_dropped_for_the_canonical_name(canonical_exists):
 def test_a_posted_link_card_serves_our_image_through_the_host_mount():
     """The fetcher is turned on for this test only: the host settings keep
     it off under test runs so no other test reaches the network."""
-    from wagtail.models import Page
-    from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, TrustLevel
+    from wagtail_forum.models import ForumProfile, TrustLevel
     from wagtail_forum.workflow import ensure_default_workflow
 
     ensure_default_workflow()
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum-card"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="card-board"))
+    board = make_forum(name="General", slug="card-board")
     author = User.objects.create_user(username="card-author")
     profile = ForumProfile.for_user(author)
     profile.trust_level = TrustLevel.MEMBER

@@ -1,23 +1,14 @@
 import pytest
 from django.contrib.auth import get_user_model
-from wagtail.models import Page
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    Notification,
-    NotificationVerb,
-    Post,
-    Topic,
-)
+from wagtail_forum.models import Notification, NotificationVerb, Post, Topic
 from wagtail_forum.notifications import create_notifications
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
 
 def _topic_and_post(topic_author, post_author=None):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     topic = Topic.objects.create(board=board, title="T", slug="t", author=topic_author)
     post = Post.objects.create(topic=topic, author=post_author or topic_author)
     return topic, post

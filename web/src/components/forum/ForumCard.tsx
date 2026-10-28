@@ -6,53 +6,59 @@ import Tile from '../ui/Tile';
 import Timestamp from '../ui/Timestamp';
 import { categoryPath } from '../../utils/forumUrls';
 import { boardIdentity } from '../../utils/forumTones';
-import type { Category } from '@/types';
+import type { Forum } from '@/types';
 
-interface CategoryCardProps {
-  category: Category;
+interface ForumCardProps {
+  forum: Forum;
+  /**
+   * The name's heading level. `h4` when the card sits under a category
+   * header (`h3`) on the forum index, so the outline nests (todo 665).
+   */
+  headingLevel?: 'h3' | 'h4';
 }
 
 /**
- * CategoryCard — a Canopy board row.
+ * ForumCard — a Canopy board row.
  *
  * Gradient card with the board's accent tile, name, description, and a mono
  * stat line. Subcategory chips sit OUTSIDE the row link (nested anchors are
  * invalid HTML).
  */
-function CategoryCard({ category }: CategoryCardProps) {
-  const hasChildren = !!(category.children && category.children.length > 0);
-  const { tone, Icon } = boardIdentity(category.slug);
+function ForumCard({ forum, headingLevel = 'h3' }: ForumCardProps) {
+  const Heading = headingLevel;
+  const hasChildren = !!(forum.children && forum.children.length > 0);
+  const { tone, Icon } = boardIdentity(forum.slug);
 
   return (
     <Card interactive className="p-card">
-      <Link to={categoryPath(category)} viewTransition className="flex items-start gap-4">
+      <Link to={categoryPath(forum)} viewTransition className="flex items-start gap-4">
         <Tile tone={tone} aria-hidden="true">
-          {category.icon ? (
-            <span className="text-xl leading-none">{category.icon}</span>
+          {forum.icon ? (
+            <span className="text-xl leading-none">{forum.icon}</span>
           ) : (
             <Icon className="h-5 w-5" />
           )}
         </Tile>
         <div className="min-w-0 flex-1">
-          <h3 className="gt-h3 text-ink">{category.name}</h3>
-          {category.description && (
+          <Heading className="gt-h3 text-ink">{forum.name}</Heading>
+          {forum.description && (
             <p className="mt-1 line-clamp-2 max-w-prose text-sm leading-relaxed text-ink-2">
-              {category.description}
+              {forum.description}
             </p>
           )}
           <div className="gt-label mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="inline-flex items-center gap-1">
               <MessagesSquare className="h-3 w-3" aria-hidden="true" />
-              {category.thread_count || 0} threads
+              {forum.thread_count || 0} threads
             </span>
             <span aria-hidden="true">·</span>
             <span className="inline-flex items-center gap-1">
               <Reply className="h-3 w-3" aria-hidden="true" />
-              {category.post_count || 0} posts
+              {forum.post_count || 0} posts
             </span>
             <span aria-hidden="true">·</span>
-            {category.last_post_at ? (
-              <Timestamp iso={category.last_post_at} prefix="Last activity" />
+            {forum.last_post_at ? (
+              <Timestamp iso={forum.last_post_at} prefix="Last activity" />
             ) : (
               <span>No activity yet</span>
             )}
@@ -63,7 +69,7 @@ function CategoryCard({ category }: CategoryCardProps) {
       {hasChildren && (
         <div className="mt-3 flex flex-wrap items-center gap-2 sm:pl-[62px]">
           <span className="gt-label">Subcategories</span>
-          {category.children.map((child) => (
+          {forum.children.map((child) => (
             <Link
               key={child.id}
               to={categoryPath(child)}
@@ -83,4 +89,4 @@ function CategoryCard({ category }: CategoryCardProps) {
   );
 }
 
-export default memo(CategoryCard);
+export default memo(ForumCard);

@@ -3,7 +3,9 @@ import * as forumService from './forumService';
 import { resetAllCapabilityLatches } from './capabilityLatch';
 import {
   fetchCategories,
-  fetchCategory,
+  fetchForumCategory,
+  fetchForums,
+  fetchForum,
   fetchThreads,
   fetchThread,
   createThread,
@@ -179,9 +181,9 @@ function okJson(body: unknown) {
 describe('forumService (wagtail_forum API contract)', () => {
   // --- Categories (boards) --------------------------------------------------
 
-  it('fetchCategories hits /boards/ and maps board→category', async () => {
+  it('fetchForums hits /boards/ and maps board→category', async () => {
     fetchMock.mockResolvedValueOnce(okJson({ results: [backendBoard] }));
-    const result = await fetchCategories();
+    const result = await fetchForums();
     expect(result[0]).toMatchObject({
       id: '3',
       name: 'Plant Care',
@@ -195,16 +197,73 @@ describe('forumService (wagtail_forum API contract)', () => {
     );
   });
 
-  it('fetchCategory resolves by integer id from /boards/', async () => {
+  it('fetchForum resolves by integer id from /boards/', async () => {
     fetchMock.mockResolvedValueOnce(okJson({ results: [backendBoard] }));
-    const c = await fetchCategory(3);
+    const c = await fetchForum(3);
     expect(c.id).toBe('3');
     expect(c.slug).toBe('plant-care');
   });
 
-  it('fetchCategory throws when id not found', async () => {
+  it('fetchForum throws when id not found', async () => {
     fetchMock.mockResolvedValueOnce(okJson({ results: [backendBoard] }));
-    await expect(fetchCategory(999)).rejects.toThrow('Category not found');
+    await expect(fetchForum(999)).rejects.toThrow('Forum not found');
+  });
+
+  it('fetchCategories hits /categories/ and maps each category with its forums (todo 665)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({
+        results: [
+          {
+            id: 1,
+            title: 'Indoor plants',
+            slug: 'indoor',
+            description: '',
+            position: 0,
+            topic_count: 2,
+            post_count: 9,
+            last_post_at: null,
+            forums: [backendBoard],
+          },
+        ],
+      })
+    );
+    const [category] = await fetchCategories();
+    expect(category).toMatchObject({
+      id: '1',
+      name: 'Indoor plants',
+      slug: 'indoor',
+      thread_count: 2,
+      post_count: 9,
+      last_post_at: null,
+    });
+    expect(category.forums.map((f) => f.id)).toEqual(['3']);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/forum/categories/'),
+      expect.objectContaining({ credentials: 'include' })
+    );
+  });
+
+  it('fetchForumCategory finds the category holding a forum, null when none or on failure', async () => {
+    const page = {
+      results: [
+        {
+          id: 1,
+          title: 'Indoor plants',
+          slug: 'indoor',
+          position: 0,
+          topic_count: 2,
+          post_count: 9,
+          last_post_at: null,
+          forums: [backendBoard],
+        },
+      ],
+    };
+    fetchMock.mockResolvedValueOnce(okJson(page));
+    expect((await fetchForumCategory(3))?.name).toBe('Indoor plants');
+    fetchMock.mockResolvedValueOnce(okJson(page));
+    expect(await fetchForumCategory(999)).toBeNull();
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) });
+    expect(await fetchForumCategory(3)).toBeNull();
   });
 
   // --- Threads (topics) -----------------------------------------------------

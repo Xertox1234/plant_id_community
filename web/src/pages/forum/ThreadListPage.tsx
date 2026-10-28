@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
 import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { Info } from 'lucide-react';
-import { fetchThreads, fetchCategory } from '../../services/forumService';
+import { fetchThreads, fetchForum } from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
+import { useForumCategory } from '../../hooks/useForumCategory';
 import { boardIdentity } from '../../utils/forumTones';
 import ThreadCard from '../../components/forum/ThreadCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
@@ -17,7 +18,7 @@ import FromTheBlogModule from '../../components/forum/rail/FromTheBlogModule';
 import PageMeta from '../../components/PageMeta';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
-import type { Thread, Category } from '@/types';
+import type { Thread, Forum } from '@/types';
 
 const SORT_OPTIONS = [
   { value: '-last_activity_at', label: 'Active' },
@@ -39,7 +40,9 @@ export default function ThreadListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const [category, setCategory] = useState<Category | null>(null);
+  const [category, setCategory] = useState<Forum | null>(null);
+  // The forum's own category, for the Category › Forum breadcrumb (todo 665).
+  const parentCategory = useForumCategory(category?.id);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +64,7 @@ export default function ThreadListPage() {
   const boardSlugRef = useRef<string | null>(null);
   // Cache the resolved category (keyed on its forum id) so a pure sort change
   // reuses it instead of re-fetching the boards list on every dropdown change.
-  const categoryCacheRef = useRef<{ forumId: number; category: Category } | null>(null);
+  const categoryCacheRef = useRef<{ forumId: number; category: Forum } | null>(null);
   // Monotonic request generation. A newer load (board nav or sort change) bumps
   // it; in-flight loads and Load More re-check it after each await and drop a
   // stale response, so a slow old-sort request can't clobber the current list or
@@ -103,7 +106,7 @@ export default function ThreadListPage() {
         let categoryData =
           categoryCacheRef.current?.forumId === forumId ? categoryCacheRef.current.category : null;
         if (!categoryData) {
-          categoryData = await fetchCategory(forumId);
+          categoryData = await fetchForum(forumId);
           if (loadGenRef.current !== gen) return;
           categoryCacheRef.current = { forumId, category: categoryData };
           boardSlugRef.current = categoryData.slug;
@@ -255,6 +258,12 @@ export default function ThreadListPage() {
             </Link>
           </li>
           <li aria-hidden="true">/</li>
+          {parentCategory && (
+            <>
+              <li>{parentCategory.name}</li>
+              <li aria-hidden="true">/</li>
+            </>
+          )}
           <li aria-current="page" className="text-ink-2">
             {category?.name}
           </li>
