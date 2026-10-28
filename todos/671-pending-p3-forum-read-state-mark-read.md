@@ -15,7 +15,7 @@ phpBB shows an unread marker per forum and offers 'mark forum read' and 'mark al
 ## Findings
 
 - Exists: per-topic reads `backend/packages/wagtail_forum/wagtail_forum/models/topic_reads.py`; unread annotation `api/views.py:197-230` using `ForumProfile.read_watermark_at` (`models/profiles.py:138`).
-- Missing: nothing writes `read_watermark_at` after creation (grep found no writer outside the model), so no mark-all-read; no per-forum read mark.
+- Missing: nothing advances `read_watermark_at` after profile creation — its only writers are creation defaults (`models/profiles.py:188`, `signals.py:175`), verified 2026-10-28 — so there is no mark-all-read; no per-forum read mark.
 - Source: owner request + phpBB/Discourse research, 2026-10-28 (Claude session).
 
 ## Recommended Action
@@ -42,3 +42,7 @@ phpBB shows an unread marker per forum and offers 'mark forum read' and 'mark al
 ### 2026-10-28 - Filed
 
 - Filed from the forum-categories research session (owner decisions in the design spec §1).
+
+### 2026-10-28 - Advisor review of the spec
+
+- Amended after an advisor review of the spec (slug constraint, page-row deletion order, link-type placement, Flutter list filter, naming).

@@ -19,7 +19,7 @@ phpBB link forums are rows on the index that redirect to a URL, optionally count
 
 ## Recommended Action
 
-1. Fields: `link_url` (http/https only, validated), `track_clicks`, `click_count`.
+1. Add the `link` option to the todo-666 admin form. Fields: `link_url` (http/https only, validated), `track_clicks`, `click_count`.
 2. Endpoint `/forum/links/{id}/go/` that increments atomically (`F()`) and 302s; untracked links render the URL directly with `rel="noopener nofollow"`.
 3. Link forums never accept topics (API 400/404) and never appear as move targets.
 
@@ -32,6 +32,8 @@ phpBB link forums are rows on the index that redirect to a URL, optionally count
 
 - [ ] Test: tracked click increments once per request and redirects; `javascript:` and other schemes rejected at save.
 - [ ] Test: creating a topic in a link forum is refused.
+- [ ] Test: link forums never appear in `GET /forum/boards/` (Flutter would fetch `/topics/` on them).
+- [ ] Test: the admin form offers `link` and requires a valid URL for it.
 - [ ] Web Vitest: link rows render as external links with a click count when tracked.
 
 ## Work Log
@@ -39,3 +41,7 @@ phpBB link forums are rows on the index that redirect to a URL, optionally count
 ### 2026-10-28 - Filed
 
 - Filed from the forum-categories research session (owner decisions in the design spec §1).
+
+### 2026-10-28 - Advisor review of the spec
+
+- Amended after an advisor review of the spec (slug constraint, page-row deletion order, link-type placement, Flutter list filter, naming).
