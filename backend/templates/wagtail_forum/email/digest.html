@@ -20,31 +20,43 @@ so the footer is this template's own.
 <p style="margin: 0 0 16px 0; color: #333333;">Hi {{ display_name }},</p>
 <p style="margin: 0 0 24px 0; color: #555555;">Here is what happened on the forum since {{ since|date:"j M" }}.</p>
 {% if watched %}
-<h2 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 600; color: #2c5f41;">New replies on topics you follow</h2>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 24px 0;">
-    {% for t in watched %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f0f7f2; border-radius: 8px; margin: 0 0 24px 0;">
     <tr>
-        <td style="padding: 8px 0; border-top: 1px solid #e9ecef;">
-            <a href="{{ t.url }}" style="color: #2c5f41; font-weight: 600; text-decoration: underline;">{{ t.title }}</a><br>
-            <span style="font-size: 14px; color: #6c757d;">{{ t.new_replies }} new {{ t.new_replies|pluralize:"reply,replies" }} · {{ t.board_title }}</span>
+        <td style="padding: 20px 20px 8px 20px;">
+            <h2 style="margin: 0 0 12px 0; font-size: 18px; font-weight: 600; color: #2c5f41;">New replies on topics you follow</h2>
+            {% for t in watched %}
+            {# Topics are separated by space, not divider lines (owner, todo 626). #}
+            <p style="margin: 0 0 16px 0;">
+                <a href="{{ t.url }}" style="color: #2c5f41; font-weight: 600; text-decoration: none;">{{ t.title }}</a><br>
+                <span style="display: inline-block; margin: 4px 6px 0 0; padding: 1px 8px; border-radius: 10px; background-color: #2c5f41; color: #ffffff; font-size: 12px; font-weight: 600;">{{ t.new_replies }} new</span><span style="font-size: 14px; color: #555555;">{{ t.board_title }}</span>
+            </p>
+            {% endfor %}
         </td>
     </tr>
-    {% endfor %}
 </table>
 {% endif %}
 {% if trending %}
-<h2 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 600; color: #2c5f41;">Active topics you have not seen</h2>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 24px 0;">
-    {% for t in trending %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f0f7f2; border-radius: 8px; margin: 0 0 24px 0;">
     <tr>
-        <td style="padding: 8px 0; border-top: 1px solid #e9ecef;">
-            <a href="{{ t.url }}" style="color: #2c5f41; font-weight: 600; text-decoration: underline;">{{ t.title }}</a><br>
-            <span style="font-size: 14px; color: #6c757d;">{{ t.reply_count }} {{ t.reply_count|pluralize:"reply,replies" }} · {{ t.board_title }}</span>
+        <td style="padding: 20px 20px 8px 20px;">
+            <h2 style="margin: 0 0 12px 0; font-size: 18px; font-weight: 600; color: #2c5f41;">Active topics you have not seen</h2>
+            {% for t in trending %}
+            <p style="margin: 0 0 16px 0;">
+                <a href="{{ t.url }}" style="color: #2c5f41; font-weight: 600; text-decoration: none;">{{ t.title }}</a><br>
+                <span style="font-size: 14px; color: #555555;">{{ t.reply_count }} {{ t.reply_count|pluralize:"reply,replies" }} · {{ t.board_title }}</span>
+            </p>
+            {% endfor %}
         </td>
     </tr>
-    {% endfor %}
 </table>
 {% endif %}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin: 8px auto 0 auto;">
+    <tr>
+        <td align="center">
+            <a href="{{ site_url }}/forum" class="email-button" style="display: inline-block; padding: 14px 28px; border-radius: 6px; background-color: #2c5f41; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none;">Go to the forum</a>
+        </td>
+    </tr>
+</table>
 {% endblock %}
 
 {% block footer %}
