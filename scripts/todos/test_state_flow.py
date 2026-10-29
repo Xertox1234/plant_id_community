@@ -2418,7 +2418,25 @@ def hardening_494_tests():
                                                                 | {"worktree": tmp, "blockers": "owner-only"}}])
             return raises(lambda: st.reopen_reverify(run_r, "5", "r"), st.TransitionError)
         both("494 F11/F17: --reverify is refused for a retried todo", retried_reverify,
-             'if entry.get("attempts", 0) != 0:', "if False:")
+             'if entry.get("attempts", 0) != 0 and any(a.get("tree_id") for a in entry.get("previous", [])):',
+             "if False:")
+
+    # A crash lost the execute workflow before any worker ran: the run marks it failed and retries it, so
+    # attempts is 1 but no earlier attempt left a tree for a verifier to judge. The retry's first worker then
+    # blocks on an owner-only criterion; its work can still be re-verified in place.
+    with tempfile.TemporaryDirectory() as tmp:
+        run, _, _ = blocked_world(tmp)
+        e = run["todos"]["7"]
+        e["attempts"] = 1
+        e["previous"] = [{"reason": "execute workflow lost", "group": "g0", "slot": 1, "wave": 0,
+                          "worktree": "/wt/lost", "branch": "worktree-g0"}]
+
+        def lost_workflow_reverify(st):
+            return not raises(lambda: st.reopen_reverify(copy.deepcopy(run), "7", "owner re-pointed"),
+                              st.TransitionError)
+        both("--reverify is allowed after a retry whose lost attempt left no tree", lost_workflow_reverify,
+             'if entry.get("attempts", 0) != 0 and any(a.get("tree_id") for a in entry.get("previous", [])):',
+             'if entry.get("attempts", 0) != 0:')
 
     # F3 / F17: repoint takes a blocked todo, or a ready one only when reopened with --reverify.
     with tempfile.TemporaryDirectory() as tmp:
