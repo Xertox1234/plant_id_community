@@ -4,6 +4,7 @@ every target is checked server-side."""
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.urls import reverse
 from wagtail.models import Revision
@@ -332,7 +333,6 @@ def test_an_empty_category_deletes_on_a_plain_confirm(admin_client):
 
 
 def test_delete_needs_the_delete_permission(client):
-    from django.contrib.auth.models import Permission
 
     forum = make_forum(name="Ferns", slug="ferns")
     user = User.objects.create_user(username="editor", email="e@x.io")
@@ -370,3 +370,42 @@ def test_a_topic_added_meanwhile_gives_a_form_error_not_a_500(
     assert "changed while you were on this page" in resp.content.decode()
     assert Forum.objects.filter(pk=forum.pk).exists()
     assert Topic.objects.get(pk=topic.pk).board_id == forum.pk
+
+
+def test_deleting_a_hidden_category_keeps_its_forums_hidden(admin_client):
+    hidden = make_category(name="Staff", slug="staff")
+    hidden.is_hidden = True
+    hidden.save()
+    visible = make_category(name="Plants", slug="plants")
+    forum = make_forum(name="Notes", slug="notes", category=hidden)
+
+    resp = admin_client.post(
+        reverse("wagtail_forum_forums:delete", args=(hidden.pk,)),
+        {"target_category": visible.pk},
+    )
+
+    assert resp.status_code == 302
+    forum.refresh_from_db()
+    assert forum.parent_id == visible.pk
+    assert forum.is_hidden is True
+
+
+def test_deleting_topics_needs_the_topic_delete_permission(client):
+    forum = make_forum(name="Ferns", slug="ferns")
+    topic = Topic.objects.create(board=forum, title="T", slug="t")
+    user = User.objects.create_user(username="structure", email="s@x.io")
+    user.user_permissions.set(
+        Permission.objects.filter(
+            codename__in=["access_admin", "change_forum", "delete_forum"]
+        )
+    )
+    client.force_login(user)
+
+    resp = client.post(
+        reverse("wagtail_forum_forums:delete", args=(forum.pk,)),
+        {"topics_action": forum_structure.DELETE},
+    )
+
+    assert resp.status_code == 200
+    assert "topics_action" in resp.context["form"].errors
+    assert Topic.objects.filter(pk=topic.pk, board=forum).exists()

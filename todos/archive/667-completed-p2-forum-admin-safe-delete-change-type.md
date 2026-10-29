@@ -119,3 +119,13 @@ Deleting a forum must never silently destroy topics (today's page-based board ca
 - Fixed: `test_a_failed_move_writes_no_redirect` failed before the transaction, so it never tested the rollback. Renamed to the refused case, plus a new test where a later `topics_moved` receiver raises: no redirect rows, topics stay on the source.
 - Declined: a client syncing `/sync/?board=<slug>` never sees moved topics leave the old board (no tombstone). Moves are a rare admin action and the topics still exist under the new board via an unfiltered sync; the code comment now states the limit.
 - Declined: deleting a very large forum's topics one by one holds row locks for the whole transaction. Admin-only and it keeps the package's per-topic delete receivers (profile counts, tombstones); no forum is near that size.
+
+### 2026-10-29 - Review round 2 (clean, nothing blocking), fixed by hand
+
+- Fixed: deleting a hidden category moved its forums under a visible one and so published them and their topics (2 reviewers). `empty_category` now sets `is_hidden` on forums leaving a hidden category for a visible one. Test + mutation check.
+- Fixed: deleting topics needed only forum-structure rights. Both views now offer "delete the topics" only with the forum `delete` permission and the topic `delete_topic` permission. Test: a forum change+delete user without topic delete is refused and the topic stays. Mutation check.
+- Declined: an unlocked target re-read in `validate_topic_target` can race a concurrent forum→category change (two admins at once; the target then holds topics). Rare, and the structure tree (todo 668) owns structural locking.
+- Declined: a topic arriving after the confirm page renders re-renders the form without the move/delete fields; reloading the page recovers.
+- Declined: redirect rows into a hidden forum expose its slug in `/api/v2/redirects/`; board renames already behave this way, and per-forum permissions (todos 675–677) replace `is_hidden`.
+- Declined: a move bumps `updated_at`, so moved topics jump to the top of the mobile "recent" sort, and moves into a hidden forum write no sync tombstone. Admin-only, rare; the comment documents the sync limit.
+- Declined: no admin audit log for change type or the bulk move (the final delete is logged); private `_refresh_board_counters` import; untested manual-redirect arms of `redirect_moved_topics`; category-order test with pk order equal to position order; per-topic delete cost on very large forums (see round 1).

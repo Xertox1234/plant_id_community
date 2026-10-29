@@ -202,6 +202,8 @@ def empty_forum(
 def empty_category(category: Forum, target: Forum | None) -> int:
     """Move the forums and links of ``category`` to the end of ``target``,
     keeping their order. Topic URLs carry no category, so nothing redirects.
+    Forums inherit a hidden category's visibility, so leaving a hidden
+    category for a visible one hides them rather than publishing them.
     A category with no forums needs no target. Returns the count moved."""
     with transaction.atomic():
         children = list(
@@ -213,10 +215,13 @@ def empty_category(category: Forum, target: Forum | None) -> int:
             return 0
         target = validate_forum_target(category, target)
         start = next_position(target.pk)
+        keep_hidden = category.is_hidden and not target.is_hidden
         for offset, child in enumerate(children):
             child.parent = target
             child.position = start + offset
-        Forum.objects.bulk_update(children, ["parent", "position"])
+            if keep_hidden:
+                child.is_hidden = True
+        Forum.objects.bulk_update(children, ["parent", "position", "is_hidden"])
     return len(children)
 
 

@@ -125,6 +125,14 @@ class ForumChangeTypeForm(_ForumRowForm):
         return cleaned
 
 
+def _can_delete_topics(view: PermissionCheckedMixin) -> bool:
+    """Deleting a forum's topics needs the forum ``delete`` permission and
+    the topic one: forum-structure rights alone never wipe content."""
+    return bool(view.user_has_permission("delete")) and view.request.user.has_perm(
+        f"{Topic._meta.app_label}.delete_topic"
+    )
+
+
 def _add_service_error(form: forms.Form, error: ValidationError) -> None:
     for message in error.messages:
         form.add_error(None, message)
@@ -154,6 +162,7 @@ class ForumDeleteView(generic.DeleteView):
     def get_form_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = super().get_form_kwargs()
         kwargs["forum"] = self.object
+        kwargs["can_delete_topics"] = _can_delete_topics(self)
         return kwargs
 
     @property
@@ -195,7 +204,7 @@ class ForumChangeTypeView(
     PermissionCheckedMixin, WagtailAdminTemplateMixin, BaseObjectMixin, FormView
 ):
     """Forum ↔ category, behind the ``change`` permission. Deleting the
-    topics on the way also needs ``delete``, the delete view's own gate."""
+    topics on the way also needs the forum and topic ``delete`` permissions."""
 
     model = Forum
     permission_required = "change"
@@ -212,7 +221,7 @@ class ForumChangeTypeView(
     def get_form_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = super().get_form_kwargs()
         kwargs["forum"] = self.object
-        kwargs["can_delete_topics"] = self.user_has_permission("delete")
+        kwargs["can_delete_topics"] = _can_delete_topics(self)
         return kwargs
 
     def get_success_url(self) -> str:
