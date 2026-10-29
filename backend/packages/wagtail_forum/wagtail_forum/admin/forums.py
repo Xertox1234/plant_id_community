@@ -1,17 +1,19 @@
 """Create/edit screens for forum categories and forums (todo 666; spec
-2026-10-28 §5).
+2026-10-28 §5), with the safe delete and change-type flows (todo 667).
 
 A plain ``ModelViewSet`` (no revisions, no page tree) under the existing
-*Forum* admin menu. What this slice deliberately leaves out:
+*Forum* admin menu.
 
-- **delete**: no URL and no button. ``Topic.board`` is ``PROTECT`` and a
-  category ``PROTECT``s its forums, so a raw delete would either fail or need
-  the "move topics to…" flow that slice 667 adds.
+- **delete** asks first: a forum's topics are moved to another forum or
+  deleted, a category's forums move to another category
+  (``forum_delete.ForumDeleteView``). ``Topic.board`` and ``Forum.parent``
+  stay ``PROTECT``, so nothing is ever lost to a cascade.
+- **changing the type** is its own screen (``change-type/<pk>/``, a button on
+  the edit page), because a forum must be emptied of topics before it can be
+  a category. The type field stays disabled on the edit form, so a forged
+  POST value there is ignored by the form, not merely hidden.
 - **link** rows: the type and its URL field arrive with slice 670, so a new
   row can only be a category or a forum.
-- **changing the type** of an existing row: slice 667 (it has to move or
-  delete the topics). The field is shown disabled on edit, so a forged POST
-  value is ignored by the form, not merely hidden.
 
 Validation is the model's own (``Forum.clean`` via the ModelForm's
 ``full_clean``, plus the partial slug ``UniqueConstraint``s through
@@ -25,14 +27,18 @@ import json
 from typing import Any
 
 from django import forms
-from django.db.models import Max
+from django.urls import path, reverse
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.forms import WagtailAdminModelForm
 from wagtail.admin.panels import FieldPanel, ObjectList, TabbedInterface
+from wagtail.admin.views import generic
 from wagtail.admin.viewsets.model import ModelViewSet
+from wagtail.admin.widgets.button import Button
 
 from ..models import Forum
+from ..services.forum_structure import next_position
+from .forum_delete import ForumChangeTypeView, ForumDeleteView
 
 # The types a new row may take in this slice (links: slice 670).
 CREATABLE_TYPES = (Forum.CATEGORY, Forum.FORUM)
@@ -63,10 +69,13 @@ class ForumAdminForm(WagtailAdminModelForm):
         )
         allowed = list(CREATABLE_TYPES)
         if self.instance.pk:
-            # The type is fixed once saved (changing it is slice 667). A
+            # Changing the type is its own screen ("Change type" in the
+            # header menu): a forum must be emptied of topics first. A
             # disabled field keeps the instance's value whatever is posted.
             type_field.disabled = True
-            type_field.help_text = _("The type cannot be changed here yet.")
+            type_field.help_text = _(
+                "Use “Change type” in the actions menu to change it."
+            )
             if self.instance.forum_type not in allowed:
                 allowed.append(self.instance.forum_type)
             if self.instance.forum_type == Forum.CATEGORY:
@@ -117,19 +126,37 @@ class ForumAdminForm(WagtailAdminModelForm):
             # New rows go to the end of their level (categories among
             # categories, forums within their category) rather than to the
             # top at position 0. Reordering itself is slice 668.
-            siblings = Forum.objects.filter(parent_id=instance.parent_id)
-            if instance.parent_id is None:
-                siblings = siblings.filter(forum_type=Forum.CATEGORY)
-            last = siblings.aggregate(last=Max("position"))["last"]
-            instance.position = 0 if last is None else last + 1
+            instance.position = next_position(instance.parent_id)
         if commit:
             instance.save()
             self.save_m2m()
         return instance
 
 
+class ForumEditView(generic.EditView):
+    """Adds "Change type" to the edit page's actions menu."""
+
+    change_type_url_name: str | None = None
+
+    @property
+    def header_more_buttons(self) -> list[Any]:
+        buttons: list[Any] = list(super().header_more_buttons)
+        if self.change_type_url_name and self.object.forum_type != Forum.LINK:
+            buttons.append(
+                Button(
+                    _("Change type"),
+                    url=reverse(self.change_type_url_name, args=(self.object.pk,)),
+                    icon_name="resubmit",
+                    priority=15,
+                )
+            )
+        return buttons
+
+
 class ForumViewSet(ModelViewSet):
     model = Forum
+    edit_view_class = ForumEditView
+    delete_view_class = ForumDeleteView
     icon = "list-ul"
     menu_label = _("Categories & forums")
     menu_order = 50
@@ -144,6 +171,12 @@ class ForumViewSet(ModelViewSet):
     inspect_view_enabled = False
     # No drag reorder in this slice: the structure tree is slice 668.
     sort_order_field = None
+
+    def get_edit_view_kwargs(self, **kwargs: Any) -> dict[str, Any]:
+        view_kwargs: dict[str, Any] = super().get_edit_view_kwargs(
+            change_type_url_name=self.get_url_name("change_type"), **kwargs
+        )
+        return view_kwargs
 
     edit_handler = TabbedInterface(
         [
@@ -179,14 +212,19 @@ class ForumViewSet(ModelViewSet):
         base_form_class=ForumAdminForm,
     )
 
-    def get_common_view_kwargs(self, **kwargs: Any) -> dict[str, Any]:
-        view_kwargs: dict[str, Any] = super().get_common_view_kwargs(**kwargs)
-        # Delete stays off until slice 667's move/delete-topics flow: no
-        # button in the listing or on the edit page (the views only reverse
-        # a truthy delete_url_name) ...
-        view_kwargs["delete_url_name"] = None
-        return view_kwargs
-
     def get_urlpatterns(self) -> list[Any]:
-        # ... and no route, so a hand-typed delete URL is a 404.
-        return [p for p in super().get_urlpatterns() if p.name != "delete"]
+        return [
+            *super().get_urlpatterns(),
+            path(
+                f"change-type/<{self.pk_path_converter}:pk>/",
+                self.change_type_view,
+                name="change_type",
+            ),
+        ]
+
+    @property
+    def change_type_view(self) -> Any:
+        return ForumChangeTypeView.as_view(
+            edit_url_name=self.get_url_name("edit"),
+            change_type_url_name=self.get_url_name("change_type"),
+        )

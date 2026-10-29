@@ -1,0 +1,36 @@
+{% extends "wagtailadmin/generic/confirm_delete.html" %}
+{% load i18n wagtailadmin_tags %}
+
+{% block confirmation_message %}
+    <p>{{ view.confirmation_message }}</p>
+    {% if form.topic_count %}
+        <p>
+            {% blocktrans trimmed count counter=form.topic_count %}
+                This forum holds {{ counter }} topic. Move it to another forum, or delete it with all its posts.
+            {% plural %}
+                This forum holds {{ counter }} topics. Move them to another forum, or delete them with all their posts.
+            {% endblocktrans %}
+        </p>
+    {% endif %}
+    {% if form.child_count %}
+        <p>
+            {% blocktrans trimmed count counter=form.child_count %}
+                This category holds {{ counter }} forum. Choose the category it moves to.
+            {% plural %}
+                This category holds {{ counter }} forums. Choose the category they move to.
+            {% endblocktrans %}
+        </p>
+    {% endif %}
+{% endblock %}
+
+{% block form %}
+    <form action="{{ view.get_delete_url }}" method="POST" novalidate>
+        {% csrf_token %}
+        {% include "wagtailadmin/shared/non_field_errors.html" %}
+        {% for field in form %}
+            {% formattedfield field %}
+        {% endfor %}
+        <button type="submit" class="button serious">{% trans 'Yes, delete' %}</button>
+        <a href="{{ view.get_success_url }}" class="button button-secondary">{% trans "No, don't delete" %}</a>
+    </form>
+{% endblock %}
