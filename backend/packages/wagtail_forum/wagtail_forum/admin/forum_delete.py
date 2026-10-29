@@ -22,7 +22,8 @@ from typing import Any
 from django import forms
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import ProtectedError
 from django.http import HttpResponse, HttpResponseRedirect
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -45,7 +46,9 @@ class _ForumRowForm(forms.Form):
     """Builds the fields a row needs: the topics choice for a forum that
     holds topics, the category target for a category that holds forums."""
 
-    def __init__(self, *args: Any, forum: Forum, **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, forum: Forum, can_delete_topics: bool = True, **kwargs: Any
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.forum = forum
         self.topic_count = Topic.objects.filter(board=forum).count()
@@ -53,7 +56,13 @@ class _ForumRowForm(forms.Form):
         if forum.forum_type == Forum.FORUM and self.topic_count:
             self.fields["topics_action"] = forms.ChoiceField(
                 label=_("Topics"),
-                choices=TOPICS_ACTION_CHOICES,
+                # Without the delete permission only "move" is offered, so a
+                # posted "delete" is an invalid choice.
+                choices=(
+                    TOPICS_ACTION_CHOICES
+                    if can_delete_topics
+                    else TOPICS_ACTION_CHOICES[:1]
+                ),
                 widget=forms.RadioSelect,
             )
             self.fields["target"] = forms.ModelChoiceField(
@@ -121,6 +130,15 @@ def _add_service_error(form: forms.Form, error: ValidationError) -> None:
         form.add_error(None, message)
 
 
+# Raised when a topic, forum or slug appears between the form's checks and
+# the write (PROTECT FKs, the per-board slug constraint): the transaction is
+# rolled back, so the admin is asked to retry instead of seeing a 500.
+_CHANGED_MEANWHILE = (ProtectedError, IntegrityError)
+_CHANGED_MEANWHILE_MESSAGE = _(
+    "The forum changed while you were on this page. Check it and try again."
+)
+
+
 class ForumDeleteView(generic.DeleteView):
     """Wagtail's delete confirm with the move-or-delete choice."""
 
@@ -162,6 +180,10 @@ class ForumDeleteView(generic.DeleteView):
             _add_service_error(form, error)
             response: HttpResponse = self.form_invalid(form)
             return response
+        except _CHANGED_MEANWHILE:
+            form.add_error(None, _CHANGED_MEANWHILE_MESSAGE)
+            changed: HttpResponse = self.form_invalid(form)
+            return changed
         messages.success(self.request, self.get_success_message())
         hook_response: HttpResponse | None = self.run_after_hook()
         if hook_response is not None:
@@ -172,7 +194,8 @@ class ForumDeleteView(generic.DeleteView):
 class ForumChangeTypeView(
     PermissionCheckedMixin, WagtailAdminTemplateMixin, BaseObjectMixin, FormView
 ):
-    """Forum ↔ category, behind the ``change`` permission."""
+    """Forum ↔ category, behind the ``change`` permission. Deleting the
+    topics on the way also needs ``delete``, the delete view's own gate."""
 
     model = Forum
     permission_required = "change"
@@ -189,6 +212,7 @@ class ForumChangeTypeView(
     def get_form_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = super().get_form_kwargs()
         kwargs["forum"] = self.object
+        kwargs["can_delete_topics"] = self.user_has_permission("delete")
         return kwargs
 
     def get_success_url(self) -> str:
@@ -220,6 +244,9 @@ class ForumChangeTypeView(
             )
         except ValidationError as error:
             _add_service_error(form, error)
+            return self.form_invalid(form)
+        except _CHANGED_MEANWHILE:
+            form.add_error(None, _CHANGED_MEANWHILE_MESSAGE)
             return self.form_invalid(form)
         messages.success(
             self.request,

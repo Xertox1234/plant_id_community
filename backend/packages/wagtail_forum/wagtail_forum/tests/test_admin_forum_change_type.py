@@ -260,3 +260,49 @@ def test_change_type_needs_the_change_permission(client):
     assert resp.status_code == 403
     forum.refresh_from_db()
     assert forum.forum_type == Forum.FORUM
+
+
+def _change_only_client(client):
+    user = User.objects.create_user(username="editor", email="e@x.io")
+    user.user_permissions.set(
+        Permission.objects.filter(codename__in=["access_admin", "change_forum"])
+    )
+    client.force_login(user)
+    return client
+
+
+def test_deleting_topics_on_a_type_change_needs_the_delete_permission(client):
+    forum = make_forum(name="Ferns", slug="ferns")
+    topic = _topic(forum, "a")
+    editor = _change_only_client(client)
+
+    page = editor.get(_url("change_type", forum.pk))
+    resp = editor.post(
+        _url("change_type", forum.pk), {"topics_action": forum_structure.DELETE}
+    )
+
+    assert forum_structure.DELETE not in [
+        value for value, _label in page.context["form"].fields["topics_action"].choices
+    ]
+    assert resp.status_code == 200
+    assert "topics_action" in resp.context["form"].errors
+    assert Topic.objects.filter(pk=topic.pk, board=forum).exists()
+    forum.refresh_from_db()
+    assert forum.forum_type == Forum.FORUM
+
+
+def test_a_change_only_user_can_still_move_the_topics(client):
+    forum = make_forum(name="Ferns", slug="ferns")
+    target = make_forum(name="Pests", slug="pests")
+    topic = _topic(forum, "a")
+    editor = _change_only_client(client)
+
+    resp = editor.post(
+        _url("change_type", forum.pk),
+        {"topics_action": forum_structure.MOVE, "target": target.pk},
+    )
+
+    assert resp.status_code == 302
+    assert Topic.objects.get(pk=topic.pk).board_id == target.pk
+    forum.refresh_from_db()
+    assert forum.forum_type == Forum.CATEGORY

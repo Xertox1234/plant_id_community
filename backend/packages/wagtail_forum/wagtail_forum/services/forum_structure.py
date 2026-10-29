@@ -164,7 +164,8 @@ def move_topics(source: Forum, target: Forum) -> int:
                 )
             )
         ids = [pk for pk, _slug in rows]
-        # .update() skips auto_now; /sync/ clients find moved topics by it.
+        # .update() skips auto_now; an unfiltered /sync/ finds moved topics by
+        # it. A client syncing with ?board= never sees them leave (no tombstone).
         Topic.objects.filter(pk__in=ids).update(board=target, updated_at=now)
         _rewrite_revisions(target, renamed, ids)
         _refresh_board_counters(source.pk)

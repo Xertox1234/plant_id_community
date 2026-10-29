@@ -349,3 +349,24 @@ def test_delete_needs_the_delete_permission(client):
 
     assert resp.status_code == 403
     assert Forum.objects.filter(pk=forum.pk).exists()
+
+
+def test_a_topic_added_meanwhile_gives_a_form_error_not_a_500(
+    admin_client, monkeypatch
+):
+    forum = make_forum(name="Ferns", slug="ferns")
+    target = make_forum(name="Pests", slug="pests")
+    topic = Topic.objects.create(board=forum, title="T", slug="t")
+    # Stand-in for a topic created after the move: the move does nothing, so
+    # the PROTECT FK refuses the delete.
+    monkeypatch.setattr(forum_structure, "empty_forum", lambda *a, **k: 0)
+
+    resp = admin_client.post(
+        reverse("wagtail_forum_forums:delete", args=(forum.pk,)),
+        {"topics_action": forum_structure.MOVE, "target": target.pk},
+    )
+
+    assert resp.status_code == 200
+    assert "changed while you were on this page" in resp.content.decode()
+    assert Forum.objects.filter(pk=forum.pk).exists()
+    assert Topic.objects.get(pk=topic.pk).board_id == forum.pk

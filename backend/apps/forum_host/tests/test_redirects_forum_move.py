@@ -8,6 +8,7 @@ from django.urls import reverse
 from wagtail.contrib.redirects.models import Redirect
 from wagtail_forum.models import Forum, Topic
 from wagtail_forum.services import forum_structure
+from wagtail_forum.signals import topics_moved
 from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
@@ -94,7 +95,7 @@ def test_moving_back_leaves_no_loop():
     assert _links() == [(path_in_second, path_in_first)]
 
 
-def test_a_failed_move_writes_no_redirect():
+def test_a_refused_move_writes_no_redirect():
     source = make_forum(name="Ferns", slug="ferns")
     _topic(source, "a")
     category = Forum.objects.get(pk=source.parent_id)
@@ -103,3 +104,24 @@ def test_a_failed_move_writes_no_redirect():
         forum_structure.move_topics(source, category)
 
     assert _links() == []
+
+
+def test_a_move_that_fails_after_the_signal_rolls_its_redirects_back():
+    source = make_forum(name="Ferns", slug="ferns")
+    target = make_forum(name="Pests", slug="pests")
+    topic = _topic(source, "a")
+
+    def fail_after_redirects(**kwargs):
+        # Connected after forum_host's receiver, so the redirect rows are
+        # already written when this raises inside the move's transaction.
+        raise RuntimeError("later step failed")
+
+    topics_moved.connect(fail_after_redirects, dispatch_uid="test-fail-after")
+    try:
+        with pytest.raises(RuntimeError):
+            forum_structure.move_topics(source, target)
+    finally:
+        topics_moved.disconnect(dispatch_uid="test-fail-after")
+
+    assert _links() == []
+    assert Topic.objects.get(pk=topic.pk).board_id == source.pk

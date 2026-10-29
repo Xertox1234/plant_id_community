@@ -111,3 +111,11 @@ Deleting a forum must never silently destroy topics (today's page-based board ca
 ### 2026-10-29 - Completed by the todo sweep (run 2026-10-29-0129)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-29 - Review round 1 (clean, nothing blocking), fixed by hand
+
+- Fixed: change type with "delete the topics" needed only the `change` permission, so a user without `delete` could wipe a forum's topics (2 reviewers). The form now offers only "move" without `delete`; a posted "delete" is an invalid choice. Tests: a change-only user is refused delete and keeps the topics, and can still move them. Mutation check: dropping the gate fails the test.
+- Fixed: a topic, forum or slug clash appearing between the form's checks and the write raised `ProtectedError`/`IntegrityError` as a 500 (3 reviewers). Both views now catch them and show "The forum changed while you were on this page." Test forces the PROTECT path; mutation check: removing the catch fails it.
+- Fixed: `test_a_failed_move_writes_no_redirect` failed before the transaction, so it never tested the rollback. Renamed to the refused case, plus a new test where a later `topics_moved` receiver raises: no redirect rows, topics stay on the source.
+- Declined: a client syncing `/sync/?board=<slug>` never sees moved topics leave the old board (no tombstone). Moves are a rare admin action and the topics still exist under the new board via an unfiltered sync; the code comment now states the limit.
+- Declined: deleting a very large forum's topics one by one holds row locks for the whole transaction. Admin-only and it keeps the package's per-topic delete receivers (profile counts, tombstones); no forum is near that size.
