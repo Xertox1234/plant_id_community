@@ -1,0 +1,43 @@
+{% extends "wagtailadmin/generic/base.html" %}
+{% load i18n wagtailadmin_tags %}
+
+{% block main_content %}
+    {% if form.new_type %}
+        <p>
+            {% blocktrans trimmed with name=object.name new_type=new_type_label %}
+                Change “{{ name }}” into a {{ new_type }}.
+            {% endblocktrans %}
+        </p>
+        {% if form.topic_count %}
+            <p>
+                {% blocktrans trimmed count counter=form.topic_count %}
+                    A category holds no topics. This forum's {{ counter }} topic must be moved to another forum or deleted first.
+                {% plural %}
+                    A category holds no topics. This forum's {{ counter }} topics must be moved to another forum or deleted first.
+                {% endblocktrans %}
+            </p>
+        {% endif %}
+        {% if form.child_count %}
+            <p>
+                {% blocktrans trimmed count counter=form.child_count %}
+                    This category still holds {{ counter }} forum. Move or delete it before turning the category into a forum.
+                {% plural %}
+                    This category still holds {{ counter }} forums. Move or delete them before turning the category into a forum.
+                {% endblocktrans %}
+            </p>
+        {% else %}
+            <form action="{{ action_url }}" method="POST" novalidate>
+                {% csrf_token %}
+                {% include "wagtailadmin/shared/non_field_errors.html" %}
+                {% for field in form %}
+                    {% formattedfield field %}
+                {% endfor %}
+                <button type="submit" class="button">{% trans "Change type" %}</button>
+                <a href="{{ cancel_url }}" class="button button-secondary">{% trans "Cancel" %}</a>
+            </form>
+        {% endif %}
+    {% else %}
+        <p>{% trans "A link's type cannot be changed yet." %}</p>
+        <a href="{{ cancel_url }}" class="button button-secondary">{% trans "Back" %}</a>
+    {% endif %}
+{% endblock %}

@@ -22,7 +22,10 @@ renames** (``pre_save``/``post_save`` on ``Forum``, todo 334; boards stopped
 being Wagtail pages in todo 665, so ``page_slug_changed`` no longer fires for
 them). A board's slug is part of every topic path beneath it, so a rename fans
 the same three steps over every live topic as a fixed number of bulk
-statements — ``redirect_board_topics``.
+statements — ``redirect_board_topics``. A forum's topics **moved** to another
+forum by the admin's delete or change-type flow (todo 667) arrive as one bulk
+UPDATE with no Topic save signal, so ``redirect_moved_topics`` listens to the
+package's ``topics_moved`` signal and writes the same rows path by path.
 
 Reach, honestly stated: the web app resolves topic routes by the leading id
 and treats the slug as decorative, so an old link already renders there.
@@ -37,13 +40,14 @@ a host may not install, and the package must not assume it.
 import logging
 
 from django.db import transaction
-from django.db.models import F, Q, Value
+from django.db.models import Case, F, Q, Value, When
 from django.db.models.functions import Replace
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from wagtail.contrib.redirects import api as redirects_api
 from wagtail.contrib.redirects.models import Redirect
 from wagtail_forum.models import Forum, Topic
+from wagtail_forum.signals import topics_moved
 
 from .constants import REDIRECT_BULK_CREATE_BATCH_SIZE
 
@@ -264,16 +268,7 @@ def redirect_board_topics(board_before, board):
         #    rename-back's own rows would loop, and step 2 would rewrite a
         #    manual one into a self-loop. Manual rows go too, loudly.
         if pairs:
-            shadowing = Redirect.objects.filter(old_path__in=new_paths)
-            for manual in shadowing.filter(automatically_created=False):
-                logger.warning(
-                    "[ERROR] Removed manual redirect %s -> %s: a forum topic now "
-                    "lives at %s and the row would loop",
-                    manual.old_path,
-                    manual.link,
-                    manual.old_path,
-                )
-            shadowing.delete()
+            _drop_shadowing_rows(new_paths)
         # 2. Chain collapse, by prefix: whatever sent visitors under the old
         #    board path sends them under the new one (A→B then B→C leaves
         #    A→C and B→C). Prefix-wide on purpose: rows aimed at a topic that
@@ -292,43 +287,120 @@ def redirect_board_topics(board_before, board):
         ).delete()
         if not pairs:
             return
-        # 3. One all-sites row per once-public topic. Update-or-create in bulk
-        #    is delete-then-insert: every existing row for an old path (there
-        #    can be several — NULL-site uniqueness, see the module docstring)
-        #    is replaced by the one row, exactly as the per-topic update does.
-        #    An editor's own row from a HIDDEN topic's old path is kept and the
-        #    automatic one skipped, as in redirect_topic_path.
-        manual_old = set(
-            Redirect.objects.filter(
-                old_path__in=hidden_old_paths, site=None, automatically_created=False
-            ).values_list("old_path", flat=True)
+        # 3. One all-sites row per once-public topic.
+        _write_bulk_rows(pairs, hidden_old_paths, "the board rename")
+
+
+def _drop_shadowing_rows(new_paths):
+    """Bulk step 1: nothing may redirect FROM a path a live topic now lives
+    at — a rename-back's own rows would loop, and the chain collapse would
+    rewrite a manual one into a self-loop. Manual rows go too, loudly."""
+    shadowing = Redirect.objects.filter(old_path__in=new_paths)
+    for manual in shadowing.filter(automatically_created=False):
+        logger.warning(
+            "[ERROR] Removed manual redirect %s -> %s: a forum topic now "
+            "lives at %s and the row would loop",
+            manual.old_path,
+            manual.link,
+            manual.old_path,
         )
-        for old in sorted(manual_old):
-            logger.info(
-                "[REDIRECT] Kept manual redirect from %s; not writing the "
-                "automatic row for a hidden topic in the board rename",
-                old,
-            )
-        pairs = [(old, new) for old, new in pairs if old not in manual_old]
-        if not pairs:
-            return
+    shadowing.delete()
+
+
+def _write_bulk_rows(pairs, hidden_old_paths, context):
+    """Bulk step 3: one all-sites row per ``(old, new)`` pair. Update-or-create
+    in bulk is delete-then-insert: every existing row for an old path (there
+    can be several — NULL-site uniqueness, see the module docstring) is
+    replaced by the one row, exactly as the per-topic update does. An editor's
+    own row from a HIDDEN topic's old path is kept and the automatic one
+    skipped, as in redirect_topic_path."""
+    manual_old = set(
         Redirect.objects.filter(
-            old_path__in=[old for old, _ in pairs], site=None
-        ).delete()
-        Redirect.objects.bulk_create(
-            [
-                Redirect(
-                    old_path=old,
-                    site=None,
-                    redirect_link=new,
-                    is_permanent=True,
-                    automatically_created=True,
-                )
-                for old, new in pairs
-            ],
-            batch_size=REDIRECT_BULK_CREATE_BATCH_SIZE,
-            ignore_conflicts=True,
+            old_path__in=hidden_old_paths, site=None, automatically_created=False
+        ).values_list("old_path", flat=True)
+    )
+    for old in sorted(manual_old):
+        logger.info(
+            "[REDIRECT] Kept manual redirect from %s; not writing the "
+            "automatic row for a hidden topic in %s",
+            old,
+            context,
         )
+    pairs = [(old, new) for old, new in pairs if old not in manual_old]
+    if not pairs:
+        return
+    Redirect.objects.filter(old_path__in=[old for old, _ in pairs], site=None).delete()
+    Redirect.objects.bulk_create(
+        [
+            Redirect(
+                old_path=old,
+                site=None,
+                redirect_link=new,
+                is_permanent=True,
+                automatically_created=True,
+            )
+            for old, new in pairs
+        ],
+        batch_size=REDIRECT_BULK_CREATE_BATCH_SIZE,
+        ignore_conflicts=True,
+    )
+
+
+# --- topics moved to another forum (todo 667) ---------------------------------
+
+
+@receiver(topics_moved, dispatch_uid="forum_host.redirects.topics_moved")
+def redirect_moved_topics(sender, source, target, moves, **kwargs):
+    """Bulk form of :func:`redirect_topic_path` for a forum's topics moved to
+    ``target`` by the admin's delete or change-type flow
+    (``wagtail_forum.services.forum_structure.move_topics``). That move is one
+    UPDATE, so the per-topic receivers above never see it.
+
+    Runs inside the move's transaction, like the per-topic receiver inside a
+    topic save: a rolled-back move leaves no row. The same three steps as
+    :func:`redirect_board_topics`, but per path rather than by prefix — the
+    target forum's prefix already holds topics of its own. Every moved topic
+    takes part in the chain collapse (rows aimed at a draft are right if it is
+    ever published); only once-public topics get a row of their own."""
+    if not moves:
+        return
+    paths = {
+        topic_id: (
+            Redirect.normalise_path(
+                Topic(board=source, id=topic_id, slug=old_slug).get_absolute_url()
+            ),
+            Redirect.normalise_path(
+                Topic(board=target, id=topic_id, slug=new_slug).get_absolute_url()
+            ),
+        )
+        for topic_id, old_slug, new_slug in moves
+    }
+    once_public = dict(
+        Topic.objects.filter(ONCE_PUBLIC, pk__in=paths).values_list("id", "live")
+    )
+    pairs = [paths[topic_id] for topic_id in sorted(once_public)]
+    hidden_old_paths = [
+        paths[topic_id][0] for topic_id, live in once_public.items() if not live
+    ]
+    new_paths = [new for _, new in pairs]
+    if pairs:
+        _drop_shadowing_rows(new_paths)
+    # Chain collapse, per path, in batches so one CASE stays a sane size.
+    items = sorted(paths.values())
+    for start in range(0, len(items), REDIRECT_BULK_CREATE_BATCH_SIZE):
+        batch = items[start : start + REDIRECT_BULK_CREATE_BATCH_SIZE]
+        Redirect.objects.filter(redirect_link__in=[old for old, _ in batch]).update(
+            redirect_link=Case(
+                *[When(redirect_link=old, then=Value(new)) for old, new in batch]
+            )
+        )
+    # A row the collapse folded onto itself (old_path == redirect_link) is
+    # never valid: drop it, as step 2b of the board rename does.
+    Redirect.objects.filter(
+        old_path__in=[new for _, new in items], redirect_link=F("old_path")
+    ).delete()
+    if pairs:
+        _write_bulk_rows(pairs, hidden_old_paths, "the forum move")
 
 
 class RedirectsAPIViewSet(redirects_api.RedirectsAPIViewSet):

@@ -1,12 +1,12 @@
 """The Forum create/edit admin (todo 666): a ModelViewSet for categories and
-forums under the Wagtail *Forum* menu, with delete switched off."""
+forums under the Wagtail *Forum* menu (delete and type changes: todo 667)."""
 
 import json
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
-from django.urls import NoReverseMatch, reverse
+from django.urls import reverse
 from wagtail_forum.models import Forum
 from wagtail_forum.tests.factories import make_category, make_forum
 
@@ -352,29 +352,23 @@ def test_a_new_category_goes_after_the_last_category(client):
     assert Forum.objects.get(slug="outdoor").position == 8
 
 
-# --- AC2: delete is not exposed in this slice ---
+# --- AC2 (todo 666) superseded by todo 667: delete is now the safe-delete
+# flow (tests/test_admin_forum_delete.py), so the route exists and the edit
+# page links it. These pin only the wiring. ---
 
 
 @pytest.mark.django_db
-def test_delete_url_is_not_routed():
-    with pytest.raises(NoReverseMatch):
-        reverse(f"{NS}:delete", args=(1,))
-
-
-@pytest.mark.django_db
-def test_delete_path_returns_404_even_for_a_superuser(client):
+def test_delete_url_is_routed_to_the_safe_delete_view(client):
     forum = make_forum(name="Ferns", slug="ferns")
     client.force_login(User.objects.create_superuser(username="root", email="r@x.io"))
 
-    index = client.get(_url("index"))
     edit = client.get(_url("edit", forum.pk))
-    resp = client.post(f"{_url('index')}delete/{forum.pk}/")
+    confirm = client.get(_url("delete", forum.pk))
 
-    assert index.status_code == 200
     assert edit.status_code == 200
-    assert "/delete/" not in edit.content.decode()
-    assert resp.status_code == 404
-    assert Forum.objects.filter(pk=forum.pk).exists()
+    assert _url("delete", forum.pk) in edit.content.decode()
+    assert confirm.status_code == 200
+    assert confirm.context["form"].__class__.__name__ == "ForumDeleteForm"
 
 
 # --- AC3 (API half): a forum created in the admin is on the index at once ---

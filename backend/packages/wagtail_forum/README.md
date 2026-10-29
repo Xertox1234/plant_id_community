@@ -768,6 +768,7 @@ They live in `wagtail_forum.signals`.
 | `solution_marked` | A post is accepted as a topic's answer | `sender=Topic`, `topic=<Topic>`, `post=<accepted Post>`, `actor=<User who accepted>` |
 | `solution_unmarked` | A topic's accepted answer is cleared: the API unmark, or the answer is unpublished or deleted | `sender=Topic`, `topic_id=<int>` |
 | `badge_awarded` | The badge engine grants a badge (todo 348) | `sender=Badge`, `user_id=<int>`, `badge=<Badge>` — already inside `transaction.on_commit`, so a receiver may deliver directly |
+| `topics_moved` | The admin's forum delete or change type moves a forum's topics to another forum in one bulk UPDATE (todo 667), so no Topic save signal fires | `sender=Forum`, `source=<Forum>`, `target=<Forum>`, `moves=[(topic_id, old_slug, new_slug), ...]` — inside the move's transaction; a receiver that raises rolls the move back |
 
 ```python
 from django.dispatch import receiver

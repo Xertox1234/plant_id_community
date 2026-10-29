@@ -40,6 +40,14 @@ solution_unmarked = Signal()
 # transaction.on_commit at every signal-site trigger — so a receiver may
 # deliver a push/email directly without its own on_commit.
 badge_awarded = Signal()
+# A forum's topics were moved to another forum (todo 667,
+# services.forum_structure.move_topics). kwargs: source, target (Forum rows),
+# moves — a list of (topic_id, old_slug, new_slug); new_slug differs only
+# when the target already used the old one. The move is a bulk UPDATE, so no
+# Topic save signal fires: a host that tracks topic URLs (redirects) listens
+# here. Sent inside the move's transaction; a receiver that raises rolls the
+# whole move back, as a failing per-topic redirect receiver does for a save.
+topics_moved = Signal()
 
 
 def notify(signal, **kwargs):
