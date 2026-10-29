@@ -4,6 +4,9 @@ priority: p2
 issue_id: "667"
 tags: [forum, forum-categories, backend, wagtail, admin]
 dependencies: ["666"]
+triage: ready
+triaged: 2026-10-29
+owner_decision: "Forum↔category only: 667 builds forum↔category type changes; link conversions (forum→link, link→forum/category) move to todo 670 with the link URL field. The 'each type change' criterion covers forum↔category and category with forums refused (2026-10-29)"
 ---
 
 # Forum categories slice 3: safe delete (move or delete topics) and change forum type
