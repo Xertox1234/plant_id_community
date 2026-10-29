@@ -4,6 +4,8 @@ priority: p2
 issue_id: "668"
 tags: [forum, forum-categories, backend, wagtail, admin, web-js]
 dependencies: ["666"]
+triage: ready
+triaged: 2026-10-29
 ---
 
 # Forum categories slice 4: drag-and-drop forum structure tree in the Wagtail admin
