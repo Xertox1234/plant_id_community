@@ -153,6 +153,19 @@ that also renders `{% wagtailuserbar %}`, so an editor landing on "View live"
 has a route back to the admin. Hosts may override either template under
 `templates/wagtail_forum/`.
 
+In the Wagtail admin, *Forum → Categories & forums* opens on the **structure
+tree** (todo 668): categories in order, each with its forums, and row actions
+(edit, add forum, delete). Staff with the `change` permission on `Forum` drag
+rows by their handle to reorder categories, reorder forums within a category,
+or move a forum to another category; up/down and "move to category" buttons
+do the same from the keyboard, and work without JavaScript. Every move is one
+`POST {forum_id, parent_id, position}` to the viewset's `move/` URL
+(`services.forum_structure.move_forum` checks the type and parent rules and
+renumbers both levels 0..n-1 in one transaction); an illegal drop is a 400 and
+the row snaps back. The drag and drop uses a pinned SortableJS shipped in
+`static/wagtail_forum/js/vendor/` (see the README there), not Wagtail's
+bundled copy. Moving a forum changes no topic URL, since they carry ids only.
+
 Forum visibility is the interim `Forum.is_hidden` flag: a hidden forum, or any
 forum in a hidden category, is invisible to the entire API (per-forum
 permissions replace it in a later slice). Boards were Wagtail pages until

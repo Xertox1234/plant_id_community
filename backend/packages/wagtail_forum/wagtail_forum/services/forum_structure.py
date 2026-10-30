@@ -26,7 +26,7 @@ from typing import Literal
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Case, Max, Value, When
+from django.db.models import Case, Max, QuerySet, Value, When
 from django.utils import timezone
 from django.utils.translation import gettext as _
 from wagtail.models import Revision
@@ -83,6 +83,89 @@ def next_position(parent_id: int | None) -> int:
         siblings = siblings.filter(forum_type=Forum.CATEGORY)
     last = siblings.aggregate(last=Max("position"))["last"]
     return 0 if last is None else last + 1
+
+
+def _level(parent_id: int | None) -> QuerySet[Forum]:
+    """The rows of one level, in display order: the categories (``parent_id``
+    None) or the forums and links of one category."""
+    rows = Forum.objects.filter(parent_id=parent_id)
+    if parent_id is None:
+        rows = rows.filter(forum_type=Forum.CATEGORY)
+    return rows.order_by("position", "pk")
+
+
+def move_forum(forum_id: int, parent_id: int | None, position: int) -> Forum:
+    """Put row ``forum_id`` at index ``position`` under ``parent_id`` (None:
+    the category level) and renumber both the level it left and the level it
+    joined 0..n-1, in one transaction (the structure tree's drag and drop and
+    its move buttons, todo 668; spec 2026-10-28 §5).
+
+    The type and parent rules are ``Forum.clean``'s: a category stays at the
+    top level, a forum or link sits in a category, and only a category holds
+    rows. ``position`` past the end of the level means the end. A forum that
+    leaves a hidden category for a visible one is hidden, as
+    :func:`empty_category` does, so a drag never publishes it."""
+    if position < 0:
+        raise ValidationError(_("The position must be zero or more."))
+    with transaction.atomic():
+        forum = Forum.objects.select_for_update().filter(pk=forum_id).first()
+        if forum is None:
+            raise Forum.DoesNotExist(_("That row no longer exists."))
+        old_parent_id = forum.parent_id
+        parent = None
+        if parent_id is not None:
+            parent = Forum.objects.select_for_update().filter(pk=parent_id).first()
+            if parent is None:
+                raise ValidationError(_("That category no longer exists."))
+            if parent.pk == forum.pk:
+                raise ValidationError(_("A row cannot be placed inside itself."))
+        old_parent = forum.parent if old_parent_id is not None else None
+        forum.parent = parent
+        try:
+            forum.clean()
+        except ValidationError as error:
+            # Forum.clean reports on the "parent" field; the tree has no
+            # field to show it on, so the caller gets the plain messages.
+            raise ValidationError(error.messages) from error
+
+        # Lock both levels (pk order, like every other lock here) so two
+        # concurrent moves cannot interleave their renumbering.
+        list(
+            Forum.objects.select_for_update()
+            .filter(pk__in=_level(parent_id).values("pk"))
+            .order_by("pk")
+            .values_list("pk", flat=True)
+        )
+        if old_parent_id != parent_id:
+            list(
+                Forum.objects.select_for_update()
+                .filter(pk__in=_level(old_parent_id).values("pk"))
+                .order_by("pk")
+                .values_list("pk", flat=True)
+            )
+
+        changed: list[Forum] = []
+        siblings = [row for row in _level(parent_id) if row.pk != forum.pk]
+        siblings.insert(min(position, len(siblings)), forum)
+        if old_parent_id != parent_id:
+            if (
+                old_parent is not None
+                and old_parent.is_hidden
+                and parent is not None
+                and not parent.is_hidden
+            ):
+                forum.is_hidden = True
+            left = [row for row in _level(old_parent_id) if row.pk != forum.pk]
+            for index, row in enumerate(left):
+                if row.position != index:
+                    row.position = index
+                    changed.append(row)
+        for index, row in enumerate(siblings):
+            if row is forum or row.position != index:
+                row.position = index
+                changed.append(row)
+        Forum.objects.bulk_update(changed, ["parent", "position", "is_hidden"])
+    return forum
 
 
 def _free_slug(slug: str, topic_id: int, taken: set[str]) -> str:

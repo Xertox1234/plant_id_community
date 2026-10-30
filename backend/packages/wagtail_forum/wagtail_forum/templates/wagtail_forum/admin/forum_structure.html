@@ -1,0 +1,103 @@
+{% extends "wagtailadmin/generic/base.html" %}
+{% load i18n static wagtailadmin_tags %}
+
+{% block extra_css %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'wagtail_forum/css/forum-structure.css' %}">
+{% endblock %}
+
+{% block main_content %}
+    <div id="wf-structure"
+         class="wf-structure"
+         data-move-url="{{ move_url }}"
+         data-can-change="{% if can_change %}true{% else %}false{% endif %}"
+         data-msg-failed="{% trans 'The move could not be saved. The row is back where it was.' %}"
+         data-msg-saving="{% trans 'Saving…' %}">
+        {% csrf_token %}
+        <p class="help-block">
+            {% if can_change %}
+                {% trans "Drag a category or a forum by its handle to reorder it, or drag a forum into another category. The move buttons do the same from the keyboard." %}
+            {% else %}
+                {% trans "Categories in display order, each with its forums." %}
+            {% endif %}
+        </p>
+        <div id="wf-structure-status" class="wf-structure__status" role="status" aria-live="polite"></div>
+
+        {% if not tree %}
+            <p>{% trans "No categories yet." %}{% if can_add %} <a href="{{ add_url }}?forum_type=category">{% trans "Add the first category" %}</a>{% endif %}</p>
+        {% endif %}
+
+        <ol class="wf-structure__categories" data-parent-id="" aria-label="{% trans 'Categories' %}">
+            {% for node in tree %}
+                {% with category=node.row %}
+                    <li class="wf-structure__category" id="forum-row-{{ category.pk }}" data-forum-id="{{ category.pk }}">
+                        <div class="wf-structure__row wf-structure__row--category">
+                            {% if can_change %}
+                                <span class="wf-structure__handle wf-structure__handle--category" title="{% trans 'Drag to reorder' %}" aria-hidden="true">{% icon name="grip" %}</span>
+                            {% endif %}
+                            <span class="wf-structure__name">{{ category.name }}</span>
+                            <span class="w-status">{% trans "Category" %}</span>
+                            <span class="w-status w-status--label" {% if not category.is_hidden %}hidden{% endif %}>{% trans "Hidden" %}</span>
+                            <span class="wf-structure__actions">
+                                {% if can_change %}<a class="button button-small button-secondary" href="{% url edit_url_name category.pk %}">{% trans "Edit" %}<span class="visuallyhidden"> {{ category.name }}</span></a>{% endif %}
+                                {% if can_add %}<a class="button button-small button-secondary" href="{{ add_url }}?forum_type={{ forum_type_forum }}&amp;parent={{ category.pk }}">{% trans "Add forum" %}<span class="visuallyhidden"> {% blocktrans with name=category.name %}to {{ name }}{% endblocktrans %}</span></a>{% endif %}
+                                {% if can_delete %}<a class="button button-small button-secondary no" href="{% url delete_url_name category.pk %}">{% trans "Delete" %}<span class="visuallyhidden"> {{ category.name }}</span></a>{% endif %}
+                            </span>
+                            {% if can_change %}
+                                <span class="wf-structure__moves">
+                                    {% include "wagtail_forum/admin/forum_structure_move.html" with row=category parent_id="" index=node.index is_first=node.is_first is_last=node.is_last move_url=move_url only %}
+                                </span>
+                            {% endif %}
+                        </div>
+                        <ol class="wf-structure__forums" data-parent-id="{{ category.pk }}" aria-label="{% blocktrans with name=category.name %}Forums in {{ name }}{% endblocktrans %}">
+                            {% for leaf in node.forums %}
+                                {% with forum=leaf.row %}
+                                    <li class="wf-structure__forum" id="forum-row-{{ forum.pk }}" data-forum-id="{{ forum.pk }}">
+                                        <div class="wf-structure__row">
+                                            {% if can_change %}
+                                                <span class="wf-structure__handle wf-structure__handle--forum" title="{% trans 'Drag to reorder or move' %}" aria-hidden="true">{% icon name="grip" %}</span>
+                                            {% endif %}
+                                            <span class="wf-structure__name">{{ forum.name }}</span>
+                                            <span class="w-status">{{ forum.get_forum_type_display }}</span>
+                                            <span class="w-status w-status--label" data-hidden-badge {% if not forum.is_hidden %}hidden{% endif %}>{% trans "Hidden" %}</span>
+                                            <span class="wf-structure__actions">
+                                                {% if can_change %}<a class="button button-small button-secondary" href="{% url edit_url_name forum.pk %}">{% trans "Edit" %}<span class="visuallyhidden"> {{ forum.name }}</span></a>{% endif %}
+                                                {% if can_delete %}<a class="button button-small button-secondary no" href="{% url delete_url_name forum.pk %}">{% trans "Delete" %}<span class="visuallyhidden"> {{ forum.name }}</span></a>{% endif %}
+                                            </span>
+                                            {% if can_change %}
+                                                <span class="wf-structure__moves">
+                                                    {% include "wagtail_forum/admin/forum_structure_move.html" with row=forum parent_id=category.pk index=leaf.index is_first=leaf.is_first is_last=leaf.is_last move_url=move_url only %}
+                                                    {% if categories|length > 1 %}
+                                                        <form class="wf-structure__move" method="post" action="{{ move_url }}" data-move="to">
+                                                            {% csrf_token %}
+                                                            <input type="hidden" name="forum_id" value="{{ forum.pk }}">
+                                                            <label class="visuallyhidden" for="move-to-{{ forum.pk }}">{% blocktrans with name=forum.name %}Move {{ name }} to category{% endblocktrans %}</label>
+                                                            <select id="move-to-{{ forum.pk }}" name="parent_id">
+                                                                {% for other in categories %}
+                                                                    <option value="{{ other.pk }}"{% if other.pk == category.pk %} disabled{% endif %}>{{ other.name }}</option>
+                                                                {% endfor %}
+                                                            </select>
+                                                            <button type="submit" class="button button-small button-secondary">{% trans "Move" %}<span class="visuallyhidden"> {{ forum.name }}</span></button>
+                                                        </form>
+                                                    {% endif %}
+                                                </span>
+                                            {% endif %}
+                                        </div>
+                                    </li>
+                                {% endwith %}
+                            {% endfor %}
+                        </ol>
+                    </li>
+                {% endwith %}
+            {% endfor %}
+        </ol>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+    {{ block.super }}
+    {% if can_change %}
+        <script src="{% static 'wagtail_forum/js/vendor/Sortable.min.js' %}"></script>
+        <script src="{% static 'wagtail_forum/js/forum-structure.js' %}"></script>
+    {% endif %}
+{% endblock %}
