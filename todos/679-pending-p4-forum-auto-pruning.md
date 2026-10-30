@@ -5,7 +5,7 @@ issue_id: "679"
 tags: [forum, forum-categories, backend, celery, cron]
 dependencies: ["666"]
 triage: ready
-triaged: 2026-10-29
+triaged: 2026-10-30
 owner_decision: "Ship days-since-last-post pruning only. No last_viewed_at field and no days-since-viewed rule. (owner, 2026-10-30)"
 ---
 

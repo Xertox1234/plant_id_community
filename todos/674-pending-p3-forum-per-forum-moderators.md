@@ -4,8 +4,8 @@ priority: p3
 issue_id: "674"
 tags: [forum, forum-categories, backend, web, wagtail, moderation]
 dependencies: ["666"]
-triage: needs-design
-triaged: 2026-10-29
+triage: ready
+triaged: 2026-10-30
 blocked_on: "A design choice on how forum moderators get access and get scoped across Wagtail admin and the API"
 owner_decision: "Moderators can be users or groups. They moderate through the existing Wagtail admin (queue, reports, topic snippets), scoped to their forums by a permission policy. A topic move is allowed only when they moderate both the source and the destination forum. (owner, 2026-10-30)"
 ---

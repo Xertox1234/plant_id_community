@@ -5,7 +5,7 @@ issue_id: "678"
 tags: [forum, forum-categories, backend, web]
 dependencies: ["666"]
 triage: ready
-triaged: 2026-10-29
+triaged: 2026-10-30
 owner_decision: "Template is plain text: each line becomes a paragraph, no formatting. (owner, 2026-10-30)"
 ---
 

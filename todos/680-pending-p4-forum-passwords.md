@@ -5,7 +5,7 @@ issue_id: "680"
 tags: [forum, forum-categories, backend, web, security]
 dependencies: ["676"]
 triage: ready
-triaged: 2026-10-29
+triaged: 2026-10-30
 owner_decision: "Locked (password) forums are hidden from the Flutter app until it gets an unlock UI. (owner, 2026-10-30)"
 ---
 
