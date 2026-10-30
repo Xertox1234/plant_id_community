@@ -18,7 +18,8 @@ from wagtail_forum.models import (
     TopicSubscription,
 )
 from wagtail_forum.services import forum_structure
-from wagtail_forum.tests.factories import make_category, make_forum
+from wagtail_forum.services.forum_permissions import is_hidden_for_everyone
+from wagtail_forum.tests.factories import hide_forum, make_category, make_forum
 
 User = get_user_model()
 
@@ -374,8 +375,7 @@ def test_a_topic_added_meanwhile_gives_a_form_error_not_a_500(
 
 def test_deleting_a_hidden_category_keeps_its_forums_hidden(admin_client):
     hidden = make_category(name="Staff", slug="staff")
-    hidden.is_hidden = True
-    hidden.save()
+    hide_forum(hidden)
     visible = make_category(name="Plants", slug="plants")
     forum = make_forum(name="Notes", slug="notes", category=hidden)
 
@@ -387,7 +387,7 @@ def test_deleting_a_hidden_category_keeps_its_forums_hidden(admin_client):
     assert resp.status_code == 302
     forum.refresh_from_db()
     assert forum.parent_id == visible.pk
-    assert forum.is_hidden is True
+    assert is_hidden_for_everyone(forum) is True
 
 
 def test_deleting_topics_needs_the_topic_delete_permission(client):

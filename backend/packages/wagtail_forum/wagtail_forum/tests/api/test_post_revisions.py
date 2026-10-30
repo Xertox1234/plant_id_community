@@ -13,8 +13,8 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 from wagtail_forum.api.serializers import build_forum_image_map, serialize_forum_body
-from wagtail_forum.models import Forum, ForumProfile, Post, Topic
-from wagtail_forum.tests.factories import make_forum
+from wagtail_forum.models import ForumProfile, Post, Topic
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
@@ -423,7 +423,7 @@ def test_revision_endpoints_inherit_the_board_visibility_guard():
     author = User.objects.create_user(username="rev-hidden")
     post = _post_with_history("rev-p", author)
     revision = post.revisions.first()
-    Forum.objects.filter(pk=post.topic.board_id).update(is_hidden=True)
+    hide_forum(post.topic.board)
 
     client = APIClient()
     client.force_authenticate(author)

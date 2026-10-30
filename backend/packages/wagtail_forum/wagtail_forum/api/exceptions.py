@@ -26,3 +26,11 @@ class UnprocessableEntity(APIException):
     status_code = 422
     default_detail = _("Unprocessable request.")
     default_code = "unprocessable"
+
+
+class ForumLocked(APIException):
+    """A password forum this session has not unlocked (todo 680)."""
+
+    status_code = 403
+    default_detail = _("This forum needs a password.")
+    default_code = "forum_locked"

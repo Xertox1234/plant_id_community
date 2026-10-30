@@ -12,7 +12,7 @@ from django.core.exceptions import ValidationError
 from django.urls import reverse
 from rest_framework.test import APIClient
 from wagtail_forum.models import Forum, Post, Topic
-from wagtail_forum.tests.factories import make_category, make_forum
+from wagtail_forum.tests.factories import hide_forum, make_category, make_forum
 
 User = get_user_model()
 
@@ -86,7 +86,8 @@ def test_an_untracked_link_redirects_without_counting():
 @pytest.mark.urls("wagtail_forum.tests.api.urls")
 def test_the_redirect_404s_for_a_forum_a_hidden_link_or_a_bad_stored_scheme():
     forum = make_forum(name="Ferns", slug="ferns")
-    hidden = _link(slug="hidden", is_hidden=True)
+    hidden = _link(slug="hidden")
+    hide_forum(hidden)
     # Written around the model's validation: must never be followed.
     forged = _link(slug="forged")
     Forum.objects.filter(pk=forged.pk).update(link_url="javascript:alert(1)")

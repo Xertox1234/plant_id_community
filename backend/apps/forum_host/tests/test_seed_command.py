@@ -2,6 +2,7 @@ import pytest
 from django.core.management import call_command
 from wagtail.models import Collection, Page, Site
 from wagtail_forum.models import Forum, ForumIndex
+from wagtail_forum.services.forum_permissions import is_hidden_for_everyone
 from wagtail_forum.tests.factories import make_forum
 
 
@@ -17,7 +18,7 @@ def test_seed_default_forum_is_idempotent():
     assert category.slug == "general"
     assert board.parent == category
     assert board.slug == "general-discussion"
-    assert board.is_hidden is False
+    assert is_hidden_for_everyone(board) is False
 
 
 @pytest.mark.django_db

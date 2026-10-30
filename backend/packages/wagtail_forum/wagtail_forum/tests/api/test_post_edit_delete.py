@@ -6,8 +6,8 @@ from django.contrib.auth.models import Permission
 from rest_framework.test import APIClient
 from wagtail_forum.api.views import PostWriteView
 from wagtail_forum.blocks import ForumBodyBlock
-from wagtail_forum.models import Forum, ForumProfile, Post, Topic, TrustLevel
-from wagtail_forum.tests.factories import make_forum
+from wagtail_forum.models import ForumProfile, Post, Topic, TrustLevel
+from wagtail_forum.tests.factories import hide_forum, make_forum
 from wagtail_forum.workflow import ensure_default_workflow, submit_for_moderation
 
 User = get_user_model()
@@ -233,7 +233,7 @@ def test_delete_on_hidden_board_is_404():
     board = _board()
     author = _member("ada")
     _topic, _opening, reply = _topic_with_reply(board, author)
-    Forum.objects.filter(id=board.id).update(is_hidden=True)  # board now hidden
+    hide_forum(board)  # board now hidden
     client = APIClient()
     client.force_authenticate(author)
     resp = client.delete(f"/forum/posts/{reply.id}/")

@@ -53,6 +53,11 @@ DEFAULTS: dict[str, Any] = {
     # anon-cached LIST (title + counts, never body) for up to this TTL; the
     # origin is correct on the next cache miss. Short by design.
     "PUBLIC_READ_CACHE_SECONDS": 60,
+    # Password forums (todo 680): wrong passwords one member may try on one
+    # forum per window before the unlock endpoint answers 429. Only a wrong
+    # password counts; a right one clears the count.
+    "FORUM_UNLOCK_MAX_FAILURES": 5,
+    "FORUM_UNLOCK_WINDOW_SECONDS": 15 * 60,
     # How long tombstone rows (TopicDeletedLog) are retained before pruning.
     # A mobile client that hasn't synced in longer than this window will miss
     # some deletions and should fall back to a full resync.

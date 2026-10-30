@@ -93,7 +93,7 @@ class PollVoteView(UnversionedForumAPIMixin, APIView):
     def post(self, request, topic_id):
         # Visibility-gated: voting in a hidden/restricted topic's poll 404s,
         # no existence leak (audit M6/M7).
-        topic = _get_visible_topic(topic_id)
+        topic = _get_visible_topic(topic_id, request)
         serializer = PollVoteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         option_ids = serializer.validated_data["option_ids"]

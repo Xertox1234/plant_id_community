@@ -9,7 +9,8 @@ from django.contrib.auth.models import Permission
 from django.test import Client
 from django.urls import reverse
 from wagtail_forum.models import Forum
-from wagtail_forum.tests.factories import make_category, make_forum
+from wagtail_forum.services.forum_permissions import is_hidden_for_everyone
+from wagtail_forum.tests.factories import hide_forum, make_category, make_forum
 
 User = get_user_model()
 
@@ -237,15 +238,13 @@ def test_leaving_a_hidden_category_for_a_visible_one_hides_the_forum(
     admin_client, structure
 ):
     indoor = structure["indoor"]
-    indoor.is_hidden = True
-    indoor.save()
+    hide_forum(indoor)
 
     resp = _move(admin_client, structure["ferns"], structure["outdoor"], 0, **XHR)
 
     assert resp.status_code == 200, resp.content
     assert resp.json()["is_hidden"] is True
-    structure["ferns"].refresh_from_db()
-    assert structure["ferns"].is_hidden is True
+    assert is_hidden_for_everyone(structure["ferns"]) is True
 
 
 def test_moving_between_visible_categories_keeps_the_forum_visible(
@@ -254,8 +253,7 @@ def test_moving_between_visible_categories_keeps_the_forum_visible(
     resp = _move(admin_client, structure["ferns"], structure["outdoor"], 0, **XHR)
 
     assert resp.status_code == 200, resp.content
-    structure["ferns"].refresh_from_db()
-    assert structure["ferns"].is_hidden is False
+    assert is_hidden_for_everyone(structure["ferns"]) is False
 
 
 # --- AC1: illegal drops are refused and change nothing ---

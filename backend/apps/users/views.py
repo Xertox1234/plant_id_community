@@ -780,7 +780,9 @@ def dashboard_stats(request: Request) -> Response:
     # api.views._visible_boards() (todo 665: no second copy of the rule) and
     # its post recount (live=True, topic__live=True), so a taken-down topic's
     # replies stop counting and never link to a 404.
-    visible_boards = _visible_boards()
+    # The member's own view (todo 676): their posts on a group-only forum
+    # they may read still count.
+    visible_boards = _visible_boards(request=request)
     my_topics = Topic.objects.filter(
         author=request.user, live=True, board__in=visible_boards
     )

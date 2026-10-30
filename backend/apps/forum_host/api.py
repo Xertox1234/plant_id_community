@@ -219,6 +219,11 @@ class ForumMarkAllReadView(forum_row_views.ForumMarkAllReadView):
     pass
 
 
+@_throttled("forum_unlock", "POST")
+class ForumUnlockView(forum_row_views.ForumUnlockView):
+    pass
+
+
 @_throttled("collapsed_categories_update", "PUT")
 class MeCollapsedCategoriesView(forum_row_views.MeCollapsedCategoriesView):
     pass

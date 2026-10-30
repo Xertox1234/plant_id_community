@@ -6,6 +6,7 @@ from .identifications import ForumIdentificationAttachment
 from .messages import Conversation, ConversationKind, ConversationParticipant, Message
 from .moderation import SpamCheckTask
 from .notifications import Notification, NotificationVerb
+from .permissions import ForumGrant, ForumModerator, ForumRole
 from .polls import Poll, PollOption, PollVote
 from .posts import Post
 from .profiles import DigestFrequency, ForumProfile, TrustLevel
@@ -28,10 +29,13 @@ __all__ = [
     "ConversationParticipant",
     "ForumActivityDate",
     "Forum",
+    "ForumGrant",
     "ForumIdentificationAttachment",
     "ForumIndex",
+    "ForumModerator",
     "ForumProfile",
     "ForumRead",
+    "ForumRole",
     "Message",
     "Notification",
     "NotificationVerb",

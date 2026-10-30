@@ -33,6 +33,7 @@ from wagtail.models import Revision
 
 from ..models import Forum, Topic
 from ..signals import _refresh_board_counters, topics_moved
+from .forum_permissions import hide_for_everyone, is_hidden_for_everyone
 
 TopicsAction = Literal["move", "delete"]
 MOVE: TopicsAction = "move"
@@ -154,11 +155,13 @@ def move_forum(forum_id: int, parent_id: int | None, position: int) -> Forum:
         if old_parent_id != parent_id:
             if (
                 old_parent is not None
-                and old_parent.is_hidden
                 and parent is not None
-                and not parent.is_hidden
+                and is_hidden_for_everyone(old_parent)
+                and not is_hidden_for_everyone(parent)
             ):
-                forum.is_hidden = True
+                # A forum hidden by its category stays hidden when it moves
+                # to an open one: its own grants become No access (todo 676).
+                hide_for_everyone(forum)
             left = [row for row in _level(old_parent_id) if row.pk != forum.pk]
             for index, row in enumerate(left):
                 if row.position != index:
@@ -168,7 +171,7 @@ def move_forum(forum_id: int, parent_id: int | None, position: int) -> Forum:
             if row is forum or row.position != index:
                 row.position = index
                 changed.append(row)
-        Forum.objects.bulk_update(changed, ["parent", "position", "is_hidden"])
+        Forum.objects.bulk_update(changed, ["parent", "position"])
     return forum
 
 
@@ -302,13 +305,15 @@ def empty_category(category: Forum, target: Forum | None) -> int:
             return 0
         target = validate_forum_target(category, target)
         start = next_position(target.pk)
-        keep_hidden = category.is_hidden and not target.is_hidden
+        keep_hidden = is_hidden_for_everyone(category) and not is_hidden_for_everyone(
+            target
+        )
         for offset, child in enumerate(children):
             child.parent = target
             child.position = start + offset
             if keep_hidden:
-                child.is_hidden = True
-        Forum.objects.bulk_update(children, ["parent", "position", "is_hidden"])
+                hide_for_everyone(child)
+        Forum.objects.bulk_update(children, ["parent", "position"])
     return len(children)
 
 

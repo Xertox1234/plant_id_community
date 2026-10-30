@@ -25,7 +25,7 @@ class TopicSubscriptionView(UnversionedForumAPIMixin, APIView):
     def post(self, request, topic_id):
         # Visibility-gated: subscribing to a hidden/restricted topic 404s, no
         # existence leak (audit M6/M7).
-        topic = _get_visible_topic(topic_id)
+        topic = _get_visible_topic(topic_id, request)
         TopicSubscription.subscribe(request.user, topic)
         return Response({"subscribed": True})
 

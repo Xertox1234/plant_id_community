@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef, FormEvent } from 'react';
 import { useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
-import { createThread, fetchForums, fetchForum } from '../../services/forumService';
+import {
+  createThread,
+  fetchForums,
+  fetchForum,
+  fetchForumTopicTemplate,
+} from '../../services/forumService';
 import { parseLeadingId, threadPath, categoryPath } from '../../utils/forumUrls';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import { useIdentitySwap } from '../../hooks/useIdentitySwap';
@@ -18,6 +23,7 @@ import {
   emptyDoc,
   isBlankDoc,
   isEmptyDoc,
+  templateToDoc,
   toComposerDoc,
 } from '../../utils/forumBody';
 import { logger } from '../../utils/logger';
@@ -277,6 +283,34 @@ export default function NewThreadPage() {
       ignore = true;
     };
   }, [categoryParam, reloadKey]);
+
+  // The forum's topic template (todo 678): prefilled only into an EMPTY
+  // composer, so a restored draft or text already typed is never replaced.
+  // The baseline takes the template too, so the template alone is never
+  // saved as a draft: only the user's own edits are.
+  const bodyRef = useRef(body);
+  useEffect(() => {
+    bodyRef.current = body;
+  }, [body]);
+  const categoryId = category?.id;
+  useEffect(() => {
+    if (!categoryId) return;
+    let ignore = false;
+    const prefill = async () => {
+      const template = await fetchForumTopicTemplate(categoryId);
+      if (ignore || typeof template !== 'string' || !template.trim()) return;
+      if (!isEmptyDoc(bodyRef.current)) return;
+      const doc = templateToDoc(template);
+      baselineRef.current = { ...baselineRef.current, body: doc };
+      setBody(doc);
+      // TipTap takes its content at mount only.
+      setComposerEpoch((e) => e + 1);
+    };
+    prefill();
+    return () => {
+      ignore = true;
+    };
+  }, [categoryId]);
 
   // Persist the draft on every change; an all-empty draft is removed. An
   // untouched composer leaves the stored draft exactly as it was (see

@@ -65,7 +65,13 @@ CATEGORY_KEYS = {
 }
 # A forum row of /forum/categories/: the board keys plus its unread flag
 # (todo 671). /forum/boards/ keeps BOARD_KEYS exactly.
-FORUM_ROW_KEYS = BOARD_KEYS | {"has_unread"}
+# Todos 674 (moderators), 678 (topic_template) and 680 (is_locked) added keys.
+FORUM_ROW_KEYS = BOARD_KEYS | {
+    "has_unread",
+    "is_locked",
+    "moderators",
+    "topic_template",
+}
 
 
 def _at(month):

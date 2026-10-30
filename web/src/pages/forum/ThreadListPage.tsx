@@ -7,6 +7,7 @@ import { useForumCategory } from '../../hooks/useForumCategory';
 import { boardIdentity } from '../../utils/forumTones';
 import ThreadCard from '../../components/forum/ThreadCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
+import ForumUnlockForm from '../../components/forum/ForumUnlockForm';
 import { ThreadListSkeleton } from '../../components/forum/ForumSkeleton';
 import Button from '../../components/ui/Button';
 import ButtonLink from '../../components/ui/ButtonLink';
@@ -118,6 +119,8 @@ export default function ThreadListPage() {
         // nulls the state while the cache may still hold this board (A → B →
         // back to A before B resolved), and only this call restores it.
         setCategory(categoryData);
+        // A locked password forum (todo 680) shows its unlock form instead.
+        if (categoryData.is_locked) return;
 
         const threadsData = await fetchThreads({
           board: categoryData.slug,
@@ -231,6 +234,21 @@ export default function ThreadListPage() {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <ThreadListSkeleton withHeader />
+      </div>
+    );
+  }
+
+  if (category?.is_locked) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <h1 className="gt-h1 mb-6 text-ink">{category.name}</h1>
+        <ForumUnlockForm
+          slug={category.slug}
+          onUnlocked={() => {
+            categoryCacheRef.current = null;
+            setReloadKey((k) => k + 1);
+          }}
+        />
       </div>
     );
   }

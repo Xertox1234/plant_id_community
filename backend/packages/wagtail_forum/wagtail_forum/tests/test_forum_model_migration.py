@@ -127,8 +127,12 @@ def test_boards_become_forums_with_their_ids_and_leave_no_pages():
     # The other tree's twin is the one renamed, by its id.
     assert forums[twin.pk].slug == f"general-{twin.pk}"
 
-    # Not live, or view-restricted, was invisible to the API: now hidden.
-    assert {pk for pk, f in forums.items() if f.is_hidden} == {ferns.pk, staff.pk}
+    # Not live, or view-restricted, was invisible to the API: now hidden
+    # (0041's `is_hidden`, which 0048 turned into No access grants, todo 676).
+    from wagtail_forum.services.forum_permissions import is_hidden_for_everyone
+
+    hidden = {pk for pk, f in forums.items() if is_hidden_for_everyone(f)}
+    assert hidden == {ferns.pk, staff.pk}
 
     # No board page rows remain, of any shape.
     assert not Page.objects.filter(pk__in=board_ids).exists()

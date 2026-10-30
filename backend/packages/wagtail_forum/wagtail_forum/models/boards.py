@@ -79,11 +79,14 @@ class ForumIndex(Page):
         # are live-routable, so direct serving (admin "View live", sitemaps,
         # crawlers) must render instead of 500ing with TemplateDoesNotExist.
         context = super().get_context(request, *args, **kwargs)
-        # Same visibility rule as the API (`api.views._visible_boards`); a
-        # local query so the model module never imports the API layer.
-        context["boards"] = Forum.objects.filter(
-            forum_type=Forum.FORUM, is_hidden=False, parent__is_hidden=False
-        ).order_by("parent__position", "position", "id")
+        # Same visibility rule as the API (`api.views._visible_boards`): the
+        # guest view, since this page is served to crawlers and caches. A
+        # local import so the model module never imports the service at load.
+        from ..services.forum_permissions import visible_forums
+
+        context["boards"] = visible_forums(None, Forum.FORUM).order_by(
+            "parent__position", "position", "id"
+        )
         return context
 
 
@@ -143,10 +146,36 @@ class Forum(models.Model):
     # category's numbers are summed from its visible forums at read time.
     topic_count = models.PositiveIntegerField(default=0, editable=False)
     post_count = models.PositiveIntegerField(default=0, editable=False)
-    # Interim visibility switch until per-forum permissions land (todos
-    # 675-677). Hidden = invisible to the whole API, as a non-live or
-    # view-restricted board page was.
-    is_hidden = models.BooleanField(default=False)
+    # Who may see a row is its `grants` (models/permissions.py, todos
+    # 675-676); `is_hidden` became a "No access for everyone" grant set.
+    # Posting tab (todo 678): plain text, each line a paragraph, prefilled
+    # into an empty new-topic composer.
+    topic_template = models.TextField(
+        blank=True,
+        help_text=_(
+            "Prefilled into the new-topic composer when it is empty. Plain "
+            "text: each line becomes a paragraph."
+        ),
+    )
+    # Pruning tab (todo 679): `manage.py prune_forums` unpublishes topics
+    # whose last post is older than the threshold. Days since last post only
+    # (owner decision 2026-10-30).
+    prune_enabled = models.BooleanField(default=False)
+    prune_days_since_last_post = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=_("Unpublish topics with no post for this many days."),
+    )
+    prune_pinned = models.BooleanField(
+        default=False, help_text=_("Prune pinned topics too.")
+    )
+    prune_polls = models.BooleanField(
+        default=False, help_text=_("Prune topics with a poll too.")
+    )
+    # Password-protected forum (todo 680): a Django password hash, never the
+    # password. Blank = no password. Set through the admin form's write-only
+    # field; unlocked per session by `POST /forum/boards/{slug}/unlock/`.
+    password_hash = models.CharField(max_length=256, blank=True, editable=False)
     # Link rows (todo 670; phpBB FORUM_LINK). phpBB counts redirects in the
     # post counter; a dedicated column keeps the forum counters honest.
     link_url = models.URLField(
@@ -186,6 +215,10 @@ class Forum(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def has_password(self) -> bool:
+        return bool(self.password_hash)
 
     @property
     def title(self):

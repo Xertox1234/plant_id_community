@@ -53,6 +53,7 @@ from .api import (
     ForumLinkGoView,
     ForumMarkAllReadView,
     ForumMarkReadView,
+    ForumUnlockView,
     MeCollapsedCategoriesView,
     MeProfileView,
     MessageReportView,
@@ -115,6 +116,13 @@ urlpatterns = [
         name="forum-mark-read",
     ),
     path("read-all/", ForumMarkAllReadView.as_view(), name="forum-mark-all-read"),
+    # Password forums (todo 680), throttled (api.py) on top of the package's
+    # own wrong-password count.
+    path(
+        "boards/<slug:slug>/unlock/",
+        ForumUnlockView.as_view(),
+        name="forum-unlock",
+    ),
     path("links/<int:link_id>/go/", ForumLinkGoView.as_view(), name="forum-link-go"),
     # GET-only + AllowAny, mounted straight from the package (no throttle
     # wrapper) — same treatment as BoardListView above. Before

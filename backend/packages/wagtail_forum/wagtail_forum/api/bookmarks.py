@@ -35,7 +35,7 @@ class TopicBookmarkView(UnversionedForumAPIMixin, APIView):
     def post(self, request, topic_id):
         # Visibility-gated: bookmarking a hidden/restricted topic 404s, no
         # existence leak — same as TopicSubscriptionView.post (audit M6/M7).
-        topic = _get_visible_topic(topic_id)
+        topic = _get_visible_topic(topic_id, request)
         TopicBookmark.bookmark(request.user, topic)
         return Response({"bookmarked": True})
 
@@ -89,7 +89,7 @@ class TopicBookmarkListView(
         # clause, api/notifications.py).
         qs = (
             Topic.objects.filter(  # type: ignore[misc]  # taggit `tags` is untyped to the plugin
-                live=True, board__in=_visible_boards(), bookmarks__user=user
+                live=True, board__in=_visible_boards(user), bookmarks__user=user
             )
             .select_related(
                 "author__wagtail_forum_profile__avatar",

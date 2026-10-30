@@ -67,13 +67,11 @@ def resolve_mentioned_users(post, *, exclude_pks=()):
     Deduped (first-seen order) and capped at MENTION_MAX_PER_POST — pure
     in-memory work, no query, so a post with no "@" costs nothing extra.
     Only once a candidate name list exists do we pay for the
-    board-visibility gate: a post on a restricted board resolves to no
-    mentions at all (conservative — mirrors _visible_boards()'s own
-    "restricted boards are invisible to the whole API" stance; this is a
-    per-board check, not a per-user permission check, so it also blocks
-    mentioning a legitimate member of a restricted board — accepted
-    tradeoff, restricted boards are rare). `exclude_pks` drops the post's
-    own author (no self-mention notification).
+    visibility gate, per mentioned user (todo 676): a user who may not read
+    the post's forum is never notified of it, while a member of a
+    group-only forum can still be mentioned there. A password forum
+    notifies nobody but its moderators (todo 680). `exclude_pks` drops the
+    post's own author (no self-mention notification).
     """
     seen = []
     for name in MENTION_RE.findall(_mention_scan_text(post)):
@@ -83,13 +81,10 @@ def resolve_mentioned_users(post, *, exclude_pks=()):
     if not names:
         return []
 
-    from .api.views import _visible_boards  # local import — avoid an import cycle
-
-    if not _visible_boards().filter(pk=post.topic.board_id).exists():
-        return []
+    from .services.forum_permissions import readers_of_forum
 
     User = get_user_model()
     qs = User.objects.filter(username__in=names)
     if exclude_pks:
         qs = qs.exclude(pk__in=exclude_pks)
-    return list(qs)
+    return readers_of_forum(list(qs), post.topic.board_id)

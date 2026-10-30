@@ -1,0 +1,20 @@
+{% extends "wagtailadmin/generic/base.html" %}
+{% load i18n %}
+
+{% block main_content %}
+    <p>
+        {% blocktrans trimmed with target=object.name source=source.name count counter=source_grant_count %}
+            Replace every permission of “{{ target }}” with the {{ counter }} permission of “{{ source }}”? This cannot be undone.
+        {% plural %}
+            Replace every permission of “{{ target }}” with the {{ counter }} permissions of “{{ source }}”? This cannot be undone.
+        {% endblocktrans %}
+    </p>
+    <form action="{{ action_url }}" method="POST" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="action" value="{{ action_copy }}">
+        <input type="hidden" name="source" value="{{ source.pk }}">
+        <input type="hidden" name="confirm" value="on">
+        <button type="submit" class="button serious">{% trans "Yes, copy them" %}</button>
+        <a href="{{ action_url }}" class="button button-secondary">{% trans "Cancel" %}</a>
+    </form>
+{% endblock %}

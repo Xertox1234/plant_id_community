@@ -43,6 +43,14 @@ export interface Forum {
   /** Any topic the signed-in viewer has not read (todo 671). Only on rows of
    * `GET categories/`; false for anonymous viewers. */
   has_unread?: boolean;
+  /** Names on the row's "Moderators:" line, users then groups (todo 674).
+   * Only on rows of `GET categories/`. */
+  moderators?: string[];
+  /** A password forum this session has not unlocked (todo 680). */
+  is_locked?: boolean;
+  /** Plain text prefilled into an empty new-topic composer, one paragraph
+   * per line (todo 678). Only on rows of `GET categories/`. */
+  topic_template?: string;
 }
 
 /**

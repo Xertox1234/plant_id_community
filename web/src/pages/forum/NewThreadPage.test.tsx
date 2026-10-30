@@ -1260,3 +1260,71 @@ describe('NewThreadPage', () => {
     expect(screen.getByRole('button', { name: /post|create|submit/i })).toBeEnabled();
   });
 });
+
+describe('NewThreadPage topic template (todo 678)', () => {
+  const key = draftKey('new-thread', '3-plant-care');
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    vi.mocked(useAuth).mockReturnValue(mockAuth());
+    vi.mocked(ReactRouter.useNavigate).mockReturnValue(
+      vi.fn() as unknown as ReturnType<typeof ReactRouter.useNavigate>
+    );
+    vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+      new URLSearchParams('category=3-plant-care'),
+      vi.fn(),
+    ]);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue({
+      id: '3',
+      name: 'Plant Care',
+      slug: 'plant-care',
+      created_at: '',
+    });
+  });
+
+  it('prefills an empty composer, one paragraph per line, without saving a draft', async () => {
+    vi.mocked(forumService.fetchForumTopicTemplate).mockResolvedValue(
+      'What plant is it?\nWhat changed?'
+    );
+    renderPage();
+
+    await waitFor(() =>
+      expect((screen.getByLabelText('body') as HTMLTextAreaElement).value).toBe(
+        '<p>What plant is it?</p><p>What changed?</p>'
+      )
+    );
+    expect(forumService.fetchForumTopicTemplate).toHaveBeenCalledWith('3');
+    expect(loadDraft(key)).toBeNull();
+  });
+
+  it('never overwrites a saved draft', async () => {
+    saveDraft(key, JSON.stringify({ title: 'Mine', body: '<p>my own words</p>' }));
+    vi.mocked(forumService.fetchForumTopicTemplate).mockResolvedValue('Template line');
+    renderPage();
+
+    await waitFor(() => expect(forumService.fetchForumTopicTemplate).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((screen.getByLabelText('body') as HTMLTextAreaElement).value).toBe(
+      '<p>my own words</p>'
+    );
+    expect(JSON.parse(loadDraft(key) as string).body).toBe('<p>my own words</p>');
+  });
+
+  it('keeps text typed before the template arrives', async () => {
+    let resolveTemplate: (value: string) => void = () => {};
+    vi.mocked(forumService.fetchForumTopicTemplate).mockReturnValue(
+      new Promise<string>((resolve) => {
+        resolveTemplate = resolve;
+      })
+    );
+    renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText('body'), 'typed first');
+
+    resolveTemplate('Template line');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect((screen.getByLabelText('body') as HTMLTextAreaElement).value).toBe('typed first');
+  });
+});

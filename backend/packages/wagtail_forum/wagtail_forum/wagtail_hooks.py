@@ -2,8 +2,11 @@ from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 from wagtail import hooks
 from wagtail.actions.unpublish import UnpublishAction
+from wagtail.admin.forms import WagtailAdminModelForm
+from wagtail.admin.panels import ObjectList
 from wagtail.admin.search import SearchArea
 from wagtail.admin.site_summary import SummaryItem
+from wagtail.permissions import register_permission_policy
 from wagtail.snippets.bulk_actions.snippet_bulk_action import SnippetBulkAction
 from wagtail.snippets.models import register_snippet
 from wagtail.snippets.permissions import get_permission_name
@@ -11,9 +14,50 @@ from wagtail.snippets.views.snippets import SnippetViewSet, SnippetViewSetGroup
 
 from .admin.forums import ForumViewSet
 from .models import Badge, ForumProfile, Post, Report, Topic
+from .permissions import (
+    ForumScopedPermissionPolicy,
+    forum_ids_moderated_by,
+    post_policy,
+    report_policy,
+    scope_object_urls,
+    topic_policy,
+)
+
+# Per-forum moderators (todo 674): each snippet's own permissions, plus the
+# moderation actions for the moderators of the forum the row is in.
+for _policy in (topic_policy, post_policy, report_policy):
+    register_permission_policy(_policy.model, _policy, exact_class=True)
 
 
-class TopicViewSet(SnippetViewSet):
+class ForumScopedSnippetViewSet(SnippetViewSet):
+    """A snippet a forum moderator may moderate in their forums only: the
+    listing is narrowed and every object URL refuses other forums' rows."""
+
+    scoped_policy: ForumScopedPermissionPolicy
+
+    def scope_queryset(self, qs, request):
+        return self.scoped_policy.scope(qs, request.user)
+
+    def get_urlpatterns(self):
+        return scope_object_urls(super().get_urlpatterns(), self.scoped_policy)
+
+
+class TopicAdminForm(WagtailAdminModelForm):
+    """A forum moderator may move a topic only to another forum they
+    moderate (owner decision 2026-10-30); the source is already theirs, or
+    the edit page would have refused them."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = self.for_user
+        board = self.fields.get("board")
+        if board is not None and user is not None and not topic_policy.is_global(user):
+            board.queryset = board.queryset.filter(pk__in=forum_ids_moderated_by(user))
+
+
+class TopicViewSet(ForumScopedSnippetViewSet):
+    scoped_policy = topic_policy
+    edit_handler = ObjectList(Topic.panels, base_form_class=TopicAdminForm)
     model = Topic
     icon = "form"
     menu_label = _("Topics")
@@ -78,10 +122,12 @@ class TopicViewSet(SnippetViewSet):
         qs = super().get_queryset(request)
         if qs is None:
             qs = self.model.objects.all()
+        qs = self.scope_queryset(qs, request)
         return qs.select_related("board", "author", "last_post_author")
 
 
-class PostViewSet(SnippetViewSet):
+class PostViewSet(ForumScopedSnippetViewSet):
+    scoped_policy = post_policy
     model = Post
     icon = "comment"
     menu_label = _("Posts")
@@ -97,6 +143,7 @@ class PostViewSet(SnippetViewSet):
         qs = super().get_queryset(request)
         if qs is None:
             qs = self.model.objects.all()
+        qs = self.scope_queryset(qs, request)
         return qs.select_related("topic", "author")
 
 
@@ -123,7 +170,8 @@ class ForumProfileViewSet(SnippetViewSet):
         return qs.select_related("user")
 
 
-class ReportViewSet(SnippetViewSet):
+class ReportViewSet(ForumScopedSnippetViewSet):
+    scoped_policy = report_policy
     model = Report
     icon = "warning"
     menu_label = _("Reports")
@@ -190,6 +238,7 @@ class ReportViewSet(SnippetViewSet):
         qs = super().get_queryset(request)
         if qs is None:
             qs = self.model.objects.all()
+        qs = self.scope_queryset(qs, request)
         return qs.select_related(
             "post",
             "post__topic",  # topic_title (export/inspect)
@@ -231,7 +280,7 @@ class ForumViewSetGroup(SnippetViewSetGroup):
 register_snippet(ForumViewSetGroup)
 
 
-def _pending_moderation_count():
+def _pending_moderation_count(user=None):
     """Posts waiting for a moderator: exactly the rows of the pending-content
     page (``admin_views.pending_posts``) the summary item links to, so the
     count never disagrees with the page it opens (todo 423).
@@ -246,9 +295,11 @@ def _pending_moderation_count():
 
     This count and the page are the only signal: moderators are not pushed
     or emailed when something is waiting (owner decision 2026-09-28)."""
-    from .admin_views import pending_posts
+    from .admin_views import pending_posts, pending_posts_for
 
-    return pending_posts().count()
+    # A forum moderator counts their own forums' rows (todo 674), the rows
+    # their page lists.
+    return (pending_posts_for(user) if user is not None else pending_posts()).count()
 
 
 class ForumModerationSummaryItem(SummaryItem):
@@ -315,7 +366,7 @@ def add_forum_moderation_summary_item(request, items):
     if not user_can_moderate_pending(request.user):
         return
     try:
-        count = _pending_moderation_count()
+        count = _pending_moderation_count(request.user)
     except Exception:
         return  # graceful degradation if forum models aren't ready
     if count > 0:
