@@ -196,7 +196,7 @@ class Forum(models.Model):
 
     def clean(self):
         super().clean()
-        errors = {}
+        errors: dict[str, object] = {}
         if self.forum_type == self.LINK:
             if not self.link_url:
                 errors["link_url"] = _("A link needs a URL.")
