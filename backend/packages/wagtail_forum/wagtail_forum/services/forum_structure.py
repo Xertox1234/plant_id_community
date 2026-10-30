@@ -33,7 +33,7 @@ from wagtail.models import Revision
 
 from ..models import Forum, Topic
 from ..signals import _refresh_board_counters, topics_moved
-from .forum_permissions import hide_for_everyone, is_hidden_for_everyone
+from .forum_permissions import keep_out_whoever_the_category_kept_out
 
 TopicsAction = Literal["move", "delete"]
 MOVE: TopicsAction = "move"
@@ -153,15 +153,9 @@ def move_forum(forum_id: int, parent_id: int | None, position: int) -> Forum:
         siblings = [row for row in _level(parent_id) if row.pk != forum.pk]
         siblings.insert(min(position, len(siblings)), forum)
         if old_parent_id != parent_id:
-            if (
-                old_parent is not None
-                and parent is not None
-                and is_hidden_for_everyone(old_parent)
-                and not is_hidden_for_everyone(parent)
-            ):
-                # A forum hidden by its category stays hidden when it moves
-                # to an open one: its own grants become No access (todo 676).
-                hide_for_everyone(forum)
+            if old_parent is not None:
+                # Whoever the old category kept out stays out (todo 676).
+                keep_out_whoever_the_category_kept_out(forum, old_parent)
             left = [row for row in _level(old_parent_id) if row.pk != forum.pk]
             for index, row in enumerate(left):
                 if row.position != index:
@@ -292,8 +286,8 @@ def empty_forum(
 def empty_category(category: Forum, target: Forum | None) -> int:
     """Move the forums and links of ``category`` to the end of ``target``,
     keeping their order. Topic URLs carry no category, so nothing redirects.
-    Forums inherit a hidden category's visibility, so leaving a hidden
-    category for a visible one hides them rather than publishing them.
+    Forums inherit their category's restrictions, so whoever this category
+    kept out gets No access on each forum rather than seeing it published.
     A category with no forums needs no target. Returns the count moved."""
     with transaction.atomic():
         children = list(
@@ -305,14 +299,10 @@ def empty_category(category: Forum, target: Forum | None) -> int:
             return 0
         target = validate_forum_target(category, target)
         start = next_position(target.pk)
-        keep_hidden = is_hidden_for_everyone(category) and not is_hidden_for_everyone(
-            target
-        )
         for offset, child in enumerate(children):
             child.parent = target
             child.position = start + offset
-            if keep_hidden:
-                hide_for_everyone(child)
+            keep_out_whoever_the_category_kept_out(child, category)
         Forum.objects.bulk_update(children, ["parent", "position"])
     return len(children)
 

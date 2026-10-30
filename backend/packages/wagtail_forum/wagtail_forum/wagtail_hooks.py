@@ -1,19 +1,27 @@
+from functools import cached_property
+
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 from wagtail import hooks
 from wagtail.actions.unpublish import UnpublishAction
 from wagtail.admin.forms import WagtailAdminModelForm
 from wagtail.admin.panels import ObjectList
+from wagtail.admin.panels.model_utils import extract_panel_definitions_from_model_class
 from wagtail.admin.search import SearchArea
 from wagtail.admin.site_summary import SummaryItem
 from wagtail.permissions import register_permission_policy
 from wagtail.snippets.bulk_actions.snippet_bulk_action import SnippetBulkAction
 from wagtail.snippets.models import register_snippet
 from wagtail.snippets.permissions import get_permission_name
+from wagtail.snippets.views.chooser import (
+    ChooseResultsView,
+    ChooseView,
+    SnippetChooserViewSet,
+)
 from wagtail.snippets.views.snippets import SnippetViewSet, SnippetViewSetGroup
 
 from .admin.forums import ForumViewSet
-from .models import Badge, ForumProfile, Post, Report, Topic
+from .models import Badge, ForumProfile, Message, Post, Report, Topic
 from .permissions import (
     ForumScopedPermissionPolicy,
     forum_ids_moderated_by,
@@ -29,11 +37,37 @@ for _policy in (topic_policy, post_policy, report_policy):
     register_permission_policy(_policy.model, _policy, exact_class=True)
 
 
+def scoped_chooser_viewset(policy: ForumScopedPermissionPolicy):
+    """The snippet chooser for ``policy``'s model, listing only what the
+    policy's listing shows the user (round-1 review): the chooser modal is a
+    second listing, and an unscoped one would show a forum moderator every
+    forum's topics and posts, hidden forums' included."""
+
+    class ScopedChooseView(ChooseView):
+        def get_object_list(self):
+            return policy.scope(super().get_object_list(), self.request.user)
+
+    class ScopedChooseResultsView(ChooseResultsView):
+        def get_object_list(self):
+            return policy.scope(super().get_object_list(), self.request.user)
+
+    class ScopedSnippetChooserViewSet(SnippetChooserViewSet):
+        choose_view_class = ScopedChooseView
+        choose_results_view_class = ScopedChooseResultsView
+
+    return ScopedSnippetChooserViewSet
+
+
 class ForumScopedSnippetViewSet(SnippetViewSet):
     """A snippet a forum moderator may moderate in their forums only: the
-    listing is narrowed and every object URL refuses other forums' rows."""
+    listing and the chooser are narrowed and every object URL refuses other
+    forums' rows."""
 
     scoped_policy: ForumScopedPermissionPolicy
+
+    @cached_property
+    def chooser_viewset_class(self):
+        return scoped_chooser_viewset(self.scoped_policy)
 
     def scope_queryset(self, qs, request):
         return self.scoped_policy.scope(qs, request.user)
@@ -58,6 +92,43 @@ class TopicAdminForm(WagtailAdminModelForm):
             and not topic_policy.has_model_perm(user, ("change",))
         ):
             board.queryset = board.queryset.filter(pk__in=forum_ids_moderated_by(user))
+
+
+class PostAdminForm(WagtailAdminModelForm):
+    """The same rule for a post's topic (round-1 review): a forum moderator
+    may move a post only into a topic of a forum they moderate. Without this,
+    the post's ``topic`` field offered every topic, hidden forums' included."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = self.for_user
+        topic = self.fields.get("topic")
+        if (
+            topic is not None
+            and user is not None
+            and not post_policy.has_model_perm(user, ("change",))
+        ):
+            topic.queryset = topic.queryset.filter(
+                board_id__in=forum_ids_moderated_by(user)
+            )
+
+
+class ReportAdminForm(WagtailAdminModelForm):
+    """A forum moderator editing a report in their forum (round-1 review):
+    its post may only be one of their forums' posts, and its message, a
+    private message only a post-less report has, is never offered at all."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = self.for_user
+        if user is None or report_policy.has_model_perm(user, ("change",)):
+            return
+        if "post" in self.fields:
+            self.fields["post"].queryset = self.fields["post"].queryset.filter(
+                topic__board_id__in=forum_ids_moderated_by(user)
+            )
+        if "message" in self.fields:
+            self.fields["message"].queryset = Message.objects.none()
 
 
 class TopicViewSet(ForumScopedSnippetViewSet):
@@ -133,6 +204,7 @@ class TopicViewSet(ForumScopedSnippetViewSet):
 
 class PostViewSet(ForumScopedSnippetViewSet):
     scoped_policy = post_policy
+    edit_handler = ObjectList(Post.panels, base_form_class=PostAdminForm)
     model = Post
     icon = "comment"
     menu_label = _("Posts")
@@ -178,6 +250,16 @@ class ForumProfileViewSet(SnippetViewSet):
 class ReportViewSet(ForumScopedSnippetViewSet):
     scoped_policy = report_policy
     model = Report
+
+    def get_edit_handler(self):
+        # Report has no panels: Wagtail's own fallback, on ReportAdminForm.
+        panels = extract_panel_definitions_from_model_class(
+            self.model, exclude=self.get_exclude_form_fields()
+        )
+        return ObjectList(panels, base_form_class=ReportAdminForm).bind_to_model(
+            self.model
+        )
+
     icon = "warning"
     menu_label = _("Reports")
     # "post" is unchanged from before todo 319/M10 (blank for a message

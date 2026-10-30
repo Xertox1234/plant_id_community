@@ -97,3 +97,11 @@ phpBB assigns moderators per forum and lists them on each forum row. Today moder
 - Round-1 review: a moderator holding any other model permission (say `view_post` or `lock_post`) skipped the forum check and could edit every forum's rows. `backend/packages/wagtail_forum/wagtail_forum/permissions.py` now asks, per object URL, for the model permission that view needs (`OBJECT_URL_ACTIONS`, `change` by default); the listing is unscoped only for a non-moderator or a holder of add/change/delete/view; the topic move needs `change_topic` itself.
 - A `delete_post`-only user, whom the old check counted as non-global, again gets the delete view and the full listing. New tests in `test_forum_moderators.py` cover the mixed-permission cases.
 - The README's Moderators section says which model permissions widen which views.
+
+### 2026-10-30 - Review round 1: non-blocking findings (hand fixes)
+
+- Fixed (medium, raised three times): a post's `topic` field offered every topic, so a forum moderator could move a post into another forum. `PostAdminForm` (`wagtail_hooks.py`) narrows it to their forums unless they hold `change_post`. Tests: `test_a_post_moves_only_into_topics_of_forums_the_moderator_moderates` and `test_change_post_everywhere_still_offers_every_topic`. Mutation-checked.
+- Fixed (same gap, found while fixing it): `topic` and a report's `post` render as snippet choosers, and the chooser modal is a second listing that was unscoped. It showed a forum moderator every forum's topics and posts, hidden forums' included. `scoped_chooser_viewset` runs the chooser's list through the policy's `scope()`. A report's form now offers only the moderator's own forums' posts, and never a private message (`ReportAdminForm`). Tests: `test_the_topic_chooser_lists_a_forum_moderator_only_their_forums` (both the choose and the results views) and `test_a_report_offers_a_forum_moderator_only_their_posts_and_no_message`. Both mutation-checked.
+- Already fixed by the round-1 repair (medium): a global `view_topic` holder skipping the forum check. Every object URL now asks for its own action.
+- Fixed (low): a docstring in `admin_views._user_can_reject` sat below new code; it is back on the first line.
+- Refuted (low, "a non-numeric pk 500s"): the snippet URLs match `[0-9]+`, so a non-numeric pk never reaches the guard (`reverse` itself refuses one).

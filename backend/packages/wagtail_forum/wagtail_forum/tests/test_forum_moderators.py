@@ -11,9 +11,22 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.urls import reverse
 from rest_framework.test import APIClient
-from wagtail_forum.models import ForumModerator, ForumProfile, Post, Report, Topic
+from wagtail_forum.models import (
+    Conversation,
+    ForumModerator,
+    ForumProfile,
+    Message,
+    Post,
+    Report,
+    Topic,
+)
 from wagtail_forum.tests.factories import make_forum
-from wagtail_forum.wagtail_hooks import TopicAdminForm, topic_policy
+from wagtail_forum.wagtail_hooks import (
+    PostAdminForm,
+    ReportAdminForm,
+    TopicAdminForm,
+    topic_policy,
+)
 from wagtail_forum.workflow import ensure_default_workflow, submit_for_moderation
 
 User = get_user_model()
@@ -143,6 +156,70 @@ def test_a_move_is_offered_only_to_forums_the_moderator_moderates(forums, modera
 
     assert choices == {mine.pk, third.pk}
     assert other.pk not in choices
+
+
+def test_a_post_moves_only_into_topics_of_forums_the_moderator_moderates(
+    forums, moderator
+):
+    mine, other = forums
+    fronds, post = _topic(mine, "fronds")
+    ferns_too, _ = _topic(mine, "ferns-too")
+    spines, _ = _topic(other, "spines")
+    form_class = Post.snippet_viewset.get_form_class()
+    assert issubclass(form_class, PostAdminForm)
+
+    form = form_class(instance=post, for_user=moderator)
+    choices = set(form.fields["topic"].queryset.values_list("pk", flat=True))
+
+    assert choices == {fronds.pk, ferns_too.pk}
+    assert spines.pk not in choices
+
+
+def test_change_post_everywhere_still_offers_every_topic(forums, moderator):
+    mine, other = forums
+    _, post = _topic(mine, "fronds")
+    spines, _ = _topic(other, "spines")
+    _grant(moderator, "change_post")
+    moderator = User.objects.get(pk=moderator.pk)
+
+    form = Post.snippet_viewset.get_form_class()(instance=post, for_user=moderator)
+
+    assert spines.pk in set(form.fields["topic"].queryset.values_list("pk", flat=True))
+
+
+def test_the_topic_chooser_lists_a_forum_moderator_only_their_forums(
+    client, forums, moderator
+):
+    mine, other = forums
+    _topic(mine, "fronds")
+    _topic(other, "spines")
+    client.force_login(moderator)
+    chooser = Topic.snippet_viewset.chooser_viewset
+
+    for name in ("choose", "choose_results"):
+        page = client.get(reverse(chooser.get_url_name(name)), **XHR)
+        assert page.status_code == 200
+        body = page.content.decode()
+        assert "fronds" in body and "spines" not in body, name
+
+
+def test_a_report_offers_a_forum_moderator_only_their_posts_and_no_message(
+    forums, moderator
+):
+    mine, other = forums
+    _, post = _topic(mine, "fronds")
+    _, elsewhere = _topic(other, "spines")
+    report = Report.objects.create(post=post, reporter=post.author, reason="spam")
+    dm = Conversation.between(post.author, elsewhere.author)
+    Message.objects.create(conversation=dm, sender=post.author, body="private")
+    form_class = Report.snippet_viewset.get_form_class()
+    assert issubclass(form_class, ReportAdminForm)
+
+    form = form_class(instance=report, for_user=moderator)
+    posts = set(form.fields["post"].queryset.values_list("pk", flat=True))
+
+    assert post.pk in posts and elsewhere.pk not in posts
+    assert not form.fields["message"].queryset.exists()
 
 
 def test_the_pending_queue_shows_a_forum_moderator_only_their_forums(

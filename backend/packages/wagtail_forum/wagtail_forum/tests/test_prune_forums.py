@@ -87,3 +87,25 @@ def test_forums_with_pruning_disabled_are_untouched():
     _prune()
 
     assert _live(a, b) == {"a", "b"}
+
+
+def test_a_topic_that_fails_to_unpublish_does_not_stop_the_rest(forum, monkeypatch):
+    # The cron chains its jobs with &&: one bad topic must not crash the run.
+    from wagtail.actions.unpublish import UnpublishAction
+
+    first = _topic(forum, "first", days_ago=40)
+    second = _topic(forum, "second", days_ago=40)
+    real = UnpublishAction.execute
+
+    def flaky(self, *args, **kwargs):
+        if self.object.pk == first.pk:
+            raise RuntimeError("boom")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(UnpublishAction, "execute", flaky)
+
+    output = _prune()
+
+    assert _live(first, second) == {"first"}
+    assert "[PRUNE] forum swap: 1 topic(s) unpublished" in output
+    assert "1 failed" in output

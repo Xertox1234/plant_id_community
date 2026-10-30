@@ -173,3 +173,19 @@ def test_moderators_and_staff_bypass_the_password(locked):
     staff.force_authenticate(User.objects.create_user(username="s", is_staff=True))
 
     assert staff.get(f"/forum/topics/{locked['topic'].pk}/").status_code == 200
+
+
+def test_a_new_password_relocks_every_session_that_unlocked_the_old_one(locked):
+    client, _ = _member()
+    assert _unlock(client).status_code == 200
+    topic_url = f"/forum/topics/{locked['topic'].pk}/"
+    assert client.get(topic_url).status_code == 200
+
+    forum = locked["forum"]
+    forum.password_hash = make_password(
+        "a-rotated-fake-password"
+    )  # pragma: allowlist secret
+    forum.save(update_fields=["password_hash"])
+
+    assert client.get(topic_url).status_code == 404
+    assert _row(client)["is_locked"] is True

@@ -5,11 +5,15 @@ import re
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import Group, Permission
 from django.test import Client
 from django.urls import reverse
-from wagtail_forum.models import Forum
-from wagtail_forum.services.forum_permissions import is_hidden_for_everyone
+from wagtail_forum.models import Forum, ForumGrant, ForumRole
+from wagtail_forum.services.forum_permissions import (
+    is_hidden_for_everyone,
+    set_grant,
+    visible_forums,
+)
 from wagtail_forum.tests.factories import hide_forum, make_category, make_forum
 
 User = get_user_model()
@@ -254,6 +258,42 @@ def test_moving_between_visible_categories_keeps_the_forum_visible(
 
     assert resp.status_code == 200, resp.content
     assert is_hidden_for_everyone(structure["ferns"]) is False
+
+
+def _sees(user, forum):
+    return visible_forums(user).filter(pk=forum.pk).exists()
+
+
+def test_leaving_a_guest_restricted_category_keeps_guests_out(admin_client, structure):
+    ferns = structure["ferns"]
+    set_grant(structure["indoor"], ForumGrant.ANONYMOUS, ForumRole.NO_ACCESS)
+    member = User.objects.create_user(username="reader")
+    assert not _sees(None, ferns) and _sees(member, ferns)
+
+    resp = _move(admin_client, ferns, structure["outdoor"], 0, **XHR)
+
+    assert resp.status_code == 200, resp.content
+    assert not _sees(None, ferns)
+    assert _sees(member, ferns)
+
+
+def test_leaving_a_group_only_category_keeps_it_to_that_group(admin_client, structure):
+    ferns, indoor = structure["ferns"], structure["indoor"]
+    club = Group.objects.create(name="Club")
+    set_grant(indoor, ForumGrant.ANONYMOUS, ForumRole.NO_ACCESS)
+    set_grant(indoor, ForumGrant.MEMBERS, ForumRole.NO_ACCESS)
+    set_grant(indoor, ForumGrant.GROUP, ForumRole.STANDARD, group=club)
+    outsider = User.objects.create_user(username="outsider")
+    insider = User.objects.create_user(username="insider")
+    insider.groups.add(club)
+    assert _sees(insider, ferns) and not _sees(outsider, ferns)
+
+    resp = _move(admin_client, ferns, structure["outdoor"], 0, **XHR)
+
+    assert resp.status_code == 200, resp.content
+    assert _sees(insider, ferns)
+    assert not _sees(outsider, ferns)
+    assert not _sees(None, ferns)
 
 
 # --- AC1: illegal drops are refused and change nothing ---

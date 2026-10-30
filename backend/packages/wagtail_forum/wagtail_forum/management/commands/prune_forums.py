@@ -19,6 +19,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.core.management.base import BaseCommand
+from django.db import transaction
 from django.db.models import Exists, OuterRef, QuerySet
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -58,6 +59,7 @@ class Command(BaseCommand):
         dry_run = bool(options["dry_run"])
         now = timezone.now()
         total = 0
+        failed = 0
         forums = Forum.objects.filter(
             forum_type=Forum.FORUM,
             prune_enabled=True,
@@ -65,12 +67,26 @@ class Command(BaseCommand):
         ).order_by("pk")
         for forum in forums:
             topics = list(prunable_topics(forum, now))
+            pruned = len(topics)
             if not dry_run:
                 for topic in topics:
-                    UnpublishAction(topic).execute(skip_permission_checks=True)
-            total += len(topics)
+                    # One topic that fails to unpublish is logged and skipped:
+                    # the cron chains the nightly jobs with &&, so a crash here
+                    # would also skip the token flush and the account expiry.
+                    try:
+                        with transaction.atomic():
+                            UnpublishAction(topic).execute(skip_permission_checks=True)
+                    except Exception:
+                        logger.exception(
+                            "[ERROR] prune failed for topic %s in forum %s",
+                            topic.pk,
+                            forum.slug,
+                        )
+                        failed += 1
+                        pruned -= 1
+            total += pruned
             line = (
-                f"[PRUNE] forum {forum.slug}: {len(topics)} topic(s) "
+                f"[PRUNE] forum {forum.slug}: {pruned} topic(s) "
                 f"{'would be ' if dry_run else ''}unpublished "
                 f"(no post for {forum.prune_days_since_last_post} day(s))"
             )
@@ -79,5 +95,6 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"{'Would prune' if dry_run else 'Pruned'} {total} topic(s)."
+                + (f" {failed} failed (see the log)." if failed else "")
             )
         )

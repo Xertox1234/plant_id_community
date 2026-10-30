@@ -84,3 +84,7 @@ phpBB can prune old topics per forum on a schedule (days since last post / since
 
 - Round-1 review: `prune_enabled`, `prune_pinned` and `prune_polls` (added by 0047) now have `db_default=False` in the model and the migration, so the previous release can insert forums while this one migrates.
 - No behaviour change to pruning; every criterion was re-run.
+
+### 2026-10-30 - Review round 1: non-blocking findings (hand fixes)
+
+- Fixed (medium): one topic that failed to unpublish crashed `prune_forums`. The cron chains its jobs with `&&`, so that would also skip `flushexpiredtokens` and `expire_unverified_accounts`. Each unpublish now runs in its own savepoint, and a failure is logged (`[ERROR] prune failed …`), counted in the summary and skipped. Test: `test_a_topic_that_fails_to_unpublish_does_not_stop_the_rest`. Mutation-checked.

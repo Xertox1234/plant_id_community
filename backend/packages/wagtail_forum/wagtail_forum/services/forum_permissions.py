@@ -53,6 +53,7 @@ from django.db.models import (
     Q,
     QuerySet,
 )
+from django.utils.crypto import constant_time_compare, salted_hmac
 from wagtail.models import PageViewRestriction
 
 from ..models import Forum, ForumGrant, ForumIndex, ForumModerator, ForumRole
@@ -202,10 +203,20 @@ def visible_categories(user: Any) -> QuerySet[Forum]:
     return qs.filter(access).distinct()
 
 
+def _unlock_fingerprint(password_hash: str) -> str:
+    """Ties a stored unlock to the password it was checked against: a new
+    password (a leaked one rotated) re-locks every session that unlocked the
+    old one (round-1 review). An HMAC, so the session never holds the hash."""
+    return salted_hmac(
+        "wagtail_forum.forum_unlock", password_hash, algorithm="sha256"
+    ).hexdigest()
+
+
 def unlocked_forum_ids(request: Any) -> list[int]:
     """The password forums this session unlocked (todo 680), for the user
     who unlocked them only: a later sign-in on the same browser, or a
-    signed-out (edge-cacheable) request, starts locked."""
+    signed-out (edge-cacheable) request, starts locked. An unlock lasts only
+    while the forum keeps the password it was made with."""
     session = getattr(request, "session", None)
     user = getattr(request, "user", None)
     if session is None or user is None or not _authenticated(user):
@@ -213,14 +224,29 @@ def unlocked_forum_ids(request: Any) -> list[int]:
     stored = session.get(UNLOCKED_SESSION_KEY)
     if not isinstance(stored, dict) or stored.get("user") != user.pk:
         return []
-    return [pk for pk in stored.get("forums") or [] if isinstance(pk, int)]
+    forums = stored.get("forums")
+    if not isinstance(forums, dict) or not forums:
+        return []
+    current = Forum.objects.filter(
+        pk__in=[int(pk) for pk in forums if str(pk).isdigit()]
+    ).exclude(password_hash="")
+    return [
+        pk
+        for pk, password_hash in current.values_list("pk", "password_hash")
+        if isinstance(forums.get(str(pk)), str)
+        and constant_time_compare(forums[str(pk)], _unlock_fingerprint(password_hash))
+    ]
 
 
-def remember_unlocked(request: Any, forum_id: int) -> None:
-    ids = unlocked_forum_ids(request)
-    if forum_id not in ids:
-        ids.append(forum_id)
-    request.session[UNLOCKED_SESSION_KEY] = {"user": request.user.pk, "forums": ids}
+def remember_unlocked(request: Any, forum: Forum) -> None:
+    stored = request.session.get(UNLOCKED_SESSION_KEY)
+    forums: dict[str, str] = {}
+    if isinstance(stored, dict) and stored.get("user") == request.user.pk:
+        kept = stored.get("forums")
+        if isinstance(kept, dict):
+            forums = {str(k): v for k, v in kept.items() if isinstance(v, str)}
+    forums[str(forum.pk)] = _unlock_fingerprint(forum.password_hash)
+    request.session[UNLOCKED_SESSION_KEY] = {"user": request.user.pk, "forums": forums}
 
 
 def readers_of_forum(users: list[Any], forum_id: int) -> list[Any]:
@@ -404,6 +430,73 @@ def hide_for_everyone(forum: Forum) -> None:
     """*No access* for guests and members (what ``is_hidden`` meant)."""
     for principal in (ForumGrant.ANONYMOUS, ForumGrant.MEMBERS):
         set_grant(forum, principal, ForumRole.NO_ACCESS)
+
+
+def _category_lists(category: Forum, principal: str, group_id: int | None) -> bool:
+    """Whether ``principal`` (a group counts with all members, whose grants it
+    adds to) may list ``category``."""
+    rows = {(g.principal, g.group_id): g.role for g in category.grants.all()}
+
+    def lists(pseudo: str) -> bool:
+        return LIST in ROLE_FLAGS[rows.get((pseudo, None), DEFAULT_ROLES[pseudo])]
+
+    if principal == ForumGrant.ANONYMOUS:
+        return lists(ForumGrant.ANONYMOUS)
+    if lists(ForumGrant.MEMBERS):
+        return True
+    role = (
+        rows.get((ForumGrant.GROUP, group_id))
+        if principal == ForumGrant.GROUP
+        else None
+    )
+    return role is not None and LIST in ROLE_FLAGS[role]
+
+
+def keep_out_whoever_the_category_kept_out(forum: Forum, old_category: Forum) -> None:
+    """Before ``forum`` leaves ``old_category``: every principal that could
+    not list the category gets *No access* on the forum (round-1 review).
+    Grants union, so afterwards the forum is read only through a principal
+    that could list the old category: a move never shows a forum to anyone
+    who could not see it before, whatever the new category allows. The old
+    rule covered only a category hidden from guests and members alike."""
+    principals: list[tuple[str, int | None]] = [
+        (ForumGrant.ANONYMOUS, None),
+        (ForumGrant.MEMBERS, None),
+    ]
+    principals += [
+        (ForumGrant.GROUP, group_id)
+        for group_id in forum.grants.filter(principal=ForumGrant.GROUP).values_list(
+            "group_id", flat=True
+        )
+    ]
+    members_role = (
+        forum.grants.filter(principal=ForumGrant.MEMBERS)
+        .values_list("role", flat=True)
+        .first()
+        or DEFAULT_ROLES[ForumGrant.MEMBERS]
+    )
+    for principal, group_id in principals:
+        if not _category_lists(old_category, principal, group_id):
+            # A pseudo-group's row has no group (the model's constraint).
+            lookup: dict[str, Any] = {"forum": forum, "principal": principal}
+            if group_id is not None:
+                lookup["group_id"] = group_id
+            ForumGrant.objects.update_or_create(
+                defaults={"role": ForumRole.NO_ACCESS}, **lookup
+            )
+            if principal == ForumGrant.MEMBERS:
+                # A group the category let in read the forum through the
+                # members' role: it keeps that role as a row of its own.
+                for grant in old_category.grants.filter(principal=ForumGrant.GROUP):
+                    if LIST in ROLE_FLAGS[grant.role]:
+                        carried: dict[str, Any] = {
+                            "forum": forum,
+                            "principal": ForumGrant.GROUP,
+                            "group_id": grant.group_id,
+                        }
+                        ForumGrant.objects.get_or_create(
+                            defaults={"role": members_role}, **carried
+                        )
 
 
 def hidden_q(ref: str = "pk") -> Q:

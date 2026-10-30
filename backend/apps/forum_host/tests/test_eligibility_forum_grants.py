@@ -72,3 +72,18 @@ def test_the_query_count_does_not_grow_with_recipients():
     many = count(_users(5, "c", insiders) + _users(5, "d"))
 
     assert few == many
+
+
+def test_a_member_denied_a_guest_readable_forum_gets_no_notification():
+    # Guests keep their default (Read Only) while members get No access: the
+    # post is guest-visible, yet a member may not read it (round-1 review).
+    _, author, post = _private_post()
+    forum = post.topic.board
+    set_grant(forum, ForumGrant.ANONYMOUS, None)
+    member = _users(1, "m")[0]
+    data = {"post_id": post.pk, "actor_id": author.pk}
+
+    result = recheck("mention", [member.pk], data, "push")
+
+    assert result.eligible == []
+    assert result.suppressed == {member.pk: REASON_CONTENT}

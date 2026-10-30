@@ -245,14 +245,13 @@ def recheck(
     if full:
         post_id = _int_or_none(data.get("post_id"))
         if post_id is not None:
-            post = visible_post(post_id)
-            if post is None:
-                # Not on a guest-visible forum (todo 676): still live on a
-                # forum some members may read? Then each recipient's own
-                # grants decide, one query per recipient, only for these.
-                post = _live_post(post_id)
-                if post is not None:
-                    unreadable = _unreadable_ids(by_pk, post.topic.board_id)
+            # Not on a guest-visible forum (todo 676)? It may still be live
+            # on a forum some members read. Either way each recipient's own
+            # grants decide: guests reading a forum says nothing about a
+            # member whose grants deny it (round-1 review). Constant queries.
+            post = visible_post(post_id) or _live_post(post_id)
+            if post is not None:
+                unreadable = _unreadable_ids(by_pk, post.topic.board_id)
             content_gone = post is None
         result.post = post
         actor_id = _int_or_none(data.get("actor_id"))

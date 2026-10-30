@@ -95,3 +95,8 @@ phpBB can protect a forum with a password, unlocked per session. phpBB's own ACP
 
 - Round-1 review: `Forum.password_hash` (added by 0047) now has `db_default=""` in the model and the migration, so the previous release can insert forums while this one migrates.
 - No behaviour change to forum passwords; every criterion was re-run.
+
+### 2026-10-30 - Review round 1: non-blocking findings (hand fixes)
+
+- Fixed (medium): a stored unlock was only {user, forum ids}, so a new password (a leaked one rotated) did not re-lock sessions that had unlocked the old one. Each unlock now stores an HMAC of the forum's `password_hash` (sha256 `salted_hmac`; the session never holds the hash), and `unlocked_forum_ids` accepts it only while the hash is unchanged. Test: `test_a_new_password_relocks_every_session_that_unlocked_the_old_one`. Mutation-checked.
+- Fixed (medium): the web locked-forum flow had no tests. New tests: `ThreadListPage.test.tsx` (an unlock form instead of threads, never fetching them; after the unlock it re-reads the forum and lists its threads) and `ForumUnlockForm.test.tsx` (the 400/429/401/403/500 messages, and an empty password is not sent). Mutation-checked on the `is_locked` early return and the cache reset.

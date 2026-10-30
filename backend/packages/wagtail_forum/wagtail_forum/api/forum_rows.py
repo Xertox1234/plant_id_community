@@ -234,5 +234,5 @@ class ForumUnlockView(UnversionedForumAPIMixin, APIView):
             )
             raise ValidationError({"password": ["Wrong password."]})
         cache.delete(key)
-        remember_unlocked(request, forum.pk)
+        remember_unlocked(request, forum)
         return Response({"unlocked": True})

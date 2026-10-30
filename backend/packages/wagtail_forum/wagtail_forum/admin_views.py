@@ -493,6 +493,8 @@ def _reject_target(post):
 
 
 def _user_can_reject(user, target):
+    """Reject deletes, so it needs the same ``delete`` permission the snippet
+    delete view it replaced required."""
     if not _moderates_all_pending(user):
         # A forum moderator rejects (deletes) pending content in their own
         # forums: the row is already scoped by pending_posts_for (todo 674).
@@ -501,8 +503,6 @@ def _user_can_reject(user, target):
         )
         if board_id in forum_ids_moderated_by(user):
             return True
-    """Reject deletes, so it needs the same ``delete`` permission the snippet
-    delete view it replaced required."""
     return ModelPermissionPolicy(type(target)).user_has_permission(user, "delete")
 
 
