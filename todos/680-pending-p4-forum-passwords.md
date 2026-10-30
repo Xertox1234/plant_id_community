@@ -6,7 +6,7 @@ tags: [forum, forum-categories, backend, web, security]
 dependencies: ["676"]
 triage: ready
 triaged: 2026-10-29
-owner_decision: "owner question at triage; skipped per overnight orders (2026-10-29)"
+owner_decision: "Locked (password) forums are hidden from the Flutter app until it gets an unlock UI. (owner, 2026-10-30)"
 ---
 
 # Forum categories slice 14: password-protected forums
@@ -42,3 +42,7 @@ phpBB can protect a forum with a password, unlocked per session. phpBB's own ACP
 ### 2026-10-28 - Filed
 
 - Filed from the forum-categories research session (owner decisions in the design spec §1).
+
+### 2026-10-30 - Owner decision
+
+- The 2026-10-29 triage question was answered by the owner: Locked (password) forums are hidden from the Flutter app until it gets an unlock UI.

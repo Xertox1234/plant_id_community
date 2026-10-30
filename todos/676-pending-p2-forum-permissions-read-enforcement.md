@@ -6,7 +6,7 @@ tags: [forum, forum-categories, backend, permissions, security]
 dependencies: ["675"]
 triage: ready
 triaged: 2026-10-29
-owner_decision: "owner question at triage; skipped per overnight orders (2026-10-29)"
+owner_decision: "Staff and forum moderators bypass a No Access grant and keep seeing every forum, as is_hidden staff handling does today. (owner, 2026-10-30)"
 ---
 
 # Forum categories slice 11b: enforce forum read permissions everywhere (replaces is_hidden)
@@ -44,3 +44,7 @@ Read permissions only matter if every read path honours them. Today one helper (
 ### 2026-10-28 - Filed
 
 - Filed from the forum-categories research session (owner decisions in the design spec §1).
+
+### 2026-10-30 - Owner decision
+
+- The 2026-10-29 triage question was answered by the owner: Staff and forum moderators bypass a No Access grant and keep seeing every forum, as is_hidden staff handling does today.

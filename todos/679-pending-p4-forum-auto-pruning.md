@@ -6,7 +6,7 @@ tags: [forum, forum-categories, backend, celery, cron]
 dependencies: ["666"]
 triage: ready
 triaged: 2026-10-29
-owner_decision: "owner question at triage; skipped per overnight orders (2026-10-29)"
+owner_decision: "Ship days-since-last-post pruning only. No last_viewed_at field and no days-since-viewed rule. (owner, 2026-10-30)"
 ---
 
 # Forum categories slice 13: per-forum auto-pruning
@@ -42,3 +42,7 @@ phpBB can prune old topics per forum on a schedule (days since last post / since
 ### 2026-10-28 - Filed
 
 - Filed from the forum-categories research session (owner decisions in the design spec §1).
+
+### 2026-10-30 - Owner decision
+
+- The 2026-10-29 triage question was answered by the owner: Ship days-since-last-post pruning only. No last_viewed_at field and no days-since-viewed rule.

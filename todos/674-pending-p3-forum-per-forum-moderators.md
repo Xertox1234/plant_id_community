@@ -7,7 +7,7 @@ dependencies: ["666"]
 triage: needs-design
 triaged: 2026-10-29
 blocked_on: "A design choice on how forum moderators get access and get scoped across Wagtail admin and the API"
-owner_decision: "owner question at triage; skipped per overnight orders (2026-10-29)"
+owner_decision: "Moderators can be users or groups. They moderate through the existing Wagtail admin (queue, reports, topic snippets), scoped to their forums by a permission policy. A topic move is allowed only when they moderate both the source and the destination forum. (owner, 2026-10-30)"
 ---
 
 # Forum categories slice 10: per-forum moderators and a 'Moderators:' line
@@ -43,3 +43,7 @@ phpBB assigns moderators per forum and lists them on each forum row. Today moder
 ### 2026-10-28 - Filed
 
 - Filed from the forum-categories research session (owner decisions in the design spec §1).
+
+### 2026-10-30 - Owner decision
+
+- The 2026-10-29 triage question was answered by the owner: Moderators can be users or groups. They moderate through the existing Wagtail admin (queue, reports, topic snippets), scoped to their forums by a permission policy. A topic move is allowed only when they moderate both the source and the destination forum.
