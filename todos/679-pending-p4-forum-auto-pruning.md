@@ -4,6 +4,9 @@ priority: p4
 issue_id: "679"
 tags: [forum, forum-categories, backend, celery, cron]
 dependencies: ["666"]
+triage: ready
+triaged: 2026-10-29
+owner_decision: "owner question at triage; skipped per overnight orders (2026-10-29)"
 ---
 
 # Forum categories slice 13: per-forum auto-pruning

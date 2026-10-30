@@ -4,6 +4,10 @@ priority: p3
 issue_id: "674"
 tags: [forum, forum-categories, backend, web, wagtail, moderation]
 dependencies: ["666"]
+triage: needs-design
+triaged: 2026-10-29
+blocked_on: "A design choice on how forum moderators get access and get scoped across Wagtail admin and the API"
+owner_decision: "owner question at triage; skipped per overnight orders (2026-10-29)"
 ---
 
 # Forum categories slice 10: per-forum moderators and a 'Moderators:' line

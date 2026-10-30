@@ -4,6 +4,9 @@ priority: p2
 issue_id: "676"
 tags: [forum, forum-categories, backend, permissions, security]
 dependencies: ["675"]
+triage: ready
+triaged: 2026-10-29
+owner_decision: "owner question at triage; skipped per overnight orders (2026-10-29)"
 ---
 
 # Forum categories slice 11b: enforce forum read permissions everywhere (replaces is_hidden)

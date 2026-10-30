@@ -4,6 +4,8 @@ priority: p4
 issue_id: "673"
 tags: [forum, forum-categories, web, backend]
 dependencies: ["665"]
+triage: ready
+triaged: 2026-10-29
 ---
 
 # Forum categories slice 9: collapsible categories remembered per user

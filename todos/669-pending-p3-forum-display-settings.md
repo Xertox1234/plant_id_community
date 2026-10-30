@@ -4,6 +4,10 @@ priority: p3
 issue_id: "669"
 tags: [forum, forum-categories, backend, web, wagtail]
 dependencies: ["666"]
+triage: needs-design
+triaged: 2026-10-29
+blocked_on: "An owner choice on the rules format (plain text, limited rich text, rules_url, or text plus link like phpBB) and the icon format (emoji or a named icon)"
+owner_decision: "owner question at triage; skipped per overnight orders (2026-10-29)"
 ---
 
 # Forum categories slice 5: per-forum display settings (locked, rules, icon/colour/image, topics per page, default sort)

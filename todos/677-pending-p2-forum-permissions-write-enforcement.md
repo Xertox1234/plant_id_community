@@ -4,6 +4,8 @@ priority: p2
 issue_id: "677"
 tags: [forum, forum-categories, backend, web, permissions, security]
 dependencies: ["676"]
+triage: ready
+triaged: 2026-10-29
 ---
 
 # Forum categories slice 11c: enforce post/reply/poll/attach permissions and reflect them in the web UI

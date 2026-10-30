@@ -4,6 +4,8 @@ priority: p3
 issue_id: "671"
 tags: [forum, forum-categories, backend, web]
 dependencies: ["665"]
+triage: ready
+triaged: 2026-10-29
 ---
 
 # Forum categories slice 7: per-forum unread markers, mark forum read, mark all forums read
