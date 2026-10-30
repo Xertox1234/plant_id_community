@@ -45,7 +45,7 @@
                             </span>
                             {% if can_change %}
                                 <span class="wf-structure__moves">
-                                    {% include "wagtail_forum/admin/forum_structure_move.html" with row=category parent_id="" index=node.index is_first=node.is_first is_last=node.is_last move_url=move_url only %}
+                                    {% include "wagtail_forum/admin/forum_structure_move.html" with row=category parent_id="" index=node.index is_first=node.is_first is_last=node.is_last move_url=move_url csrf_token=csrf_token only %}
                                 </span>
                             {% endif %}
                         </div>
@@ -66,7 +66,7 @@
                                             </span>
                                             {% if can_change %}
                                                 <span class="wf-structure__moves">
-                                                    {% include "wagtail_forum/admin/forum_structure_move.html" with row=forum parent_id=category.pk index=leaf.index is_first=leaf.is_first is_last=leaf.is_last move_url=move_url only %}
+                                                    {% include "wagtail_forum/admin/forum_structure_move.html" with row=forum parent_id=category.pk index=leaf.index is_first=leaf.is_first is_last=leaf.is_last move_url=move_url csrf_token=csrf_token only %}
                                                     {% if categories|length > 1 %}
                                                         <form class="wf-structure__move" method="post" action="{{ move_url }}" data-move="to">
                                                             {% csrf_token %}

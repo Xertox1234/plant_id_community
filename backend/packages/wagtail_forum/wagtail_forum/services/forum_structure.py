@@ -128,8 +128,10 @@ def move_forum(forum_id: int, parent_id: int | None, position: int) -> Forum:
             # field to show it on, so the caller gets the plain messages.
             raise ValidationError(error.messages) from error
 
-        # Lock both levels (pk order, like every other lock here) so two
-        # concurrent moves cannot interleave their renumbering.
+        # Lock both levels (each in pk order) so two concurrent moves cannot
+        # interleave their renumbering. The moved row and its parent are locked
+        # first, so the order is not global: two staff moving rows into each
+        # other's level at once can deadlock, and Postgres rolls one back.
         list(
             Forum.objects.select_for_update()
             .filter(pk__in=_level(parent_id).values("pk"))

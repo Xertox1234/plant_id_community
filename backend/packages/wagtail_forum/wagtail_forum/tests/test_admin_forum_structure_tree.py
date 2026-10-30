@@ -1,6 +1,8 @@
 """The forum structure tree (todo 668): the *Categories & forums* landing
 screen and its one move endpoint, for drag and drop and the move buttons."""
 
+import re
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
@@ -196,6 +198,32 @@ def test_the_tree_renders_move_buttons_with_the_positions(admin_client, structur
     assert 'data-move="to"' in html
 
 
+def test_the_move_buttons_post_without_javascript(structure):
+    """The up/down forms are the no-JS path, so each must carry its own CSRF
+    token; one posted as the browser would, CSRF enforced, moves the row."""
+    client = Client(enforce_csrf_checks=True)
+    client.force_login(User.objects.create_superuser(username="root", email="r@x.io"))
+    html = client.get(_url("index")).content.decode()
+
+    forms = re.findall(
+        r'<form[^>]*data-move="(?:up|down)"[^>]*>(.*?)</form>', html, re.S
+    )
+    assert forms
+    assert all('name="csrfmiddlewaretoken"' in f for f in forms)
+
+    ferns = structure["ferns"].pk
+    down = next(
+        f for f in forms if f'name="forum_id" value="{ferns}"' in f and "down" in f
+    )
+    fields = dict(
+        re.findall(r'<input type="hidden" name="(\w+)" value="([^"]*)"', down)
+    )
+    resp = client.post(_url("move"), fields)
+
+    assert resp.status_code == 302
+    assert _level(structure["indoor"]) == [("Cacti", 0), ("Ferns", 1), ("Palms", 2)]
+
+
 def test_leaving_a_hidden_category_for_a_visible_one_hides_the_forum(
     admin_client, structure
 ):
@@ -209,6 +237,16 @@ def test_leaving_a_hidden_category_for_a_visible_one_hides_the_forum(
     assert resp.json()["is_hidden"] is True
     structure["ferns"].refresh_from_db()
     assert structure["ferns"].is_hidden is True
+
+
+def test_moving_between_visible_categories_keeps_the_forum_visible(
+    admin_client, structure
+):
+    resp = _move(admin_client, structure["ferns"], structure["outdoor"], 0, **XHR)
+
+    assert resp.status_code == 200, resp.content
+    structure["ferns"].refresh_from_db()
+    assert structure["ferns"].is_hidden is False
 
 
 # --- AC1: illegal drops are refused and change nothing ---
@@ -321,6 +359,16 @@ def test_moving_needs_the_change_permission(client, structure, codenames):
     resp = _move(client, structure["outdoor"], None, 0, **XHR)
 
     assert resp.status_code == 403
+    assert _snapshot() == before
+
+
+def test_an_anonymous_move_is_sent_to_the_login_page(client, structure):
+    before = _snapshot()
+
+    resp = _move(client, structure["outdoor"], None, 0)
+
+    assert resp.status_code == 302
+    assert "/login/" in resp["Location"]
     assert _snapshot() == before
 
 

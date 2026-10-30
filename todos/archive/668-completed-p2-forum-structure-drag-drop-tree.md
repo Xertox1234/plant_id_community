@@ -89,3 +89,16 @@ Staff need to arrange categories and forums. phpBB has only move-up/down arrows 
 ### 2026-10-29 - Completed by the todo sweep (run 2026-10-29-1135)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-29 - Review round 1: non-blocking findings (PR #1223)
+
+Round 1 was clean (no blocking finding). Each non-blocking finding, fixed or declined:
+
+- **Fixed, medium:** the up/down forms were included with `{% include … only %}`, which drops the context processors, so `{% csrf_token %}` rendered empty and the no-JS/keyboard path got a 403. Both includes now pass `csrf_token=csrf_token`. New test `test_the_move_buttons_post_without_javascript` (CSRF enforced) checks that every up/down form carries a token, then posts a "down" form as a browser would: 302, order changed. It failed before the fix.
+- **Fixed, medium:** the hide-on-move guard was only tested hidden→visible. New test `test_moving_between_visible_categories_keeps_the_forum_visible`. Mutation check: dropping the `old_parent.is_hidden` operand makes it fail; the guard was restored from a copy.
+- **Declined, low (lock order, reported twice):** rows are locked per step (the moved row, the parent, then each level in pk order), not in one global pk order, so two staff moving rows into each other's level at the same instant can deadlock. Postgres aborts one move with a 500 and rolls it back, so no data is lost. It is a staff-only screen and the race is unlikely. The comment that claimed pk-order locking is corrected to say so.
+- **Declined, low:** an out-of-range integer `forum_id`/`parent_id` gives a 500 (DataError) instead of a 400. Only staff with the change permission can reach the endpoint, and no data changes.
+- **Declined, low:** the render test checks only the move markers. The new no-JS test now covers a rendered form's fields and token end to end.
+- **Fixed, low:** no anonymous-user test for the move endpoint. New test `test_an_anonymous_move_is_sent_to_the_login_page`: 302 to the admin login, nothing changed.
+
+Full forum suite after the first two fixes: `wagtail_forum/tests` + `apps/forum_host`, `--create-db`: 2321 passed. After the anonymous test: `test_admin_forum_structure_tree.py`: 30 passed.
