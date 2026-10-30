@@ -4,6 +4,8 @@ priority: p3
 issue_id: "670"
 tags: [forum, forum-categories, backend, web]
 dependencies: ["666"]
+triage: ready
+triaged: 2026-10-29
 ---
 
 # Forum categories slice 6: link forums with click tracking

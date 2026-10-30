@@ -4,6 +4,10 @@ priority: p3
 issue_id: "672"
 tags: [forum, forum-categories, backend, web, notifications]
 dependencies: ["665"]
+triage: needs-design
+triaged: 2026-10-29
+blocked_on: "The owner needs to define the levels and the delivery channels for a new-topic notification."
+owner_decision: "owner question at triage; skipped per overnight orders (2026-10-29)"
 ---
 
 # Forum categories slice 8: Watch / Track / Mute per forum

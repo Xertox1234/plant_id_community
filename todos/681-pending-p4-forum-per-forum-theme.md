@@ -4,6 +4,10 @@ priority: p4
 issue_id: "681"
 tags: [forum, forum-categories, web, backend]
 dependencies: ["669"]
+triage: needs-design
+triaged: 2026-10-29
+blocked_on: "Theme variant list + relation to 669's colour field undecided; 669 must land first"
+owner_decision: "owner question at triage; skipped per overnight orders (2026-10-29)"
 ---
 
 # Forum categories slice 15: per-forum theme override
