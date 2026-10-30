@@ -49,10 +49,14 @@ export function useCollapsedCategories({ isAuthenticated, authLoading, userId }:
   // being recreated on every change.
   const collapsedRef = useRef(collapsed);
   // A member's save PUTs the whole set, so a toggle before their stored set
-  // has loaded would overwrite it with just that one id. Toggles wait for it.
-  const loadedRef = useRef(!isAuthenticated);
+  // has loaded would overwrite it with just that one id. Toggles wait for it;
+  // if the load failed they still work, but only for this visit (no save).
+  const loadRef = useRef<'loading' | 'loaded' | 'failed'>(isAuthenticated ? 'loading' : 'loaded');
   // Saves run one after another, so an older set never lands last.
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  // Bumped on every identity change: a save queued by the previous account
+  // must not run as the next one.
+  const identityRef = useRef(0);
   const signedIn = isAuthenticated && !authLoading;
 
   const apply = useCallback((next: Set<string>) => {
@@ -62,24 +66,26 @@ export function useCollapsedCategories({ isAuthenticated, authLoading, userId }:
 
   useEffect(() => {
     if (authLoading) return;
+    identityRef.current += 1;
     if (!isAuthenticated) {
-      loadedRef.current = true;
+      loadRef.current = 'loaded';
       apply(readGuest());
       return;
     }
     // Keyed on the identity: never show the previous account's state.
     let ignore = false;
-    loadedRef.current = false;
+    loadRef.current = 'loading';
     apply(new Set());
     Promise.resolve()
       .then(() => fetchMyForumProfile())
       .then((profile) => {
         if (ignore) return;
         apply(new Set((profile?.collapsed_categories ?? []).map(String)));
-        loadedRef.current = true;
+        loadRef.current = 'loaded';
       })
       .catch((err) => {
         if (ignore) return;
+        loadRef.current = 'failed';
         logger.error('Error loading collapsed categories', {
           component: 'useCollapsedCategories',
           error: err,
@@ -94,7 +100,7 @@ export function useCollapsedCategories({ isAuthenticated, authLoading, userId }:
     (categoryId: string) => {
       // Until auth resolves we don't know whose state this is, and a member's
       // stored set must load before a toggle can change it.
-      if (authLoading || !loadedRef.current) return;
+      if (authLoading || loadRef.current === 'loading') return;
       const next = new Set(collapsedRef.current);
       if (next.has(categoryId)) next.delete(categoryId);
       else next.add(categoryId);
@@ -103,9 +109,11 @@ export function useCollapsedCategories({ isAuthenticated, authLoading, userId }:
         writeGuest(next);
         return;
       }
+      if (loadRef.current === 'failed') return;
       const ids = [...next].map(Number).filter((n) => Number.isInteger(n) && n > 0);
+      const identity = identityRef.current;
       saveChainRef.current = saveChainRef.current
-        .then(() => saveCollapsedCategories(ids))
+        .then(() => (identity === identityRef.current ? saveCollapsedCategories(ids) : undefined))
         .then(
           () => undefined,
           (err) => {

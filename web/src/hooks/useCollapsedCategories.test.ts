@@ -137,4 +137,44 @@ describe('useCollapsedCategories (todo 673)', () => {
     await waitFor(() => expect(forumService.saveCollapsedCategories).toHaveBeenCalledTimes(2));
     expect(vi.mocked(forumService.saveCollapsedCategories).mock.calls[1][0]).toEqual([1, 2]);
   });
+
+  it('still toggles for this visit when the stored set failed to load, without saving', async () => {
+    vi.mocked(forumService.fetchMyForumProfile).mockRejectedValue(new Error('500'));
+
+    const { result } = renderHook(() => useCollapsedCategories(member));
+    await waitFor(() => expect(forumService.fetchMyForumProfile).toHaveBeenCalled());
+    await act(async () => {});
+    act(() => result.current.toggle('3'));
+
+    expect(result.current.isCollapsed('3')).toBe(true);
+    // The stored set is unknown, so saving would overwrite it.
+    expect(forumService.saveCollapsedCategories).not.toHaveBeenCalled();
+  });
+
+  it('drops a save the previous account queued once the identity changes', async () => {
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue(profile([]));
+    let finishFirst: () => void = () => {};
+    vi.mocked(forumService.saveCollapsedCategories)
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishFirst = () => resolve([1]);
+        })
+      )
+      .mockResolvedValue([]);
+
+    const { result, rerender } = renderHook((viewer) => useCollapsedCategories(viewer), {
+      initialProps: member,
+    });
+    await act(async () => {});
+    act(() => result.current.toggle('1'));
+    act(() => result.current.toggle('2'));
+    await waitFor(() => expect(forumService.saveCollapsedCategories).toHaveBeenCalledTimes(1));
+
+    rerender({ ...member, userId: 2 });
+    await act(async () => finishFirst());
+    await act(async () => {});
+
+    // The second save ([1, 2]) belonged to account 1 and never runs as account 2.
+    expect(forumService.saveCollapsedCategories).toHaveBeenCalledTimes(1);
+  });
 });
