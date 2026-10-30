@@ -4,9 +4,10 @@
 - **Delete** a forum: choose *move its topics to [forum]* or *delete its
   topics*; a category: choose the category its forums move to. A row with
   nothing under it deletes on a plain confirm.
-- **Change type**: forum → category (the same move-or-delete choice first,
-  so no category ever holds a topic) and category → forum (refused while it
-  holds forums; it then needs its category). Link conversions are todo 670.
+- **Change type**: between category, forum and link. A forum's topics get
+  the same move-or-delete choice first, so no category or link ever holds a
+  topic; a category is refused while it holds forums and then needs its
+  category; becoming a link needs its URL; leaving link clears it (todo 670).
 
 Every target is checked server-side twice: the form's choice querysets admit
 only a forum other than this one (topics) or a category other than this one
@@ -22,6 +23,7 @@ from typing import Any
 from django import forms
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
 from django.http import HttpResponse, HttpResponseRedirect
@@ -34,6 +36,7 @@ from wagtail.admin.views.generic.base import BaseObjectMixin, WagtailAdminTempla
 from wagtail.admin.views.generic.permissions import PermissionCheckedMixin
 
 from ..models import Forum, Topic
+from ..models.boards import LINK_URL_SCHEMES
 from ..services import forum_structure
 
 TOPICS_ACTION_CHOICES = [
@@ -99,29 +102,73 @@ class ForumDeleteForm(_ForumRowForm):
             self._add_category_target(_("Move its forums to"))
 
 
+# The type a row becomes when the form names none: the conversion todo 667
+# shipped first (forum <-> category), and a link becomes a forum.
+DEFAULT_NEW_TYPE = {
+    Forum.FORUM: Forum.CATEGORY,
+    Forum.CATEGORY: Forum.FORUM,
+    Forum.LINK: Forum.FORUM,
+}
+
+
 class ForumChangeTypeForm(_ForumRowForm):
     def __init__(self, *args: Any, forum: Forum, **kwargs: Any) -> None:
         super().__init__(*args, forum=forum, **kwargs)
+        labels = dict(Forum.FORUM_TYPE_CHOICES)
+        self.fields["to_type"] = forms.ChoiceField(
+            label=_("New type"),
+            choices=[
+                (value, labels[value])
+                for value in (Forum.CATEGORY, Forum.FORUM, Forum.LINK)
+                if value != forum.forum_type
+            ],
+            initial=DEFAULT_NEW_TYPE[forum.forum_type],
+            required=False,
+            widget=forms.RadioSelect,
+        )
+        # The new type first: the fields after it depend on it.
+        self.order_fields(["to_type"])
         if forum.forum_type == Forum.CATEGORY:
-            self._add_category_target(_("Category the forum belongs to"))
+            self._add_category_target(_("Category the forum or link belongs to"))
+        self.fields["link_url"] = forms.URLField(
+            label=_("Link URL"),
+            required=False,
+            max_length=Forum._meta.get_field("link_url").max_length,
+            validators=[URLValidator(schemes=list(LINK_URL_SCHEMES))],
+            help_text=_("Only when it becomes a link: http or https."),
+        )
+        self.fields["track_clicks"] = forms.BooleanField(
+            label=_("Track clicks"),
+            required=False,
+            initial=True,
+            help_text=_("Only when it becomes a link."),
+        )
 
     @property
-    def new_type(self) -> str | None:
-        return {Forum.FORUM: Forum.CATEGORY, Forum.CATEGORY: Forum.FORUM}.get(
-            self.forum.forum_type
+    def new_type(self) -> str:
+        cleaned = getattr(self, "cleaned_data", None) or {}
+        return str(cleaned.get("to_type") or DEFAULT_NEW_TYPE[self.forum.forum_type])
+
+    def clean_to_type(self) -> str:
+        return str(
+            self.cleaned_data.get("to_type") or DEFAULT_NEW_TYPE[self.forum.forum_type]
         )
 
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean()
-        if self.new_type is None:
-            raise ValidationError(_("A link's type cannot be changed yet."))
         if self.forum.forum_type == Forum.CATEGORY and self.child_count:
             raise ValidationError(
                 _(
                     "This category still holds forums. Move or delete them "
-                    "before turning it into a forum."
+                    "before changing its type."
                 )
             )
+        if (
+            cleaned.get("to_type") == Forum.LINK
+            and not cleaned.get("link_url")
+            and "link_url" not in self.errors
+        ):
+            self.add_error("link_url", _("A link needs a URL."))
         return cleaned
 
 
@@ -203,8 +250,9 @@ class ForumDeleteView(generic.DeleteView):
 class ForumChangeTypeView(
     PermissionCheckedMixin, WagtailAdminTemplateMixin, BaseObjectMixin, FormView
 ):
-    """Forum ↔ category, behind the ``change`` permission. Deleting the
-    topics on the way also needs the forum and topic ``delete`` permissions."""
+    """Category, forum and link conversions, behind the ``change``
+    permission. Deleting the topics on the way also needs the forum and topic
+    ``delete`` permissions."""
 
     model = Forum
     permission_required = "change"
@@ -236,9 +284,6 @@ class ForumChangeTypeView(
             str(self.change_type_url_name), args=(self.object.pk,)
         )
         context["cancel_url"] = self.get_success_url()
-        context["new_type_label"] = dict(Forum.FORUM_TYPE_CHOICES).get(
-            context["form"].new_type or "", ""
-        )
         return context
 
     def form_valid(self, form: ForumChangeTypeForm) -> HttpResponse:
@@ -246,10 +291,12 @@ class ForumChangeTypeView(
         try:
             forum_structure.change_type(
                 self.object,
-                str(form.new_type),
+                form.new_type,
                 action=data.get("topics_action"),
                 target=data.get("target"),
                 category=data.get("target_category"),
+                link_url=data.get("link_url") or "",
+                track_clicks=bool(data.get("track_clicks")),
             )
         except ValidationError as error:
             _add_service_error(form, error)
@@ -262,7 +309,7 @@ class ForumChangeTypeView(
             str(_("“%(name)s” is now a %(type)s."))
             % {
                 "name": self.object.name,
-                "type": dict(Forum.FORUM_TYPE_CHOICES)[str(form.new_type)].lower(),
+                "type": dict(Forum.FORUM_TYPE_CHOICES)[form.new_type].lower(),
             },
         )
         return HttpResponseRedirect(self.get_success_url())

@@ -38,6 +38,9 @@ import {
   ComposeAssistError,
   fetchTopicSummary,
   TopicSummaryError,
+  markForumRead,
+  markAllForumsRead,
+  saveCollapsedCategories,
 } from './forumService';
 import { clearCsrfToken } from '../utils/csrf';
 
@@ -179,6 +182,83 @@ function okJson(body: unknown) {
 // ---------------------------------------------------------------------------
 
 describe('forumService (wagtail_forum API contract)', () => {
+  // --- Read marks (todo 671) ------------------------------------------------
+
+  it('markForumRead POSTs to the forum’s read/ endpoint', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ marked_at: '2026-10-30T00:00:00Z' }));
+    await markForumRead('plant-care');
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/v1\/forum\/boards\/plant-care\/read\/$/),
+      expect.objectContaining({ method: 'POST', credentials: 'include' })
+    );
+  });
+
+  it('saveCollapsedCategories PUTs the whole list to me/collapsed-categories/', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ collapsed_categories: [3, 1] }));
+    await expect(saveCollapsedCategories([3, 1])).resolves.toEqual([3, 1]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/v1\/forum\/me\/collapsed-categories\/$/),
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ collapsed_categories: [3, 1] }),
+      })
+    );
+  });
+
+  it('markAllForumsRead POSTs to read-all/', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ marked_at: '2026-10-30T00:00:00Z' }));
+    await markAllForumsRead();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/v1\/forum\/read-all\/$/),
+      expect.objectContaining({ method: 'POST', credentials: 'include' })
+    );
+  });
+
+  it('fetchCategories maps link rows and unread flags', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({
+        results: [
+          {
+            id: 1,
+            title: 'Plants',
+            slug: 'plants',
+            position: 0,
+            topic_count: 0,
+            post_count: 0,
+            last_post_at: null,
+            has_unread: true,
+            forums: [{ ...backendBoard, has_unread: true }],
+            links: [
+              {
+                id: 9,
+                title: 'Shop',
+                slug: 'shop',
+                description: '',
+                link_url: 'https://shop.example.com/',
+                track_clicks: false,
+                click_count: null,
+              },
+            ],
+          },
+        ],
+      })
+    );
+    const [category] = await fetchCategories();
+    expect(category.has_unread).toBe(true);
+    expect(category.forums[0].has_unread).toBe(true);
+    expect(category.links).toEqual([
+      {
+        id: '9',
+        name: 'Shop',
+        slug: 'shop',
+        description: '',
+        link_url: 'https://shop.example.com/',
+        track_clicks: false,
+        click_count: null,
+      },
+    ]);
+  });
+
   // --- Categories (boards) --------------------------------------------------
 
   it('fetchForums hits /boards/ and maps board→category', async () => {

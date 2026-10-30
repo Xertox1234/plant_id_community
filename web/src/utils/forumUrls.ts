@@ -1,4 +1,6 @@
-import type { Forum, EventHeroTopic, RecentTopic, Thread } from '../types/forum';
+import type { Forum, ForumLink, EventHeroTopic, RecentTopic, Thread } from '../types/forum';
+import { API_ORIGIN } from '@/config/api';
+import { safeExternalUrl } from './externalUrl';
 
 /** Lowercase, hyphenate, strip non-alphanumerics. Falls back to "topic" when empty. */
 export function slugifyTitle(input: string): string {
@@ -83,4 +85,21 @@ export function eventHeroTopicPath(topic: EventHeroTopic): string {
     { id: String(topic.board.id), slug: topic.board.slug, name: topic.board.name },
     { id: String(topic.id), slug: topic.slug, title: topic.title }
   );
+}
+
+/**
+ * Where a link row (todo 670) sends the reader: a tracked link goes through
+ * the backend's counting redirect, an untracked one straight to its URL.
+ * Null when the URL is not a plain http(s) address, so the row renders no
+ * link at all rather than a `javascript:` href.
+ */
+export function forumLinkHref(
+  link: Pick<ForumLink, 'id' | 'link_url' | 'track_clicks'>
+): string | null {
+  const direct = safeExternalUrl(link.link_url);
+  if (!direct) return null;
+  if (link.track_clicks) {
+    return `${API_ORIGIN}/api/v1/forum/links/${encodeURIComponent(link.id)}/go/`;
+  }
+  return direct;
 }

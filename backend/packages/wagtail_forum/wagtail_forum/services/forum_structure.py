@@ -8,8 +8,8 @@ one transaction, so a refused or failed step leaves the structure as it was.
 - :func:`empty_forum` moves or deletes a forum's topics so the row can be
   deleted or turned into a category (``Topic.board`` is ``PROTECT``).
 - :func:`empty_category` moves a category's forums under another category.
-- :func:`change_type` turns a forum into a category or a category into a
-  forum (link conversions arrive with the link URL field, todo 670).
+- :func:`change_type` moves a row between category, forum and link (link
+  conversions: todo 670).
 
 Moving topics is a bulk UPDATE, which fires no model signal: this module
 recounts both forums itself and sends ``signals.topics_moved`` so a host can keep
@@ -323,6 +323,27 @@ def _check_slug_free(forum: Forum, new_type: str) -> None:
         )
 
 
+def _check_category(forum: Forum, category: Forum | None) -> Forum:
+    """The category a retyped row will sit in: an existing category that is
+    not the row itself."""
+    if category is None or category.pk is None or category.pk == forum.pk:
+        raise ValidationError(_("Choose the category the forum belongs to."))
+    fresh = Forum.objects.filter(pk=category.pk, forum_type=Forum.CATEGORY).first()
+    if fresh is None:
+        raise ValidationError(_("Choose the category the forum belongs to."))
+    return fresh
+
+
+def _refuse_if_holds_rows(forum: Forum) -> None:
+    if Forum.objects.filter(parent=forum).exists():
+        raise ValidationError(
+            _(
+                "This category still holds forums. Move or delete them "
+                "before changing its type."
+            )
+        )
+
+
 def change_type(
     forum: Forum,
     new_type: str,
@@ -330,51 +351,54 @@ def change_type(
     action: TopicsAction | None = None,
     target: Forum | None = None,
     category: Forum | None = None,
+    link_url: str = "",
+    track_clicks: bool = True,
 ) -> Forum:
-    """Turn a forum into a category, or a category into a forum.
+    """Change a row between category, forum and link (phpBB's rules,
+    simplified for two levels).
 
-    - forum → category: its topics are moved to ``target`` or deleted first
-      (``action``, the delete flow's choice), so no category ever holds a
-      topic; the row leaves its category and its counters reset.
-    - category → forum: refused while it holds forums or links; it then
-      needs the ``category`` it will sit in.
+    - forum → category or link: its topics are moved to ``target`` or
+      deleted first (``action``, the delete flow's choice), so no category or
+      link ever holds a topic; its counters reset. A category leaves its
+      category; a link stays in it.
+    - category → forum or link: refused while it holds forums or links; it
+      then needs the ``category`` it will sit in.
+    - link → forum or category: the URL and its click count are cleared. A
+      forum stays in the link's category; a category goes to the top level.
 
-    Link conversions are todo 670's (they need the link URL field)."""
+    Becoming a link needs ``link_url`` (http/https, ``Forum.clean``)."""
     with transaction.atomic():
         forum = Forum.objects.select_for_update().get(pk=forum.pk)
-        if new_type == forum.forum_type:
+        old_type = forum.forum_type
+        valid = {Forum.CATEGORY, Forum.FORUM, Forum.LINK}
+        if new_type not in valid:
+            raise ValidationError(_("Choose a category, a forum or a link."))
+        if new_type == old_type:
             raise ValidationError(_("The row already has that type."))
-        if forum.forum_type == Forum.FORUM and new_type == Forum.CATEGORY:
-            _check_slug_free(forum, Forum.CATEGORY)
+        _check_slug_free(forum, new_type)
+
+        if old_type == Forum.FORUM:
             empty_forum(forum, action, target)
-            forum.forum_type = Forum.CATEGORY
-            forum.parent = None
-            forum.position = next_position(None)
             forum.topic_count = 0
             forum.post_count = 0
-        elif forum.forum_type == Forum.CATEGORY and new_type == Forum.FORUM:
-            if Forum.objects.filter(parent=forum).exists():
-                raise ValidationError(
-                    _(
-                        "This category still holds forums. Move or delete them "
-                        "before turning it into a forum."
-                    )
-                )
-            if category is None or category.pk == forum.pk:
-                raise ValidationError(_("Choose the category the forum belongs to."))
-            category = Forum.objects.filter(
-                pk=category.pk, forum_type=Forum.CATEGORY
-            ).first()
-            if category is None:
-                raise ValidationError(_("Choose the category the forum belongs to."))
-            _check_slug_free(forum, Forum.FORUM)
-            forum.forum_type = Forum.FORUM
-            forum.parent = category
-            forum.position = next_position(category.pk)
+        elif old_type == Forum.CATEGORY:
+            _refuse_if_holds_rows(forum)
+            forum.parent = _check_category(forum, category)
+            forum.position = next_position(forum.parent.pk)
+        else:  # a link
+            forum.click_count = 0
+            forum.track_clicks = Forum._meta.get_field("track_clicks").default
+
+        if new_type == Forum.CATEGORY:
+            forum.parent = None
+            forum.position = next_position(None)
+        if new_type == Forum.LINK:
+            forum.link_url = link_url
+            forum.track_clicks = track_clicks
+            forum.click_count = 0
         else:
-            raise ValidationError(
-                _("Only a forum can become a category, and a category a forum.")
-            )
+            forum.link_url = ""
+        forum.forum_type = new_type
         forum.full_clean(exclude=["slug"])
         forum.save()
     return forum

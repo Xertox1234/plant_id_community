@@ -170,14 +170,16 @@ def test_form_rejects_a_category_with_a_parent(client):
 
 
 @pytest.mark.django_db
-def test_form_rejects_a_link_type_in_this_slice(client):
+def test_form_refuses_a_link_without_its_url(client):
+    # Todo 670 made `link` creatable; it was refused outright before. A link
+    # without a URL is still refused, on the URL field.
     category = make_category()
     client.force_login(_staff("editor", "add_forum", "change_forum"))
 
     resp = client.post(_url("add"), _payload(forum_type=Forum.LINK, parent=category.pk))
 
     assert resp.status_code == 200
-    assert "forum_type" in resp.context["form"].errors
+    assert "link_url" in resp.context["form"].errors
     assert not Forum.objects.filter(slug="succulents").exists()
 
 
@@ -304,7 +306,8 @@ def test_create_form_offers_only_category_and_forum_and_wires_the_parent_rule(cl
     resp = client.get(_url("add"))
 
     choices = [value for value, _ in resp.context["form"].fields["forum_type"].choices]
-    assert choices == [Forum.CATEGORY, Forum.FORUM]
+    # `link` joined the creatable types with todo 670.
+    assert choices == [Forum.CATEGORY, Forum.FORUM, Forum.LINK]
     html = resp.content.decode()
     assert 'data-controller="w-rules"' in html
     assert 'data-w-rules-show-match="not"' in html

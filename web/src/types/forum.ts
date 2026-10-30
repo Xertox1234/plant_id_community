@@ -40,6 +40,25 @@ export interface Forum {
   /** ISO timestamp of the newest live topic's activity; null when nobody has posted. */
   last_post_at?: string | null;
   children?: Forum[];
+  /** Any topic the signed-in viewer has not read (todo 671). Only on rows of
+   * `GET categories/`; false for anonymous viewers. */
+  has_unread?: boolean;
+}
+
+/**
+ * A link row (todo 670; phpBB's link forum): a row under a category that
+ * sends the reader to `link_url`. A tracked link is followed through the
+ * backend's counting redirect, and `click_count` is its count (null when
+ * untracked).
+ */
+export interface ForumLink {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  link_url: string;
+  track_clicks: boolean;
+  click_count: number | null;
 }
 
 /**
@@ -56,6 +75,10 @@ export interface Category {
   post_count: number;
   last_post_at: string | null;
   forums: Forum[];
+  /** Link rows (todo 670). Optional: a backend before 670 sends none. */
+  links?: ForumLink[];
+  /** Any of its forums has an unread topic (todo 671). */
+  has_unread?: boolean;
 }
 
 /**
@@ -620,6 +643,10 @@ export interface ForumMyProfile {
   quiet_hours_end?: string;
   /** IANA zone the client reported; "" means UTC. */
   time_zone?: string;
+  /** Category ids collapsed on the forum index (todo 673); read-only here,
+   * saved with `saveCollapsedCategories`. Optional for the same deploy-skew
+   * reason. */
+  collapsed_categories?: number[];
 }
 
 /** PATCH me/profile/ body. Editable from the web: the digest cadence

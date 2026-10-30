@@ -1,12 +1,12 @@
 import { memo } from 'react';
 import { Link } from 'react-router-dom';
-import { MessagesSquare, Reply } from 'lucide-react';
+import { ExternalLink, MessagesSquare, MousePointerClick, Reply } from 'lucide-react';
 import Card from '../ui/Card';
 import Tile from '../ui/Tile';
 import Timestamp from '../ui/Timestamp';
-import { categoryPath } from '../../utils/forumUrls';
+import { categoryPath, forumLinkHref } from '../../utils/forumUrls';
 import { boardIdentity } from '../../utils/forumTones';
-import type { Forum } from '@/types';
+import type { Forum, ForumLink } from '@/types';
 
 interface ForumCardProps {
   forum: Forum;
@@ -40,7 +40,17 @@ function ForumCard({ forum, headingLevel = 'h3' }: ForumCardProps) {
           )}
         </Tile>
         <div className="min-w-0 flex-1">
-          <Heading className="gt-h3 text-ink">{forum.name}</Heading>
+          <Heading className="gt-h3 flex items-center gap-2 text-ink">
+            {forum.name}
+            {forum.has_unread && (
+              // Unread marker (todo 671): a dot for the eye, words for a
+              // screen reader.
+              <span className="inline-flex items-center">
+                <span aria-hidden="true" className="h-2 w-2 rounded-full bg-primary" />
+                <span className="sr-only">Unread posts</span>
+              </span>
+            )}
+          </Heading>
           {forum.description && (
             <p className="mt-1 line-clamp-2 max-w-prose text-sm leading-relaxed text-ink-2">
               {forum.description}
@@ -90,3 +100,67 @@ function ForumCard({ forum, headingLevel = 'h3' }: ForumCardProps) {
 }
 
 export default memo(ForumCard);
+
+interface ForumLinkCardProps {
+  link: ForumLink;
+  headingLevel?: 'h3' | 'h4';
+}
+
+/**
+ * ForumLinkCard — a link row (todo 670; phpBB's link forum). An external
+ * link, never a router link: a tracked one goes through the backend's
+ * counting redirect and shows its click count. `nofollow` keeps crawlers
+ * from inflating the count; a URL that is not plain http(s) renders no
+ * link at all.
+ */
+function ForumLinkCardImpl({ link, headingLevel = 'h3' }: ForumLinkCardProps) {
+  const Heading = headingLevel;
+  const href = forumLinkHref(link);
+  const { tone } = boardIdentity(link.slug);
+  const body = (
+    <>
+      <Tile tone={tone} aria-hidden="true">
+        <ExternalLink className="h-5 w-5" />
+      </Tile>
+      <div className="min-w-0 flex-1">
+        <Heading className="gt-h3 text-ink">{link.name}</Heading>
+        {link.description && (
+          <p className="mt-1 line-clamp-2 max-w-prose text-sm leading-relaxed text-ink-2">
+            {link.description}
+          </p>
+        )}
+        <div className="gt-label mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>External link</span>
+          {link.track_clicks && link.click_count !== null && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="inline-flex items-center gap-1">
+                <MousePointerClick className="h-3 w-3" aria-hidden="true" />
+                {link.click_count} {link.click_count === 1 ? 'click' : 'clicks'}
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  );
+
+  return (
+    <Card interactive={!!href} className="p-card">
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          className="flex items-start gap-4"
+        >
+          {body}
+        </a>
+      ) : (
+        <div className="flex items-start gap-4">{body}</div>
+      )}
+    </Card>
+  );
+}
+
+export const ForumLinkCard = memo(ForumLinkCardImpl);

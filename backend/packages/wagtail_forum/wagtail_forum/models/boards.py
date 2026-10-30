@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.panels import FieldPanel, MultiFieldPanel
@@ -86,6 +87,12 @@ class ForumIndex(Page):
         return context
 
 
+# A link row's URL may only be a web address (todo 670): Django's default
+# URLValidator also admits ftp/ftps, and anything else (``javascript:``,
+# ``data:``) would run in the reader's browser from a forum row.
+LINK_URL_SCHEMES = ("http", "https")
+
+
 class Forum(models.Model):
     """A category, forum or link row (todo 665; spec 2026-10-28 §4).
 
@@ -140,6 +147,22 @@ class Forum(models.Model):
     # 675-677). Hidden = invisible to the whole API, as a non-live or
     # view-restricted board page was.
     is_hidden = models.BooleanField(default=False)
+    # Link rows (todo 670; phpBB FORUM_LINK). phpBB counts redirects in the
+    # post counter; a dedicated column keeps the forum counters honest.
+    link_url = models.URLField(
+        max_length=2000,
+        blank=True,
+        validators=[URLValidator(schemes=list(LINK_URL_SCHEMES))],
+        help_text=_("Where the link sends readers (http or https only)."),
+    )
+    track_clicks = models.BooleanField(
+        default=True,
+        help_text=_(
+            "Send readers through the forum's redirect so each click is counted."
+        ),
+    )
+    # Incremented atomically by the redirect (`/forum/links/<id>/go/`).
+    click_count = models.PositiveIntegerField(default=0, editable=False)
 
     class Meta:
         ordering = ["position", "id"]
@@ -173,6 +196,22 @@ class Forum(models.Model):
 
     def clean(self):
         super().clean()
+        errors = {}
+        if self.forum_type == self.LINK:
+            if not self.link_url:
+                errors["link_url"] = _("A link needs a URL.")
+        else:
+            # Only a link has a URL: a hidden admin field typed into before
+            # the type was switched must not leave one on a forum.
+            self.link_url = ""
+        try:
+            self._clean_parent()
+        except ValidationError as error:
+            errors.update(error.message_dict)
+        if errors:
+            raise ValidationError(errors)
+
+    def _clean_parent(self):
         if self.forum_type == self.CATEGORY:
             if self.parent_id is not None:
                 raise ValidationError({"parent": _("A category cannot have a parent.")})

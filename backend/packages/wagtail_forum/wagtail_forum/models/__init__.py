@@ -13,7 +13,7 @@ from .reactions import Reaction
 from .reports import Report
 from .subscriptions import TopicSubscription
 from .tombstones import TopicDeletedLog
-from .topic_reads import TopicRead
+from .topic_reads import ForumRead, TopicRead
 from .topics import Topic
 from .user_blocks import UserBlock
 from .user_mutes import UserMute
@@ -31,6 +31,7 @@ __all__ = [
     "ForumIdentificationAttachment",
     "ForumIndex",
     "ForumProfile",
+    "ForumRead",
     "Message",
     "Notification",
     "NotificationVerb",

@@ -59,7 +59,13 @@ CATEGORY_KEYS = {
     "post_count",
     "last_post_at",
     "forums",
+    # Added by todos 670 (link rows) and 671 (read state).
+    "links",
+    "has_unread",
 }
+# A forum row of /forum/categories/: the board keys plus its unread flag
+# (todo 671). /forum/boards/ keeps BOARD_KEYS exactly.
+FORUM_ROW_KEYS = BOARD_KEYS | {"has_unread"}
 
 
 def _at(month):
@@ -146,7 +152,7 @@ def test_categories_nest_visible_forums_in_position_order_with_summed_counts():
     assert plants["title"] == "Plants"
     # Hidden forum and link left out of both the list and the sums.
     assert [f["id"] for f in plants["forums"]] == [palms.pk, ferns.pk]
-    assert set(plants["forums"][0]) == BOARD_KEYS
+    assert set(plants["forums"][0]) == FORUM_ROW_KEYS
     assert (plants["topic_count"], plants["post_count"]) == (5, 15)
     assert plants["last_post_at"] == "2026-05-01T12:00:00Z"
     assert [f["id"] for f in results[1]["forums"]] == [aphids.pk]

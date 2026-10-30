@@ -55,6 +55,9 @@ except ImportError:  # pragma: no cover
 # Bio is stored in an unbounded TextField; bound it at the API boundary like
 # post bodies are (MAX_BODY_CHARS) — PATCHing megabytes is storage abuse.
 MAX_BIO_CHARS = 2_000
+# Collapsed category ids a member may store (todo 673): more than any forum
+# has categories, small enough that the JSON column never grows unbounded.
+MAX_COLLAPSED_CATEGORIES = 200
 
 
 # Hard ceiling on the RAW submitted tag list, independent of the configurable
@@ -324,6 +327,41 @@ class BoardSerializer(serializers.ModelSerializer):
         ]
 
 
+class ForumRowSerializer(BoardSerializer):
+    """A forum row of ``GET /forum/categories/``: the board shape plus
+    ``has_unread`` (todo 671), annotated by CategoryListView. The flat
+    ``/forum/boards/`` list (the Flutter contract) keeps ``BoardSerializer``."""
+
+    has_unread = serializers.BooleanField(read_only=True)
+
+    class Meta(BoardSerializer.Meta):
+        fields = [*BoardSerializer.Meta.fields, "has_unread"]
+
+
+class ForumLinkSerializer(serializers.ModelSerializer):
+    """A link row of ``GET /forum/categories/`` (todo 670). ``click_count``
+    is null when the link is untracked; a tracked link is followed through
+    ``/forum/links/{id}/go/``, an untracked one straight to ``link_url``."""
+
+    title = serializers.CharField(source="name", read_only=True)
+    click_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Forum
+        fields = [
+            "id",
+            "title",
+            "slug",
+            "description",
+            "link_url",
+            "track_clicks",
+            "click_count",
+        ]
+
+    def get_click_count(self, obj) -> int | None:
+        return obj.click_count if obj.track_clicks else None
+
+
 class ForumCategorySerializer(serializers.Serializer):
     """One category of ``GET /forum/categories/`` with its visible forums.
 
@@ -341,7 +379,23 @@ class ForumCategorySerializer(serializers.Serializer):
     topic_count = serializers.IntegerField(read_only=True)
     post_count = serializers.IntegerField(read_only=True)
     last_post_at = serializers.DateTimeField(read_only=True, allow_null=True)
-    forums = BoardSerializer(many=True, read_only=True, source="visible_forums")
+    has_unread = serializers.BooleanField(read_only=True)
+    forums = ForumRowSerializer(many=True, read_only=True, source="visible_forums")
+    links = ForumLinkSerializer(many=True, read_only=True, source="visible_links")
+
+
+class CollapsedCategoriesSerializer(serializers.Serializer):
+    """Body of ``PUT /forum/me/collapsed-categories/`` (todo 673): the whole
+    list, deduplicated with its order kept."""
+
+    collapsed_categories = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        max_length=MAX_COLLAPSED_CATEGORIES,
+        allow_empty=True,
+    )
+
+    def validate_collapsed_categories(self, value):
+        return list(dict.fromkeys(value))
 
 
 class ForumCategoryListSerializer(serializers.Serializer):
@@ -1590,6 +1644,13 @@ class MeProfileSerializer(serializers.ModelSerializer):
         format="%H:%M", input_formats=["%H:%M", "%H:%M:%S"], required=False
     )
     time_zone = serializers.CharField(max_length=64, required=False, allow_blank=True)
+    # Categories collapsed on the forum index (todo 673). Read here; written
+    # through `PUT /forum/me/collapsed-categories/`, which has its own
+    # throttle: a header toggle is a frequent click and must not spend the
+    # shared profile-edit budget (FCM registration, the logout clear).
+    collapsed_categories = serializers.ListField(
+        child=serializers.IntegerField(), read_only=True
+    )
 
     class Meta:
         model = ForumProfile
@@ -1616,6 +1677,8 @@ class MeProfileSerializer(serializers.ModelSerializer):
             "quiet_hours_start",
             "quiet_hours_end",
             "time_zone",
+            # Collapsed index categories (todo 673).
+            "collapsed_categories",
         ]
         read_only_fields = ["title", "trust_level", "post_count"]
 

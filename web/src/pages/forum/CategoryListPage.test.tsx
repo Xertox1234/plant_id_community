@@ -774,4 +774,139 @@ describe('CategoryListPage', () => {
       );
     });
   });
+  describe('collapsible categories (todo 673)', () => {
+    const ferns = createMockForum({ id: '11', name: 'Ferns', slug: 'ferns' });
+    const aphids = createMockForum({ id: '21', name: 'Aphids', slug: 'aphids' });
+    const sections = () => [
+      createMockCategory({ id: '1', name: 'Plants', slug: 'plants', forums: [ferns] }),
+      createMockCategory({ id: '2', name: 'Pests', slug: 'pests', forums: [aphids] }),
+    ];
+
+    beforeEach(() => {
+      window.localStorage.clear();
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns, aphids]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue(sections());
+    });
+
+    const toggleFor = (name: string) =>
+      within(screen.getByRole('heading', { level: 3, name })).getByRole('button', { name });
+
+    it('hides a category’s forums when its header is toggled and flips aria-expanded', async () => {
+      renderCategoryListPage();
+      await waitFor(() => expect(toggleFor('Plants')).toBeInTheDocument());
+
+      const toggle = toggleFor('Plants');
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('heading', { level: 4, name: 'Ferns' })).toBeVisible();
+
+      await userEvent.click(toggle);
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('heading', { level: 4, name: 'Ferns' })).not.toBeInTheDocument();
+      expect(document.getElementById(toggle.getAttribute('aria-controls')!)).not.toBeVisible();
+      // Other categories are untouched.
+      expect(toggleFor('Pests')).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('heading', { level: 4, name: 'Aphids' })).toBeVisible();
+
+      await userEvent.click(toggle);
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('heading', { level: 4, name: 'Ferns' })).toBeVisible();
+    });
+
+    it('keeps a guest’s collapsed category collapsed after a reload', async () => {
+      const first = renderCategoryListPage();
+      await waitFor(() => expect(toggleFor('Plants')).toBeInTheDocument());
+      await userEvent.click(toggleFor('Plants'));
+      first.unmount();
+
+      renderCategoryListPage();
+      await waitFor(() => expect(toggleFor('Plants')).toBeInTheDocument());
+
+      expect(toggleFor('Plants')).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('heading', { level: 4, name: 'Ferns' })).not.toBeInTheDocument();
+      expect(toggleFor('Pests')).toHaveAttribute('aria-expanded', 'true');
+      expect(forumService.saveCollapsedCategories).not.toHaveBeenCalled();
+    });
+
+    it('saves a signed-in member’s toggle to their profile, not localStorage', async () => {
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+      vi.mocked(forumService.fetchMyStats).mockResolvedValue(null as unknown as ForumMyStats);
+      vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({
+        collapsed_categories: [2],
+      } as Awaited<ReturnType<typeof forumService.fetchMyForumProfile>>);
+      vi.mocked(forumService.saveCollapsedCategories).mockResolvedValue([2, 1]);
+
+      renderCategoryListPage();
+      await waitFor(() => expect(toggleFor('Pests')).toHaveAttribute('aria-expanded', 'false'));
+
+      await userEvent.click(toggleFor('Plants'));
+
+      await waitFor(() =>
+        expect(forumService.saveCollapsedCategories).toHaveBeenCalledWith([2, 1])
+      );
+      expect(window.localStorage.length).toBe(0);
+    });
+  });
+
+  describe('link rows and read state (todos 670, 671)', () => {
+    const ferns = createMockForum({ id: '11', name: 'Ferns', slug: 'ferns', has_unread: true });
+
+    it('renders a category’s link rows as external links', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({
+          id: '1',
+          name: 'Plants',
+          forums: [ferns],
+          links: [
+            {
+              id: '9',
+              name: 'Plant shop',
+              slug: 'shop',
+              link_url: 'https://shop.example.com/',
+              track_clicks: true,
+              click_count: 3,
+            },
+          ],
+        }),
+      ]);
+
+      renderCategoryListPage();
+      const link = await screen.findByRole('link', { name: /Plant shop/ });
+
+      expect(link.getAttribute('href')).toMatch(/\/links\/9\/go\/$/);
+      expect(within(link).getByText('3 clicks')).toBeInTheDocument();
+    });
+
+    it('offers "Mark all read" to a signed-in member and clears the unread markers', async () => {
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+      vi.mocked(forumService.fetchMyStats).mockResolvedValue(null as unknown as ForumMyStats);
+      vi.mocked(forumService.markAllForumsRead).mockResolvedValue(undefined);
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({ id: '1', name: 'Plants', forums: [ferns], has_unread: true }),
+      ]);
+
+      renderCategoryListPage();
+      await screen.findByText('Unread posts');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Mark all read' }));
+
+      expect(forumService.markAllForumsRead).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(screen.queryByText('Unread posts')).not.toBeInTheDocument());
+    });
+
+    it('offers no "Mark all read" to a guest', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({ id: '1', name: 'Plants', forums: [ferns] }),
+      ]);
+
+      renderCategoryListPage();
+      await screen.findByRole('heading', { level: 4, name: /Ferns/ });
+
+      expect(screen.queryByRole('button', { name: 'Mark all read' })).not.toBeInTheDocument();
+    });
+  });
 });

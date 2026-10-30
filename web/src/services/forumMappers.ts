@@ -2,6 +2,7 @@ import type { StreamFieldBlock } from '../types/blog';
 import type {
   Category,
   Forum,
+  ForumLink,
   Thread,
   Post,
   ForumAuthor,
@@ -23,6 +24,19 @@ export interface BackendBoard {
   post_count?: number;
   /** Newest live topic's activity; null for a board nobody has posted in. */
   last_post_at?: string | null;
+  /** Only on `GET categories/` rows (todo 671). */
+  has_unread?: boolean;
+}
+
+/** A link row of `GET categories/` (todo 670). */
+export interface BackendLink {
+  id: number;
+  title: string;
+  slug: string;
+  description?: string;
+  link_url: string;
+  track_clicks: boolean;
+  click_count: number | null;
 }
 
 /** One row of `GET categories/` (todo 665): a category with its forums. */
@@ -36,6 +50,8 @@ export interface BackendCategory {
   post_count: number;
   last_post_at: string | null;
   forums: BackendBoard[];
+  links?: BackendLink[];
+  has_unread?: boolean;
 }
 
 export interface BackendTopicListItem {
@@ -204,6 +220,19 @@ export function mapBoardToForum(b: BackendBoard): Forum {
     post_count: b.post_count ?? 0,
     created_at: '',
     last_post_at: b.last_post_at ?? null,
+    has_unread: b.has_unread ?? false,
+  };
+}
+
+export function mapLink(l: BackendLink): ForumLink {
+  return {
+    id: String(l.id),
+    name: l.title,
+    slug: l.slug,
+    description: l.description,
+    link_url: l.link_url,
+    track_clicks: l.track_clicks,
+    click_count: l.track_clicks ? (l.click_count ?? 0) : null,
   };
 }
 
@@ -217,6 +246,8 @@ export function mapCategory(c: BackendCategory): Category {
     post_count: c.post_count,
     last_post_at: c.last_post_at,
     forums: (c.forums || []).map(mapBoardToForum),
+    links: (c.links || []).map(mapLink),
+    has_unread: c.has_unread ?? false,
   };
 }
 
