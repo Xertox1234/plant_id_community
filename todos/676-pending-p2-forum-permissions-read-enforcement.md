@@ -5,7 +5,7 @@ issue_id: "676"
 tags: [forum, forum-categories, backend, permissions, security]
 dependencies: ["675"]
 triage: ready
-triaged: 2026-10-29
+triaged: 2026-10-30
 owner_decision: "Staff and forum moderators bypass a No Access grant and keep seeing every forum, as is_hidden staff handling does today. (owner, 2026-10-30)"
 ---
 

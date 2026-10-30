@@ -4,8 +4,8 @@ priority: p4
 issue_id: "681"
 tags: [forum, forum-categories, web, backend]
 dependencies: ["669"]
-triage: needs-design
-triaged: 2026-10-29
+triage: ready
+triaged: 2026-10-30
 blocked_on: "Theme variant list + relation to 669's colour field undecided; 669 must land first"
 owner_decision: "Ship four themes (botanical, moss, terracotta, slate) as a token-scope override. 669's colour stays as an accent on top. (owner, 2026-10-30)"
 ---

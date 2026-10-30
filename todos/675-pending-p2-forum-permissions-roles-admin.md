@@ -4,8 +4,8 @@ priority: p2
 issue_id: "675"
 tags: [forum, forum-categories, backend, wagtail, permissions, security]
 dependencies: ["666"]
-triage: needs-design
-triaged: 2026-10-29
+triage: ready
+triaged: 2026-10-30
 blocked_on: "Owner picks the role→flag matrix, how several groups combine and the no-grant default; the user_can test grid depends on all three."
 owner_decision: "Role matrix: phpBB (Full and Std+Polls get all six flags; Standard all but poll; Limited list/read/post/reply; Read Only list/read; No Access none). Grants union across a user's groups. A forum with no grant falls back to Standard for registered members and Read Only for guests, so existing forums keep working with no setup. (owner, 2026-10-30)"
 ---
