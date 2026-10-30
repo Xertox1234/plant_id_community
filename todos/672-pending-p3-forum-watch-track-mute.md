@@ -7,7 +7,7 @@ dependencies: ["665"]
 triage: needs-design
 triaged: 2026-10-29
 blocked_on: "The owner needs to define the levels and the delivery channels for a new-topic notification."
-owner_decision: "owner question at triage; skipped per overnight orders (2026-10-29)"
+owner_decision: "Discourse four levels: watching = every post (auto-subscribe each new topic), watching_first_post = new topics only, tracking = unread counts only, muted = hidden from Recent. New-topic alerts go to in-app + push, following the existing notification preference matrix; no new email. (owner, 2026-10-30)"
 ---
 
 # Forum categories slice 8: Watch / Track / Mute per forum
@@ -44,3 +44,7 @@ Discourse lets a member watch, track or mute a category; phpBB lets members subs
 ### 2026-10-28 - Filed
 
 - Filed from the forum-categories research session (owner decisions in the design spec §1).
+
+### 2026-10-30 - Owner decision
+
+- The 2026-10-29 triage question was answered by the owner: Discourse four levels: watching = every post (auto-subscribe each new topic), watching_first_post = new topics only, tracking = unread counts only, muted = hidden from Recent. New-topic alerts go to in-app + push, following the existing notification preference matrix; no new email.

@@ -6,7 +6,7 @@ tags: [forum, forum-categories, backend, web]
 dependencies: ["666"]
 triage: ready
 triaged: 2026-10-29
-owner_decision: "owner question at triage; skipped per overnight orders (2026-10-29)"
+owner_decision: "Template is plain text: each line becomes a paragraph, no formatting. (owner, 2026-10-30)"
 ---
 
 # Forum categories slice 12: topic template per forum
@@ -39,3 +39,7 @@ Discourse prefills the new-topic composer with a per-category template (e.g. a p
 ### 2026-10-28 - Filed
 
 - Filed from the forum-categories research session (owner decisions in the design spec §1).
+
+### 2026-10-30 - Owner decision
+
+- The 2026-10-29 triage question was answered by the owner: Template is plain text: each line becomes a paragraph, no formatting.

@@ -7,7 +7,7 @@ dependencies: ["666"]
 triage: needs-design
 triaged: 2026-10-29
 blocked_on: "Owner picks the role→flag matrix, how several groups combine and the no-grant default; the user_can test grid depends on all three."
-owner_decision: "owner question at triage; skipped per overnight orders (2026-10-29)"
+owner_decision: "Role matrix: phpBB (Full and Std+Polls get all six flags; Standard all but poll; Limited list/read/post/reply; Read Only list/read; No Access none). Grants union across a user's groups. A forum with no grant falls back to Standard for registered members and Read Only for guests, so existing forums keep working with no setup. (owner, 2026-10-30)"
 ---
 
 # Forum categories slice 11a: forum permission roles, per-group grants and copy permissions (admin)
@@ -45,3 +45,7 @@ phpBB controls who can see, read, post and reply per forum per group via roles. 
 ### 2026-10-28 - Filed
 
 - Filed from the forum-categories research session (owner decisions in the design spec §1).
+
+### 2026-10-30 - Owner decision
+
+- The 2026-10-29 triage question was answered by the owner: Role matrix: phpBB (Full and Std+Polls get all six flags; Standard all but poll; Limited list/read/post/reply; Read Only list/read; No Access none). Grants union across a user's groups. A forum with no grant falls back to Standard for registered members and Read Only for guests, so existing forums keep working with no setup.
