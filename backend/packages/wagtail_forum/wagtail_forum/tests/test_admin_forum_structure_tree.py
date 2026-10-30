@@ -5,11 +5,16 @@ import re
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import Group, Permission
 from django.test import Client
 from django.urls import reverse
-from wagtail_forum.models import Forum
-from wagtail_forum.tests.factories import make_category, make_forum
+from wagtail_forum.models import Forum, ForumGrant, ForumRole
+from wagtail_forum.services.forum_permissions import (
+    is_hidden_for_everyone,
+    set_grant,
+    visible_forums,
+)
+from wagtail_forum.tests.factories import hide_forum, make_category, make_forum
 
 User = get_user_model()
 
@@ -237,15 +242,13 @@ def test_leaving_a_hidden_category_for_a_visible_one_hides_the_forum(
     admin_client, structure
 ):
     indoor = structure["indoor"]
-    indoor.is_hidden = True
-    indoor.save()
+    hide_forum(indoor)
 
     resp = _move(admin_client, structure["ferns"], structure["outdoor"], 0, **XHR)
 
     assert resp.status_code == 200, resp.content
     assert resp.json()["is_hidden"] is True
-    structure["ferns"].refresh_from_db()
-    assert structure["ferns"].is_hidden is True
+    assert is_hidden_for_everyone(structure["ferns"]) is True
 
 
 def test_moving_between_visible_categories_keeps_the_forum_visible(
@@ -254,8 +257,103 @@ def test_moving_between_visible_categories_keeps_the_forum_visible(
     resp = _move(admin_client, structure["ferns"], structure["outdoor"], 0, **XHR)
 
     assert resp.status_code == 200, resp.content
-    structure["ferns"].refresh_from_db()
-    assert structure["ferns"].is_hidden is False
+    assert is_hidden_for_everyone(structure["ferns"]) is False
+
+
+def _sees(user, forum):
+    return visible_forums(user).filter(pk=forum.pk).exists()
+
+
+def test_leaving_a_guest_restricted_category_keeps_guests_out(admin_client, structure):
+    ferns = structure["ferns"]
+    set_grant(structure["indoor"], ForumGrant.ANONYMOUS, ForumRole.NO_ACCESS)
+    member = User.objects.create_user(username="reader")
+    assert not _sees(None, ferns) and _sees(member, ferns)
+
+    resp = _move(admin_client, ferns, structure["outdoor"], 0, **XHR)
+
+    assert resp.status_code == 200, resp.content
+    assert not _sees(None, ferns)
+    assert _sees(member, ferns)
+
+
+def test_leaving_a_group_only_category_keeps_it_to_that_group(admin_client, structure):
+    ferns, indoor = structure["ferns"], structure["indoor"]
+    club = Group.objects.create(name="Club")
+    set_grant(indoor, ForumGrant.ANONYMOUS, ForumRole.NO_ACCESS)
+    set_grant(indoor, ForumGrant.MEMBERS, ForumRole.NO_ACCESS)
+    set_grant(indoor, ForumGrant.GROUP, ForumRole.STANDARD, group=club)
+    outsider = User.objects.create_user(username="outsider")
+    insider = User.objects.create_user(username="insider")
+    insider.groups.add(club)
+    assert _sees(insider, ferns) and not _sees(outsider, ferns)
+
+    resp = _move(admin_client, ferns, structure["outdoor"], 0, **XHR)
+
+    assert resp.status_code == 200, resp.content
+    assert _sees(insider, ferns)
+    assert not _sees(outsider, ferns)
+    assert not _sees(None, ferns)
+
+
+def test_changing_the_category_on_the_edit_form_keeps_guests_out(
+    admin_client, structure
+):
+    # Round-2 review: the edit form's Category field moved a forum without
+    # the tree move's rule, so a guest-restricted forum opened up.
+    ferns = structure["ferns"]
+    set_grant(structure["indoor"], ForumGrant.ANONYMOUS, ForumRole.NO_ACCESS)
+    assert not _sees(None, ferns)
+
+    resp = admin_client.post(
+        reverse("wagtail_forum_forums:edit", args=(ferns.pk,)),
+        {
+            "parent": structure["outdoor"].pk,
+            "name": ferns.name,
+            "slug": ferns.slug,
+            "description": "",
+            "link_url": "",
+            "topic_template": "",
+            "moderator_users": "",
+        },
+    )
+
+    assert resp.status_code == 302, resp.content.decode()[:3000]
+    ferns.refresh_from_db()
+    assert ferns.parent_id == structure["outdoor"].pk
+    assert not _sees(None, ferns)
+
+
+def test_a_link_cannot_be_given_a_password(admin_client, structure):
+    # Round-2 review: only forum rows can be unlocked, so a password would
+    # hide a link for good.
+    shop = Forum.objects.create(
+        forum_type=Forum.LINK,
+        parent=structure["indoor"],
+        name="Shop",
+        slug="shop",
+        link_url="https://shop.example.com/",
+    )
+
+    resp = admin_client.post(
+        reverse("wagtail_forum_forums:edit", args=(shop.pk,)),
+        {
+            "parent": shop.parent_id,
+            "name": shop.name,
+            "slug": shop.slug,
+            "description": "",
+            "link_url": shop.link_url,
+            "track_clicks": "on",
+            "topic_template": "",
+            "moderator_users": "",
+            "new_password": "fake-link-password",  # pragma: allowlist secret
+        },
+    )
+
+    assert resp.status_code == 200  # the form again, with the error
+    assert "Only a forum can have a password." in resp.content.decode()
+    shop.refresh_from_db()
+    assert shop.password_hash == ""
 
 
 # --- AC1: illegal drops are refused and change nothing ---

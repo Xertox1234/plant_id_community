@@ -52,9 +52,14 @@ def _visible_notifications(user):
     polled unread-count endpoint. Load-bearing since todo 253 slice 3: fan-out
     now reaches subscriber recipients beyond the topic's own author, who
     don't have slice 1's "I'm always allowed to see my own topic" standing.
+
+    The board check is the recipient's own (todo 676): a forum they may not
+    read hides its notifications. A password forum is left out too, whether
+    or not this session unlocked it (todo 680).
     """
     qs = Notification.objects.filter(recipient=user).filter(
-        Q(topic__isnull=True) | Q(topic__live=True, topic__board__in=_visible_boards())
+        Q(topic__isnull=True)
+        | Q(topic__live=True, topic__board__in=_visible_boards(user))
     )
     # HIDE (todo 284/M9): read-time filtering only — this hides an EXISTING
     # bell row. It does not stop the notification from being created/pushed

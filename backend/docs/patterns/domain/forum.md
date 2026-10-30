@@ -48,13 +48,33 @@ The forum is a reusable, Wagtail-native package — no django-machina, no
 - **Idempotency** for write endpoints follows `api/idempotency.py` (hash the
   user key, scope by endpoint+user, replay the original status, `cache.add()` an
   in-flight sentinel → 409 on concurrent twins).
-- **Visibility**: gate every forum query through `_visible_boards()` (`Forum`
-  rows of type `forum`, not `is_hidden`, in a category that is not hidden —
-  todo 665). Boards are not pages any more; `.live().public()` still applies to
-  the `ForumIndex` page itself (`PageViewRestriction` is not auto-enforced in
-  custom views/APIs).
+- **Visibility**: gate every forum query through `_visible_boards(...)` with
+  the READER: `request=request` in a view (it also honours the session's
+  unlocked password forums, todo 680), `user` for a recipient (digest, bell,
+  mentions), and the bare call only for guest-facing output (sitemaps, feeds,
+  shared caches, the vector index). The rule is
+  `services.forum_permissions.visible_forums` (todos 675-676): grants folded in
+  as `Exists` subqueries, so it adds no query; the per-principal fallback
+  (members Standard, guests Read only) keeps an ungranted forum open. Hidden is
+  404, never 403. Many users at once (who may hear about a post) is
+  `readers_of_forum`, three queries whatever the count. Boards are not pages
+  any more; `.live().public()` still applies to the `ForumIndex` page itself
+  (`PageViewRestriction` is not auto-enforced in custom views/APIs).
 
-## Moderation permission scope is global, deliberately (audit M19)
+## Moderation permission scope: global group plus per-forum moderators
+
+**Superseded in part by todo 674 (2026-10-30)**: a `ForumModerator` (user or
+group) now moderates one forum through the same admin screens, scoped by
+`permissions.ForumScopedPermissionPolicy` (registered for Topic, Post and
+Report) plus `scope_object_urls`, which wraps every snippet object URL,
+because Wagtail's generic object views look objects up by pk without asking
+the policy about the instance. Two traps found while building it: the policy's
+global check must call `user.has_perm` directly (the base class's
+`user_has_any_permission` calls back into the overridden
+`user_has_permission`, which makes every forum moderator look global), and a
+queue view's `permission_policy` must be the scoped one too. The API-side
+moderator predicate (`_is_forum_moderator`: revisions, block bypass) is still
+global. The audit-M19 history below explains why it was global first:
 
 Moderation is one flat `"Forum Moderators"` group (`apps/forum_host/bootstrap.py`)
 with `change_topic`/`change_post` etc. — there is no per-board moderator concept.
@@ -168,7 +188,7 @@ public identity + recent activity. Four load-bearing rules:
   join, one topics query, one posts query — the
   `board__in=_visible_boards()` subqueries inline). Filter recent activity by
   `_visible_boards()` + `live=True` (+ `topic__live=True` for posts) and pin BOTH the
-  `live=False` and the hidden-board (`is_hidden`) exclusions.
+  `live=False` and the hidden-board (No access grants, todo 676) exclusions.
 - **Single-source identity via `serialize_forum_author(user, request)`** then spread
   in bio/signature/post_count/joined_at — same absolute-URL avatar as posts.
 

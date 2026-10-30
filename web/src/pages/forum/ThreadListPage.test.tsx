@@ -666,4 +666,40 @@ describe('ThreadListPage', () => {
       expect(screen.queryByRole('button', { name: 'Mark forum read' })).not.toBeInTheDocument();
     });
   });
+
+  describe('a locked password forum (todo 680)', () => {
+    it('shows the unlock form and never fetches its threads', async () => {
+      vi.mocked(forumService.fetchForum).mockResolvedValue(
+        createMockForum({ slug: 'club', name: 'Club', is_locked: true })
+      );
+
+      renderThreadListPage();
+
+      expect(await screen.findByText('This forum needs a password.')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'Club' })).toBeInTheDocument();
+      expect(forumService.fetchThreads).not.toHaveBeenCalled();
+    });
+
+    it('re-reads the forum and lists its threads once unlocked', async () => {
+      vi.mocked(forumService.fetchForum)
+        .mockResolvedValueOnce(createMockForum({ slug: 'club', name: 'Club', is_locked: true }))
+        .mockResolvedValue(createMockForum({ slug: 'club', name: 'Club', is_locked: false }));
+      vi.mocked(forumService.unlockForum).mockResolvedValue(undefined);
+      vi.mocked(forumService.fetchThreads).mockResolvedValue({
+        items: [createMockThread({ id: '1', title: 'Club meeting' })],
+        meta: { count: 1, next: null, previous: null },
+      });
+
+      renderThreadListPage();
+      await userEvent.type(await screen.findByLabelText('Password'), 'secret');
+      await userEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+
+      expect(await screen.findByText('Club meeting')).toBeInTheDocument();
+      expect(forumService.unlockForum).toHaveBeenCalledWith('club', 'secret');
+      expect(forumService.fetchForum).toHaveBeenCalledTimes(2);
+      expect(forumService.fetchThreads).toHaveBeenCalledWith(
+        expect.objectContaining({ board: 'club' })
+      );
+    });
+  });
 });

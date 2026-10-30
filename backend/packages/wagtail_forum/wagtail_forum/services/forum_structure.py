@@ -33,6 +33,7 @@ from wagtail.models import Revision
 
 from ..models import Forum, Topic
 from ..signals import _refresh_board_counters, topics_moved
+from .forum_permissions import keep_out_whoever_the_category_kept_out
 
 TopicsAction = Literal["move", "delete"]
 MOVE: TopicsAction = "move"
@@ -152,13 +153,9 @@ def move_forum(forum_id: int, parent_id: int | None, position: int) -> Forum:
         siblings = [row for row in _level(parent_id) if row.pk != forum.pk]
         siblings.insert(min(position, len(siblings)), forum)
         if old_parent_id != parent_id:
-            if (
-                old_parent is not None
-                and old_parent.is_hidden
-                and parent is not None
-                and not parent.is_hidden
-            ):
-                forum.is_hidden = True
+            if old_parent is not None:
+                # Whoever the old category kept out stays out (todo 676).
+                keep_out_whoever_the_category_kept_out(forum, old_parent)
             left = [row for row in _level(old_parent_id) if row.pk != forum.pk]
             for index, row in enumerate(left):
                 if row.position != index:
@@ -168,7 +165,7 @@ def move_forum(forum_id: int, parent_id: int | None, position: int) -> Forum:
             if row is forum or row.position != index:
                 row.position = index
                 changed.append(row)
-        Forum.objects.bulk_update(changed, ["parent", "position", "is_hidden"])
+        Forum.objects.bulk_update(changed, ["parent", "position"])
     return forum
 
 
@@ -289,8 +286,8 @@ def empty_forum(
 def empty_category(category: Forum, target: Forum | None) -> int:
     """Move the forums and links of ``category`` to the end of ``target``,
     keeping their order. Topic URLs carry no category, so nothing redirects.
-    Forums inherit a hidden category's visibility, so leaving a hidden
-    category for a visible one hides them rather than publishing them.
+    Forums inherit their category's restrictions, so whoever this category
+    kept out gets No access on each forum rather than seeing it published.
     A category with no forums needs no target. Returns the count moved."""
     with transaction.atomic():
         children = list(
@@ -302,13 +299,11 @@ def empty_category(category: Forum, target: Forum | None) -> int:
             return 0
         target = validate_forum_target(category, target)
         start = next_position(target.pk)
-        keep_hidden = category.is_hidden and not target.is_hidden
         for offset, child in enumerate(children):
             child.parent = target
             child.position = start + offset
-            if keep_hidden:
-                child.is_hidden = True
-        Forum.objects.bulk_update(children, ["parent", "position", "is_hidden"])
+            keep_out_whoever_the_category_kept_out(child, category)
+        Forum.objects.bulk_update(children, ["parent", "position"])
     return len(children)
 
 

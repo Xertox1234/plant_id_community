@@ -26,6 +26,10 @@ export interface BackendBoard {
   last_post_at?: string | null;
   /** Only on `GET categories/` rows (todo 671). */
   has_unread?: boolean;
+  /** Only on `GET categories/` rows (todos 674, 680, 678). */
+  moderators?: string[];
+  is_locked?: boolean;
+  topic_template?: string;
 }
 
 /** A link row of `GET categories/` (todo 670). */
@@ -221,6 +225,9 @@ export function mapBoardToForum(b: BackendBoard): Forum {
     created_at: '',
     last_post_at: b.last_post_at ?? null,
     has_unread: b.has_unread ?? false,
+    moderators: b.moderators ?? [],
+    is_locked: b.is_locked ?? false,
+    topic_template: b.topic_template ?? '',
   };
 }
 

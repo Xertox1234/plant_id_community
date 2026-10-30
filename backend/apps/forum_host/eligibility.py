@@ -133,6 +133,27 @@ def visible_post(post_id):
     )
 
 
+def _live_post(post_id):
+    """The post if it is live on a live topic, whoever may read its forum."""
+    from wagtail_forum.models import Post
+
+    return (
+        Post.objects.filter(pk=post_id, live=True, topic__live=True)
+        .select_related("topic__board", "author")
+        .first()
+    )
+
+
+def _unreadable_ids(users_by_pk, forum_id) -> set[int]:
+    """The recipients who may not read forum ``forum_id`` (todo 676)."""
+    from wagtail_forum.services.forum_permissions import readers_of_forum
+
+    readers = {
+        user.pk for user in readers_of_forum(list(users_by_pk.values()), forum_id)
+    }
+    return set(users_by_pk) - readers
+
+
 def visible_posts(post_ids) -> dict:
     """{post pk: post} for the posts in ``post_ids`` that ``visible_post``
     would return, in one query."""
@@ -220,10 +241,17 @@ def recheck(
     unsubscribed: set[int] = set()
     read: set[int] = set()
     post = None
+    unreadable: set[int] = set()
     if full:
         post_id = _int_or_none(data.get("post_id"))
         if post_id is not None:
-            post = visible_post(post_id)
+            # Not on a guest-visible forum (todo 676)? It may still be live
+            # on a forum some members read. Either way each recipient's own
+            # grants decide: guests reading a forum says nothing about a
+            # member whose grants deny it (round-1 review). Constant queries.
+            post = visible_post(post_id) or _live_post(post_id)
+            if post is not None:
+                unreadable = _unreadable_ids(by_pk, post.topic.board_id)
             content_gone = post is None
         result.post = post
         actor_id = _int_or_none(data.get("actor_id"))
@@ -256,7 +284,7 @@ def recheck(
             reason = REASON_PREFERENCE
         elif channel == "email" and not user.email:
             reason = REASON_NO_DESTINATION
-        elif content_gone:
+        elif content_gone or pk in unreadable:
             reason = REASON_CONTENT
         elif pk in blocked:
             reason = REASON_BLOCKED

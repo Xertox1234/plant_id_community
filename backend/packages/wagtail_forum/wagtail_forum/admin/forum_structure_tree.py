@@ -26,6 +26,7 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.db.models import BooleanField, ExpressionWrapper
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.urls import reverse
 from django.utils.translation import gettext as _
@@ -37,6 +38,7 @@ from wagtail.admin.views.generic.permissions import PermissionCheckedMixin
 from wagtail.admin.widgets.button import HeaderButton
 
 from ..models import Forum
+from ..services.forum_permissions import hidden_q, is_hidden_for_everyone
 from ..services.forum_structure import move_forum
 
 # A position past any level's end: move_forum clamps it to "last".
@@ -86,7 +88,13 @@ class ForumStructureView(
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context: dict[str, Any] = super().get_context_data(**kwargs)
-        rows = list(Forum.objects.order_by("position", "pk"))
+        # `is_hidden`: neither guests nor members may list the row (its
+        # grants, todo 676), the tree's "Hidden" badge.
+        rows = list(
+            Forum.objects.annotate(
+                is_hidden=ExpressionWrapper(hidden_q(), output_field=BooleanField())
+            ).order_by("position", "pk")
+        )
         children: dict[int, list[Forum]] = {}
         for row in rows:
             if row.parent_id is not None:
@@ -162,7 +170,7 @@ class ForumMoveView(PermissionCheckedMixin, View):
                     "forum_id": forum.pk,
                     "parent_id": forum.parent_id,
                     "position": forum.position,
-                    "is_hidden": forum.is_hidden,
+                    "is_hidden": is_hidden_for_everyone(forum),
                 }
             )
         messages.success(request, message)

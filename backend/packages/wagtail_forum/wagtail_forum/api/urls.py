@@ -16,6 +16,7 @@ from .forum_rows import (
     ForumLinkGoView,
     ForumMarkAllReadView,
     ForumMarkReadView,
+    ForumUnlockView,
     MeCollapsedCategoriesView,
 )
 from .image_management import ForumImageDetailView, MyForumImagesView
@@ -65,6 +66,12 @@ urlpatterns = [
         name="forum-mark-read",
     ),
     path("read-all/", ForumMarkAllReadView.as_view(), name="forum-mark-all-read"),
+    # Password forums (todo 680).
+    path(
+        "boards/<slug:slug>/unlock/",
+        ForumUnlockView.as_view(),
+        name="forum-unlock",
+    ),
     path("links/<int:link_id>/go/", ForumLinkGoView.as_view(), name="forum-link-go"),
     path("topics/recent/", RecentTopicsView.as_view(), name="topics-recent"),
     # MUST come before topics/<int:topic_id>/ — literal-over-capture, same rule

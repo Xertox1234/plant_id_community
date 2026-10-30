@@ -105,6 +105,26 @@ export function emptyDoc(): JSONContent {
   return { type: 'doc', content: [{ type: 'paragraph' }] };
 }
 
+/**
+ * A forum's plain-text topic template -> a composer document (todo 678;
+ * owner decision 2026-10-30): each line becomes a paragraph, nothing is
+ * formatted, and a blank line stays an empty paragraph.
+ */
+export function templateToDoc(text: string): JSONContent {
+  if (!text.trim()) return emptyDoc();
+  return {
+    type: 'doc',
+    content: text
+      .replace(/\r\n?/g, '\n')
+      .split('\n')
+      .map((line) =>
+        line
+          ? { type: 'paragraph', content: [{ type: 'text', text: line }] }
+          : { type: 'paragraph' }
+      ),
+  };
+}
+
 /** isBlankDoc's answers, per document object. */
 const blankDocCache = new WeakMap<JSONContent, boolean>();
 

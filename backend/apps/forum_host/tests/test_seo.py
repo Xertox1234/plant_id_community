@@ -9,7 +9,7 @@ import pytest
 from django.conf import settings
 from rest_framework.test import APIClient
 from wagtail.models import Page, PageViewRestriction
-from wagtail_forum.models import Forum, ForumIndex, Topic
+from wagtail_forum.models import ForumIndex, Topic
 from wagtail_forum.tests.factories import hide_forum, make_forum
 
 _SITE = settings.SITE_URL.rstrip("/")
@@ -111,7 +111,7 @@ def test_sitemap_and_feed_exclude_ancestor_restricted_topics():
 def test_sitemap_and_feed_exclude_topics_of_a_hidden_category():
     # A hidden category hides its forums and their topics (todo 665).
     _index, board = _tree()
-    Forum.objects.filter(pk=board.parent_id).update(is_hidden=True)
+    hide_forum(board.parent)
     topic = Topic.objects.create(board=board, title="Secret", slug="secret", live=True)
 
     sitemap = APIClient().get("/forum/sitemap.xml").content.decode()

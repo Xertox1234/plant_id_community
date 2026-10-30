@@ -1,0 +1,43 @@
+{% extends "wagtailadmin/generic/base.html" %}
+{% load i18n wagtailadmin_tags %}
+
+{% block main_content %}
+    <p>
+        {% blocktrans trimmed with name=object.name %}
+            Who may see and use “{{ name }}”. A member gets everything any of their groups is granted. Guests and all members left on Default keep the default role, so a forum nobody has set up stays open. Staff and the forum's moderators always see it.
+        {% endblocktrans %}
+    </p>
+    <form action="{{ action_url }}" method="POST" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="action" value="{{ action_save }}">
+        {% include "wagtailadmin/shared/non_field_errors.html" with form=grants_form %}
+        <table class="listing">
+            <thead>
+                <tr>
+                    <th scope="col">{% trans "Who" %}</th>
+                    <th scope="col" colspan="{{ role_count }}">{% trans "Role" %}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for field in grant_rows %}
+                    <tr>
+                        <th scope="row">{{ field.label }}</th>
+                        {% for radio in field %}
+                            <td><label>{{ radio.tag }} {{ radio.choice_label }}</label></td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <button type="submit" class="button">{% trans "Save permissions" %}</button>
+        <a href="{{ edit_url }}" class="button button-secondary">{% trans "Back to the forum" %}</a>
+    </form>
+
+    <h2 class="w-h3">{% trans "Copy permissions" %}</h2>
+    <form action="{{ action_url }}" method="POST" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="action" value="{{ action_copy }}">
+        {% formattedfield copy_form.source %}
+        <button type="submit" class="button button-secondary">{% trans "Copy…" %}</button>
+    </form>
+{% endblock %}

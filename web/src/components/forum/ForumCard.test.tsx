@@ -213,3 +213,23 @@ describe('ForumLinkCard (todo 670)', () => {
     expect(screen.getByText('Plant shop')).toBeInTheDocument();
   });
 });
+
+describe('ForumCard moderators and lock (todos 674, 680)', () => {
+  it('renders the Moderators line with every name', () => {
+    renderCategoryCard(createMockForum({ moderators: ['ann', 'Plant doctors'] }));
+
+    expect(screen.getByText('Moderators: ann, Plant doctors')).toBeInTheDocument();
+  });
+
+  it('renders no Moderators line for a forum without moderators', () => {
+    renderCategoryCard(createMockForum({ moderators: [] }));
+
+    expect(screen.queryByText(/Moderators:/)).not.toBeInTheDocument();
+  });
+
+  it('marks a locked forum for sighted and screen-reader users', () => {
+    renderCategoryCard(createMockForum({ is_locked: true }));
+
+    expect(screen.getByText('Password protected')).toBeInTheDocument();
+  });
+});

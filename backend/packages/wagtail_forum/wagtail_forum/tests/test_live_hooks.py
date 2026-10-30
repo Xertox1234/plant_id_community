@@ -8,13 +8,14 @@ import pytest
 from django.db.models.signals import post_delete
 from rest_framework.test import APIClient
 from wagtail_forum.api.views import visible_topics
-from wagtail_forum.models import Forum, Post, Topic
+from wagtail_forum.models import Post, Topic
 from wagtail_forum.signals import (
     _is_first_publish,
     is_first_publish,
     is_topic_deleting,
     solution_unmarked,
 )
+from wagtail_forum.tests.factories import hide_forum
 
 from .api.test_solutions import _board, _mark, _thread
 
@@ -119,7 +120,7 @@ def test_visible_topics_excludes_hidden_board_and_unpublished_topic():
         board=live_topic.board, title="D", slug="d-visible", author=asker, live=False
     )
     hidden_board = _board("hidden-visible")
-    Forum.objects.filter(pk=hidden_board.pk).update(is_hidden=True)
+    hide_forum(hidden_board)
     on_hidden = Topic.objects.create(
         board=hidden_board, title="H", slug="h-visible", author=asker, live=True
     )

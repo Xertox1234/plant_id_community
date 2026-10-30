@@ -925,6 +925,7 @@ def validate_forum_body(
     user=None,
     existing_quote_ids=(),
     existing_link_previews=None,
+    request=None,
 ):
     """Validate + sanitize a forum post body (raw StreamField list-of-dicts).
 
@@ -1128,7 +1129,9 @@ def validate_forum_body(
                 _("A post may quote at most %(n)d other posts.") % {"n": max_quotes}
             )
         new_ids = [pid for pid in ids if pid not in set(existing_quote_ids)]
-        quotable = resolve_quotable_posts(new_ids, user) if new_ids else {}
+        quotable = (
+            resolve_quotable_posts(new_ids, user, request=request) if new_ids else {}
+        )
         if any(pid not in quotable for pid in new_ids):
             # One message for missing, unpublished, restricted and blocked —
             # the endpoint must not be an oracle for what exists.

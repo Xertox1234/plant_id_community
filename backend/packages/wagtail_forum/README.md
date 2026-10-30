@@ -166,11 +166,77 @@ the row snaps back. The drag and drop uses a pinned SortableJS shipped in
 `static/wagtail_forum/js/vendor/` (see the README there), not Wagtail's
 bundled copy. Moving a forum changes no topic URL, since they carry ids only.
 
-Forum visibility is the interim `Forum.is_hidden` flag: a hidden forum, or any
-forum in a hidden category, is invisible to the entire API (per-forum
-permissions replace it in a later slice). Boards were Wagtail pages until
-migrations 0041–0044 copied each into a `Forum` row with the same id, so topic
-URLs survive.
+Boards were Wagtail pages until migrations 0041–0044 copied each into a
+`Forum` row with the same id, so topic URLs survive.
+
+## Forum permissions, moderators, passwords and pruning
+
+**Permissions** (todos 675–676; `services/forum_permissions.py`). A
+`ForumGrant` gives one principal one role on a category, forum or link. The
+principals are Django groups plus two pseudo-groups, *Guests* (anonymous) and
+*All members* (signed in). Roles are phpBB's: *Full* and *Standard + polls*
+have all six flags (`list`, `read`, `post`, `reply`, `poll`, `attach`),
+*Standard* all but `poll`, *Limited* `list/read/post/reply`, *Read only*
+`list/read`, *No access* none. A member's flags are the union over All members
+and each of their groups. The fallback is **per principal**: a pseudo-group
+with no row on a forum gets its default (members Standard, guests Read only),
+and a group with no row adds nothing, so a forum nobody set up stays open and
+one group row never closes it to everyone else. A new forum copies its
+category's grants; the admin's *Permissions* screen (edit page → actions) is a
+principal × role grid with "Copy permissions from" (overwrites exactly, after a
+confirmation), behind the Forum `change` permission.
+
+Read enforcement: a forum or link needs `read` on itself and `list` on its
+category. `visible_forums(user)` is one lazy queryset (grants folded in as
+`Exists` subqueries), so every `board__in=` caller costs no extra query. Every
+read path uses the reader's own view: topic, post, lists, search, quotes,
+mentions, notifications, the digest, bookmarks, the live socket and the member
+dashboard. A hidden row is 404, never 403. Sitemaps, feeds, the vector index,
+RAG retrieval and thread summaries use the guest view. Staff, superusers,
+global moderators (`change_post`) and a forum's own moderators see it whatever
+its grants. Migration 0048 turned `is_hidden` into *No access* for guests and
+members; 0049 removes the flag from the model but keeps the column, with a
+database default, so the previous release keeps serving while the new one
+migrates (a later migration drops it). Write flags (`post`, `reply`, `poll`,
+`attach`) are stored but not yet enforced (todo 677).
+
+**Moderators** (todo 674; `permissions.py`). A `ForumModerator` is a user or a
+group, set on the forum's *Moderators* tab. They moderate through the existing
+admin, scoped to their forums: the pending and reports queues show only their
+forums' rows; the Topic, Post and Report snippets list only those rows and
+refuse any other object URL (403); they may view, change, publish, unpublish,
+lock and unlock there, never add or delete, and Reject on the pending page
+deletes only in their forums. A topic move offers only forums they moderate,
+so both ends are theirs. A model permission widens only the views it
+satisfies on its own: a moderator who also holds `view_post` everywhere may
+list and inspect every post but still edits only their forums', and a
+`delete_post` holder keeps the delete view and the full listing. They need admin access (`wagtailadmin.access_admin`)
+like any admin user. `GET /forum/categories/` lists each forum's
+`moderators` (usernames, then group names) for the "Moderators:" line.
+
+**Passwords** (todo 680). A forum's General tab takes a write-only password
+(stored as a Django hash). A signed-in member unlocks it for their session with
+`POST /forum/boards/{slug}/unlock/` `{"password": ...}`; the unlock is stored in
+the session with their id, so a new session or another account starts locked.
+Wrong passwords are counted per member per forum
+(`WAGTAILFORUM_FORUM_UNLOCK_MAX_FAILURES` in `WAGTAILFORUM_FORUM_UNLOCK_WINDOW_SECONDS`)
+and answer 429 past the limit. While locked, the forum's row on
+`/forum/categories/` carries `is_locked: true`, no `last_post_at` and no unread
+mark; its topic list is 403 `forum_locked` and its topics are 404; search,
+notifications and the digest leave it out. The flat `/forum/boards/` list (the
+Flutter app's) leaves a locked forum out until the app has an unlock screen.
+Staff and moderators bypass the password.
+
+**Topic template** (todo 678). The *Posting* tab's plain-text template is on
+the forum rows of `/forum/categories/` as `topic_template`; the web composer
+prefills an empty body with it, one paragraph per line.
+
+**Pruning** (todo 679). The *Pruning* tab: `prune_enabled`,
+`prune_days_since_last_post`, `prune_pinned`, `prune_polls`.
+`manage.py prune_forums [--dry-run]` unpublishes (never deletes) each enabled
+forum's live topics with no post for that many days, sparing pinned and poll
+topics unless the forum says otherwise, with one `[PRUNE]` log line per forum.
+The host runs it nightly from `forum-prune-cron`.
 
 ## Previews
 
@@ -454,6 +520,8 @@ Things worth knowing before changing this:
 |---|---|---|
 | `WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS` | `900` (15 min) | Window in which repeat topic-detail GETs from the same user/IP count as one view. A `?peek=1` read (a client polling `post_count` for new replies) never counts a view and never writes the read marker below — a poll is not a visit. |
 | `WAGTAILFORUM_TOPIC_READ_DEDUP_SECONDS` | `900` (15 min) | Read-marker dedup window. Deliberately **separate** from the view-count window — they gate unrelated concerns and only happen to share a default. |
+| `WAGTAILFORUM_FORUM_UNLOCK_MAX_FAILURES` | `5` | Wrong passwords one member may try on one password forum per window before `POST boards/{slug}/unlock/` answers 429 (todo 680). Only a wrong password counts; the right one clears the count. |
+| `WAGTAILFORUM_FORUM_UNLOCK_WINDOW_SECONDS` | `900` (15 min) | The window of the count above, from the first wrong password; also the 429's `Retry-After`. |
 | `WAGTAILFORUM_PUBLIC_READ_CACHE_SECONDS` | `60` | Shared-cache TTL for **anonymous** board list, topic list, search, recent topics, experts rails, and the event hero only, so a CDN can offload public reads. Authenticated responses are always `private, no-store`. Topic detail and post list are never shared-cached (view counting; moderated-away content must stop serving immediately). Tradeoff: a just-removed topic can linger in the anon-cached *list* for up to this TTL. |
 | `WAGTAILFORUM_RECENT_TOPICS_DEFAULT_LIMIT` | `5` | Default row count for `GET topics/recent/` (the landing "Active now" rail) when `?limit=` is omitted. |
 | `WAGTAILFORUM_RECENT_TOPICS_MAX_LIMIT` | `20` | Cap on `?limit=` for `GET topics/recent/`. Bounded because each row may resolve a thumbnail rendition. |

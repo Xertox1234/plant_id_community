@@ -327,15 +327,41 @@ class BoardSerializer(serializers.ModelSerializer):
         ]
 
 
+# Joins a forum's moderator names in one column (todo 674). A username or a
+# group name never holds a newline: the admin form takes usernames, and a
+# group name is a one-line CharField.
+MODERATOR_NAME_SEPARATOR = "\n"
+
+
 class ForumRowSerializer(BoardSerializer):
     """A forum row of ``GET /forum/categories/``: the board shape plus
     ``has_unread`` (todo 671), annotated by CategoryListView. The flat
     ``/forum/boards/`` list (the Flutter contract) keeps ``BoardSerializer``."""
 
     has_unread = serializers.BooleanField(read_only=True)
+    # Todo 680: a password forum this session has not unlocked. Its row is
+    # listed with `last_post_at` null and `has_unread` false.
+    is_locked = serializers.BooleanField(read_only=True)
+    # Todo 674: the names on the row's "Moderators:" line, users (by
+    # username) then groups, from CategoryListView's `moderator_names`.
+    moderators = serializers.SerializerMethodField()
 
     class Meta(BoardSerializer.Meta):
-        fields = [*BoardSerializer.Meta.fields, "has_unread"]
+        fields = [
+            *BoardSerializer.Meta.fields,
+            "has_unread",
+            "is_locked",
+            "moderators",
+            # Todo 678: plain text, each line a paragraph, prefilled into an
+            # empty new-topic composer. "" when the forum has none. Not on
+            # the flat `/forum/boards/` list, whose keys are the Flutter
+            # contract.
+            "topic_template",
+        ]
+
+    def get_moderators(self, obj) -> list[str]:
+        names = getattr(obj, "moderator_names", None) or ""
+        return [name for name in names.split(MODERATOR_NAME_SEPARATOR) if name]
 
 
 class ForumLinkSerializer(serializers.ModelSerializer):
@@ -803,7 +829,7 @@ def build_forum_embed_map(posts):
     )
 
 
-def build_forum_quote_map(posts, user=None):
+def build_forum_quote_map(posts, user=None, *, request=None):
     """Map {post_id: Post} for every `post_quote` block across *posts* — one
     query, or none (todo 342). Same reason as the image/embed maps: the
     post-list query count stays flat however many quotes a page carries.
@@ -823,7 +849,7 @@ def build_forum_quote_map(posts, user=None):
         for pid in quoted_post_ids(post.body.raw_data):
             if pid not in ids:
                 ids.append(pid)
-    quote_map = visible_quoted_posts(ids)
+    quote_map = visible_quoted_posts(ids, user, request=request)
     blocked: set[int] = set()
     muted: set[int] = set()
     author_ids = {p.author_id for p in quote_map.values() if p.author_id}
@@ -1174,6 +1200,8 @@ class _ForumBodyContract(serializers.Serializer):
             existing_quote_ids=self.context.get("existing_quote_ids", ()),
             # Edit only: the stored body's link cards, reused without a fetch.
             existing_link_previews=self.context.get("existing_link_previews"),
+            # A quote of a post in a password forum this session unlocked.
+            request=request,
         )
 
     def _allowed_uploader_ids(self):

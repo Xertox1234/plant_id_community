@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, MessagesSquare, MousePointerClick, Reply } from 'lucide-react';
+import { ExternalLink, Lock, MessagesSquare, MousePointerClick, Reply } from 'lucide-react';
 import Card from '../ui/Card';
 import Tile from '../ui/Tile';
 import Timestamp from '../ui/Timestamp';
@@ -42,6 +42,13 @@ function ForumCard({ forum, headingLevel = 'h3' }: ForumCardProps) {
         <div className="min-w-0 flex-1">
           <Heading className="gt-h3 flex items-center gap-2 text-ink">
             {forum.name}
+            {forum.is_locked && (
+              // Password forum not unlocked this session (todo 680).
+              <span className="inline-flex items-center text-ink-3">
+                <Lock aria-hidden="true" className="h-4 w-4" />
+                <span className="sr-only">Password protected</span>
+              </span>
+            )}
             {forum.has_unread && (
               // Unread marker (todo 671): a dot for the eye, words for a
               // screen reader.
@@ -73,6 +80,10 @@ function ForumCard({ forum, headingLevel = 'h3' }: ForumCardProps) {
               <span>No activity yet</span>
             )}
           </div>
+          {forum.moderators && forum.moderators.length > 0 && (
+            // phpBB's "Moderators:" line (todo 674).
+            <p className="gt-label mt-1">Moderators: {forum.moderators.join(', ')}</p>
+          )}
         </div>
       </Link>
 

@@ -66,6 +66,10 @@ DEFAULT_FORUM_RATELIMITS = {
     "forum_mark_read": "60/m",
     "forum_mark_all_read": "30/m",
     "collapsed_categories_update": "60/m",
+    # Password-forum unlock (todo 680), every attempt: the package itself
+    # counts wrong passwords per member per forum (WAGTAILFORUM_FORUM_UNLOCK_*)
+    # and answers 429 past them; this bounds a client trying many forums.
+    "forum_unlock": "20/m",
     # Link redirects (todo 670), per IP: GET + AllowAny, and each one is a
     # counted click, so the limit bounds count inflation by one client.
     "link_go": "60/m",

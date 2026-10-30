@@ -54,6 +54,23 @@ def test_forum_index_lists_only_visible_forums():
     assert "Back office" not in html
 
 
+@pytest.mark.django_db
+def test_a_private_forum_index_still_lists_its_forums_to_whoever_it_serves():
+    # Wagtail's privacy decided who may open the page; the board list must
+    # not apply the API's "no open index" gate on top (round-2 review).
+    from wagtail.models import PageViewRestriction
+
+    index, _board = _tree()
+    PageViewRestriction.objects.create(
+        page=index, restriction_type=PageViewRestriction.LOGIN
+    )
+
+    response = index.serve(RequestFactory().get("/forum/"))
+    response.render()
+
+    assert "General" in response.content.decode()
+
+
 # Todo 299: the fallback pages share wagtail_forum/base.html, which renders
 # {% wagtailuserbar %} so an editor landing on "View live" has a route back to
 # the admin. The tag emits nothing for anonymous (or userless) requests, which

@@ -58,12 +58,15 @@ export default defineRailway(() => {
     // Every mobile token exchange mints one, about one per 15 minutes of use
     // now that a 401 re-exchanges silently, and nothing else removes them.
     //
+    // prune_forums (todo 679) unpublishes topics past a forum's own prune
+    // threshold; it does nothing for a forum with pruning off (the default).
+    //
     // expire_unverified_accounts deletes password accounts whose email was
     // never verified. It ran with --dry-run until the owner had read the
     // nightly "[PRUNE] unverified accounts: ..." counts (todo 485: 0
     // candidates every night 2026-10-01..2026-10-11). It deletes accounts,
     // so it goes last.
-    start: "/bin/sh -c \"python manage.py prune_forum_tombstones && python manage.py prune_link_preview_images && python manage.py flushexpiredtokens && python manage.py expire_unverified_accounts\"",
+    start: "/bin/sh -c \"python manage.py prune_forum_tombstones && python manage.py prune_link_preview_images && python manage.py prune_forums && python manage.py flushexpiredtokens && python manage.py expire_unverified_accounts\"",
     replicas: { "us-west2": 1 },
     deploy: { cronSchedule: "0 3 * * *", restartPolicyType: "NEVER" },
     env: { ALLOWED_HOSTS: preserve(), CORS_ALLOWED_ORIGINS: preserve(), CSRF_TRUSTED_ORIGINS: preserve(), DATABASE_URL: preserve(), DEBUG: preserve(), JWT_SECRET_KEY: preserve(), PLANT_ID_API_KEY: preserve(), R2_ACCESS_KEY_ID: preserve(), R2_BUCKET_NAME: preserve(), R2_CUSTOM_DOMAIN: preserve(), R2_ENDPOINT_URL: preserve(), R2_SECRET_ACCESS_KEY: preserve(), REDIS_URL: preserve(), SECRET_KEY: preserve(), SITE_URL: preserve(), USE_R2: preserve() },

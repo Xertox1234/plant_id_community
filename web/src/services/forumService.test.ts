@@ -6,6 +6,8 @@ import {
   fetchForumCategory,
   fetchForums,
   fetchForum,
+  fetchForumTopicTemplate,
+  unlockForum,
   fetchThreads,
   fetchThread,
   createThread,
@@ -1294,5 +1296,56 @@ describe('capability latch wrappers', () => {
     for (const other of capabilities) {
       expect(other.is()).toBe(other.reset !== reset);
     }
+  });
+});
+
+describe('password forums and topic templates (todos 678, 680)', () => {
+  const lockedCategory = {
+    id: 1,
+    title: 'Clubs',
+    slug: 'clubs',
+    description: '',
+    position: 0,
+    topic_count: 0,
+    post_count: 0,
+    last_post_at: null,
+    forums: [
+      {
+        id: 9,
+        title: 'Club',
+        slug: 'club',
+        is_locked: true,
+        topic_template: 'Line one\nLine two',
+        moderators: ['ann'],
+      },
+    ],
+  };
+
+  it('fetchForum finds a locked forum on the category index', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ results: [] }));
+    fetchMock.mockResolvedValueOnce(okJson({ results: [lockedCategory] }));
+
+    const forum = await fetchForum(9);
+
+    expect(forum.is_locked).toBe(true);
+    expect(forum.moderators).toEqual(['ann']);
+  });
+
+  it('fetchForumTopicTemplate reads the forum row of the category index', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ results: [lockedCategory] }));
+
+    expect(await fetchForumTopicTemplate('9')).toBe('Line one\nLine two');
+  });
+
+  it('unlockForum posts the password to the unlock endpoint', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ unlocked: true }));
+
+    await unlockForum('club', 'fake-pass');
+
+    const [url, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
+    expect(url).toMatch(/\/boards\/club\/unlock\/$/);
+    expect(init.method).toBe('POST');
+    // An obviously fake test value.
+    expect(JSON.parse(init.body as string)).toEqual({ password: 'fake-pass' }); // pragma: allowlist secret
   });
 });

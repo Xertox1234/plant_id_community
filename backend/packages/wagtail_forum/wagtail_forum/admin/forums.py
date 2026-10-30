@@ -28,6 +28,10 @@ import json
 from typing import Any
 
 from django import forms
+from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
+from django.contrib.auth.models import Group
+from django.db import transaction
 from django.urls import path, reverse
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
@@ -37,9 +41,12 @@ from wagtail.admin.views import generic
 from wagtail.admin.viewsets.model import ModelViewSet
 from wagtail.admin.widgets.button import Button
 
-from ..models import Forum
+from ..models import Forum, ForumModerator
+from ..models.boards import FORUM_PASSWORD_MAX_LENGTH
+from ..services.forum_permissions import keep_out_whoever_the_category_kept_out
 from ..services.forum_structure import next_position
 from .forum_delete import ForumChangeTypeView, ForumDeleteView
+from .forum_permissions import ForumPermissionsView
 from .forum_structure_tree import TREE_TEMPLATE, ForumMoveView, ForumStructureView
 
 # The types a new row may take.
@@ -47,7 +54,41 @@ CREATABLE_TYPES = (Forum.CATEGORY, Forum.FORUM, Forum.LINK)
 
 
 class ForumAdminForm(WagtailAdminModelForm):
-    """The General tab: type, category, name, slug, description."""
+    """The General tab (type, category, name, slug, description, password)
+    plus the Posting, Pruning and Moderators tabs (todos 674, 678-680).
+    Permissions have their own screen (``forum_permissions``)."""
+
+    # Todo 680: write-only. A blank field keeps the current password; the
+    # hash is never rendered back.
+    new_password = forms.CharField(
+        label=_("Password"),
+        required=False,
+        max_length=FORUM_PASSWORD_MAX_LENGTH,
+        strip=False,
+        widget=forms.PasswordInput(
+            render_value=False, attrs={"autocomplete": "new-password"}
+        ),
+        help_text=_(
+            "Readers must enter it to open this forum. Leave blank to keep "
+            "the current one. Prefer permissions: a password is shared."
+        ),
+    )
+    clear_password = forms.BooleanField(label=_("Remove the password"), required=False)
+    # Todo 674: moderators are users (by username) or groups.
+    moderator_users = forms.CharField(
+        label=_("Moderator users"),
+        required=False,
+        help_text=_(
+            "Usernames, separated by commas. They moderate this forum's "
+            "topics, posts and reports in the admin (they also need admin access)."
+        ),
+    )
+    moderator_groups = forms.ModelMultipleChoiceField(
+        label=_("Moderator groups"),
+        queryset=Group.objects.order_by("name"),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+    )
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -97,6 +138,36 @@ class ForumAdminForm(WagtailAdminModelForm):
         self.fields["slug"].help_text = _(
             "Used in the forum's web address. Left blank, it is made from the name."
         )
+        if self.instance.pk:
+            moderators = ForumModerator.objects.filter(forum=self.instance)
+            self.initial["moderator_users"] = ", ".join(
+                sorted(
+                    moderators.filter(user__isnull=False).values_list(
+                        "user__username", flat=True
+                    )
+                )
+            )
+            self.initial["moderator_groups"] = list(
+                moderators.filter(group__isnull=False).values_list(
+                    "group_id", flat=True
+                )
+            )
+            if self.instance.password_hash:
+                self.fields["new_password"].help_text = _(
+                    "This forum has a password. Enter a new one to change it."
+                )
+
+    def clean_moderator_users(self) -> list[Any]:
+        raw = self.cleaned_data.get("moderator_users") or ""
+        names = list(dict.fromkeys(n.strip() for n in raw.split(",") if n.strip()))
+        users = list(get_user_model().objects.filter(username__in=names))
+        missing = set(names) - {u.get_username() for u in users}
+        if missing:
+            raise forms.ValidationError(
+                _("No user is called: %(names)s")
+                % {"names": ", ".join(sorted(missing))}
+            )
+        return users
 
     def clean_slug(self) -> str:
         slug = self.cleaned_data.get("slug") or ""
@@ -126,6 +197,13 @@ class ForumAdminForm(WagtailAdminModelForm):
                 clashes = clashes.exclude(pk=self.instance.pk)
             if clashes.exists():
                 self.add_error("slug", _("This slug is already in use."))
+        # Round-2 review: a category ignores a password, and a link with one
+        # could never be unlocked (only forum rows have the unlock endpoint).
+        if (
+            cleaned.get("new_password")
+            and (forum_type or self.instance.forum_type) != Forum.FORUM
+        ):
+            self.add_error("new_password", _("Only a forum can have a password."))
         return cleaned
 
     def save(self, commit: bool = True) -> Forum:
@@ -135,10 +213,47 @@ class ForumAdminForm(WagtailAdminModelForm):
             # categories, forums within their category) rather than to the
             # top at position 0. The structure tree reorders (todo 668).
             instance.position = next_position(instance.parent_id)
+        # Moved to another category here rather than in the tree: whoever
+        # the old category kept out stays out (round-2 review), applied with
+        # the m2m step so it also runs when the caller saves later.
+        self._left_category = None
+        if (
+            not instance._state.adding
+            and "parent" in self.changed_data
+            and self.initial.get("parent")
+        ):
+            self._left_category = Forum.objects.filter(
+                pk=self.initial["parent"]
+            ).first()
+        password = self.cleaned_data.get("new_password")
+        if self.cleaned_data.get("clear_password"):
+            instance.password_hash = ""
+        elif password:
+            instance.password_hash = make_password(password)
         if commit:
             instance.save()
             self.save_m2m()
         return instance
+
+    def _save_m2m(self) -> None:
+        super()._save_m2m()  # type: ignore[misc]
+        self._save_moderators()
+        left = getattr(self, "_left_category", None)
+        if left is not None:
+            keep_out_whoever_the_category_kept_out(self.instance, left)
+
+    def _save_moderators(self) -> None:
+        forum = self.instance
+        users = self.cleaned_data.get("moderator_users") or []
+        groups = list(self.cleaned_data.get("moderator_groups") or [])
+        with transaction.atomic():
+            existing = ForumModerator.objects.filter(forum=forum)
+            existing.filter(user__isnull=False).exclude(user__in=users).delete()
+            existing.filter(group__isnull=False).exclude(group__in=groups).delete()
+            for user in users:
+                ForumModerator.objects.get_or_create(forum=forum, user=user)
+            for group in groups:
+                ForumModerator.objects.get_or_create(forum=forum, group=group)
 
 
 class ForumCreateView(generic.CreateView):
@@ -158,13 +273,23 @@ class ForumCreateView(generic.CreateView):
 
 
 class ForumEditView(generic.EditView):
-    """Adds "Change type" to the edit page's actions menu."""
+    """Adds "Permissions" and "Change type" to the edit page's actions menu."""
 
     change_type_url_name: str | None = None
+    permissions_url_name: str | None = None
 
     @property
     def header_more_buttons(self) -> list[Any]:
         buttons: list[Any] = list(super().header_more_buttons)
+        if self.permissions_url_name:
+            buttons.append(
+                Button(
+                    _("Permissions"),
+                    url=reverse(self.permissions_url_name, args=(self.object.pk,)),
+                    icon_name="lock",
+                    priority=10,
+                )
+            )
         if self.change_type_url_name:
             buttons.append(
                 Button(
@@ -201,7 +326,9 @@ class ForumViewSet(ModelViewSet):
 
     def get_edit_view_kwargs(self, **kwargs: Any) -> dict[str, Any]:
         view_kwargs: dict[str, Any] = super().get_edit_view_kwargs(
-            change_type_url_name=self.get_url_name("change_type"), **kwargs
+            change_type_url_name=self.get_url_name("change_type"),
+            permissions_url_name=self.get_url_name("permissions"),
+            **kwargs,
         )
         return view_kwargs
 
@@ -231,11 +358,29 @@ class ForumViewSet(ModelViewSet):
                     FieldPanel("name"),
                     FieldPanel("slug"),
                     FieldPanel("description"),
-                    FieldPanel("is_hidden"),
                     FieldPanel("link_url"),
                     FieldPanel("track_clicks"),
+                    FieldPanel("new_password"),
+                    FieldPanel("clear_password"),
                 ],
                 heading=_("General"),
+            ),
+            # Todo 678: plain text, each line a paragraph in the composer.
+            ObjectList([FieldPanel("topic_template")], heading=_("Posting")),
+            # Todo 679: `manage.py prune_forums` (days since last post only).
+            ObjectList(
+                [
+                    FieldPanel("prune_enabled"),
+                    FieldPanel("prune_days_since_last_post"),
+                    FieldPanel("prune_pinned"),
+                    FieldPanel("prune_polls"),
+                ],
+                heading=_("Pruning"),
+            ),
+            # Todo 674: who moderates this forum through the Wagtail admin.
+            ObjectList(
+                [FieldPanel("moderator_users"), FieldPanel("moderator_groups")],
+                heading=_("Moderators"),
             ),
         ],
         base_form_class=ForumAdminForm,
@@ -250,6 +395,11 @@ class ForumViewSet(ModelViewSet):
                 name="change_type",
             ),
             path("move/", self.move_view, name="move"),
+            path(
+                f"permissions/<{self.pk_path_converter}:pk>/",
+                self.permissions_view,
+                name="permissions",
+            ),
         ]
 
     def get_index_view_kwargs(self, **kwargs: Any) -> dict[str, Any]:
@@ -262,6 +412,13 @@ class ForumViewSet(ModelViewSet):
     def move_view(self) -> Any:
         return self.construct_view(
             ForumMoveView, index_url_name=self.get_url_name("index")
+        )
+
+    @property
+    def permissions_view(self) -> Any:
+        return ForumPermissionsView.as_view(
+            edit_url_name=self.get_url_name("edit"),
+            permissions_url_name=self.get_url_name("permissions"),
         )
 
     @property

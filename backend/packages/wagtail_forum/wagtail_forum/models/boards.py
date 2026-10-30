@@ -79,10 +79,18 @@ class ForumIndex(Page):
         # are live-routable, so direct serving (admin "View live", sitemaps,
         # crawlers) must render instead of 500ing with TemplateDoesNotExist.
         context = super().get_context(request, *args, **kwargs)
-        # Same visibility rule as the API (`api.views._visible_boards`); a
-        # local query so the model module never imports the API layer.
+        # The guest view of the API's rule (`api.views._visible_boards`),
+        # since this page is served to crawlers and caches, minus its
+        # ForumIndex gate: the page being served IS the index, and Wagtail
+        # already let this viewer past its privacy (round-2 review; main
+        # listed the boards here too). A local import so the model module
+        # never imports the service at load.
+        from ..services.forum_permissions import LIST, READ, access_q
+
         context["boards"] = Forum.objects.filter(
-            forum_type=Forum.FORUM, is_hidden=False, parent__is_hidden=False
+            access_q(None, READ) & access_q(None, LIST, "parent"),
+            forum_type=Forum.FORUM,
+            password_hash="",
         ).order_by("parent__position", "position", "id")
         return context
 
@@ -91,6 +99,10 @@ class ForumIndex(Page):
 # URLValidator also admits ftp/ftps, and anything else (``javascript:``,
 # ``data:``) would run in the reader's browser from a forum row.
 LINK_URL_SCHEMES = ("http", "https")
+
+# The longest forum password the admin sets or a reader may submit (todo 680):
+# an unbounded body would make every unlock attempt hash it whole.
+FORUM_PASSWORD_MAX_LENGTH = 128
 
 
 class Forum(models.Model):
@@ -143,10 +155,42 @@ class Forum(models.Model):
     # category's numbers are summed from its visible forums at read time.
     topic_count = models.PositiveIntegerField(default=0, editable=False)
     post_count = models.PositiveIntegerField(default=0, editable=False)
-    # Interim visibility switch until per-forum permissions land (todos
-    # 675-677). Hidden = invisible to the whole API, as a non-live or
-    # view-restricted board page was.
-    is_hidden = models.BooleanField(default=False)
+    # Who may see a row is its `grants` (models/permissions.py, todos
+    # 675-676); `is_hidden` became a "No access for everyone" grant set.
+    # Posting tab (todo 678): plain text, each line a paragraph, prefilled
+    # into an empty new-topic composer.
+    # db_default on each column added with this release (todo 675-680): the
+    # previous release serves while `migrate` runs and inserts without them.
+    topic_template = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text=_(
+            "Prefilled into the new-topic composer when it is empty. Plain "
+            "text: each line becomes a paragraph."
+        ),
+    )
+    # Pruning tab (todo 679): `manage.py prune_forums` unpublishes topics
+    # whose last post is older than the threshold. Days since last post only
+    # (owner decision 2026-10-30).
+    prune_enabled = models.BooleanField(default=False, db_default=False)
+    prune_days_since_last_post = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=_("Unpublish topics with no post for this many days."),
+    )
+    prune_pinned = models.BooleanField(
+        default=False, db_default=False, help_text=_("Prune pinned topics too.")
+    )
+    prune_polls = models.BooleanField(
+        default=False, db_default=False, help_text=_("Prune topics with a poll too.")
+    )
+    # Password-protected forum (todo 680): a Django password hash, never the
+    # password. Blank = no password. Set through the admin form's write-only
+    # field; unlocked per session by `POST /forum/boards/{slug}/unlock/`.
+    password_hash = models.CharField(
+        max_length=256, blank=True, editable=False, default="", db_default=""
+    )
     # Link rows (todo 670; phpBB FORUM_LINK). phpBB counts redirects in the
     # post counter; a dedicated column keeps the forum counters honest.
     link_url = models.URLField(
@@ -186,6 +230,10 @@ class Forum(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def has_password(self) -> bool:
+        return bool(self.password_hash)
 
     @property
     def title(self):

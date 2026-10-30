@@ -167,6 +167,35 @@ export async function fetchCategories(): Promise<Category[]> {
   return (data.results || []).map(mapCategory);
 }
 
+/**
+ * The forum's topic template (todo 678), or '' when it has none or the forum
+ * is not listed. Read from `GET categories/`: the flat board list keeps the
+ * Flutter app's keys. Never throws: a prefill is a convenience.
+ */
+export async function fetchForumTopicTemplate(forumId: number | string): Promise<string> {
+  try {
+    const categories = await fetchCategories();
+    for (const category of categories) {
+      const forum = category.forums.find((f) => f.id === String(forumId));
+      if (forum) return forum.topic_template ?? '';
+    }
+  } catch {
+    // fall through
+  }
+  return '';
+}
+
+/**
+ * Unlock a password forum for the rest of this session (todo 680). Throws a
+ * ForumApiError: 400 for a wrong password, 429 after too many.
+ */
+export async function unlockForum(slug: string, password: string): Promise<void> {
+  await authenticatedFetch<{ unlocked: boolean }>(
+    `${FORUM_BASE}/boards/${encodeURIComponent(slug)}/unlock/`,
+    { method: 'POST', body: JSON.stringify({ password }) }
+  );
+}
+
 /** Mark every topic in one forum read for the signed-in member (todo 671). */
 export async function markForumRead(slug: string): Promise<void> {
   await authenticatedFetch<{ marked_at: string }>(
@@ -204,8 +233,20 @@ export async function fetchForumCategory(forumId: number | string): Promise<Cate
 export async function fetchForum(forumId: number): Promise<Forum> {
   const categories = await fetchForums();
   const match = categories.find((c) => c.id === String(forumId));
-  if (!match) throw new Error('Forum not found');
-  return match;
+  if (match) return match;
+  // A password forum this session has not unlocked is left out of the board
+  // list (todo 680) but listed, locked, on the category index.
+  let index: Category[] = [];
+  try {
+    index = await fetchCategories();
+  } catch {
+    // The forum is not on the board list either way: not found.
+  }
+  for (const category of index) {
+    const locked = category.forums.find((f) => f.id === String(forumId) && f.is_locked);
+    if (locked) return locked;
+  }
+  throw new Error('Forum not found');
 }
 
 // ---------------------------------------------------------------------------
