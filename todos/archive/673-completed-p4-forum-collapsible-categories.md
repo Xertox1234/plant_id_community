@@ -71,3 +71,9 @@ phpBB's official collapsible-categories extension lets members collapse a catego
 ### 2026-10-30 - Completed by the todo sweep (run 2026-10-30-0417)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-30 - Review round 1: non-blocking findings
+
+- **Fixed (medium, three reviewers):** a signed-in toggle before the member's stored set had loaded (or after the load failed) PUT a set holding only that id, which overwrote their saved list on the server. `useCollapsedCategories` now ignores toggles until the set has loaded and while auth is still resolving, and sends saves one after another so an older set never lands last. Tests: `ignores a toggle until the member's stored set has loaded`, `ignores a toggle while auth is still being verified`, `sends saves one after another`. The guard was mutation-checked: without it, the first two fail.
+- **Fixed (medium):** the collapse save used a plain `ListField(max_length=…)`, which parses every item before checking the length. It now uses `_BoundedListField` like the other write lists. Test `test_an_oversized_list_is_refused_before_its_items_are_parsed`, mutation-checked.
+- **Declined:** no `max_value` on the stored category ids. The 200-entry cap bounds the row, and an id that matches no category is inert.

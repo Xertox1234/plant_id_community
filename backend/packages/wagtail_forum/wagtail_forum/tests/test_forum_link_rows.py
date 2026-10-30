@@ -433,3 +433,18 @@ def test_the_edit_page_of_a_link_offers_change_type(admin_client):
     resp = admin_client.get(_admin_url("edit", link.pk))
 
     assert _admin_url("change_type", link.pk) in resp.content.decode()
+
+
+def test_a_link_saved_without_a_url_can_still_be_moved():
+    # Rows saved before todo 670 can be links with no URL. A tree move only
+    # changes the parent, so it must not trip the "a link needs a URL" rule.
+    from wagtail_forum.services.forum_structure import move_forum
+
+    other = make_category(slug="elsewhere")
+    legacy = _link(link_url="")
+
+    moved = move_forum(legacy.pk, other.pk, 0)
+
+    assert moved.parent_id == other.pk
+    legacy.refresh_from_db()
+    assert legacy.parent_id == other.pk

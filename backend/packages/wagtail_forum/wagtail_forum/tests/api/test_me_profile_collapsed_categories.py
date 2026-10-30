@@ -86,3 +86,18 @@ def test_the_profile_patch_does_not_write_collapsed_categories():
     _session(user).patch(URL, {"collapsed_categories": [4]}, format="json")
 
     assert ForumProfile.objects.get(user=user).collapsed_categories == []
+
+
+def test_an_oversized_list_is_refused_before_its_items_are_parsed():
+    # Every item is invalid, so a length check that ran only after per-item
+    # parsing would report the items, not the length.
+    user = User.objects.create_user(username="ada", email="a@x.io")
+
+    resp = _session(user).put(
+        SAVE,
+        {"collapsed_categories": ["x"] * (MAX_COLLAPSED_CATEGORIES + 1)},
+        format="json",
+    )
+
+    assert resp.status_code == 400
+    assert "Too many collapsed categories." in str(resp.json())

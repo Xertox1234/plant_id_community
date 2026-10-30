@@ -127,3 +127,10 @@ phpBB link forums are rows on the index that redirect to a URL, optionally count
 ### 2026-10-30 - Completed by the todo sweep (run 2026-10-30-0417)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-30 - Review round 1: non-blocking findings
+
+- **Fixed (regression):** a link saved without a URL before this slice could not be moved in the structure tree, because `move_forum` ran the whole `Forum.clean` and its "a link needs a URL" rule. `move_forum` now checks only the parent rules (`Forum._clean_parent`). Test `test_a_link_saved_without_a_url_can_still_be_moved`, mutation-checked (with `forum.clean()` back, it fails).
+- **Fixed:** the host throttle wrappers had no host-level test. Added `apps/forum_host/tests/test_forum_row_throttles.py`: the link redirect returns 429 on its second request per IP and stops counting clicks, and each read-mark and collapse scope returns 429 at its limit.
+- **Declined:** link prefetchers and crawlers can inflate `click_count` (two reviewers). Counts are approximate by design, and the per-IP `link_go` limit (60/m) bounds one client.
+- **Declined:** no test for a category holding only links, or for URL-less links being dropped from `/categories/`. Low; the listing rules are covered by `test_links_are_listed_under_their_category_with_a_click_count_when_tracked` and the view's own exclude.

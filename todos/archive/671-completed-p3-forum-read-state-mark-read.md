@@ -102,3 +102,10 @@ phpBB shows an unread marker per forum and offers 'mark forum read' and 'mark al
 ### 2026-10-30 - Completed by the todo sweep (run 2026-10-30-0417)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-30 - Review round 1: non-blocking findings
+
+- **Declined:** `ForumRead.mark_read`'s `get_or_create` could race two first POSTs into an IntegrityError. Django's `get_or_create` already catches that IntegrityError inside a savepoint and re-reads the row, and the follow-up `GREATEST` update is atomic.
+- **Declined:** "Mark forum read" shows only when a topic on the loaded page is unread. Low UX edge; the index offers "Mark all read" whenever anything is unread.
+- **Declined:** the "Mark forum read" handler has no stale guard if the user navigates mid-request. It only clears client-side markers, and the next fetch corrects them.
+- **Declined:** the query-count pin wants a docstring and a 1-vs-N comparison. The existing small-vs-big equality test already pins flatness.

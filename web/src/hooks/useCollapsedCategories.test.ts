@@ -80,4 +80,61 @@ describe('useCollapsedCategories (todo 673)', () => {
     await waitFor(() => expect(forumService.saveCollapsedCategories).toHaveBeenCalled());
     expect(result.current.isCollapsed('2')).toBe(true);
   });
+
+  it('ignores a toggle until the member’s stored set has loaded, so it cannot overwrite it', async () => {
+    let resolveProfile: (p: ForumMyProfile) => void = () => {};
+    vi.mocked(forumService.fetchMyForumProfile).mockReturnValue(
+      new Promise((resolve) => {
+        resolveProfile = resolve;
+      })
+    );
+    vi.mocked(forumService.saveCollapsedCategories).mockResolvedValue([1, 2, 3]);
+
+    const { result } = renderHook(() => useCollapsedCategories(member));
+    await waitFor(() => expect(forumService.fetchMyForumProfile).toHaveBeenCalled());
+    act(() => result.current.toggle('3'));
+
+    // Saving [3] here would replace the stored [1, 2] on the server.
+    expect(forumService.saveCollapsedCategories).not.toHaveBeenCalled();
+    expect(result.current.isCollapsed('3')).toBe(false);
+
+    await act(async () => resolveProfile(profile([1, 2])));
+    act(() => result.current.toggle('3'));
+    await waitFor(() =>
+      expect(forumService.saveCollapsedCategories).toHaveBeenCalledWith([1, 2, 3])
+    );
+  });
+
+  it('ignores a toggle while auth is still being verified', () => {
+    const { result } = renderHook(() => useCollapsedCategories({ ...member, authLoading: true }));
+
+    act(() => result.current.toggle('3'));
+
+    expect(result.current.isCollapsed('3')).toBe(false);
+    expect(window.localStorage.getItem(GUEST_COLLAPSED_CATEGORIES_KEY)).toBeNull();
+    expect(forumService.saveCollapsedCategories).not.toHaveBeenCalled();
+  });
+
+  it('sends saves one after another so an older set never lands last', async () => {
+    vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue(profile([]));
+    let finishFirst: () => void = () => {};
+    vi.mocked(forumService.saveCollapsedCategories)
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishFirst = () => resolve([1]);
+        })
+      )
+      .mockResolvedValueOnce([1, 2]);
+
+    const { result } = renderHook(() => useCollapsedCategories(member));
+    await waitFor(() => expect(forumService.fetchMyForumProfile).toHaveBeenCalled());
+    await act(async () => {});
+    act(() => result.current.toggle('1'));
+    act(() => result.current.toggle('2'));
+
+    await waitFor(() => expect(forumService.saveCollapsedCategories).toHaveBeenCalledTimes(1));
+    await act(async () => finishFirst());
+    await waitFor(() => expect(forumService.saveCollapsedCategories).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(forumService.saveCollapsedCategories).mock.calls[1][0]).toEqual([1, 2]);
+  });
 });

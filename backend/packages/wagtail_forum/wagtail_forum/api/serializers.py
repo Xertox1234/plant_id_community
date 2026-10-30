@@ -384,13 +384,17 @@ class ForumCategorySerializer(serializers.Serializer):
     links = ForumLinkSerializer(many=True, read_only=True, source="visible_links")
 
 
+class _BoundedCollapsedCategoryListField(_BoundedListField):
+    max_items = MAX_COLLAPSED_CATEGORIES
+    too_many_message = _("Too many collapsed categories.")
+
+
 class CollapsedCategoriesSerializer(serializers.Serializer):
     """Body of ``PUT /forum/me/collapsed-categories/`` (todo 673): the whole
     list, deduplicated with its order kept."""
 
-    collapsed_categories = serializers.ListField(
+    collapsed_categories = _BoundedCollapsedCategoryListField(
         child=serializers.IntegerField(min_value=1),
-        max_length=MAX_COLLAPSED_CATEGORIES,
         allow_empty=True,
     )
 

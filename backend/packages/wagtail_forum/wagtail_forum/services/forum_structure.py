@@ -122,7 +122,9 @@ def move_forum(forum_id: int, parent_id: int | None, position: int) -> Forum:
         old_parent = forum.parent if old_parent_id is not None else None
         forum.parent = parent
         try:
-            forum.clean()
+            # Only the parent rules: a move changes nothing else, and a link
+            # saved without a URL before todo 670 must still move.
+            forum._clean_parent()
         except ValidationError as error:
             # Forum.clean reports on the "parent" field; the tree has no
             # field to show it on, so the caller gets the plain messages.
