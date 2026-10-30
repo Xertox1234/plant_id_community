@@ -39,6 +39,7 @@ from wagtail.admin.widgets.button import Button
 from ..models import Forum
 from ..services.forum_structure import next_position
 from .forum_delete import ForumChangeTypeView, ForumDeleteView
+from .forum_structure_tree import TREE_TEMPLATE, ForumMoveView, ForumStructureView
 
 # The types a new row may take in this slice (links: slice 670).
 CREATABLE_TYPES = (Forum.CATEGORY, Forum.FORUM)
@@ -125,12 +126,28 @@ class ForumAdminForm(WagtailAdminModelForm):
         if instance._state.adding:
             # New rows go to the end of their level (categories among
             # categories, forums within their category) rather than to the
-            # top at position 0. Reordering itself is slice 668.
+            # top at position 0. The structure tree reorders (todo 668).
             instance.position = next_position(instance.parent_id)
         if commit:
             instance.save()
             self.save_m2m()
         return instance
+
+
+class ForumCreateView(generic.CreateView):
+    """Prefills the type and category from the query string, so the tree's
+    "Add forum" (``?forum_type=forum&parent=<id>``) and "Add category" open
+    the form ready. Only a starting value: the form still validates both."""
+
+    def get_initial(self) -> dict[str, Any]:
+        initial: dict[str, Any] = super().get_initial()
+        forum_type = self.request.GET.get("forum_type")
+        if forum_type in CREATABLE_TYPES:
+            initial["forum_type"] = forum_type
+        parent = self.request.GET.get("parent", "")
+        if parent.isdecimal():
+            initial["parent"] = int(parent)
+        return initial
 
 
 class ForumEditView(generic.EditView):
@@ -155,6 +172,11 @@ class ForumEditView(generic.EditView):
 
 class ForumViewSet(ModelViewSet):
     model = Forum
+    # The landing screen is the structure tree (todo 668), not a listing:
+    # every row is on it, in the order the forum shows them.
+    index_view_class = ForumStructureView
+    index_template_name = TREE_TEMPLATE
+    add_view_class = ForumCreateView
     edit_view_class = ForumEditView
     delete_view_class = ForumDeleteView
     icon = "list-ul"
@@ -164,12 +186,10 @@ class ForumViewSet(ModelViewSet):
     name = "forum_forums"
     url_prefix = "forum/forums"
     url_namespace = "wagtail_forum_forums"
-    list_display = ["name", "forum_type", "parent", "slug", "is_hidden"]
-    list_filter = ["forum_type", "is_hidden"]
-    search_fields = ["name", "slug"]
     copy_view_enabled = False
     inspect_view_enabled = False
-    # No drag reorder in this slice: the structure tree is slice 668.
+    # Wagtail's own drag reorder handles one flat list; the tree's move
+    # endpoint (``move/``) handles both levels and moves between categories.
     sort_order_field = None
 
     def get_edit_view_kwargs(self, **kwargs: Any) -> dict[str, Any]:
@@ -220,7 +240,20 @@ class ForumViewSet(ModelViewSet):
                 self.change_type_view,
                 name="change_type",
             ),
+            path("move/", self.move_view, name="move"),
         ]
+
+    def get_index_view_kwargs(self, **kwargs: Any) -> dict[str, Any]:
+        view_kwargs: dict[str, Any] = super().get_index_view_kwargs(
+            move_url_name=self.get_url_name("move"), **kwargs
+        )
+        return view_kwargs
+
+    @property
+    def move_view(self) -> Any:
+        return self.construct_view(
+            ForumMoveView, index_url_name=self.get_url_name("index")
+        )
 
     @property
     def change_type_view(self) -> Any:
