@@ -19,7 +19,7 @@ from django.db.models import (
     Subquery,
     Value,
 )
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, Greatest
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
@@ -88,6 +88,7 @@ from ..models import (
     ForumIdentificationAttachment,
     ForumIndex,
     ForumProfile,
+    ForumRead,
     Poll,
     PollOption,
     Post,
@@ -138,7 +139,14 @@ MAX_SLUG_ATTEMPTS = 5
 
 
 def _visible_boards():
-    """Boards the API may expose: `forum_type="forum"` rows that are not hidden.
+    return _visible_rows(Forum.FORUM)
+
+
+def _visible_rows(*forum_types):
+    """The visible rows of ``forum_types`` (``_visible_boards`` for forums;
+    the category index adds links, todo 670). Same rules for every type.
+
+    Boards the API may expose: `forum_type="forum"` rows that are not hidden.
 
     Boards are `Forum` rows since todo 665 (they were Wagtail pages, filtered
     with `.live().public()`). Categories and links never hold topics, so they
@@ -167,7 +175,7 @@ def _visible_boards():
     )
     return Forum.objects.filter(
         Exists(open_index) | ~Exists(ForumIndex.objects.all()),
-        forum_type=Forum.FORUM,
+        forum_type__in=forum_types,
         is_hidden=False,
         parent__is_hidden=False,
     )
@@ -228,12 +236,17 @@ def _annotate_topic_unread(qs, user):
     Always present — a constant for anonymous requests, the real chain for
     authenticated ones — so the serializer field needs no special-casing.
 
-    A topic is unread when its `last_post_at` is newer than the most
-    specific baseline available: this user's explicit `TopicRead` for this
-    exact topic, else their `ForumProfile.read_watermark_at` (backfilled to
-    launch time for existing profiles; stamped at profile-creation time for
-    new ones), else the fixed `UNREAD_LAUNCH_AT` launch constant (only
-    reached for a user with no profile row at all).
+    A topic is unread when its `last_post_at` is newer than the LATEST of
+    this user's read floors (todo 671): their explicit `TopicRead` for this
+    exact topic, their `ForumRead` "mark forum read" for its forum, and their
+    `ForumProfile.read_watermark_at` ("mark all read"; backfilled to launch
+    time for existing profiles, stamped at profile-creation time for new
+    ones), falling back to the fixed `UNREAD_LAUNCH_AT` launch constant for
+    a user with no profile row at all. The latest, not the most specific
+    (it was a Coalesce before 671): a topic read last week must still clear
+    when its forum, or the whole board, is marked read today. Each floor is
+    Coalesced to the base first, so a missing row never NULLs the GREATEST
+    (NULL-propagating outside PostgreSQL).
 
     Both `Subquery` lookups below fold into the single SELECT as correlated
     scalar-subquery expressions — zero added Python-level queries, so this
@@ -259,13 +272,32 @@ def _annotate_topic_unread(qs, user):
         )
     if timezone.is_naive(launch_at):
         launch_at = timezone.make_aware(launch_at)
+    forum_read = ForumRead.objects.filter(user=user, forum=OuterRef("board_id")).values(
+        "marked_at"
+    )[:1]
+    base = Coalesce(Subquery(watermark), Value(launch_at, output_field=DateTimeField()))
     return qs.alias(
-        _read_baseline=Coalesce(
-            Subquery(read_at),
-            Subquery(watermark),
-            Value(launch_at, output_field=DateTimeField()),
+        _read_baseline=Greatest(
+            Coalesce(Subquery(read_at), base),
+            Coalesce(Subquery(forum_read), base),
+            base,
         ),
     ).annotate(is_unread=Q(last_post_at__gt=F("_read_baseline")))
+
+
+def _annotate_forum_has_unread(qs, user):
+    """Annotate `has_unread` on a Forum queryset (todo 671): any live topic
+    the viewer would see as unread in that forum's topic list (same floors as
+    `_annotate_topic_unread`, same hidden authors). One correlated `EXISTS`
+    per row inside the caller's SELECT, so it adds no query. A constant
+    `False` for anonymous viewers, who have no read state."""
+    if not user.is_authenticated:
+        return qs.annotate(has_unread=Value(False, output_field=BooleanField()))
+    topics = _annotate_topic_unread(
+        Topic.objects.filter(board=OuterRef("pk"), live=True), user
+    ).filter(is_unread=True)
+    topics = _exclude_blocked_authors(topics, user)
+    return qs.annotate(has_unread=Exists(topics))
 
 
 def _should_filter_blocks(user):
@@ -568,7 +600,10 @@ def _board_last_post_subquery():
         "visible forums nested under `forums` (same row shape as "
         "`/forum/boards/`). A category's `topic_count`, `post_count` and "
         "`last_post_at` are summed from its visible forums at read time; a "
-        "category with no visible forum is omitted. Flat and unpaginated."
+        "category with no visible forum or link is omitted. Each forum row and "
+        "each category carries `has_unread` (always false when anonymous); "
+        "link rows are under `links`, with `click_count` when tracked. Flat "
+        "and unpaginated."
     ),
 )
 class CategoryListView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
@@ -582,24 +617,34 @@ class CategoryListView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
     permission_classes = [AllowAny]
 
     def get(self, request):
-        forums = (
-            _visible_boards()
-            .annotate(last_post_at=_board_last_post_subquery())
-            .order_by("position", "id")
-        )
+        # Forums and links in ONE prefetch (split below), so the query count
+        # stays two. A link with no URL (a row saved before todo 670 made the
+        # URL required) has nowhere to send a reader and is left out.
+        children = _annotate_forum_has_unread(
+            _visible_rows(Forum.FORUM, Forum.LINK)
+            .exclude(forum_type=Forum.LINK, link_url="")
+            .annotate(last_post_at=_board_last_post_subquery()),
+            request.user,
+        ).order_by("position", "id")
         categories = (
             Forum.objects.filter(forum_type=Forum.CATEGORY, is_hidden=False)
             .order_by("position", "id")
             .prefetch_related(
-                Prefetch("children", queryset=forums, to_attr="visible_forums")
+                Prefetch("children", queryset=children, to_attr="visible_rows")
             )
         )
         rows = []
         for category in categories:
-            # Any: each row carries the `last_post_at` annotation, which the
-            # Prefetch(to_attr=...) list type does not know about.
-            visible: list[Any] = category.visible_forums
-            if not visible:
+            # Any: each row carries the `last_post_at` and `has_unread`
+            # annotations, which the Prefetch(to_attr=...) list type does not
+            # know about.
+            visible: list[Any] = [
+                row for row in category.visible_rows if row.forum_type == Forum.FORUM
+            ]
+            links: list[Any] = [
+                row for row in category.visible_rows if row.forum_type == Forum.LINK
+            ]
+            if not visible and not links:
                 continue  # phpBB skips a category with nothing to show
             stamps = [f.last_post_at for f in visible if f.last_post_at]
             rows.append(
@@ -612,7 +657,9 @@ class CategoryListView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                     "topic_count": sum(f.topic_count for f in visible),
                     "post_count": sum(f.post_count for f in visible),
                     "last_post_at": max(stamps) if stamps else None,
+                    "has_unread": any(f.has_unread for f in visible),
                     "visible_forums": visible,
+                    "visible_links": links,
                 }
             )
         data = ForumCategorySerializer(rows, many=True).data

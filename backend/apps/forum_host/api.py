@@ -12,6 +12,7 @@ from django.conf import settings
 from django.utils.decorators import method_decorator
 from wagtail_forum.api import bookmarks as forum_bookmark_views
 from wagtail_forum.api import direct_messages as forum_direct_message_views
+from wagtail_forum.api import forum_rows as forum_row_views
 from wagtail_forum.api import image_management as forum_image_management_views
 from wagtail_forum.api import notifications as forum_notification_views
 from wagtail_forum.api import polls as forum_poll_views
@@ -205,6 +206,26 @@ class NotificationUnreadCountView(forum_notification_views.NotificationUnreadCou
 
 @_throttled("notification_mark_read", "POST")
 class NotificationMarkReadView(forum_notification_views.NotificationMarkReadView):
+    pass
+
+
+@_throttled("forum_mark_read", "POST")
+class ForumMarkReadView(forum_row_views.ForumMarkReadView):
+    pass
+
+
+@_throttled("forum_mark_all_read", "POST")
+class ForumMarkAllReadView(forum_row_views.ForumMarkAllReadView):
+    pass
+
+
+@_throttled("collapsed_categories_update", "PUT")
+class MeCollapsedCategoriesView(forum_row_views.MeCollapsedCategoriesView):
+    pass
+
+
+@_throttled("link_go", "GET", key=client_ip_key)
+class ForumLinkGoView(forum_row_views.ForumLinkGoView):
     pass
 
 

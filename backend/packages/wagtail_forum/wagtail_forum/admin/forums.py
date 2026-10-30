@@ -12,8 +12,9 @@ A plain ``ModelViewSet`` (no revisions, no page tree) under the existing
   the edit page), because a forum must be emptied of topics before it can be
   a category. The type field stays disabled on the edit form, so a forged
   POST value there is ignored by the form, not merely hidden.
-- **link** rows: the type and its URL field arrive with slice 670, so a new
-  row can only be a category or a forum.
+- **link** rows (todo 670): a row that sends readers to an http(s) URL,
+  optionally counting clicks. The URL is required for a link and cleared
+  for any other type (``Forum.clean``).
 
 Validation is the model's own (``Forum.clean`` via the ModelForm's
 ``full_clean``, plus the partial slug ``UniqueConstraint``s through
@@ -41,8 +42,8 @@ from ..services.forum_structure import next_position
 from .forum_delete import ForumChangeTypeView, ForumDeleteView
 from .forum_structure_tree import TREE_TEMPLATE, ForumMoveView, ForumStructureView
 
-# The types a new row may take in this slice (links: slice 670).
-CREATABLE_TYPES = (Forum.CATEGORY, Forum.FORUM)
+# The types a new row may take.
+CREATABLE_TYPES = (Forum.CATEGORY, Forum.FORUM, Forum.LINK)
 
 
 class ForumAdminForm(WagtailAdminModelForm):
@@ -86,6 +87,12 @@ class ForumAdminForm(WagtailAdminModelForm):
         labels = dict(Forum.FORUM_TYPE_CHOICES)
         type_field.choices = [(value, labels[value]) for value in allowed]
         # Blank slug = derived from the name (see clean_slug).
+        self.fields["link_url"].help_text = _(
+            "Links only: where the row sends readers (http or https)."
+        )
+        self.fields["track_clicks"].help_text = _(
+            "Links only: count each click through the forum's redirect."
+        )
         self.fields["slug"].required = False
         self.fields["slug"].help_text = _(
             "Used in the forum's web address. Left blank, it is made from the name."
@@ -158,7 +165,7 @@ class ForumEditView(generic.EditView):
     @property
     def header_more_buttons(self) -> list[Any]:
         buttons: list[Any] = list(super().header_more_buttons)
-        if self.change_type_url_name and self.object.forum_type != Forum.LINK:
+        if self.change_type_url_name:
             buttons.append(
                 Button(
                     _("Change type"),
@@ -225,6 +232,8 @@ class ForumViewSet(ModelViewSet):
                     FieldPanel("slug"),
                     FieldPanel("description"),
                     FieldPanel("is_hidden"),
+                    FieldPanel("link_url"),
+                    FieldPanel("track_clicks"),
                 ],
                 heading=_("General"),
             ),

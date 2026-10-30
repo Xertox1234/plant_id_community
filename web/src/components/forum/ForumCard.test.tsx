@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
-import ForumCard from './ForumCard';
+import ForumCard, { ForumLinkCard } from './ForumCard';
 import { createMockForum } from '../../tests/forumUtils';
+import type { ForumLink } from '../../types/forum';
 
 /**
  * Helper to render ForumCard with Router context
@@ -141,5 +142,74 @@ describe('ForumCard', () => {
     renderCategoryCard(category);
     const link = screen.getByRole('link', { name: /Plant Care/ });
     expect(within(link).getByRole('heading', { level: 3, name: 'Plant Care' })).toBeInTheDocument();
+  });
+});
+
+describe('ForumCard unread marker (todo 671)', () => {
+  it('shows an unread marker only when the forum has unread topics', () => {
+    const { unmount } = renderCategoryCard(createMockForum({ has_unread: true }));
+    expect(screen.getByText('Unread posts')).toBeInTheDocument();
+    unmount();
+
+    renderCategoryCard(createMockForum({ has_unread: false }));
+    expect(screen.queryByText('Unread posts')).not.toBeInTheDocument();
+  });
+});
+
+function makeLink(overrides: Partial<ForumLink> = {}): ForumLink {
+  return {
+    id: '5',
+    name: 'Plant shop',
+    slug: 'shop',
+    description: 'Pots and soil',
+    link_url: 'https://shop.example.com/',
+    track_clicks: true,
+    click_count: 7,
+    ...overrides,
+  };
+}
+
+function renderLink(link: ForumLink) {
+  return render(
+    <BrowserRouter>
+      <ForumLinkCard link={link} />
+    </BrowserRouter>
+  );
+}
+
+describe('ForumLinkCard (todo 670)', () => {
+  it('renders a tracked link as an external link through the counting redirect, with its click count', () => {
+    renderLink(makeLink());
+
+    const link = screen.getByRole('link', { name: /Plant shop/ });
+    expect(link.getAttribute('href')).toMatch(/\/api\/v1\/forum\/links\/5\/go\/$/);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+    expect(link.getAttribute('rel')).toContain('nofollow');
+    expect(within(link).getByText('7 clicks')).toBeInTheDocument();
+    expect(within(link).getByText('External link')).toBeInTheDocument();
+  });
+
+  it('says "1 click" in the singular', () => {
+    renderLink(makeLink({ click_count: 1 }));
+
+    expect(screen.getByText('1 click')).toBeInTheDocument();
+  });
+
+  it('renders an untracked link straight to its URL with no click count', () => {
+    renderLink(makeLink({ track_clicks: false, click_count: null }));
+
+    const link = screen.getByRole('link', { name: /Plant shop/ });
+    expect(link).toHaveAttribute('href', 'https://shop.example.com/');
+    expect(link.getAttribute('rel')).toContain('noopener');
+    expect(link.getAttribute('rel')).toContain('nofollow');
+    expect(screen.queryByText(/clicks?$/)).not.toBeInTheDocument();
+  });
+
+  it('renders no link at all for a URL that is not http(s)', () => {
+    renderLink(makeLink({ link_url: 'javascript:alert(1)', track_clicks: false }));
+
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.getByText('Plant shop')).toBeInTheDocument();
   });
 });

@@ -1,15 +1,16 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Layers, MessagesSquare, Reply } from 'lucide-react';
+import { ChevronDown, Layers, MessagesSquare, Reply } from 'lucide-react';
 import {
   fetchCategories,
   fetchForumIndex,
   fetchRecentTopics,
   fetchMyStats,
   fetchEventHero,
+  markAllForumsRead,
 } from '../../services/forumService';
 import { createSafeMarkup, SANITIZE_PRESETS } from '../../utils/sanitize';
-import ForumCard from '../../components/forum/ForumCard';
+import ForumCard, { ForumLinkCard } from '../../components/forum/ForumCard';
 import SeasonStatsGrid from '../../components/forum/SeasonStatsGrid';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import { CategoryListSkeleton } from '../../components/forum/ForumSkeleton';
@@ -25,6 +26,7 @@ import ActiveNowModule from '../../components/forum/rail/ActiveNowModule';
 import FromTheBlogModule from '../../components/forum/rail/FromTheBlogModule';
 import PageMeta from '../../components/PageMeta';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
+import { useCollapsedCategories } from '../../hooks/useCollapsedCategories';
 import { useAuth } from '../../contexts/AuthContext';
 import { logger } from '../../utils/logger';
 import { eventHeroTopicPath } from '../../utils/forumUrls';
@@ -76,6 +78,16 @@ export default function CategoryListPage() {
   // both of which hide the row rather than erroring the page.
   const [myStats, setMyStats] = useState<ForumMyStats | null>(null);
   const boardsRef = useRef<HTMLDivElement>(null);
+  // Collapsed category headers (todo 673): on the member's profile, or in
+  // localStorage for a guest.
+  const { isCollapsed, toggle: toggleCategory } = useCollapsedCategories({
+    isAuthenticated,
+    authLoading,
+    userId: user?.id,
+  });
+  // "Mark all read" (todo 671) in flight / failed.
+  const [markingAll, setMarkingAll] = useState(false);
+  const [markAllError, setMarkAllError] = useState<string | null>(null);
 
   useEffect(() => {
     // react.dev's prescribed race guard: a stale response (unmount, or a retry
@@ -182,6 +194,32 @@ export default function CategoryListPage() {
       ignore = true;
     };
   }, [isAuthenticated, authLoading, userId]);
+
+  const markAllRead = async () => {
+    setMarkingAll(true);
+    setMarkAllError(null);
+    try {
+      await markAllForumsRead();
+      // Every forum is read now: clear the markers without a refetch.
+      setSections((prev) =>
+        prev
+          ? prev.map((section) => ({
+              ...section,
+              has_unread: false,
+              forums: section.forums.map((f) => ({ ...f, has_unread: false })),
+            }))
+          : prev
+      );
+    } catch (err) {
+      logger.error('Error marking all forums read', {
+        component: 'CategoryListPage',
+        error: err,
+      });
+      setMarkAllError('Could not mark the forums read. Try again.');
+    } finally {
+      setMarkingAll(false);
+    }
+  };
 
   // Sanitize once so the render can gate on the result rather than the input.
   const introMarkup = useMemo(() => createSafeMarkup(intro, SANITIZE_PRESETS.STANDARD), [intro]);
@@ -314,7 +352,19 @@ export default function CategoryListPage() {
           )}
 
       <div ref={boardsRef}>
-        <h2 className="gt-h3 mt-8">Boards</h2>
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="gt-h3">Boards</h2>
+          {isAuthenticated && sections && (
+            <Button variant="ghost" onClick={markAllRead} disabled={markingAll}>
+              {markingAll ? 'Marking…' : 'Mark all read'}
+            </Button>
+          )}
+        </div>
+        {markAllError && (
+          <p role="alert" className="mt-2 text-sm text-error">
+            {markAllError}
+          </p>
+        )}
 
         {categories.length > 1 && (
           <div
@@ -374,19 +424,43 @@ export default function CategoryListPage() {
               const forums = section.forums.filter(
                 (f) => effectiveBoard === null || f.slug === effectiveBoard
               );
-              if (forums.length === 0) return null;
+              // Links are not boards, so a board filter hides them.
+              const links = effectiveBoard === null ? (section.links ?? []) : [];
+              if (forums.length === 0 && links.length === 0) return null;
               const headingId = `forum-category-${section.id}`;
+              const listId = `forum-category-${section.id}-rows`;
+              const collapsed = isCollapsed(section.id);
               return (
                 <section key={section.id} aria-labelledby={headingId}>
                   <h3 id={headingId} className="gt-label text-ink-2">
-                    {section.name}
+                    {/* Collapsible header (todo 673): the whole name is the
+                        toggle, so the target is the row, not a tiny chevron. */}
+                    <button
+                      type="button"
+                      aria-expanded={!collapsed}
+                      aria-controls={listId}
+                      onClick={() => toggleCategory(section.id)}
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-sm text-left transition-colors hover:text-ink"
+                    >
+                      <ChevronDown
+                        aria-hidden="true"
+                        className={`h-4 w-4 transition-transform motion-reduce:transition-none ${collapsed ? '-rotate-90' : ''}`}
+                      />
+                      {section.name}
+                      {section.has_unread && <span className="sr-only"> (unread posts)</span>}
+                    </button>
                   </h3>
-                  {section.description && (
+                  {!collapsed && section.description && (
                     <p className="mt-1 max-w-prose text-sm text-ink-2">{section.description}</p>
                   )}
-                  <div className="mt-3 flex flex-col gap-3">
+                  {/* `hidden`, not unmounted, so aria-controls always names
+                      an element. */}
+                  <div id={listId} hidden={collapsed} className="mt-3 flex flex-col gap-3">
                     {forums.map((forum) => (
                       <ForumCard key={forum.id} forum={forum} headingLevel="h4" />
+                    ))}
+                    {links.map((link) => (
+                      <ForumLinkCard key={`link-${link.id}`} link={link} headingLevel="h4" />
                     ))}
                   </div>
                 </section>

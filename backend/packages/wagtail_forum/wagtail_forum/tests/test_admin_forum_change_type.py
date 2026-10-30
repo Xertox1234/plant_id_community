@@ -1,5 +1,5 @@
 """Changing a forum row's type in the admin (todo 667). Owner decision
-2026-10-29: forum ↔ category only (link conversions are todo 670); a
+2026-10-29: forum ↔ category here (link conversions: todo 670); a
 category that still holds forums is refused, and no category or link ever
 ends up holding a topic."""
 
@@ -230,19 +230,26 @@ def test_category_to_forum_needs_a_real_category(admin_client, kind):
 # --- links and permissions ---
 
 
-def test_a_link_cannot_change_type_yet(admin_client):
+def test_a_link_can_change_type(admin_client):
+    # Link conversions landed with todo 670 (this pinned "cannot be changed
+    # yet" before); their rules are in test_forum_link_rows.py.
     category = make_category()
     link = Forum.objects.create(
-        forum_type=Forum.LINK, parent=category, name="Shop", slug="shop"
+        forum_type=Forum.LINK,
+        parent=category,
+        name="Shop",
+        slug="shop",
+        link_url="https://shop.example.com/",
     )
 
     page = admin_client.get(_url("change_type", link.pk))
     resp = admin_client.post(_url("change_type", link.pk), {})
 
-    assert "cannot be changed yet" in page.content.decode()
-    assert resp.status_code == 200
+    assert "to_type" in page.context["form"].fields
+    assert resp.status_code == 302, resp.content.decode()[:2000]
     link.refresh_from_db()
-    assert link.forum_type == Forum.LINK
+    assert link.forum_type == Forum.FORUM
+    assert link.link_url == ""
 
 
 def test_change_type_needs_the_change_permission(client):

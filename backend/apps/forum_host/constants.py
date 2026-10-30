@@ -59,6 +59,16 @@ DEFAULT_FORUM_RATELIMITS = {
     # fits; the limit bounds a runaway client, not normal cadence.
     "topic_detail": "120/m",
     "notification_mark_read": "60/m",
+    # Forum read marks (todo 671) and the collapsed-categories save (todo
+    # 673): idempotent, low-stakes writes on the notification tier. The
+    # collapse save has its own scope so header clicks never spend the
+    # shared `profile_update` budget.
+    "forum_mark_read": "60/m",
+    "forum_mark_all_read": "30/m",
+    "collapsed_categories_update": "60/m",
+    # Link redirects (todo 670), per IP: GET + AllowAny, and each one is a
+    # counted click, so the limit bounds count inflation by one client.
+    "link_go": "60/m",
     # Same tier as reaction_toggle — an idempotent, low-stakes write.
     "subscription_create": "60/m",
     "subscription_delete": "60/m",

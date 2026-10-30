@@ -50,6 +50,10 @@ from .api import (
     ConversationParticipantView,
     ConversationUnreadCountView,
     ForumImageDetailView,
+    ForumLinkGoView,
+    ForumMarkAllReadView,
+    ForumMarkReadView,
+    MeCollapsedCategoriesView,
     MeProfileView,
     MessageReportView,
     MessageSendView,
@@ -104,6 +108,14 @@ urlpatterns = [
     # GET-only + AllowAny, like the board list it groups (todo 665).
     path("categories/", CategoryListView.as_view(), name="category-list"),
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),
+    # Read marks (todo 671) and link redirects (todo 670), throttled (api.py).
+    path(
+        "boards/<slug:slug>/read/",
+        ForumMarkReadView.as_view(),
+        name="forum-mark-read",
+    ),
+    path("read-all/", ForumMarkAllReadView.as_view(), name="forum-mark-all-read"),
+    path("links/<int:link_id>/go/", ForumLinkGoView.as_view(), name="forum-link-go"),
     # GET-only + AllowAny, mounted straight from the package (no throttle
     # wrapper) — same treatment as BoardListView above. Before
     # topics/<int:topic_id>/, mirroring the package's literal-over-capture order.
@@ -174,6 +186,12 @@ urlpatterns = [
     ),
     path("me/profile/", MeProfileView.as_view(), name="me-profile"),
     path("me/stats/", MeStatsView.as_view(), name="me-stats"),
+    # Collapsed index categories (todo 673): own throttle scope (api.py).
+    path(
+        "me/collapsed-categories/",
+        MeCollapsedCategoriesView.as_view(),
+        name="me-collapsed-categories",
+    ),
     path("me/bookmarks/", TopicBookmarkListView.as_view(), name="me-bookmarks"),
     path("me/blocks/", MyBlocksView.as_view(), name="me-blocks"),
     path("me/mutes/", MyMutesView.as_view(), name="me-mutes"),

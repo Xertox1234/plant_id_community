@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
 import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { Info } from 'lucide-react';
-import { fetchThreads, fetchForum } from '../../services/forumService';
+import { fetchThreads, fetchForum, markForumRead } from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
 import { useForumCategory } from '../../hooks/useForumCategory';
 import { boardIdentity } from '../../utils/forumTones';
@@ -51,6 +51,9 @@ export default function ThreadListPage() {
   // Bumped by the error-state Retry to re-run the load effect (the effect's
   // own loadGenRef already drops stale responses — M22 was handled here).
   const [reloadKey, setReloadKey] = useState(0);
+  // "Mark forum read" (todo 671) in flight / failed.
+  const [markingRead, setMarkingRead] = useState(false);
+  const [markReadError, setMarkReadError] = useState<string | null>(null);
 
   // Sort is URL-driven AND passed to the backend (fetchThreads → ?sort=). The
   // search box redirects to the dedicated /forum/search page (handleSearch), so
@@ -294,7 +297,38 @@ export default function ThreadListPage() {
             <p className="gt-label mt-2">{category.thread_count} threads</p>
           )}
         </div>
+        {/* Offered only while something here is unread, which only a
+            signed-in member ever sees (anonymous rows are never unread). */}
+        {category && threads.some((t) => t.is_unread) && (
+          <Button
+            variant="ghost"
+            disabled={markingRead}
+            onClick={async () => {
+              setMarkingRead(true);
+              setMarkReadError(null);
+              try {
+                await markForumRead(category.slug);
+                setThreads((prev) => prev.map((t) => ({ ...t, is_unread: false })));
+              } catch (err) {
+                logger.error('Error marking forum read', {
+                  component: 'ThreadListPage',
+                  error: err,
+                });
+                setMarkReadError('Could not mark this forum read. Try again.');
+              } finally {
+                setMarkingRead(false);
+              }
+            }}
+          >
+            {markingRead ? 'Marking…' : 'Mark forum read'}
+          </Button>
+        )}
       </div>
+      {markReadError && (
+        <p role="alert" className="-mt-4 mb-6 text-sm text-error">
+          {markReadError}
+        </p>
+      )}
 
       {/* Toolbar: search, sort chips, new thread */}
       <div className="mb-6 flex flex-col gap-4">

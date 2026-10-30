@@ -167,6 +167,21 @@ export async function fetchCategories(): Promise<Category[]> {
   return (data.results || []).map(mapCategory);
 }
 
+/** Mark every topic in one forum read for the signed-in member (todo 671). */
+export async function markForumRead(slug: string): Promise<void> {
+  await authenticatedFetch<{ marked_at: string }>(
+    `${FORUM_BASE}/boards/${encodeURIComponent(slug)}/read/`,
+    { method: 'POST' }
+  );
+}
+
+/** Mark every forum read for the signed-in member (todo 671). */
+export async function markAllForumsRead(): Promise<void> {
+  await authenticatedFetch<{ marked_at: string }>(`${FORUM_BASE}/read-all/`, {
+    method: 'POST',
+  });
+}
+
 /**
  * The category a forum sits under, for the Category › Forum breadcrumb, or
  * null when it cannot be told (fetch failed, forum not listed). Never throws:
@@ -448,6 +463,17 @@ export async function fetchMutedUsers(): Promise<MutedUser[]> {
  * matrix (todo 343). Auth required — anonymous callers get a 401. */
 export async function fetchMyForumProfile(): Promise<ForumMyProfile> {
   return authenticatedFetch<ForumMyProfile>(`${FORUM_BASE}/me/profile/`);
+}
+
+/** Replace the caller's collapsed forum-index categories (todo 673). Its own
+ * endpoint, not a profile PATCH: a header toggle must not spend the shared
+ * profile-edit throttle. Read back as `collapsed_categories` on the profile. */
+export async function saveCollapsedCategories(ids: number[]): Promise<number[]> {
+  const data = await authenticatedFetch<{ collapsed_categories: number[] }>(
+    `${FORUM_BASE}/me/collapsed-categories/`,
+    { method: 'PUT', body: JSON.stringify({ collapsed_categories: ids }) }
+  );
+  return data.collapsed_categories;
 }
 
 /** Partially update the caller's own forum profile — the digest cadence

@@ -632,4 +632,38 @@ describe('ThreadListPage', () => {
     await waitFor(() => expect(forumService.fetchForumCategory).toHaveBeenCalledWith('3'));
     expect(crumbs.textContent?.replace(/\s+/g, '')).toBe('Forum/PlantCare');
   });
+  describe('Mark forum read (todo 671)', () => {
+    const forum = createMockForum({ id: '3', slug: 'plant-care', name: 'Plant Care' });
+
+    it('marks the forum read and clears the unread threads', async () => {
+      vi.spyOn(forumService, 'fetchForum').mockResolvedValue(forum);
+      vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
+        items: [createMockThread({ id: '1', title: 'Unread one', is_unread: true })],
+        meta: { count: 1, next: null, previous: null },
+      });
+      vi.mocked(forumService.markForumRead).mockResolvedValue(undefined);
+
+      renderThreadListPage();
+      await userEvent.click(await screen.findByRole('button', { name: 'Mark forum read' }));
+
+      expect(forumService.markForumRead).toHaveBeenCalledWith('plant-care');
+      await waitFor(() =>
+        expect(screen.queryByRole('button', { name: 'Mark forum read' })).not.toBeInTheDocument()
+      );
+      expect(screen.queryByText('New')).not.toBeInTheDocument();
+    });
+
+    it('is not offered when nothing is unread (and never to a guest)', async () => {
+      vi.spyOn(forumService, 'fetchForum').mockResolvedValue(forum);
+      vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({
+        items: [createMockThread({ id: '1', title: 'Read one', is_unread: false })],
+        meta: { count: 1, next: null, previous: null },
+      });
+
+      renderThreadListPage();
+      await screen.findByText('Read one');
+
+      expect(screen.queryByRole('button', { name: 'Mark forum read' })).not.toBeInTheDocument();
+    });
+  });
 });

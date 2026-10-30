@@ -91,3 +91,53 @@ class TopicRead(models.Model):
             )
             obj.refresh_from_db(fields=["last_read_at"])
         return obj
+
+
+class ForumRead(models.Model):
+    """A member's "mark forum read" (todo 671; phpBB's ``forums_track``).
+
+    One row per (user, forum): every topic of ``forum`` whose last post is no
+    newer than ``marked_at`` reads as read for ``user``. A floor next to the
+    global ``ForumProfile.read_watermark_at`` (which "mark all read"
+    advances) and the per-topic ``TopicRead``; ``_annotate_topic_unread``
+    takes the latest of the three.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="forum_reads",
+    )
+    forum = models.ForeignKey(
+        "wagtail_forum.Forum",
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+    marked_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "forum"], name="uniq_forum_read")
+        ]
+
+    def __str__(self):
+        return f"ForumRead(user={self.user_id}, forum_id={self.forum_id})"
+
+    @classmethod
+    def mark_read(cls, user, forum_id, when=None):
+        """Mark every topic of ``forum_id`` read for ``user`` as of ``when``.
+
+        Monotonic like :meth:`TopicRead.mark_read`: the stored mark only
+        moves forward, by an atomic ``GREATEST`` on the existing row."""
+        when = when or timezone.now()
+        obj, created = cls.objects.get_or_create(
+            user=user, forum_id=forum_id, defaults={"marked_at": when}
+        )
+        if not created:
+            cls.objects.filter(pk=obj.pk).update(
+                marked_at=Greatest(
+                    "marked_at", Value(when, output_field=DateTimeField())
+                )
+            )
+            obj.refresh_from_db(fields=["marked_at"])
+        return obj
