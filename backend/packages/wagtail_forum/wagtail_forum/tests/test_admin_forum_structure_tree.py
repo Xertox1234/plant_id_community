@@ -131,6 +131,15 @@ def test_add_forum_link_prefills_the_category(admin_client, structure):
     assert str(form["parent"].value()) == str(indoor.pk)
 
 
+@pytest.mark.parametrize("parent", ["²", "abc", "-1"])
+def test_add_forum_ignores_a_malformed_parent(admin_client, structure, parent):
+    # "²".isdigit() is True but int("²") raises, so isdigit() is not enough.
+    resp = admin_client.get(_url("add"), {"forum_type": "forum", "parent": parent})
+
+    assert resp.status_code == 200
+    assert resp.context["form"]["parent"].value() is None
+
+
 # --- AC0: each of the three moves persists, positions contiguous per parent ---
 
 
@@ -393,7 +402,7 @@ def test_moving_needs_a_csrf_token(structure):
     assert resp.status_code == 403
     assert _snapshot() == before
 
-    # The token the tree page renders is accepted.
+    # The session's CSRF cookie token is accepted.
     csrf_client.get(_url("index"))
     token = csrf_client.cookies["csrftoken"].value
     resp = _move(

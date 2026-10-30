@@ -102,3 +102,15 @@ Round 1 was clean (no blocking finding). Each non-blocking finding, fixed or dec
 - **Fixed, low:** no anonymous-user test for the move endpoint. New test `test_an_anonymous_move_is_sent_to_the_login_page`: 302 to the admin login, nothing changed.
 
 Full forum suite after the first two fixes: `wagtail_forum/tests` + `apps/forum_host`, `--create-db`: 2321 passed. After the anonymous test: `test_admin_forum_structure_tree.py`: 30 passed.
+
+### 2026-10-29 - Review round 2: non-blocking findings (PR #1223)
+
+Round 2 was clean (seven lows, none blocking, none refuted, no regression). Each one, fixed or declined:
+
+- **Fixed, low:** `ForumCreateView.get_initial` checked `parent.isdigit()` before `int(parent)`. `"²".isdigit()` is True but `int("²")` raises, so `?parent=²` gave a 500. Now `isdecimal()`. New test `test_add_forum_ignores_a_malformed_parent` (`²`, `abc`, `-1`) failed on `²` before the fix.
+- **Fixed, low:** a CSRF test comment said it sends "the token the tree page renders" but sends the cookie token. The comment now says so. The rendered-form token path is covered by `test_the_move_buttons_post_without_javascript`.
+- **Declined, low (lock order, reported three times):** same as round 1. A deadlock between two staff moving at the same instant gives one 500 and a clean rollback. Turning it into a 409 is a nicety for a rare race on a staff-only screen.
+- **Declined, low:** more hide-on-move cases (hidden→hidden, visible→hidden, a reorder inside a hidden category). Round 1 added visible→visible with a mutation check on the `old_parent.is_hidden` operand. The `not parent.is_hidden` operand is pinned by the hidden→visible test.
+- **Declined, low:** no query-count pin on the tree view. It is an admin page with one row load, and no N+1 was reported.
+
+`test_admin_forum_structure_tree.py` + `test_forum_admin.py`: 54 passed.

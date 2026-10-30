@@ -145,7 +145,7 @@ class ForumCreateView(generic.CreateView):
         if forum_type in CREATABLE_TYPES:
             initial["forum_type"] = forum_type
         parent = self.request.GET.get("parent", "")
-        if parent.isdigit():
+        if parent.isdecimal():
             initial["parent"] = int(parent)
         return initial
 
