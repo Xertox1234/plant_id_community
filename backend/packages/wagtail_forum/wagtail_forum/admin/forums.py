@@ -42,6 +42,8 @@ from wagtail.admin.viewsets.model import ModelViewSet
 from wagtail.admin.widgets.button import Button
 
 from ..models import Forum, ForumModerator
+from ..models.boards import FORUM_PASSWORD_MAX_LENGTH
+from ..services.forum_permissions import keep_out_whoever_the_category_kept_out
 from ..services.forum_structure import next_position
 from .forum_delete import ForumChangeTypeView, ForumDeleteView
 from .forum_permissions import ForumPermissionsView
@@ -61,6 +63,7 @@ class ForumAdminForm(WagtailAdminModelForm):
     new_password = forms.CharField(
         label=_("Password"),
         required=False,
+        max_length=FORUM_PASSWORD_MAX_LENGTH,
         strip=False,
         widget=forms.PasswordInput(
             render_value=False, attrs={"autocomplete": "new-password"}
@@ -194,6 +197,13 @@ class ForumAdminForm(WagtailAdminModelForm):
                 clashes = clashes.exclude(pk=self.instance.pk)
             if clashes.exists():
                 self.add_error("slug", _("This slug is already in use."))
+        # Round-2 review: a category ignores a password, and a link with one
+        # could never be unlocked (only forum rows have the unlock endpoint).
+        if (
+            cleaned.get("new_password")
+            and (forum_type or self.instance.forum_type) != Forum.FORUM
+        ):
+            self.add_error("new_password", _("Only a forum can have a password."))
         return cleaned
 
     def save(self, commit: bool = True) -> Forum:
@@ -203,6 +213,18 @@ class ForumAdminForm(WagtailAdminModelForm):
             # categories, forums within their category) rather than to the
             # top at position 0. The structure tree reorders (todo 668).
             instance.position = next_position(instance.parent_id)
+        # Moved to another category here rather than in the tree: whoever
+        # the old category kept out stays out (round-2 review), applied with
+        # the m2m step so it also runs when the caller saves later.
+        self._left_category = None
+        if (
+            not instance._state.adding
+            and "parent" in self.changed_data
+            and self.initial.get("parent")
+        ):
+            self._left_category = Forum.objects.filter(
+                pk=self.initial["parent"]
+            ).first()
         password = self.cleaned_data.get("new_password")
         if self.cleaned_data.get("clear_password"):
             instance.password_hash = ""
@@ -216,6 +238,9 @@ class ForumAdminForm(WagtailAdminModelForm):
     def _save_m2m(self) -> None:
         super()._save_m2m()  # type: ignore[misc]
         self._save_moderators()
+        left = getattr(self, "_left_category", None)
+        if left is not None:
+            keep_out_whoever_the_category_kept_out(self.instance, left)
 
     def _save_moderators(self) -> None:
         forum = self.instance

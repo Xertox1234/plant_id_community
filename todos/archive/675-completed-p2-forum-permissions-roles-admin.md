@@ -113,3 +113,7 @@ phpBB controls who can see, read, post and reply per forum per group via roles. 
 ### 2026-10-30 - Review round 1: non-blocking findings (hand fixes)
 
 - No non-blocking finding was raised against this todo in round 1.
+
+### 2026-10-30 - Review round 2: non-blocking findings (hand fixes)
+
+- Declined (low): Read only and Limited, and the post/reply/poll/attach flags, are stored and editable but not yet enforced on writes. That is todo 677 (write enforcement), which awaits an owner answer. The README says so.

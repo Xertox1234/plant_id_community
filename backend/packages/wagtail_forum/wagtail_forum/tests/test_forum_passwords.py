@@ -9,6 +9,7 @@ unlock screen (owner decision 2026-10-30).
 """
 
 from datetime import timedelta
+from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -38,7 +39,12 @@ def _clear_cache():
 
 @pytest.fixture
 def locked():
-    forum = make_forum(name="Club", slug="club", password_hash=make_password(PASSWORD))
+    forum = make_forum(
+        name="Club",
+        slug="club",
+        password_hash=make_password(PASSWORD),
+        topic_template="Members only: our meeting notes",
+    )
     author = User.objects.create_user(username="author")
     topic = Topic.objects.create(
         board=forum,
@@ -83,6 +89,7 @@ def test_a_locked_forum_hides_its_topics_until_unlocked(locked):
     row = _row(client)
     assert row["is_locked"] is True
     assert row["last_post_at"] is None
+    assert row["topic_template"] == ""
     listed = client.get("/forum/boards/club/topics/")
     assert listed.status_code == 403
     assert listed.json()["code"] == "forum_locked"
@@ -91,6 +98,7 @@ def test_a_locked_forum_hides_its_topics_until_unlocked(locked):
     assert _unlock(client).status_code == 200
 
     assert _row(client)["is_locked"] is False
+    assert _row(client)["topic_template"] == "Members only: our meeting notes"
     assert client.get("/forum/boards/club/topics/").status_code == 200
     assert client.get(topic_url).status_code == 200
 
@@ -189,3 +197,45 @@ def test_a_new_password_relocks_every_session_that_unlocked_the_old_one(locked):
 
     assert client.get(topic_url).status_code == 404
     assert _row(client)["is_locked"] is True
+
+
+def test_a_member_who_unlocked_the_forum_may_quote_and_bookmark_in_it(locked):
+    # Round-2 review: the quote check and the Saved list ignored the
+    # session's unlock, so a quote inside the forum was refused (400) and a
+    # bookmark the member had just saved never appeared.
+    from wagtail_forum.models import ForumProfile, TrustLevel
+    from wagtail_forum.workflow import ensure_default_workflow
+
+    ensure_default_workflow()
+    client, user = _member()
+    profile = ForumProfile.for_user(user)
+    profile.trust_level = TrustLevel.MEMBER
+    profile.save(update_fields=["trust_level"])
+    assert _unlock(client).status_code == 200
+    topic, quoted = locked["topic"], locked["post"]
+    quote = {"type": "post_quote", "value": {"post": quoted.pk, "text": WORD}}
+
+    reply = client.post(
+        f"/forum/topics/{topic.pk}/posts/", {"body": [quote]}, format="json"
+    )
+    assert reply.status_code == 201, reply.data
+    posts = client.get(f"/forum/topics/{topic.pk}/posts/").data["results"]
+    read = next(
+        b["value"] for p in posts for b in p["body"] if b["type"] == "post_quote"
+    )
+    assert read["available"] is True
+
+    assert client.post(f"/forum/topics/{topic.pk}/bookmark/").status_code in (200, 201)
+    saved = client.get("/forum/me/bookmarks/").data["results"]
+    assert [t["id"] for t in saved] == [topic.pk]
+
+
+def test_an_overlong_password_is_refused_before_it_is_hashed(locked):
+    from wagtail_forum.models.boards import FORUM_PASSWORD_MAX_LENGTH
+
+    client, _ = _member()
+    with mock.patch("wagtail_forum.api.forum_rows.check_password") as check:
+        resp = _unlock(client, "x" * (FORUM_PASSWORD_MAX_LENGTH + 1))
+
+    assert resp.status_code == 400
+    check.assert_not_called()

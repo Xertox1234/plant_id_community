@@ -829,7 +829,7 @@ def build_forum_embed_map(posts):
     )
 
 
-def build_forum_quote_map(posts, user=None):
+def build_forum_quote_map(posts, user=None, *, request=None):
     """Map {post_id: Post} for every `post_quote` block across *posts* — one
     query, or none (todo 342). Same reason as the image/embed maps: the
     post-list query count stays flat however many quotes a page carries.
@@ -849,7 +849,7 @@ def build_forum_quote_map(posts, user=None):
         for pid in quoted_post_ids(post.body.raw_data):
             if pid not in ids:
                 ids.append(pid)
-    quote_map = visible_quoted_posts(ids, user)
+    quote_map = visible_quoted_posts(ids, user, request=request)
     blocked: set[int] = set()
     muted: set[int] = set()
     author_ids = {p.author_id for p in quote_map.values() if p.author_id}
@@ -1200,6 +1200,8 @@ class _ForumBodyContract(serializers.Serializer):
             existing_quote_ids=self.context.get("existing_quote_ids", ()),
             # Edit only: the stored body's link cards, reused without a fetch.
             existing_link_previews=self.context.get("existing_link_previews"),
+            # A quote of a post in a password forum this session unlocked.
+            request=request,
         )
 
     def _allowed_uploader_ids(self):

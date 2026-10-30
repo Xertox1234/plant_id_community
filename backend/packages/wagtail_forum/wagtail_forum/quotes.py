@@ -39,9 +39,11 @@ def quoted_post_ids(raw_data) -> list[int]:
     return seen
 
 
-def visible_quoted_posts(ids, reader=None) -> dict[int, Post]:
+def visible_quoted_posts(ids, reader=None, *, request=None) -> dict[int, Post]:
     """{id: Post} for the quoted posts that are live on a live board `reader`
-    may read (the guest view when None; todo 676) — one query, the author
+    may read (the guest view when None; todo 676). Given `request`, the reader
+    is its user and the password forums this session unlocked count (todo
+    680, round-2 review) — one query, the author
     (and avatar) joined for the attribution. Only `topic_id` is read
     downstream, so the topic itself is not joined."""
     from .api.views import _visible_boards  # local import — avoids a cycle
@@ -53,15 +55,15 @@ def visible_quoted_posts(ids, reader=None) -> dict[int, Post]:
         pk__in=ids,
         live=True,
         topic__live=True,
-        topic__board__in=_visible_boards(reader),
+        topic__board__in=_visible_boards(reader, request=request),
     ).select_related("author__wagtail_forum_profile__avatar")
     return {post.pk: post for post in qs}
 
 
-def resolve_quotable_posts(ids, writer) -> dict[int, Post]:
+def resolve_quotable_posts(ids, writer, *, request=None) -> dict[int, Post]:
     """The subset of `ids` the writer may quote: visible (above) and not
     authored by someone block-paired with the writer, either direction."""
-    posts = visible_quoted_posts(ids, writer)
+    posts = visible_quoted_posts(ids, writer, request=request)
     if not posts or writer is None or not getattr(writer, "is_authenticated", False):
         return posts
     author_ids = {p.author_id for p in posts.values() if p.author_id}

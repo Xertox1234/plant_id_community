@@ -37,7 +37,7 @@ from rest_framework.views import APIView
 
 from ..conf import get_setting
 from ..models import Forum, ForumProfile, ForumRead
-from ..models.boards import LINK_URL_SCHEMES
+from ..models.boards import FORUM_PASSWORD_MAX_LENGTH, LINK_URL_SCHEMES
 from ..services.forum_permissions import remember_unlocked
 from .serializers import CollapsedCategoriesSerializer
 from .versioning import UnversionedForumAPIMixin
@@ -166,7 +166,9 @@ class MeCollapsedCategoriesView(UnversionedForumAPIMixin, APIView):
 class ForumUnlockSerializer(serializers.Serializer):
     """Body of ``POST /forum/boards/{slug}/unlock/`` (todo 680)."""
 
-    password = serializers.CharField(write_only=True, trim_whitespace=False)
+    password = serializers.CharField(
+        write_only=True, trim_whitespace=False, max_length=FORUM_PASSWORD_MAX_LENGTH
+    )
 
 
 UNLOCKED_SCHEMA = {

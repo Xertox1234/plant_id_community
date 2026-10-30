@@ -84,3 +84,7 @@ Discourse prefills the new-topic composer with a per-category template (e.g. a p
 ### 2026-10-30 - Review round 1: non-blocking findings (hand fixes)
 
 - No non-blocking finding was raised against this todo in round 1.
+
+### 2026-10-30 - Review round 2: non-blocking findings (hand fixes)
+
+- Declined (low): the composer refetches the categories index for each category change and can open for a locked forum. One extra GET per change, and since round 2 a locked row's template is blank, so nothing locked is prefilled. P4.

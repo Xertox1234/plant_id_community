@@ -279,6 +279,21 @@ def test_the_category_index_lists_each_forums_moderators(forums, moderator):
     assert rows["cacti"]["moderators"] == []
 
 
+@pytest.mark.urls("wagtail_forum.tests.api.urls")
+def test_the_moderators_line_lists_users_then_groups_each_by_name(forums, moderator):
+    # Round-2 review: groups came out in id order. "Zebra team" is created
+    # first, so an id order would put it ahead of "Fern team".
+    mine, _ = forums
+    for name in ("Zebra team", "Fern team"):
+        ForumModerator.objects.create(forum=mine, group=Group.objects.create(name=name))
+    ForumModerator.objects.create(forum=mine, user=_admin_user("ann"))
+
+    resp = APIClient().get("/forum/categories/")
+
+    rows = {f["slug"]: f for c in resp.json()["results"] for f in c["forums"]}
+    assert rows["ferns"]["moderators"] == ["ann", "fern-mod", "Fern team", "Zebra team"]
+
+
 # Mixed permissions (round-1 review): every bypass of the forum check asks for
 # the model permission the view itself needs, never any moderation action.
 

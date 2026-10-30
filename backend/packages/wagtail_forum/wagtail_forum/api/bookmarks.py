@@ -86,10 +86,13 @@ class TopicBookmarkListView(
         # Same visibility guard as every other content-listing endpoint — a
         # bookmarked topic that has since been unpublished/hidden must not
         # leak into the Saved list (mirrors _visible_notifications' topic
-        # clause, api/notifications.py).
+        # clause, api/notifications.py). With the request, so a topic in a
+        # password forum this session unlocked is listed (round-2 review).
         qs = (
             Topic.objects.filter(  # type: ignore[misc]  # taggit `tags` is untyped to the plugin
-                live=True, board__in=_visible_boards(user), bookmarks__user=user
+                live=True,
+                board__in=_visible_boards(request=self.request),
+                bookmarks__user=user,
             )
             .select_related(
                 "author__wagtail_forum_profile__avatar",

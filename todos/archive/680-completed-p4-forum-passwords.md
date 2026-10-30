@@ -100,3 +100,14 @@ phpBB can protect a forum with a password, unlocked per session. phpBB's own ACP
 
 - Fixed (medium): a stored unlock was only {user, forum ids}, so a new password (a leaked one rotated) did not re-lock sessions that had unlocked the old one. Each unlock now stores an HMAC of the forum's `password_hash` (sha256 `salted_hmac`; the session never holds the hash), and `unlocked_forum_ids` accepts it only while the hash is unchanged. Test: `test_a_new_password_relocks_every_session_that_unlocked_the_old_one`. Mutation-checked.
 - Fixed (medium): the web locked-forum flow had no tests. New tests: `ThreadListPage.test.tsx` (an unlock form instead of threads, never fetching them; after the unlock it re-reads the forum and lists its threads) and `ForumUnlockForm.test.tsx` (the 400/429/401/403/500 messages, and an empty password is not sent). Mutation-checked on the `is_locked` early return and the cache reset.
+
+### 2026-10-30 - Review round 2: non-blocking findings (hand fixes)
+
+Round 2 came back clean (nothing blocking, nothing refuted).
+- Fixed (medium, raised twice): the quote check (write) and the quote map (read) used the guest-or-user view with no request. A member who had unlocked a password forum got a 400 when quoting a post there, and quotes in it read `available: false`. `visible_quoted_posts`, `resolve_quotable_posts`, `validate_forum_body` and `build_forum_quote_map` now take `request`.
+- Fixed (low, raised twice): the Saved list did the same, so a bookmark saved in an unlocked forum never appeared in it. It now passes `request`. Test for both: `test_a_member_who_unlocked_the_forum_may_quote_and_bookmark_in_it`. Write, read and list were each mutation-checked.
+- Fixed (low): a locked row on `/forum/categories/` (possibly the cached guest response) still carried the forum's topic template. It is now blanked with `last_post_at` and `has_unread`. Covered in `test_a_locked_forum_hides_its_topics_until_unlocked`. Mutation-checked.
+- Fixed (low): an unlock body had no length cap, so every attempt hashed whatever was sent. `FORUM_PASSWORD_MAX_LENGTH` (128) now caps both the admin field and the unlock serializer. Test: `test_an_overlong_password_is_refused_before_it_is_hashed`. Mutation-checked.
+- Fixed (low): the admin offered a password on category and link rows. A category ignores it, and a link with one could never be unlocked. `ForumAdminForm.clean` now refuses it. Test: `test_a_link_cannot_be_given_a_password`. Mutation-checked.
+- Declined (low): the wrong-password cap is check-then-increment, so parallel requests can try a few more passwords than the limit. It is still bounded by the host's 20/min `forum_unlock` throttle. P3.
+- Declined (low): the web shows "Sign in to open this forum." for any 403, including a signed-in reader's rarer CSRF or permission 403. That is a wording issue, not a behaviour one. P4.

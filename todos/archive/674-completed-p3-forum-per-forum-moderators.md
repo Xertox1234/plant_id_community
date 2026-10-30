@@ -105,3 +105,10 @@ phpBB assigns moderators per forum and lists them on each forum row. Today moder
 - Already fixed by the round-1 repair (medium): a global `view_topic` holder skipping the forum check. Every object URL now asks for its own action.
 - Fixed (low): a docstring in `admin_views._user_can_reject` sat below new code; it is back on the first line.
 - Refuted (low, "a non-numeric pk 500s"): the snippet URLs match `[0-9]+`, so a non-numeric pk never reaches the guard (`reverse` itself refuses one).
+
+### 2026-10-30 - Review round 2: non-blocking findings (hand fixes)
+
+Round 2 came back clean (nothing blocking, nothing refuted).
+- Fixed (low): the Moderators line sorted groups by id, not by name. Users now come first, then groups, each by name. Test: `test_the_moderators_line_lists_users_then_groups_each_by_name`. Mutation-checked.
+- Declined (low): Wagtail's `chosen/<pk>/` and `chosen-multiple/` chooser views still look up any topic or post by id, so a forum moderator who guesses ids can read other forums' titles. Any admin user could already do this on main. Titles only, no body, and a pick outside their forums is refused on save. P3, no todo.
+- Refuted (low, "the comment cites Wagtail 8, the project pins 7.4"): `backend/requirements.txt` pins `wagtail==8.0`, and 8.0 is installed.

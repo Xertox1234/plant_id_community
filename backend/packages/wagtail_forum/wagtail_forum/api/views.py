@@ -597,7 +597,14 @@ def _forum_moderator_names_subquery():
             names=StringAgg(
                 name,
                 delimiter=Value(MODERATOR_NAME_SEPARATOR),
-                order_by=(F("group").asc(nulls_first=True), name),
+                # Users (no group) first, then groups; each by name. The
+                # group id is not an order (round-2 review).
+                order_by=(
+                    ExpressionWrapper(
+                        Q(group__isnull=False), output_field=BooleanField()
+                    ),
+                    name,
+                ),
             )
         )
         .values("names")[:1],
@@ -653,7 +660,7 @@ class CategoryListView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         #
         # A password forum this session has not unlocked (todo 680) is listed
         # with `is_locked` and nothing that reveals its topics: no last-post
-        # time, no unread mark. Moderators (todo 674) are one more correlated
+        # time, no unread mark, no topic template. Moderators (todo 674) are one more correlated
         # subquery, so the count stays two.
         open_rows = _visible_rows(Forum.FORUM, Forum.LINK, request=request)
         locked = ~Q(password_hash="") & ~Q(pk__in=open_rows.values("pk"))
@@ -691,6 +698,9 @@ class CategoryListView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                 if row.is_locked:
                     row.last_post_at = None
                     row.has_unread = False
+                    # Written for those who know the password (round-2
+                    # review); this response may be the cached guest one.
+                    row.topic_template = ""
             links: list[Any] = [
                 row for row in category.visible_rows if row.forum_type == Forum.LINK
             ]
@@ -1164,7 +1174,9 @@ def _post_page_context(objects, request, base_context):
         **base_context,
         "forum_image_map": build_forum_image_map(objects),
         "forum_embed_map": build_forum_embed_map(objects),
-        "forum_quote_map": build_forum_quote_map(objects, request.user),
+        "forum_quote_map": build_forum_quote_map(
+            objects, request.user, request=request
+        ),
         "forum_reacted_map": reacted_map,
     }
 
@@ -1468,7 +1480,7 @@ class PostWriteView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIVie
                 "forum_image_map": build_forum_image_map([serialize_source]),
                 "forum_embed_map": build_forum_embed_map([serialize_source]),
                 "forum_quote_map": build_forum_quote_map(
-                    [serialize_source], request.user
+                    [serialize_source], request.user, request=request
                 ),
             },
         ).data
@@ -1688,7 +1700,9 @@ class PostRevisionDetailView(
                     image_map=build_forum_image_map([snapshot]),
                     request=request,
                     embed_map=build_forum_embed_map([snapshot]),
-                    quote_map=build_forum_quote_map([snapshot], request.user),
+                    quote_map=build_forum_quote_map(
+                        [snapshot], request.user, request=request
+                    ),
                 ),
             }
         )

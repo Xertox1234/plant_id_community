@@ -296,6 +296,66 @@ def test_leaving_a_group_only_category_keeps_it_to_that_group(admin_client, stru
     assert not _sees(None, ferns)
 
 
+def test_changing_the_category_on_the_edit_form_keeps_guests_out(
+    admin_client, structure
+):
+    # Round-2 review: the edit form's Category field moved a forum without
+    # the tree move's rule, so a guest-restricted forum opened up.
+    ferns = structure["ferns"]
+    set_grant(structure["indoor"], ForumGrant.ANONYMOUS, ForumRole.NO_ACCESS)
+    assert not _sees(None, ferns)
+
+    resp = admin_client.post(
+        reverse("wagtail_forum_forums:edit", args=(ferns.pk,)),
+        {
+            "parent": structure["outdoor"].pk,
+            "name": ferns.name,
+            "slug": ferns.slug,
+            "description": "",
+            "link_url": "",
+            "topic_template": "",
+            "moderator_users": "",
+        },
+    )
+
+    assert resp.status_code == 302, resp.content.decode()[:3000]
+    ferns.refresh_from_db()
+    assert ferns.parent_id == structure["outdoor"].pk
+    assert not _sees(None, ferns)
+
+
+def test_a_link_cannot_be_given_a_password(admin_client, structure):
+    # Round-2 review: only forum rows can be unlocked, so a password would
+    # hide a link for good.
+    shop = Forum.objects.create(
+        forum_type=Forum.LINK,
+        parent=structure["indoor"],
+        name="Shop",
+        slug="shop",
+        link_url="https://shop.example.com/",
+    )
+
+    resp = admin_client.post(
+        reverse("wagtail_forum_forums:edit", args=(shop.pk,)),
+        {
+            "parent": shop.parent_id,
+            "name": shop.name,
+            "slug": shop.slug,
+            "description": "",
+            "link_url": shop.link_url,
+            "track_clicks": "on",
+            "topic_template": "",
+            "moderator_users": "",
+            "new_password": "fake-link-password",  # pragma: allowlist secret
+        },
+    )
+
+    assert resp.status_code == 200  # the form again, with the error
+    assert "Only a forum can have a password." in resp.content.decode()
+    shop.refresh_from_db()
+    assert shop.password_hash == ""
+
+
 # --- AC1: illegal drops are refused and change nothing ---
 
 

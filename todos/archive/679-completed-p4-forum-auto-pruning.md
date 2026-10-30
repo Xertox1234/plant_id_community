@@ -88,3 +88,7 @@ phpBB can prune old topics per forum on a schedule (days since last post / since
 ### 2026-10-30 - Review round 1: non-blocking findings (hand fixes)
 
 - Fixed (medium): one topic that failed to unpublish crashed `prune_forums`. The cron chains its jobs with `&&`, so that would also skip `flushexpiredtokens` and `expire_unverified_accounts`. Each unpublish now runs in its own savepoint, and a failure is logged (`[ERROR] prune failed …`), counted in the summary and skipped. Test: `test_a_topic_that_fails_to_unpublish_does_not_stop_the_rest`. Mutation-checked.
+
+### 2026-10-30 - Review round 2: non-blocking findings (hand fixes)
+
+- Declined (low): a reply landing between the nightly read and each unpublish still gets its topic pruned. The window is seconds at 03:00, and the topic can be restored from the admin (prune is an unpublish). P4.

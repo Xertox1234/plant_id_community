@@ -79,14 +79,19 @@ class ForumIndex(Page):
         # are live-routable, so direct serving (admin "View live", sitemaps,
         # crawlers) must render instead of 500ing with TemplateDoesNotExist.
         context = super().get_context(request, *args, **kwargs)
-        # Same visibility rule as the API (`api.views._visible_boards`): the
-        # guest view, since this page is served to crawlers and caches. A
-        # local import so the model module never imports the service at load.
-        from ..services.forum_permissions import visible_forums
+        # The guest view of the API's rule (`api.views._visible_boards`),
+        # since this page is served to crawlers and caches, minus its
+        # ForumIndex gate: the page being served IS the index, and Wagtail
+        # already let this viewer past its privacy (round-2 review; main
+        # listed the boards here too). A local import so the model module
+        # never imports the service at load.
+        from ..services.forum_permissions import LIST, READ, access_q
 
-        context["boards"] = visible_forums(None, Forum.FORUM).order_by(
-            "parent__position", "position", "id"
-        )
+        context["boards"] = Forum.objects.filter(
+            access_q(None, READ) & access_q(None, LIST, "parent"),
+            forum_type=Forum.FORUM,
+            password_hash="",
+        ).order_by("parent__position", "position", "id")
         return context
 
 
@@ -94,6 +99,10 @@ class ForumIndex(Page):
 # URLValidator also admits ftp/ftps, and anything else (``javascript:``,
 # ``data:``) would run in the reader's browser from a forum row.
 LINK_URL_SCHEMES = ("http", "https")
+
+# The longest forum password the admin sets or a reader may submit (todo 680):
+# an unbounded body would make every unlock attempt hash it whole.
+FORUM_PASSWORD_MAX_LENGTH = 128
 
 
 class Forum(models.Model):
