@@ -150,8 +150,12 @@ class Forum(models.Model):
     # 675-676); `is_hidden` became a "No access for everyone" grant set.
     # Posting tab (todo 678): plain text, each line a paragraph, prefilled
     # into an empty new-topic composer.
+    # db_default on each column added with this release (todo 675-680): the
+    # previous release serves while `migrate` runs and inserts without them.
     topic_template = models.TextField(
         blank=True,
+        default="",
+        db_default="",
         help_text=_(
             "Prefilled into the new-topic composer when it is empty. Plain "
             "text: each line becomes a paragraph."
@@ -160,22 +164,24 @@ class Forum(models.Model):
     # Pruning tab (todo 679): `manage.py prune_forums` unpublishes topics
     # whose last post is older than the threshold. Days since last post only
     # (owner decision 2026-10-30).
-    prune_enabled = models.BooleanField(default=False)
+    prune_enabled = models.BooleanField(default=False, db_default=False)
     prune_days_since_last_post = models.PositiveIntegerField(
         null=True,
         blank=True,
         help_text=_("Unpublish topics with no post for this many days."),
     )
     prune_pinned = models.BooleanField(
-        default=False, help_text=_("Prune pinned topics too.")
+        default=False, db_default=False, help_text=_("Prune pinned topics too.")
     )
     prune_polls = models.BooleanField(
-        default=False, help_text=_("Prune topics with a poll too.")
+        default=False, db_default=False, help_text=_("Prune topics with a poll too.")
     )
     # Password-protected forum (todo 680): a Django password hash, never the
     # password. Blank = no password. Set through the admin form's write-only
     # field; unlocked per session by `POST /forum/boards/{slug}/unlock/`.
-    password_hash = models.CharField(max_length=256, blank=True, editable=False)
+    password_hash = models.CharField(
+        max_length=256, blank=True, editable=False, default="", db_default=""
+    )
     # Link rows (todo 670; phpBB FORUM_LINK). phpBB counts redirects in the
     # post counter; a dedicated column keeps the forum counters honest.
     link_url = models.URLField(

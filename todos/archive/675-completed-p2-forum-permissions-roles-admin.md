@@ -103,3 +103,9 @@ phpBB controls who can see, read, post and reply per forum per group via roles. 
 ### 2026-10-30 - Completed by the todo sweep (run 2026-10-30-1108)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-30 - Repaired by the todo sweep (run 2026-10-30-1108)
+
+- Round-1 review: 0049 dropped `Forum.is_hidden` in the deploy that stops reading it, while Railway's preDeploy `migrate` runs under the previous release, which filters on it. 0049 now gives the column `db_default=False` and removes it from state only (expand/contract, `docs/rules/database.md`); a later migration must drop the column.
+- 0047's new NOT NULL columns (`password_hash`, `topic_template`, `prune_*`) carry a `db_default` so the previous release's forum inserts work in the window. `test_forum_permissions_deploy_window.py` exercises the 0046 model against the new schema.
+- The grant model and roles are unchanged; every criterion was re-run.

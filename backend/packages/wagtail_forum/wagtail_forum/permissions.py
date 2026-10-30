@@ -12,6 +12,13 @@ and listings to their forums. Wagtail's generic object views look objects up
 by primary key without asking the policy about the instance, so
 ``scope_object_urls`` wraps every object URL of a snippet viewset with the
 same check: an object outside the moderator's forums is 403.
+
+Every bypass of the forum check asks for the model permission the view itself
+needs (round-1 review): a forum-A moderator who also holds, say, ``view_post``
+everywhere may inspect any post but still edits only forum A's, and a user
+whose model permissions alone satisfy a view (``delete_post`` on the delete
+view, any of add/change/delete/view on the listing) keeps exactly what the
+plain model policy gave them.
 """
 
 from __future__ import annotations
@@ -31,6 +38,29 @@ from .services.forum_permissions import moderated_forum_ids
 MODERATOR_ACTIONS = frozenset(
     {"view", "change", "publish", "unpublish", "lock", "unlock"}
 )
+
+# Model permissions that let a user list a snippet (Wagtail's IndexView).
+LIST_ACTIONS = ("add", "change", "delete", "view")
+
+# The model permissions that satisfy each object view on their own (Wagtail
+# 8 snippet views' ``permission_required``/``any_permission_required``). Only
+# a user holding one of them skips the forum check; anyone else reaches the
+# view through the moderator extension and must be in the object's forum. An
+# unlisted URL needs ``change``, the strictest a moderator is given.
+OBJECT_URL_ACTIONS: dict[str, tuple[str, ...]] = {
+    "delete": ("delete",),
+    "copy": ("add",),
+    "inspect": LIST_ACTIONS,
+    "history": ("add", "change", "delete"),
+    "history_results": ("add", "change", "delete"),
+    "unpublish": ("publish",),
+    "revisions_unschedule": ("publish",),
+    "lock": ("lock",),
+    # The user who locked it may unlock it without ``unlock``: UnlockView
+    # checks that itself, and they locked it in a forum the check passes.
+    "unlock": ("unlock",),
+}
+DEFAULT_OBJECT_URL_ACTIONS = ("change",)
 
 _MODERATED_CACHE_ATTR = "_wagtail_forum_moderated_forum_ids"
 
@@ -64,8 +94,9 @@ class ForumScopedPermissionPolicy(ModelPermissionPolicy):
         base class's helpers call back into the overrides below)."""
         return bool(user.has_perm(self._get_permission_name(action)))
 
-    def is_global(self, user: Any, actions: Iterable[str] = MODERATOR_ACTIONS) -> bool:
-        """``user`` holds one of ``actions`` on the model itself (every forum)."""
+    def has_model_perm(self, user: Any, actions: Iterable[str]) -> bool:
+        """``user`` holds one of ``actions`` on the model itself (every forum),
+        never through the moderator extension."""
         return any(self._model_perm(user, action) for action in actions)
 
     def user_has_permission(self, user: Any, action: str) -> bool:
@@ -104,9 +135,12 @@ class ForumScopedPermissionPolicy(ModelPermissionPolicy):
         )
 
     def scope(self, queryset: QuerySet[Any], user: Any) -> QuerySet[Any]:
-        """``queryset`` narrowed to ``user``'s forums unless they moderate
-        every forum."""
-        if self.is_global(user):
+        """The listing: ``queryset`` narrowed to ``user``'s forums when only
+        their moderator role lets them list it. A user who moderates no forum,
+        or whose model permissions alone let them list every row (Wagtail's
+        index needs any of add/change/delete/view), sees what the plain model
+        policy shows."""
+        if not moderates_any_forum(user) or self.has_model_perm(user, LIST_ACTIONS):
             return queryset
         return queryset.filter(
             **{f"{self.forum_path}__in": forum_ids_moderated_by(user)}
@@ -146,14 +180,15 @@ def scope_object_urls(
     urlpatterns: list[Any], policy: ForumScopedPermissionPolicy
 ) -> list[Any]:
     """Wrap every URL of ``urlpatterns`` that names an object (a ``pk``
-    kwarg) so a forum moderator gets 403 for an object outside their forums."""
+    kwarg) so a user without the model permission that URL's view needs
+    (``OBJECT_URL_ACTIONS``) gets 403 for an object outside their forums."""
 
-    def guard(view: Callable[..., Any]) -> Callable[..., Any]:
+    def guard(view: Callable[..., Any], actions: tuple[str, ...]) -> Callable[..., Any]:
         @wraps(view)
         def wrapped(request: Any, *args: Any, **kwargs: Any) -> Any:
             pk = kwargs.get("pk")
             user = request.user
-            if pk is not None and not policy.is_global(user):
+            if pk is not None and not policy.has_model_perm(user, actions):
                 visible = policy.model._default_manager.filter(
                     pk=unquote(str(pk)),
                     **{f"{policy.forum_path}__in": forum_ids_moderated_by(user)},
@@ -166,5 +201,8 @@ def scope_object_urls(
 
     for pattern in urlpatterns:
         if "<" in str(pattern.pattern) and "pk" in str(pattern.pattern):
-            pattern.callback = guard(pattern.callback)
+            actions = OBJECT_URL_ACTIONS.get(
+                getattr(pattern, "name", None) or "", DEFAULT_OBJECT_URL_ACTIONS
+            )
+            pattern.callback = guard(pattern.callback, actions)
     return urlpatterns

@@ -75,3 +75,8 @@ Discourse prefills the new-topic composer with a per-category template (e.g. a p
 ### 2026-10-30 - Completed by the todo sweep (run 2026-10-30-1108)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-30 - Repaired by the todo sweep (run 2026-10-30-1108)
+
+- Round-1 review: `Forum.topic_template` (added by 0047) now has `db_default=""` in the model and the migration, so the previous release can insert forums while this one migrates.
+- No behaviour change to the template itself; every criterion was re-run.

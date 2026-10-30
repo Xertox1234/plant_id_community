@@ -200,3 +200,77 @@ def test_the_category_index_lists_each_forums_moderators(forums, moderator):
     rows = {f["slug"]: f for c in resp.json()["results"] for f in c["forums"]}
     assert rows["ferns"]["moderators"] == ["fern-mod", "Fern team"]
     assert rows["cacti"]["moderators"] == []
+
+
+# Mixed permissions (round-1 review): every bypass of the forum check asks for
+# the model permission the view itself needs, never any moderation action.
+
+
+def _grant(user, *codenames):
+    perms = Permission.objects.filter(
+        content_type__app_label="wagtail_forum", codename__in=codenames
+    )
+    assert perms.count() == len(codenames), codenames
+    user.user_permissions.add(*perms)
+    user = User.objects.get(pk=user.pk)
+    assert all(user.has_perm(f"wagtail_forum.{c}") for c in codenames)
+    return user
+
+
+def _url(topic, name):
+    return reverse(Topic.snippet_viewset.get_url_name(name), args=[topic.pk])
+
+
+@pytest.mark.parametrize("global_perm", ["view_topic", "lock_topic"])
+def test_a_moderator_with_another_global_permission_still_edits_only_their_forum(
+    client, forums, moderator, global_perm
+):
+    mine, other = forums
+    in_mine, _ = _topic(mine, "fronds")
+    in_other, _ = _topic(other, "spines")
+    user = _grant(moderator, global_perm)
+    client.force_login(user)
+
+    assert client.get(_url(in_mine, "edit")).status_code == 200
+    assert client.get(_url(in_other, "edit"), **XHR).status_code == 403
+    assert client.get(_url(in_other, "unpublish"), **XHR).status_code == 403
+    form = Topic.snippet_viewset.get_form_class()(instance=in_mine, for_user=user)
+    assert set(form.fields["board"].queryset.values_list("pk", flat=True)) == {mine.pk}
+
+
+def test_a_moderator_with_global_view_may_inspect_and_list_every_forum(
+    client, forums, moderator
+):
+    mine, other = forums
+    _topic(mine, "fronds")
+    in_other, _ = _topic(other, "spines")
+    client.force_login(_grant(moderator, "view_topic"))
+
+    body = client.get(
+        reverse(Topic.snippet_viewset.get_url_name("list"))
+    ).content.decode()
+
+    assert "fronds" in body and "spines" in body
+    assert client.get(_url(in_other, "inspect")).status_code == 200
+
+
+@pytest.mark.parametrize("moderates", [False, True])
+def test_a_delete_only_user_keeps_the_delete_view_and_the_full_listing(
+    client, forums, moderates
+):
+    mine, other = forums
+    _topic(mine, "fronds")
+    in_other, _ = _topic(other, "spines")
+    user = _grant(_admin_user("deleter"), "delete_topic")
+    if moderates:
+        ForumModerator.objects.create(forum=mine, user=user)
+    client.force_login(user)
+
+    body = client.get(
+        reverse(Topic.snippet_viewset.get_url_name("list"))
+    ).content.decode()
+
+    assert "fronds" in body and "spines" in body
+    assert client.get(_url(in_other, "delete")).status_code == 200
+    # Deleting is not editing.
+    assert client.get(_url(in_other, "edit"), **XHR).status_code == 403

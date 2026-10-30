@@ -45,13 +45,18 @@ class ForumScopedSnippetViewSet(SnippetViewSet):
 class TopicAdminForm(WagtailAdminModelForm):
     """A forum moderator may move a topic only to another forum they
     moderate (owner decision 2026-10-30); the source is already theirs, or
-    the edit page would have refused them."""
+    the edit page would have refused them. Only ``change_topic`` itself, the
+    permission the edit view needs, offers every forum."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         user = self.for_user
         board = self.fields.get("board")
-        if board is not None and user is not None and not topic_policy.is_global(user):
+        if (
+            board is not None
+            and user is not None
+            and not topic_policy.has_model_perm(user, ("change",))
+        ):
             board.queryset = board.queryset.filter(pk__in=forum_ids_moderated_by(user))
 
 

@@ -102,3 +102,9 @@ Read permissions only matter if every read path honours them. Today one helper (
 ### 2026-10-30 - Completed by the todo sweep (run 2026-10-30-1108)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-30 - Repaired by the todo sweep (run 2026-10-30-1108)
+
+- Round-1 review: 0049 dropped `Forum.is_hidden` in the deploy that stops reading it, while Railway's preDeploy `migrate` runs under the previous release, which filters on it. 0049 now gives the column `db_default=False` and removes it from state only (expand/contract, `docs/rules/database.md`); a later migration must drop the column.
+- 0048's data migration is unchanged: hidden rows still become No access grants, and its MigrationExecutor test still passes.
+- The README now says the column stays until a later migration drops it.

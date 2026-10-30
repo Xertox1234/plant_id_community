@@ -90,3 +90,8 @@ phpBB can protect a forum with a password, unlocked per session. phpBB's own ACP
 ### 2026-10-30 - Completed by the todo sweep (run 2026-10-30-1108)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-30 - Repaired by the todo sweep (run 2026-10-30-1108)
+
+- Round-1 review: `Forum.password_hash` (added by 0047) now has `db_default=""` in the model and the migration, so the previous release can insert forums while this one migrates.
+- No behaviour change to forum passwords; every criterion was re-run.

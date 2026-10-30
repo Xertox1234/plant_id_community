@@ -91,3 +91,9 @@ phpBB assigns moderators per forum and lists them on each forum row. Today moder
 ### 2026-10-30 - Completed by the todo sweep (run 2026-10-30-1108)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-10-30 - Repaired by the todo sweep (run 2026-10-30-1108)
+
+- Round-1 review: a moderator holding any other model permission (say `view_post` or `lock_post`) skipped the forum check and could edit every forum's rows. `backend/packages/wagtail_forum/wagtail_forum/permissions.py` now asks, per object URL, for the model permission that view needs (`OBJECT_URL_ACTIONS`, `change` by default); the listing is unscoped only for a non-moderator or a holder of add/change/delete/view; the topic move needs `change_topic` itself.
+- A `delete_post`-only user, whom the old check counted as non-global, again gets the delete view and the full listing. New tests in `test_forum_moderators.py` cover the mixed-permission cases.
+- The README's Moderators section says which model permissions widen which views.

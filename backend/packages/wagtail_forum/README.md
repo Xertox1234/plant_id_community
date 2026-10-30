@@ -195,7 +195,9 @@ dashboard. A hidden row is 404, never 403. Sitemaps, feeds, the vector index,
 RAG retrieval and thread summaries use the guest view. Staff, superusers,
 global moderators (`change_post`) and a forum's own moderators see it whatever
 its grants. Migration 0048 turned `is_hidden` into *No access* for guests and
-members; 0049 dropped the flag. Write flags (`post`, `reply`, `poll`,
+members; 0049 removes the flag from the model but keeps the column, with a
+database default, so the previous release keeps serving while the new one
+migrates (a later migration drops it). Write flags (`post`, `reply`, `poll`,
 `attach`) are stored but not yet enforced (todo 677).
 
 **Moderators** (todo 674; `permissions.py`). A `ForumModerator` is a user or a
@@ -205,7 +207,10 @@ forums' rows; the Topic, Post and Report snippets list only those rows and
 refuse any other object URL (403); they may view, change, publish, unpublish,
 lock and unlock there, never add or delete, and Reject on the pending page
 deletes only in their forums. A topic move offers only forums they moderate,
-so both ends are theirs. They need admin access (`wagtailadmin.access_admin`)
+so both ends are theirs. A model permission widens only the views it
+satisfies on its own: a moderator who also holds `view_post` everywhere may
+list and inspect every post but still edits only their forums', and a
+`delete_post` holder keeps the delete view and the full listing. They need admin access (`wagtailadmin.access_admin`)
 like any admin user. `GET /forum/categories/` lists each forum's
 `moderators` (usernames, then group names) for the "Moderators:" line.
 

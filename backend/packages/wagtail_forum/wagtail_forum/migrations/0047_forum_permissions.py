@@ -13,11 +13,16 @@ class Migration(migrations.Migration):
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
+    # The new NOT NULL columns carry a db_default: the previous release keeps
+    # serving while this runs and inserts forums without them (round-1 review,
+    # docs/rules/database.md expand/contract).
     operations = [
         migrations.AddField(
             model_name="forum",
             name="password_hash",
-            field=models.CharField(blank=True, editable=False, max_length=256),
+            field=models.CharField(
+                blank=True, db_default="", default="", editable=False, max_length=256
+            ),
         ),
         migrations.AddField(
             model_name="forum",
@@ -31,20 +36,22 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="forum",
             name="prune_enabled",
-            field=models.BooleanField(default=False),
+            field=models.BooleanField(db_default=False, default=False),
         ),
         migrations.AddField(
             model_name="forum",
             name="prune_pinned",
             field=models.BooleanField(
-                default=False, help_text="Prune pinned topics too."
+                db_default=False, default=False, help_text="Prune pinned topics too."
             ),
         ),
         migrations.AddField(
             model_name="forum",
             name="prune_polls",
             field=models.BooleanField(
-                default=False, help_text="Prune topics with a poll too."
+                db_default=False,
+                default=False,
+                help_text="Prune topics with a poll too.",
             ),
         ),
         migrations.AddField(
@@ -52,6 +59,8 @@ class Migration(migrations.Migration):
             name="topic_template",
             field=models.TextField(
                 blank=True,
+                db_default="",
+                default="",
                 help_text=(
                     "Prefilled into the new-topic composer when it is empty. "
                     "Plain text: each line becomes a paragraph."
