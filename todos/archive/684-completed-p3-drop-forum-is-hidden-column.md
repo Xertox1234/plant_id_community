@@ -102,3 +102,11 @@ Round 1 found 5 lows and nothing blocking.
 - Declined: `DROP COLUMN IF EXISTS`. The precedent `users/0017` uses a plain `DROP COLUMN`. A missing column means the schema has drifted, and the deploy should fail loudly then, not pass silently.
 - Declined: the previous-release test at 0052 passes with or without 0053. That is expected: the 0053 assertion is `test_the_is_hidden_column_is_dropped` (information_schema), and the 0047 default checks belonged to the 0049 window, which shipped.
 - Owner hand-off, not run: a pre-0047 container could have written `is_hidden=True` after 0048 converted flags to grants during the #1228 deploy window, and 0053 would drop that record. This is unlikely: the window lasted minutes. Checking it needs a prod query (`SELECT id FROM wagtail_forum_forum WHERE is_hidden`), and this sweep never reads prod. The owner can run it before deploying if they want.
+
+### 2026-11-01 - Review round 2: non-blocking findings (PR #1234)
+
+Round 2 found 3 lows and nothing blocking. Round 2 makes no code changes, so each one is declined:
+
+- Declined: the information_schema queries have no `table_schema` filter. The test DB has only the `public` schema, and `wagtail_forum_forum` is unique there.
+- Declined: the 0052 previous-release test now checks only model defaults. That is intended, since `test_every_new_column_has_a_database_default` covers the DB defaults.
+- Owner hand-off (the same as the round 1 item): a guard against an `is_hidden=True` row that has no No-access grants. To check prod once by hand before the deploy: `SELECT id FROM wagtail_forum_forum WHERE is_hidden` (expected: only forums that already have both no_access grants, or none).
