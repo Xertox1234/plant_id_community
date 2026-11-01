@@ -89,6 +89,8 @@ describe('CategoryListPage', () => {
     // global `mockReset: true` wipes any factory-chained mock value before
     // every test.
     vi.mocked(blogService.fetchPopularPosts).mockResolvedValue([]);
+    // The module is auto-mocked; ForumCard's image goes through mediaUrl.
+    vi.mocked(blogService.mediaUrl).mockImplementation((url) => url);
     // Default every test to logged-out + no recent topics; individual tests
     // override either mock to exercise the authed / event-hero paths.
     vi.mocked(useAuth).mockReturnValue(mockAuth(false));

@@ -44,10 +44,10 @@ def _drop_blocked_pairs(users, actor):
     return [u for u in users if u.pk not in blocked]
 
 
-def _forum_watchers(topic, author, *, exclude_pks=()):
+def _forum_watchers(topic, author):
     """[(user, level)] to tell about a new topic in ``topic``'s forum (todo
     672): active members watching the forum or its first posts, minus the
-    author, ``exclude_pks``, anyone who cannot read the forum (its grants,
+    author, anyone who cannot read the forum (its grants,
     todo 676) and blocked/muted pairs. Five queries, whatever the number of
     watchers."""
     from wagtail_forum.models import ForumSubscription
@@ -61,8 +61,6 @@ def _forum_watchers(topic, author, *, exclude_pks=()):
     ).select_related("user")
     if author is not None:
         rows = rows.exclude(user_id=author.pk)
-    if exclude_pks:
-        rows = rows.exclude(user_id__in=list(exclude_pks))
     level_by_pk = {}
     users = []
     for row in rows:
@@ -736,12 +734,20 @@ def dispatch(event, **kwargs):
                         post=post,
                         quoted_post=quoted_post,
                     )
-                watchers = _forum_watchers(
-                    topic,
-                    author,
-                    exclude_pks={user.pk for user in mentioned}
-                    | {user.pk for user, _ in quoted},
+                # Every watcher, mentioned or quoted ones included: the
+                # mention/quote alert replaces their new_topic alert, not their
+                # subscription to the topic's replies.
+                all_watchers = (
+                    _forum_watchers(topic, author) if post is not None else []
                 )
+                alerted_pks = {user.pk for user in mentioned} | {
+                    user.pk for user, _ in quoted
+                }
+                watchers = [
+                    (user, level)
+                    for user, level in all_watchers
+                    if user.pk not in alerted_pks
+                ]
                 if post is not None:
                     create_notifications(
                         recipients=[user for user, _ in watchers],
@@ -750,14 +756,12 @@ def dispatch(event, **kwargs):
                         topic=topic,
                         post=post,
                     )
-                else:
-                    watchers = []
                 # `watching` = every post (owner decision 2026-10-30): follow
                 # the new topic for them, in one insert.
                 TopicSubscription.objects.bulk_create(
                     [
                         TopicSubscription(user=user, topic=topic)
-                        for user, level in watchers
+                        for user, level in all_watchers
                         if level == ForumWatchLevel.WATCHING
                     ],
                     ignore_conflicts=True,

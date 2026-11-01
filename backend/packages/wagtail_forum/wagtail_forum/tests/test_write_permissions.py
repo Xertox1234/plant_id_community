@@ -197,6 +197,36 @@ def test_attach_denied_for_an_image_block_without_the_attach_flag():
     assert resp.status_code == 201, resp.content
 
 
+def test_attach_denied_for_an_identification_photo_without_the_attach_flag():
+    """The identification photo shows on the thread card and the Recent
+    thumbnail, so it is checked like an image block; without a photo the
+    identification needs no `attach`."""
+    ensure_default_workflow()
+    user, client = _member("identifier")
+    limited = _forum("limited-id", ForumRole.LIMITED)
+    standard = _forum("standard-id", ForumRole.STANDARD)
+    candidates = [{"name": "Monstera deliciosa", "confidence": 0.9}]
+
+    def create(forum, slug, **identification):
+        payload = {
+            "title": "What is this?",
+            "slug": slug,
+            "body": BODY,
+            "identification": {"candidates": candidates, **identification},
+        }
+        return client.post(
+            f"/forum/boards/{forum.slug}/topics/", payload, format="json"
+        )
+
+    _assert_denied(
+        create(limited, "with-photo", image_id=_image(user).pk),
+        "forum_attach_denied",
+    )
+    assert create(limited, "no-photo").status_code == 201
+    resp = create(standard, "with-photo", image_id=_image(user).pk)
+    assert resp.status_code == 201, resp.content
+
+
 def test_attach_denied_for_an_edit_that_adds_an_image_but_not_one_that_keeps_it():
     ensure_default_workflow()
     user, client = _member("editor")
@@ -248,6 +278,17 @@ def test_attach_checked_on_upload_when_a_forum_id_is_sent():
         format="multipart",
     )
     assert resp.status_code == 400
+
+
+def test_upload_to_a_closed_forum_checks_attach_only():
+    """An edit in a closed forum may still add an image, so the upload's
+    forum_id check is `attach` alone, not the closed rule."""
+    user, client = _member("closed-uploader")
+    forum = _forum("closed-up", ForumRole.STANDARD)
+    forum.is_closed = True
+    forum.save(update_fields=["is_closed"])
+
+    assert _upload(client, forum.pk).status_code == 201
 
 
 def test_upload_without_a_forum_id_is_still_accepted():

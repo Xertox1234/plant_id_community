@@ -180,6 +180,10 @@ def validate_forum_icon(value: str) -> None:
 
     cps = [ord(ch) for ch in value]
     first = cps[0]
+    # A lone skin-tone modifier sits inside the pictograph range, and a
+    # trailing joiner joins nothing: neither is a whole emoji.
+    if 0x1F3FB <= first <= 0x1F3FF or cps[-1] == 0x200D:
+        raise error
     if regional(first):
         if len(cps) != 2 or not regional(cps[1]):
             raise error
@@ -188,6 +192,7 @@ def validate_forum_icon(value: str) -> None:
         # A keycap: digit/#/* + VS16 + U+20E3.
         len(cps) == 3
         and chr(first) in "0123456789#*"
+        and cps[1] == 0xFE0F
         and cps[2] == 0x20E3
     ):
         raise error

@@ -995,7 +995,10 @@ class TopicListView(
         flags = [POST]
         if validated.get("poll"):
             flags.append(POLL)
-        if _image_block_ids(validated["body"]):
+        # An identification photo is an image on the thread too (its card and
+        # the Recent thumbnail), so it needs `attach` like an image block.
+        identification = validated.get("identification") or {}
+        if _image_block_ids(validated["body"]) or identification.get("image_id"):
             flags.append(ATTACH)
         _enforce_forum_write(request, board, *flags)
 
@@ -2006,7 +2009,10 @@ class PostImageUploadView(UnversionedForumAPIMixin, APIView):
         board = _visible_boards(request=request).filter(pk=forum_id).first()
         if board is None:
             raise NotFound()
-        _enforce_forum_write(request, board, ATTACH)
+        # `attach` only, not the closed rule: an upload posts nothing, and an
+        # edit in a closed forum may still add an image (the PATCH check).
+        if not user_can(request.user, board, ATTACH):
+            raise _FLAG_DENIED[ATTACH]()
 
 
 class ReactionToggleView(UnversionedForumAPIMixin, APIView):

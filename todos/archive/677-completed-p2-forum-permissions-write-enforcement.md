@@ -82,3 +82,11 @@ Write permissions per forum (phpBB f_post, f_reply, f_poll, f_attach) must be en
 ### 2026-11-01 - owner decision: members' poll default
 
 - The worker flagged that the members' no-grant default (*Standard*, no `poll`) would make every ungranted forum staff-only for polls once this todo enforced the flag, which contradicts 675's "existing forums keep working with no setup". The owner chose to make the fallback *Standard + polls* (2026-11-01). `DEFAULT_ROLES[MEMBERS]` is now `STANDARD_POLLS`; an explicit *Standard* grant still has no `poll`. Tests: `test_a_forum_with_no_grant_is_standard_polls_for_members_and_read_only_for_guests`, `test_an_explicit_standard_grant_still_has_no_poll`, `test_a_member_adds_a_poll_on_a_board_with_no_grant`. A mutation back to `STANDARD` fails 3 tests. wagtail_forum + forum_host: 2518 passed.
+
+### 2026-11-01 - Review round 1: non-blocking findings
+
+Round 1 (PR #1232) was clean, with no blocking findings. Each non-blocking finding is fixed by hand with a test, or declined with a reason:
+
+- **Fixed** (medium) `api/views.py` topic create: an `identification.image_id` photo skipped `attach`. It now needs `attach` like an image block. Test: `test_attach_denied_for_an_identification_photo_without_the_attach_flag`. A mutation removing the check fails it.
+- **Fixed** (low ×2) the upload `forum_id` check applied the closed rule, while an edit in a closed forum may still add an image. The upload now checks `attach` only. Test: `test_upload_to_a_closed_forum_checks_attach_only`, mutation-checked.
+- **Declined** (low, same finding) the web hides image/alt-text controls in a closed forum because `can_attach` folds in the closed rule. Only staff and moderators post there, and the server still accepts an edit, so this is a UI nicety, not a wrong result.

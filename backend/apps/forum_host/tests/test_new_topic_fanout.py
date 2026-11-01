@@ -124,6 +124,33 @@ def test_a_watcher_gets_one_notification_per_new_topic_and_the_author_none(
     )
 
 
+def test_a_watcher_mentioned_in_the_opening_post_still_follows_the_topic(
+    django_capture_on_commit_callbacks,
+):
+    """The mention alert replaces the watcher's new_topic alert, not their
+    subscription: `watching` = every post, so the replies must notify too."""
+    forum = make_forum(name="Mosses", slug="mosses")
+    author = User.objects.create_user(username="m_author")
+    watcher = User.objects.create_user(username="m_watcher")
+    _watch(watcher, forum, ForumWatchLevel.WATCHING)
+    topic = Topic.objects.create(
+        board=forum, title="Moss", slug="moss", author=author, live=True
+    )
+    opening = Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[{"type": "paragraph", "value": f"<p>@{watcher.username} look</p>"}],
+    )
+
+    _dispatch(django_capture_on_commit_callbacks, topic, opening)
+
+    alerts = Notification.objects.filter(recipient=watcher, topic=topic)
+    assert list(alerts.values_list("verb", flat=True)) == [NotificationVerb.MENTION]
+    assert TopicSubscription.objects.filter(user=watcher, topic=topic).exists()
+
+
 def test_watchers_who_cannot_read_or_are_blocked_are_skipped(
     django_capture_on_commit_callbacks,
 ):

@@ -96,3 +96,13 @@ Discourse lets a member watch, track or mute a category; phpBB lets members subs
 ### 2026-11-01 - Completed by the todo sweep (run 2026-11-01-0035)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-01 - Review round 1: non-blocking findings
+
+Round 1 (PR #1232) was clean, with no blocking findings. Each non-blocking finding is fixed by hand with a test, or declined with a reason:
+
+- **Fixed** (medium) `apps/forum_host/notifications.py`: a `watching` member mentioned or quoted in the opening post got the mention but no TopicSubscription. Every watcher is now subscribed; the mention or quote replaces only the new_topic alert. Test: `test_a_watcher_mentioned_in_the_opening_post_still_follows_the_topic`, mutation-checked.
+- **Fixed** (medium) `apps/forum_host/pacing.py`: `new_topic` was missing from `PACED_EVENTS`, so quiet hours did not hold it. Test: `test_a_new_topic_push_is_held_by_quiet_hours`, which failed before the fix.
+- **Fixed** (low) `apps/forum_host/eligibility.py`: the send-time recheck now drops a held `new_topic` push for a member who no longer watches the forum. This matters now that quiet hours hold it for hours. Test: `test_a_held_new_topic_push_is_dropped_once_the_watcher_mutes_the_forum`, mutation-checked.
+- **Fixed** (medium) the `forum_subscription_update` throttle had no 429 test. Test: `test_a_forum_watch_level_change_is_throttled[put|delete]`; removing the DELETE decorator fails it.
+- **Fixed** (low) the watch-level PUT/DELETE schema now documents 429.

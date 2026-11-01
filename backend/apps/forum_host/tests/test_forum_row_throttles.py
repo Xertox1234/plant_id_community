@@ -81,3 +81,18 @@ def test_the_collapse_save_is_throttled_on_its_own_scope():
     with freeze_time("2026-10-30 12:00:00"):
         assert client.put(url, body, format="json").status_code == 200
         assert client.put(url, body, format="json").status_code == 429
+
+
+@override_settings(FORUM_RATELIMITS={"forum_subscription_update": "1/m"})
+@pytest.mark.parametrize("method", ["put", "delete"])
+def test_a_forum_watch_level_change_is_throttled(method):
+    """Both writes of the watch level (todo 672) share one scope."""
+    board = make_forum()
+    client = _member()
+    url = f"/api/v1/forum/boards/{board.slug}/subscription/"
+    send = getattr(client, method)
+    body = {"level": "watching"} if method == "put" else None
+
+    with freeze_time("2026-10-30 12:00:00"):
+        assert send(url, body, format="json").status_code < 400
+        assert send(url, body, format="json").status_code == 429

@@ -7,6 +7,7 @@ import Timestamp from '../ui/Timestamp';
 import { categoryPath, forumLinkHref } from '../../utils/forumUrls';
 import { boardIdentity } from '../../utils/forumTones';
 import { forumAccent } from '../../utils/forumDisplay';
+import { mediaUrl } from '../../services/blogService';
 import type { Forum, ForumLink } from '@/types';
 
 interface ForumCardProps {
@@ -39,7 +40,7 @@ function ForumCard({ forum, headingLevel = 'h3' }: ForumCardProps) {
           // The forum image (todo 669, owner decision 2026-10-31) replaces
           // the tile; decorative, the name beside it says what it is.
           <img
-            src={forum.image_url}
+            src={mediaUrl(forum.image_url)}
             alt=""
             className="h-11 w-11 flex-none rounded-sm object-cover"
             style={accent ? { boxShadow: `0 0 0 2px ${accent}` } : undefined}

@@ -283,7 +283,8 @@ class ForumSubscriptionView(UnversionedForumAPIMixin, APIView):
 
     @extend_schema(
         request=ForumWatchLevelSerializer,
-        responses={200: WATCH_LEVEL_SCHEMA, 400: dict, 401: dict, 404: dict},
+        # 429: the host throttles both writes (`forum_subscription_update`).
+        responses={200: WATCH_LEVEL_SCHEMA, 400: dict, 401: dict, 404: dict, 429: dict},
         description=(
             "Set the caller's watch level on this forum: `watching` (every "
             "new topic notifies, and each is followed so its replies notify "
@@ -304,7 +305,7 @@ class ForumSubscriptionView(UnversionedForumAPIMixin, APIView):
 
     @extend_schema(
         request=None,
-        responses={200: WATCH_LEVEL_SCHEMA, 401: dict, 404: dict},
+        responses={200: WATCH_LEVEL_SCHEMA, 401: dict, 404: dict, 429: dict},
         description="Clear the caller's watch level on this forum.",
     )
     def delete(self, request, slug):

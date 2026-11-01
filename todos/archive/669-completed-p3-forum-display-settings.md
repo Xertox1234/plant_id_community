@@ -106,3 +106,11 @@ phpBB forums carry status and display settings; Discourse adds colour/icon and a
 ### 2026-11-01 - Completed by the todo sweep (run 2026-11-01-0035)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-01 - Review round 1: non-blocking findings
+
+Round 1 (PR #1232) was clean, with no blocking findings. Each non-blocking finding is fixed by hand with a test, or declined with a reason:
+
+- **Fixed** (medium) `web/src/components/forum/ForumCard.tsx`: the forum image `src` did not go through `mediaUrl()`, so a local `/media/` URL resolved against the Vite origin. Test: `ForumCard.test.tsx` "serves the forum image from the API media origin", mutation-checked. `CategoryListPage.test.tsx` auto-mocks blogService, so its `beforeEach` now passes `mediaUrl` through.
+- **Fixed** (low) `validate_forum_icon` accepted a lone skin-tone modifier and a keycap without VS16. Both are rejected now, and so is a trailing joiner. Three new parametrized cases; 2 fail against the old validator, and a trailing joiner was already rejected.
+- **Declined** (low) `rules_url` scheme on the web: it is a model `URLField`, set only in the Wagtail admin form, whose validator allows only http, https, ftp and ftps. A `javascript:` URL cannot be stored.
