@@ -46,7 +46,8 @@ export default function ThreadListPage() {
 
   const [category, setCategory] = useState<Forum | null>(null);
   // The forum's own category, for the Category › Forum breadcrumb (todo 665).
-  const parentCategory = useForumCategory(category?.id);
+  const [reloadKey, setReloadKey] = useState(0);
+  const parentCategory = useForumCategory(category?.id, reloadKey);
   // This forum's row of `GET categories/`: its display settings (todo 669),
   // theme (681), the viewer's capabilities (677) and watch level (672). The
   // flat board list `fetchForum` reads carries none of them.
@@ -60,7 +61,6 @@ export default function ThreadListPage() {
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
   // Bumped by the error-state Retry to re-run the load effect (the effect's
   // own loadGenRef already drops stale responses — M22 was handled here).
-  const [reloadKey, setReloadKey] = useState(0);
   // "Mark forum read" (todo 671) in flight / failed.
   const [markingRead, setMarkingRead] = useState(false);
   const [markReadError, setMarkReadError] = useState<string | null>(null);

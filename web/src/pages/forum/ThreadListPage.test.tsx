@@ -705,6 +705,37 @@ describe('ThreadListPage', () => {
         expect.objectContaining({ board: 'club' })
       );
     });
+
+    it('re-reads its category row once unlocked, so the rules appear', async () => {
+      // A locked row comes back with its rules blanked (owner decision
+      // 2026-11-01); the unlocked row has them.
+      const club = { id: '7', slug: 'club', name: 'Club' };
+      vi.mocked(forumService.fetchForum)
+        .mockResolvedValueOnce(createMockForum({ ...club, is_locked: true }))
+        .mockResolvedValue(createMockForum({ ...club, is_locked: false }));
+      vi.mocked(forumService.unlockForum).mockResolvedValue(undefined);
+      vi.mocked(forumService.fetchThreads).mockResolvedValue({ items: [], meta: { count: 0 } });
+      vi.mocked(forumService.fetchForumCategory)
+        .mockResolvedValueOnce(
+          createMockCategory({
+            id: '1',
+            forums: [createMockForum({ ...club, is_locked: true, rules: '' })],
+          })
+        )
+        .mockResolvedValue(
+          createMockCategory({
+            id: '1',
+            forums: [createMockForum({ ...club, is_locked: false, rules: 'Members: be kind.' })],
+          })
+        );
+
+      renderThreadListPage();
+      await userEvent.type(await screen.findByLabelText('Password'), 'secret');
+      await userEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+
+      const panel = await screen.findByRole('region', { name: 'Forum rules' });
+      expect(panel).toHaveTextContent('Members: be kind.');
+    });
   });
 
   describe('forum display settings, theme, capabilities and watch level (todos 669, 672, 677, 681)', () => {

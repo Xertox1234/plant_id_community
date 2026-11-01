@@ -754,7 +754,8 @@ class CategoryListView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         #
         # A password forum this session has not unlocked (todo 680) is listed
         # with `is_locked` and nothing that reveals its topics: no last-post
-        # time, no unread mark, no topic template. Moderators (todo 674) are one more correlated
+        # time, no unread mark, no topic template, and no rules, rules URL,
+        # icon or image. Moderators (todo 674) are one more correlated
         # subquery, so the count stays two.
         open_rows = _visible_rows(Forum.FORUM, Forum.LINK, request=request)
         locked = ~Q(password_hash="") & ~Q(pk__in=open_rows.values("pk"))
@@ -801,6 +802,12 @@ class CategoryListView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                     # Written for those who know the password (round-2
                     # review); this response may be the cached guest one.
                     row.topic_template = ""
+                    # Owner decision 2026-11-01: name and description only.
+                    # The rules, rules URL, icon and image wait for the unlock.
+                    row.rules = ""
+                    row.rules_url = ""
+                    row.icon = ""
+                    row.image_id = None
             links: list[Any] = [
                 row for row in category.visible_rows if row.forum_type == Forum.LINK
             ]

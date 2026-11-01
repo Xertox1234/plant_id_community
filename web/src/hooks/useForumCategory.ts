@@ -9,16 +9,23 @@ import type { Category } from '@/types';
  *
  * Keyed on the forum id it was fetched for, so navigating from one forum to
  * another never shows the previous forum's category while the new one loads.
+ * A change of `reloadKey` fetches it again for the same forum: unlocking a
+ * password forum turns its blanked row into the full one (owner decision
+ * 2026-11-01).
  */
-export function useForumCategory(forumId: string | number | null | undefined): Category | null {
-  const key = forumId == null || forumId === '' ? null : String(forumId);
+export function useForumCategory(
+  forumId: string | number | null | undefined,
+  reloadKey: number = 0
+): Category | null {
+  const id = forumId == null || forumId === '' ? null : String(forumId);
+  const key = id === null ? null : `${id}:${reloadKey}`;
   const [resolved, setResolved] = useState<{ key: string; category: Category | null } | null>(null);
 
   useEffect(() => {
-    if (key === null) return;
+    if (key === null || id === null) return;
     let ignore = false;
     // Promise.resolve: an auto-mocked service returns undefined, not a promise.
-    Promise.resolve(fetchForumCategory(key))
+    Promise.resolve(fetchForumCategory(id))
       .then((category) => {
         if (!ignore) setResolved({ key, category: category ?? null });
       })
@@ -28,7 +35,7 @@ export function useForumCategory(forumId: string | number | null | undefined): C
     return () => {
       ignore = true;
     };
-  }, [key]);
+  }, [key, id]);
 
   return resolved !== null && resolved.key === key ? resolved.category : null;
 }
