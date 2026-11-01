@@ -43,6 +43,8 @@ import {
   markForumRead,
   markAllForumsRead,
   saveCollapsedCategories,
+  setForumWatchLevel,
+  fetchForumRow,
 } from './forumService';
 import { clearCsrfToken } from '../utils/csrf';
 
@@ -205,6 +207,93 @@ describe('forumService (wagtail_forum API contract)', () => {
         body: JSON.stringify({ collapsed_categories: [3, 1] }),
       })
     );
+  });
+
+  // --- Watch levels, forum rows, upload forum id (todos 669, 672, 677, 681) --
+
+  it('setForumWatchLevel PUTs the level and DELETE clears it', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ level: 'tracking' }));
+    await expect(setForumWatchLevel('ferns', 'tracking')).resolves.toBe('tracking');
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.stringMatching(/\/api\/v1\/forum\/boards\/ferns\/subscription\/$/),
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ level: 'tracking' }) })
+    );
+    fetchMock.mockResolvedValueOnce(okJson({ level: null }));
+    await expect(setForumWatchLevel('ferns', null)).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.stringMatching(/\/boards\/ferns\/subscription\/$/),
+      expect.objectContaining({ method: 'DELETE' })
+    );
+  });
+
+  it('fetchForumRow maps the row’s display settings, capabilities and watch level', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({
+        results: [
+          {
+            id: 1,
+            title: 'Plants',
+            slug: 'plants',
+            position: 0,
+            topic_count: 0,
+            post_count: 0,
+            last_post_at: null,
+            icon: '🪴',
+            colour: 'bloom',
+            forums: [
+              {
+                id: 7,
+                title: 'Ferns',
+                slug: 'ferns',
+                is_closed: true,
+                rules: 'Be kind.',
+                rules_url: 'https://example.com/rules',
+                icon: '🌿',
+                colour: 'sage',
+                image_url: null,
+                topics_per_page: 10,
+                default_sort: '-created_at',
+                theme: 'moss',
+                can_post: false,
+                can_reply: true,
+                can_poll: false,
+                can_attach: true,
+                watch_level: 'tracking',
+                unread_count: 3,
+              },
+            ],
+          },
+        ],
+      })
+    );
+    const row = await fetchForumRow(7);
+    expect(row).toMatchObject({
+      id: '7',
+      is_closed: true,
+      rules: 'Be kind.',
+      rules_url: 'https://example.com/rules',
+      icon: '🌿',
+      colour: 'sage',
+      default_sort: '-created_at',
+      theme: 'moss',
+      capabilities: { can_post: false, can_reply: true, can_poll: false, can_attach: true },
+      watch_level: 'tracking',
+      unread_count: 3,
+    });
+  });
+
+  it('fetchForumRow is null when the fetch fails', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('down'));
+    await expect(fetchForumRow(7)).resolves.toBeNull();
+  });
+
+  it('uploadPostImage sends forum_id only when given', async () => {
+    const file = new File(['x'], 'a.jpg', { type: 'image/jpeg' });
+    fetchMock.mockResolvedValue(okJson({ id: 1, url: 'u' }));
+    await uploadPostImage(file, '', undefined, 7);
+    expect((fetchMock.mock.calls.at(-1)![1].body as FormData).get('forum_id')).toBe('7');
+    await uploadPostImage(file);
+    expect((fetchMock.mock.calls.at(-1)![1].body as FormData).has('forum_id')).toBe(false);
   });
 
   it('markAllForumsRead POSTs to read-all/', async () => {

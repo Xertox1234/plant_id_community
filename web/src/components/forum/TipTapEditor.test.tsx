@@ -1371,3 +1371,55 @@ describe('TipTapEditor untouched body (todo 538)', () => {
     expect(isUnchangedBody(onChange.mock.calls.at(-1)![0], stored)).toBe(false);
   });
 });
+
+describe('TipTapEditor attach capability (todo 677)', () => {
+  beforeEach(() => {
+    forumService.resetComposeAssistAvailability();
+  });
+
+  it('hides every image control when images are not allowed', async () => {
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage');
+    const { container } = render(<TipTapEditor onChange={vi.fn()} allowImages={false} />);
+    await waitFor(() => expect(screen.getByTitle('Bold (Ctrl+B)')).toBeInTheDocument());
+
+    expect(screen.queryByTitle('Insert image')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Choose from your photos')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Edit image alt text')).not.toBeInTheDocument();
+
+    // A pasted image is refused too, with no upload.
+    const surface = container.querySelector('.ProseMirror') as HTMLElement;
+    const file = new File(['x'], 'ok.jpg', { type: 'image/jpeg' });
+    fireEvent.paste(surface, {
+      clipboardData: {
+        files: [file],
+        items: [{ kind: 'file', type: 'image/jpeg', getAsFile: () => file }],
+        types: ['Files'],
+        getData: () => '',
+      },
+    });
+    expect(uploadSpy).not.toHaveBeenCalled();
+  });
+
+  it('shows the image controls by default', async () => {
+    render(<TipTapEditor onChange={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTitle('Insert image')).toBeInTheDocument());
+    expect(screen.getByTitle('Choose from your photos')).toBeInTheDocument();
+  });
+
+  it('sends the forum id with an upload so the server checks attach there', async () => {
+    const uploadSpy = vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue({
+      id: 1,
+      url: 'https://cdn.example/x.jpg',
+      alt: '',
+      decorative: false,
+      width: 10,
+      height: 10,
+    });
+    const { container } = render(<TipTapEditor onChange={vi.fn()} forumId="7" />);
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+    const file = new File(['x'], 'ok.jpg', { type: 'image/jpeg' });
+    fireEvent.change(screen.getByTestId('forum-image-input'), { target: { files: [file] } });
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledWith(file, '', expect.any(String), '7'));
+  });
+});

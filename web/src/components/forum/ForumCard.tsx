@@ -6,6 +6,7 @@ import Tile from '../ui/Tile';
 import Timestamp from '../ui/Timestamp';
 import { categoryPath, forumLinkHref } from '../../utils/forumUrls';
 import { boardIdentity } from '../../utils/forumTones';
+import { forumAccent } from '../../utils/forumDisplay';
 import type { Forum, ForumLink } from '@/types';
 
 interface ForumCardProps {
@@ -28,17 +29,37 @@ function ForumCard({ forum, headingLevel = 'h3' }: ForumCardProps) {
   const Heading = headingLevel;
   const hasChildren = !!(forum.children && forum.children.length > 0);
   const { tone, Icon } = boardIdentity(forum.slug);
+  // The forum's Canopy accent (todo 669), as a ring on its tile.
+  const accent = forumAccent(forum.colour);
 
   return (
     <Card interactive className="p-card">
       <Link to={categoryPath(forum)} viewTransition className="flex items-start gap-4">
-        <Tile tone={tone} aria-hidden="true">
-          {forum.icon ? (
-            <span className="text-xl leading-none">{forum.icon}</span>
-          ) : (
-            <Icon className="h-5 w-5" />
-          )}
-        </Tile>
+        {forum.image_url ? (
+          // The forum image (todo 669, owner decision 2026-10-31) replaces
+          // the tile; decorative, the name beside it says what it is.
+          <img
+            src={forum.image_url}
+            alt=""
+            className="h-11 w-11 flex-none rounded-sm object-cover"
+            style={accent ? { boxShadow: `0 0 0 2px ${accent}` } : undefined}
+            data-testid="forum-image"
+          />
+        ) : (
+          <Tile
+            tone={tone}
+            aria-hidden="true"
+            data-testid="forum-tile"
+            data-colour={forum.colour || undefined}
+            style={accent ? { boxShadow: `inset 0 0 0 2px ${accent}` } : undefined}
+          >
+            {forum.icon ? (
+              <span className="text-xl leading-none">{forum.icon}</span>
+            ) : (
+              <Icon className="h-5 w-5" />
+            )}
+          </Tile>
+        )}
         <div className="min-w-0 flex-1">
           <Heading className="gt-h3 flex items-center gap-2 text-ink">
             {forum.name}
@@ -49,13 +70,32 @@ function ForumCard({ forum, headingLevel = 'h3' }: ForumCardProps) {
                 <span className="sr-only">Password protected</span>
               </span>
             )}
-            {forum.has_unread && (
-              // Unread marker (todo 671): a dot for the eye, words for a
-              // screen reader.
-              <span className="inline-flex items-center">
-                <span aria-hidden="true" className="h-2 w-2 rounded-full bg-primary" />
-                <span className="sr-only">Unread posts</span>
+            {forum.is_closed && (
+              // Closed to new topics and replies (todo 669).
+              <span className="gt-label inline-flex items-center gap-1 text-ink-3">
+                <Lock aria-hidden="true" className="h-3.5 w-3.5" />
+                Closed
               </span>
+            )}
+            {forum.unread_count != null && forum.unread_count > 0 ? (
+              // A tracked or watched forum shows how many topics are unread
+              // (todo 672, owner decision 2026-11-01), not just the dot.
+              <span
+                className="gt-label inline-flex min-w-6 items-center justify-center rounded-pill bg-primary px-2 text-on-primary"
+                data-testid="forum-unread-count"
+              >
+                {forum.unread_count}
+                <span className="sr-only"> unread topics</span>
+              </span>
+            ) : (
+              forum.has_unread && (
+                // Unread marker (todo 671): a dot for the eye, words for a
+                // screen reader.
+                <span className="inline-flex items-center">
+                  <span aria-hidden="true" className="h-2 w-2 rounded-full bg-primary" />
+                  <span className="sr-only">Unread posts</span>
+                </span>
+              )
             )}
           </Heading>
           {forum.description && (

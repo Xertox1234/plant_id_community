@@ -345,6 +345,19 @@ class ForumRowSerializer(BoardSerializer):
     # Todo 674: the names on the row's "Moderators:" line, users (by
     # username) then groups, from CategoryListView's `moderator_names`.
     moderators = serializers.SerializerMethodField()
+    # Todo 677: what the viewer may do here, from CategoryListView's
+    # annotations (grants, plus a closed forum's rule from todo 669). Always
+    # false for guests.
+    can_post = serializers.BooleanField(read_only=True)
+    can_reply = serializers.BooleanField(read_only=True)
+    can_poll = serializers.BooleanField(read_only=True)
+    can_attach = serializers.BooleanField(read_only=True)
+    # Todo 672: the viewer's watch level (null = none set) and, when they
+    # track or watch the forum, how many of its topics are unread.
+    watch_level = serializers.CharField(read_only=True, allow_null=True)
+    unread_count = serializers.IntegerField(read_only=True, allow_null=True)
+    # Todo 669: the forum image's URL (null = none).
+    image_url = serializers.SerializerMethodField()
 
     class Meta(BoardSerializer.Meta):
         fields = [
@@ -352,6 +365,25 @@ class ForumRowSerializer(BoardSerializer):
             "has_unread",
             "is_locked",
             "moderators",
+            # Todo 669 display settings. `is_closed`: no new topics or
+            # replies (staff and the forum's moderators exempt). `colour` is
+            # a Canopy accent name, `icon` one emoji, `rules` plain text.
+            "is_closed",
+            "rules",
+            "rules_url",
+            "icon",
+            "colour",
+            "image_url",
+            "topics_per_page",
+            "default_sort",
+            # Todo 681: one of the fixed themes, or "".
+            "theme",
+            "can_post",
+            "can_reply",
+            "can_poll",
+            "can_attach",
+            "watch_level",
+            "unread_count",
             # Todo 678: plain text, each line a paragraph, prefilled into an
             # empty new-topic composer. "" when the forum has none. Not on
             # the flat `/forum/boards/` list, whose keys are the Flutter
@@ -362,6 +394,20 @@ class ForumRowSerializer(BoardSerializer):
     def get_moderators(self, obj) -> list[str]:
         names = getattr(obj, "moderator_names", None) or ""
         return [name for name in names.split(MODERATOR_NAME_SEPARATOR) if name]
+
+    @extend_schema_field({"type": "string", "nullable": True})
+    def get_image_url(self, obj) -> str | None:
+        return forum_image_url(obj, self.context.get("request"))
+
+
+def forum_image_url(forum, request) -> str | None:
+    """A forum's image (todo 669) as an absolute URL, or None. The original
+    file, like the avatar: a forum row's image is small, and no rendition is
+    written on a read path."""
+    if not (forum.image_id and forum.image):
+        return None
+    url = str(forum.image.file.url)
+    return str(request.build_absolute_uri(url)) if request is not None else url
 
 
 class ForumLinkSerializer(serializers.ModelSerializer):
@@ -401,6 +447,9 @@ class ForumCategorySerializer(serializers.Serializer):
     title = serializers.CharField(source="name", read_only=True)
     slug = serializers.CharField(read_only=True)
     description = serializers.CharField(read_only=True)
+    # Todo 669: a category header's emoji and Canopy accent name ("" = none).
+    icon = serializers.CharField(read_only=True)
+    colour = serializers.CharField(read_only=True)
     position = serializers.IntegerField(read_only=True)
     topic_count = serializers.IntegerField(read_only=True)
     post_count = serializers.IntegerField(read_only=True)

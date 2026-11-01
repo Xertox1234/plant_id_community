@@ -4,6 +4,7 @@ import {
   createThread,
   fetchForums,
   fetchForum,
+  fetchForumRow,
   fetchForumTopicTemplate,
 } from '../../services/forumService';
 import { parseLeadingId, threadPath, categoryPath } from '../../utils/forumUrls';
@@ -293,6 +294,27 @@ export default function NewThreadPage() {
     bodyRef.current = body;
   }, [body]);
   const categoryId = category?.id;
+  // The chosen forum's capabilities (todo 677) and closed state (todo 669),
+  // keyed on the forum they were read for so a board switch never shows the
+  // previous board's.
+  const [forumRow, setForumRow] = useState<{ id: string; row: Forum | null } | null>(null);
+  useEffect(() => {
+    if (!categoryId) return;
+    let ignore = false;
+    // Promise.resolve: an auto-mocked service returns undefined, not a promise.
+    Promise.resolve(fetchForumRow(categoryId)).then((row) => {
+      if (!ignore) setForumRow({ id: categoryId, row: row ?? null });
+    });
+    return () => {
+      ignore = true;
+    };
+  }, [categoryId]);
+  const currentRow = forumRow !== null && forumRow.id === categoryId ? forumRow.row : null;
+  const caps = currentRow?.capabilities;
+  const closed = currentRow?.is_closed === true;
+  const postRefused = caps != null && !caps.can_post;
+  const pollAllowed = caps?.can_poll ?? true;
+  const attachAllowed = caps?.can_attach ?? true;
   useEffect(() => {
     if (!categoryId) return;
     let ignore = false;
@@ -411,7 +433,7 @@ export default function NewThreadPage() {
           // filtered here — the server drops them and owns the min/max/unique
           // rules, so the composer has exactly one authority to agree with
           // instead of a second copy that can drift out of step.
-          ...(pollEnabled
+          ...(pollEnabled && pollAllowed
             ? {
                 poll: {
                   question: pollQuestion,
@@ -476,6 +498,7 @@ export default function NewThreadPage() {
       category,
       title,
       body,
+      pollAllowed,
       tagsInput,
       identification,
       pollEnabled,
@@ -680,127 +703,132 @@ export default function NewThreadPage() {
         {/* Optional poll (audit M8). Collapsed behind a toggle so the ordinary
             compose is visually unchanged — most threads carry no poll. Polls
             can only be attached HERE: they are not editable afterwards, since
-            changing a question once votes exist rewrites what they meant. */}
-        <div>
-          <label className="flex items-center gap-2 text-sm font-medium text-ink-2">
-            <input
-              type="checkbox"
-              checked={pollEnabled}
-              onChange={(e) => setPollEnabled(e.target.checked)}
-              className="h-4 w-4"
-            />
-            Add a poll <span className="font-normal text-ink-3">(optional)</span>
-          </label>
+            changing a question once votes exist rewrites what they meant.
+            Not offered where the member lacks the forum's poll flag (677). */}
+        {pollAllowed && (
+          <div>
+            <label className="flex items-center gap-2 text-sm font-medium text-ink-2">
+              <input
+                type="checkbox"
+                checked={pollEnabled}
+                onChange={(e) => setPollEnabled(e.target.checked)}
+                className="h-4 w-4"
+              />
+              Add a poll <span className="font-normal text-ink-3">(optional)</span>
+            </label>
 
-          {pollEnabled && (
-            <div className="mt-3 space-y-3 rounded-md border border-line bg-surface-2 p-4">
-              <div>
-                <label
-                  htmlFor="poll-question"
-                  className="block text-sm font-medium text-ink-2 mb-1"
-                >
-                  Poll question
-                </label>
-                <input
-                  id="poll-question"
-                  type="text"
-                  value={pollQuestion}
-                  onChange={(e) => setPollQuestion(e.target.value)}
-                  maxLength={300}
-                  placeholder="Best soil mix for aroids?"
-                  className="w-full px-4 py-2 border border-line-2 rounded-sm focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
-                />
-              </div>
-
-              <fieldset>
-                <legend className="block text-sm font-medium text-ink-2 mb-1">Options</legend>
-                <div className="space-y-2">
-                  {pollOptions.map((option, index) => (
-                    <input
-                      // Index keys are correct here and only here: these inputs
-                      // are a fixed positional list with no reordering or
-                      // removal, so an index IS each row's stable identity.
-                      key={index}
-                      type="text"
-                      value={option}
-                      onChange={(e) =>
-                        setPollOptions((prev) =>
-                          prev.map((value, i) => (i === index ? e.target.value : value))
-                        )
-                      }
-                      maxLength={200}
-                      aria-label={`Poll option ${index + 1}`}
-                      placeholder={`Option ${index + 1}`}
-                      className="w-full px-4 py-2 border border-line-2 rounded-sm focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
-                    />
-                  ))}
-                </div>
-                {pollOptions.length < MAX_POLL_OPTIONS && (
-                  <button
-                    type="button"
-                    onClick={() => setPollOptions((prev) => [...prev, ''])}
-                    className="mt-2 min-h-11 rounded-xs px-3 text-sm font-medium text-primary hover:bg-surface-3"
+            {pollEnabled && (
+              <div className="mt-3 space-y-3 rounded-md border border-line bg-surface-2 p-4">
+                <div>
+                  <label
+                    htmlFor="poll-question"
+                    className="block text-sm font-medium text-ink-2 mb-1"
                   >
-                    + Add option
-                  </button>
-                )}
-                <p className="mt-1 text-xs text-ink-3">
-                  Two options minimum, {MAX_POLL_OPTIONS} maximum. Blank rows are ignored. Each
-                  member votes once and cannot change it.
-                </p>
-              </fieldset>
+                    Poll question
+                  </label>
+                  <input
+                    id="poll-question"
+                    type="text"
+                    value={pollQuestion}
+                    onChange={(e) => setPollQuestion(e.target.value)}
+                    maxLength={300}
+                    placeholder="Best soil mix for aroids?"
+                    className="w-full px-4 py-2 border border-line-2 rounded-sm focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
+                  />
+                </div>
 
-              <div>
-                <label
-                  htmlFor="poll-max-choices"
-                  className="block text-sm font-medium text-ink-2 mb-1"
-                >
-                  Choices per voter
-                </label>
-                {/* A select bounded by the filled option count, not a free
+                <fieldset>
+                  <legend className="block text-sm font-medium text-ink-2 mb-1">Options</legend>
+                  <div className="space-y-2">
+                    {pollOptions.map((option, index) => (
+                      <input
+                        // Index keys are correct here and only here: these inputs
+                        // are a fixed positional list with no reordering or
+                        // removal, so an index IS each row's stable identity.
+                        key={index}
+                        type="text"
+                        value={option}
+                        onChange={(e) =>
+                          setPollOptions((prev) =>
+                            prev.map((value, i) => (i === index ? e.target.value : value))
+                          )
+                        }
+                        maxLength={200}
+                        aria-label={`Poll option ${index + 1}`}
+                        placeholder={`Option ${index + 1}`}
+                        className="w-full px-4 py-2 border border-line-2 rounded-sm focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
+                      />
+                    ))}
+                  </div>
+                  {pollOptions.length < MAX_POLL_OPTIONS && (
+                    <button
+                      type="button"
+                      onClick={() => setPollOptions((prev) => [...prev, ''])}
+                      className="mt-2 min-h-11 rounded-xs px-3 text-sm font-medium text-primary hover:bg-surface-3"
+                    >
+                      + Add option
+                    </button>
+                  )}
+                  <p className="mt-1 text-xs text-ink-3">
+                    Two options minimum, {MAX_POLL_OPTIONS} maximum. Blank rows are ignored. Each
+                    member votes once and cannot change it.
+                  </p>
+                </fieldset>
+
+                <div>
+                  <label
+                    htmlFor="poll-max-choices"
+                    className="block text-sm font-medium text-ink-2 mb-1"
+                  >
+                    Choices per voter
+                  </label>
+                  {/* A select bounded by the filled option count, not a free
                     number input: it cannot offer a value the server would
                     refuse, and a controlled number input snaps to its
                     fallback on clear (typing "2" after a clear yields "12"). */}
-                <select
-                  id="poll-max-choices"
-                  value={effectiveMaxChoices}
-                  onChange={(e) => setPollMaxChoices(Number(e.target.value))}
-                  className="w-24 px-4 py-2 border border-line-2 rounded-sm focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
-                >
-                  {Array.from({ length: Math.max(1, filledPollOptions) }, (_, i) => i + 1).map(
-                    (n) => (
-                      <option key={n} value={n}>
-                        {n}
-                      </option>
-                    )
-                  )}
-                </select>
-                <p className="mt-1 text-xs text-ink-3">
-                  1 for a single-choice poll; up to the number of options for &ldquo;pick all that
-                  apply&rdquo;.
-                </p>
-              </div>
+                  <select
+                    id="poll-max-choices"
+                    value={effectiveMaxChoices}
+                    onChange={(e) => setPollMaxChoices(Number(e.target.value))}
+                    className="w-24 px-4 py-2 border border-line-2 rounded-sm focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
+                  >
+                    {Array.from({ length: Math.max(1, filledPollOptions) }, (_, i) => i + 1).map(
+                      (n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      )
+                    )}
+                  </select>
+                  <p className="mt-1 text-xs text-ink-3">
+                    1 for a single-choice poll; up to the number of options for &ldquo;pick all that
+                    apply&rdquo;.
+                  </p>
+                </div>
 
-              <div>
-                <label
-                  htmlFor="poll-closes-at"
-                  className="block text-sm font-medium text-ink-2 mb-1"
-                >
-                  Closes <span className="font-normal text-ink-3">(optional)</span>
-                </label>
-                <input
-                  id="poll-closes-at"
-                  type="datetime-local"
-                  value={pollClosesAt}
-                  onChange={(e) => setPollClosesAt(e.target.value)}
-                  min={minPollCloseDateTime()}
-                  className="w-full px-4 py-2 border border-line-2 rounded-sm focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
-                />
-                <p className="mt-1 text-xs text-ink-3">Leave blank for a poll that never closes.</p>
+                <div>
+                  <label
+                    htmlFor="poll-closes-at"
+                    className="block text-sm font-medium text-ink-2 mb-1"
+                  >
+                    Closes <span className="font-normal text-ink-3">(optional)</span>
+                  </label>
+                  <input
+                    id="poll-closes-at"
+                    type="datetime-local"
+                    value={pollClosesAt}
+                    onChange={(e) => setPollClosesAt(e.target.value)}
+                    min={minPollCloseDateTime()}
+                    className="w-full px-4 py-2 border border-line-2 rounded-sm focus:ring-2 focus:ring-primary focus:border-transparent bg-surface text-ink"
+                  />
+                  <p className="mt-1 text-xs text-ink-3">
+                    Leave blank for a poll that never closes.
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
         <div>
           <span className="gt-label block mb-1.5 transition-colors">Message</span>
@@ -809,8 +837,21 @@ export default function NewThreadPage() {
             content={body}
             onChange={setBody}
             placeholder="Write your post..."
+            allowImages={attachAllowed}
+            forumId={categoryId}
           />
         </div>
+
+        {postRefused && (
+          <div
+            role="alert"
+            className="rounded-md border border-line bg-surface-2 px-4 py-3 text-ink-2"
+          >
+            {closed
+              ? 'This forum is closed to new topics.'
+              : 'You cannot start topics in this forum.'}
+          </div>
+        )}
 
         {error && (
           <div className="bg-error/10 border border-error/30 text-ink px-4 py-3 rounded-md">
@@ -822,7 +863,7 @@ export default function NewThreadPage() {
           <Button
             type="submit"
             variant="primary"
-            disabled={!canSubmit || submitting}
+            disabled={!canSubmit || submitting || postRefused}
             loading={submitting}
             loadingText="Posting…"
           >

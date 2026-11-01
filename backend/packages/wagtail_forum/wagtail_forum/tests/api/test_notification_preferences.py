@@ -24,6 +24,8 @@ PRE_343_BEHAVIOUR = {
     "mention": {"push": True, "email": False},
     "quote": {"push": True, "email": False},
     "solution": {"push": True, "email": False},
+    # Todo 672 (owner decision 2026-11-01): its own row, push on, no email.
+    "new_topic": {"push": True},
 }
 
 
@@ -49,6 +51,7 @@ def test_defaults_are_the_pre_343_behaviour_and_fully_resolved_on_read():
         "mention": ("push", "email"),
         "quote": ("push", "email"),
         "solution": ("push", "email"),
+        "new_topic": ("push",),
     }
 
 

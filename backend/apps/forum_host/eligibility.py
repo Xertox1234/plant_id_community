@@ -51,7 +51,7 @@ REASON_UNSUBSCRIBED = "unsubscribed"
 REASON_READ = "already_read"
 
 # The events whose actor is the post's author when the payload names none.
-_AUTHOR_IS_ACTOR = frozenset({"reply_added", "mention", "quote"})
+_AUTHOR_IS_ACTOR = frozenset({"reply_added", "mention", "quote", "new_topic"})
 # The events about someone else's new post: reading the topic past the post
 # reads it. An accepted answer is about the recipient's OWN post, which they
 # have always "read", so only its own bell row being read counts there.

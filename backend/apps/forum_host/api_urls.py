@@ -53,6 +53,7 @@ from .api import (
     ForumLinkGoView,
     ForumMarkAllReadView,
     ForumMarkReadView,
+    ForumSubscriptionView,
     ForumUnlockView,
     MeCollapsedCategoriesView,
     MeProfileView,
@@ -122,6 +123,12 @@ urlpatterns = [
         "boards/<slug:slug>/unlock/",
         ForumUnlockView.as_view(),
         name="forum-unlock",
+    ),
+    # Watch / track / mute (todo 672), throttled (api.py).
+    path(
+        "boards/<slug:slug>/subscription/",
+        ForumSubscriptionView.as_view(),
+        name="forum-subscription",
     ),
     path("links/<int:link_id>/go/", ForumLinkGoView.as_view(), name="forum-link-go"),
     # GET-only + AllowAny, mounted straight from the package (no throttle

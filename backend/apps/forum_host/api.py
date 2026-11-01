@@ -224,6 +224,12 @@ class ForumUnlockView(forum_row_views.ForumUnlockView):
     pass
 
 
+@_throttled("forum_subscription_update", "PUT")
+@_throttled("forum_subscription_update", "DELETE")
+class ForumSubscriptionView(forum_row_views.ForumSubscriptionView):
+    pass
+
+
 @_throttled("collapsed_categories_update", "PUT")
 class MeCollapsedCategoriesView(forum_row_views.MeCollapsedCategoriesView):
     pass

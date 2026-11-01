@@ -14,6 +14,9 @@
 - ``POST /forum/boards/{slug}/unlock/`` — unlock a password forum for the rest
   of the caller's session (todo 680; phpBB's ``forums_access``). Wrong
   passwords are counted per member per forum and answer 429 past the limit.
+- ``GET/PUT/DELETE /forum/boards/{slug}/subscription/`` — the caller's watch
+  level on one forum (todo 672; Discourse's watching, watching first post,
+  tracking, muted). DELETE goes back to no level.
 """
 
 from __future__ import annotations
@@ -36,7 +39,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ..conf import get_setting
-from ..models import Forum, ForumProfile, ForumRead
+from ..models import Forum, ForumProfile, ForumRead, ForumSubscription, ForumWatchLevel
 from ..models.boards import FORUM_PASSWORD_MAX_LENGTH, LINK_URL_SCHEMES
 from ..services.forum_permissions import remember_unlocked
 from .serializers import CollapsedCategoriesSerializer
@@ -238,3 +241,73 @@ class ForumUnlockView(UnversionedForumAPIMixin, APIView):
         cache.delete(key)
         remember_unlocked(request, forum)
         return Response({"unlocked": True})
+
+
+WATCH_LEVEL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "level": {
+            "type": "string",
+            "nullable": True,
+            "enum": [*ForumWatchLevel.values, None],
+        }
+    },
+}
+
+
+class ForumWatchLevelSerializer(serializers.Serializer):
+    level = serializers.ChoiceField(choices=ForumWatchLevel.choices)
+
+
+class ForumSubscriptionView(UnversionedForumAPIMixin, APIView):
+    """The caller's watch level on one visible forum (todo 672). 404 for a
+    hidden forum, a category or a link, as its topic list."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=None,
+        responses={200: WATCH_LEVEL_SCHEMA, 401: dict, 404: dict},
+        description="The caller's watch level on this forum (null = none).",
+    )
+    def get(self, request, slug):
+        board = _get_board(slug, request)
+        level = (
+            ForumSubscription.objects.filter(user=request.user, forum=board)
+            .values_list("level", flat=True)
+            .first()
+        )
+        response = Response({"level": level})
+        add_never_cache_headers(response)
+        return response
+
+    @extend_schema(
+        request=ForumWatchLevelSerializer,
+        responses={200: WATCH_LEVEL_SCHEMA, 400: dict, 401: dict, 404: dict},
+        description=(
+            "Set the caller's watch level on this forum: `watching` (every "
+            "new topic notifies, and each is followed so its replies notify "
+            "too), `watching_first_post` (new topics only), `tracking` (an "
+            "unread count on the forum's row) or `muted` (left out of Recent "
+            "and the digest)."
+        ),
+    )
+    def put(self, request, slug):
+        board = _get_board(slug, request)
+        serializer = ForumWatchLevelSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        level = serializer.validated_data["level"]
+        ForumSubscription.objects.update_or_create(
+            user=request.user, forum=board, defaults={"level": level}
+        )
+        return Response({"level": level})
+
+    @extend_schema(
+        request=None,
+        responses={200: WATCH_LEVEL_SCHEMA, 401: dict, 404: dict},
+        description="Clear the caller's watch level on this forum.",
+    )
+    def delete(self, request, slug):
+        board = _get_board(slug, request)
+        ForumSubscription.objects.filter(user=request.user, forum=board).delete()
+        return Response({"level": None})

@@ -34,3 +34,45 @@ class ForumLocked(APIException):
     status_code = 403
     default_detail = _("This forum needs a password.")
     default_code = "forum_locked"
+
+
+class ForumClosed(APIException):
+    """A closed forum (todo 669): no new topics or replies. Staff and the
+    forum's moderators are exempt."""
+
+    status_code = 403
+    default_detail = _("This forum is closed to new topics and replies.")
+    default_code = "forum_closed"
+
+
+class ForumPostDenied(APIException):
+    """The caller lacks ``post`` on this forum (todo 677)."""
+
+    status_code = 403
+    default_detail = _("You cannot start topics in this forum.")
+    default_code = "forum_post_denied"
+
+
+class ForumReplyDenied(APIException):
+    """The caller lacks ``reply`` on this forum (todo 677)."""
+
+    status_code = 403
+    default_detail = _("You cannot reply in this forum.")
+    default_code = "forum_reply_denied"
+
+
+class ForumPollDenied(APIException):
+    """The caller lacks ``poll`` on this forum (todo 677)."""
+
+    status_code = 403
+    default_detail = _("You cannot add a poll in this forum.")
+    default_code = "forum_poll_denied"
+
+
+class ForumAttachDenied(APIException):
+    """The caller lacks ``attach`` on this forum (todo 677): an image upload
+    naming the forum, or an image block in a post body."""
+
+    status_code = 403
+    default_detail = _("You cannot attach images in this forum.")
+    default_code = "forum_attach_denied"

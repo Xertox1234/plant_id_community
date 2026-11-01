@@ -62,6 +62,9 @@ CATEGORY_KEYS = {
     # Added by todos 670 (link rows) and 671 (read state).
     "links",
     "has_unread",
+    # Todo 669: a category header's emoji and accent.
+    "icon",
+    "colour",
 }
 # A forum row of /forum/categories/: the board keys plus its unread flag
 # (todo 671). /forum/boards/ keeps BOARD_KEYS exactly.
@@ -71,6 +74,23 @@ FORUM_ROW_KEYS = BOARD_KEYS | {
     "is_locked",
     "moderators",
     "topic_template",
+    # Todo 669 (display settings), 681 (theme), 677 (capabilities) and 672
+    # (watch level, unread count).
+    "is_closed",
+    "rules",
+    "rules_url",
+    "icon",
+    "colour",
+    "image_url",
+    "topics_per_page",
+    "default_sort",
+    "theme",
+    "can_post",
+    "can_reply",
+    "can_poll",
+    "can_attach",
+    "watch_level",
+    "unread_count",
 }
 
 

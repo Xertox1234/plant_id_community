@@ -909,4 +909,78 @@ describe('CategoryListPage', () => {
       expect(screen.queryByRole('button', { name: 'Mark all read' })).not.toBeInTheDocument();
     });
   });
+
+  describe('display settings and tracked unread counts (todos 669, 672)', () => {
+    it('renders the category and forum icon and colour, closed state and image', async () => {
+      const ferns = createMockForum({
+        id: '11',
+        name: 'Ferns',
+        slug: 'ferns',
+        icon: '🌿',
+        colour: 'sage',
+        is_closed: true,
+      });
+      const cacti = createMockForum({
+        id: '12',
+        name: 'Cacti',
+        slug: 'cacti',
+        image_url: 'https://cdn.example/cacti.jpg',
+      });
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns, cacti]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({
+          id: '1',
+          name: 'Plants',
+          icon: '🪴',
+          colour: 'orchid',
+          forums: [ferns, cacti],
+        }),
+      ]);
+
+      renderCategoryListPage();
+
+      const header = await screen.findByRole('heading', { level: 3, name: /Plants/ });
+      expect(within(header).getByTestId('category-icon')).toHaveTextContent('🪴');
+      expect(header.getAttribute('style')).toContain('var(--gt-sky)');
+
+      const fernsRow = screen.getByRole('link', { name: /Ferns/ });
+      const tile = within(fernsRow).getByTestId('forum-tile');
+      expect(tile).toHaveTextContent('🌿');
+      expect(tile.getAttribute('style')).toContain('var(--gt-leaf)');
+      expect(within(fernsRow).getByText('Closed')).toBeInTheDocument();
+
+      const cactiRow = screen.getByRole('link', { name: /Cacti/ });
+      expect(within(cactiRow).getByTestId('forum-image')).toHaveAttribute(
+        'src',
+        'https://cdn.example/cacti.jpg'
+      );
+    });
+
+    it('shows a tracked forum’s unread count instead of the dot', async () => {
+      const tracked = createMockForum({
+        id: '11',
+        name: 'Ferns',
+        slug: 'ferns',
+        has_unread: true,
+        watch_level: 'tracking',
+        unread_count: 4,
+      });
+      const plain = createMockForum({ id: '12', name: 'Cacti', slug: 'cacti', has_unread: true });
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([tracked, plain]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({ id: '1', name: 'Plants', forums: [tracked, plain] }),
+      ]);
+
+      renderCategoryListPage();
+
+      const fernsRow = await screen.findByRole('link', { name: /Ferns/ });
+      expect(within(fernsRow).getByTestId('forum-unread-count')).toHaveTextContent(
+        '4 unread topics'
+      );
+      expect(within(fernsRow).queryByText('Unread posts')).not.toBeInTheDocument();
+      const cactiRow = screen.getByRole('link', { name: /Cacti/ });
+      expect(within(cactiRow).queryByTestId('forum-unread-count')).not.toBeInTheDocument();
+      expect(within(cactiRow).getByText('Unread posts')).toBeInTheDocument();
+    });
+  });
 });

@@ -98,6 +98,8 @@ const forumNotificationVerbLabels = <String, String>{
   'mention': 'Mentions',
   'quote': 'Quotes of your posts',
   'solution': 'Answer accepted',
+  // Todo 672 (owner decision 2026-11-01): push only, no email cell.
+  'new_topic': 'New topics in forums you watch',
 };
 
 const forumNotificationChannelLabels = <String, String>{

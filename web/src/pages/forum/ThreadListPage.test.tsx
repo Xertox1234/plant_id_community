@@ -7,6 +7,8 @@ import ThreadListPage from './ThreadListPage';
 import { createMockCategory, createMockForum, createMockThread } from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
 import * as blogService from '../../services/blogService';
+import { AuthContext, type AuthContextValue } from '../../contexts/AuthContext';
+import type { Forum } from '@/types';
 
 const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }));
 
@@ -79,9 +81,11 @@ describe('ThreadListPage', () => {
 
     await waitFor(() => {
       expect(fetchCategorySpy).toHaveBeenCalledWith(3);
+      // No ?order= sends no sort: the backend applies the forum's own
+      // default sort (todo 669).
       expect(fetchThreadsSpy).toHaveBeenCalledWith({
         board: 'plant-care',
-        sort: '-last_activity_at',
+        sort: undefined,
       });
     });
   });
@@ -481,7 +485,7 @@ describe('ThreadListPage', () => {
       await waitFor(() =>
         expect(fetchThreadsSpy).toHaveBeenCalledWith({
           board: 'plant-care',
-          sort: '-last_activity_at',
+          sort: undefined,
           tag: 'monstera',
         })
       );
@@ -700,6 +704,133 @@ describe('ThreadListPage', () => {
       expect(forumService.fetchThreads).toHaveBeenCalledWith(
         expect.objectContaining({ board: 'club' })
       );
+    });
+  });
+
+  describe('forum display settings, theme, capabilities and watch level (todos 669, 672, 677, 681)', () => {
+    const forum = createMockForum({ id: '3', slug: 'plant-care', name: 'Plant Care', icon: '' });
+
+    function withRow(row: Partial<Forum>) {
+      vi.spyOn(forumService, 'fetchForum').mockResolvedValue(forum);
+      vi.spyOn(forumService, 'fetchThreads').mockResolvedValue({ items: [], meta: { count: 0 } });
+      vi.mocked(forumService.fetchForumCategory).mockResolvedValue(
+        createMockCategory({ id: '1', name: 'Indoor', forums: [{ ...forum, ...row }] })
+      );
+    }
+
+    function renderSignedIn() {
+      return render(
+        <AuthContext value={{ isAuthenticated: true } as AuthContextValue}>
+          <MemoryRouter initialEntries={['/forum/3-plant-care']}>
+            <ThreadListPage />
+          </MemoryRouter>
+        </AuthContext>
+      );
+    }
+
+    const allowed = { can_post: true, can_reply: true, can_poll: true, can_attach: true };
+
+    it('renders the rules panel with its link', async () => {
+      withRow({
+        rules: 'Be kind.\nNo spam.',
+        rules_url: 'https://example.com/rules',
+        capabilities: allowed,
+      });
+      renderThreadListPage(['/forum/3-plant-care']);
+
+      const panel = await screen.findByRole('region', { name: 'Forum rules' });
+      expect(panel).toHaveTextContent('Be kind.');
+      expect(panel).toHaveTextContent('No spam.');
+      expect(screen.getByRole('link', { name: 'Read the full rules' })).toHaveAttribute(
+        'href',
+        'https://example.com/rules'
+      );
+    });
+
+    it('shows no rules panel when the forum has none', async () => {
+      withRow({ rules: '', rules_url: '', capabilities: allowed });
+      renderThreadListPage(['/forum/3-plant-care']);
+      await screen.findByRole('link', { name: '+ New Thread' });
+      expect(screen.queryByRole('region', { name: 'Forum rules' })).not.toBeInTheDocument();
+    });
+
+    it('shows a closed forum as closed and offers no composer', async () => {
+      withRow({
+        is_closed: true,
+        capabilities: { can_post: false, can_reply: false, can_poll: false, can_attach: false },
+      });
+      renderSignedIn();
+
+      expect(await screen.findByText(/Closed: no new topics or replies/)).toBeInTheDocument();
+      expect(screen.getByTestId('no-new-topics')).toHaveTextContent(
+        'This forum is closed to new topics.'
+      );
+      expect(screen.queryByRole('link', { name: '+ New Thread' })).not.toBeInTheDocument();
+    });
+
+    it('hides the composer link from a member who may not post here', async () => {
+      withRow({ capabilities: { ...allowed, can_post: false } });
+      renderSignedIn();
+      expect(await screen.findByTestId('no-new-topics')).toHaveTextContent(
+        'You cannot start topics in this forum.'
+      );
+      expect(screen.queryByRole('link', { name: '+ New Thread' })).not.toBeInTheDocument();
+    });
+
+    it('renders the forum icon and accent colour', async () => {
+      withRow({ icon: '🌿', colour: 'bloom', capabilities: allowed });
+      renderThreadListPage(['/forum/3-plant-care']);
+
+      await waitFor(() => expect(screen.getByTestId('forum-icon')).toHaveTextContent('🌿'));
+      expect(screen.getByTestId('forum-icon').getAttribute('style')).toContain('var(--gt-berry)');
+      expect(screen.getByRole('heading', { level: 1 }).getAttribute('style')).toContain(
+        'var(--gt-berry)'
+      );
+    });
+
+    it('applies the forum theme as a token scope', async () => {
+      withRow({ theme: 'terracotta', capabilities: allowed });
+      renderThreadListPage(['/forum/3-plant-care']);
+      await waitFor(() =>
+        expect(screen.getByTestId('forum-page')).toHaveAttribute('data-forum-theme', 'terracotta')
+      );
+      expect(screen.getByTestId('forum-page')).toHaveClass('forum-theme');
+    });
+
+    it('applies no theme scope for none or an unknown theme', async () => {
+      withRow({ theme: 'neon' as never, capabilities: allowed });
+      renderThreadListPage(['/forum/3-plant-care']);
+      await screen.findByRole('link', { name: '+ New Thread' });
+      expect(screen.getByTestId('forum-page')).not.toHaveAttribute('data-forum-theme');
+    });
+
+    it('opens on the forum default sort when the URL names none', async () => {
+      withRow({ default_sort: '-created_at', capabilities: allowed });
+      renderThreadListPage(['/forum/3-plant-care']);
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Newest' })).toHaveAttribute(
+          'aria-pressed',
+          'true'
+        )
+      );
+      expect(forumService.fetchThreads).toHaveBeenCalledWith(
+        expect.objectContaining({ board: 'plant-care', sort: undefined })
+      );
+    });
+
+    it('offers a signed-in member the watch level picker', async () => {
+      withRow({ watch_level: 'tracking', capabilities: allowed });
+      renderSignedIn();
+      const picker = await screen.findByLabelText('Notifications');
+      expect(picker).toHaveValue('tracking');
+    });
+
+    it('offers a guest no watch level picker', async () => {
+      withRow({ watch_level: null, capabilities: { ...allowed, can_post: false } });
+      renderThreadListPage(['/forum/3-plant-care']);
+      // A guest keeps the composer link (it leads to sign-in).
+      await screen.findByRole('link', { name: '+ New Thread' });
+      expect(screen.queryByLabelText('Notifications')).not.toBeInTheDocument();
     });
   });
 });

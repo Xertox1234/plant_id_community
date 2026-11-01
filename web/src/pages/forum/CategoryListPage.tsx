@@ -11,6 +11,7 @@ import {
 } from '../../services/forumService';
 import { createSafeMarkup, SANITIZE_PRESETS } from '../../utils/sanitize';
 import ForumCard, { ForumLinkCard } from '../../components/forum/ForumCard';
+import { forumAccent } from '../../utils/forumDisplay';
 import SeasonStatsGrid from '../../components/forum/SeasonStatsGrid';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import { CategoryListSkeleton } from '../../components/forum/ForumSkeleton';
@@ -206,7 +207,12 @@ export default function CategoryListPage() {
           ? prev.map((section) => ({
               ...section,
               has_unread: false,
-              forums: section.forums.map((f) => ({ ...f, has_unread: false })),
+              forums: section.forums.map((f) => ({
+                ...f,
+                has_unread: false,
+                // A tracked forum's count clears with it (todo 672).
+                ...(f.unread_count != null ? { unread_count: 0 } : {}),
+              })),
             }))
           : prev
       );
@@ -432,7 +438,16 @@ export default function CategoryListPage() {
               const collapsed = isCollapsed(section.id);
               return (
                 <section key={section.id} aria-labelledby={headingId}>
-                  <h3 id={headingId} className="gt-label text-ink-2">
+                  <h3
+                    id={headingId}
+                    className="gt-label text-ink-2"
+                    style={
+                      forumAccent(section.colour)
+                        ? { color: forumAccent(section.colour) }
+                        : undefined
+                    }
+                    data-colour={section.colour || undefined}
+                  >
                     {/* Collapsible header (todo 673): the whole name is the
                         toggle, so the target is the row, not a tiny chevron. */}
                     <button
@@ -446,6 +461,11 @@ export default function CategoryListPage() {
                         aria-hidden="true"
                         className={`h-4 w-4 transition-transform motion-reduce:transition-none ${collapsed ? '-rotate-90' : ''}`}
                       />
+                      {section.icon && (
+                        <span aria-hidden="true" data-testid="category-icon">
+                          {section.icon}
+                        </span>
+                      )}
                       {section.name}
                       {section.has_unread && <span className="sr-only"> (unread posts)</span>}
                     </button>

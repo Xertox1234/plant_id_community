@@ -1,9 +1,10 @@
 from django.core.exceptions import ValidationError
-from django.core.validators import URLValidator
+from django.core.validators import MaxValueValidator, URLValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.panels import FieldPanel, MultiFieldPanel
 from wagtail.fields import RichTextField
+from wagtail.images import get_image_model_string
 from wagtail.models import Page
 
 
@@ -99,6 +100,107 @@ class ForumIndex(Page):
 # URLValidator also admits ftp/ftps, and anything else (``javascript:``,
 # ``data:``) would run in the reader's browser from a forum row.
 LINK_URL_SCHEMES = ("http", "https")
+
+# Display settings (todo 669, owner decision 2026-10-30). A forum's colour is
+# one of the Canopy accent tokens, stored by name: the web maps each to a
+# `--gt-*` token that is defined for light and dark, so no stored value can
+# fail contrast in either mode. Blank = the default ink.
+FORUM_COLOUR_CHOICES = [
+    ("sage", _("Sage")),
+    ("pollen", _("Pollen")),
+    ("bloom", _("Bloom")),
+    ("orchid", _("Orchid")),
+]
+
+# The `?sort=` values of the topic list (api/pagination.py SORT_ORDERINGS),
+# kept literal so this module never imports the API layer. A test pins the
+# two lists together.
+FORUM_SORT_CHOICES = [
+    ("-last_activity_at", _("Latest activity")),
+    ("-created_at", _("Newest topics")),
+    ("created_at", _("Oldest topics")),
+    ("-view_count", _("Most viewed")),
+    ("-post_count", _("Most replies")),
+]
+
+# The topics-per-page bound: the paginator's own `max_page_size`.
+FORUM_TOPICS_PER_PAGE_MAX = 100
+
+# Per-forum themes (todo 681, owner decision 2026-10-30): a fixed set of
+# Canopy-safe token scopes the web applies on the forum and thread pages.
+# Blank = the site's own Canopy tokens. The colour above stays an accent on
+# top of the theme.
+FORUM_THEME_CHOICES = [
+    ("botanical", _("Botanical")),
+    ("moss", _("Moss")),
+    ("terracotta", _("Terracotta")),
+    ("slate", _("Slate")),
+]
+
+# The longest icon value: one emoji can be several code points (a skin tone,
+# a ZWJ sequence, a variation selector), so the bound is generous in code
+# points but the validator still admits one visible symbol only.
+FORUM_ICON_MAX_LENGTH = 16
+
+
+def validate_forum_icon(value: str) -> None:
+    """A single emoji (owner decision 2026-10-30), or blank.
+
+    Python's ``re`` has no grapheme-cluster class, so this is the structural
+    approximation: the first code point must be a pictograph (or a regional
+    indicator, for a flag), and every later one must be a joiner, a variation
+    selector, a skin-tone modifier, a keycap/tag mark or a pictograph that a
+    joiner glued on. Letters, digits, spaces and punctuation are refused.
+    """
+    if not value:
+        return
+    error = ValidationError(_("Enter a single emoji."), code="invalid_icon")
+    if len(value) > FORUM_ICON_MAX_LENGTH:
+        raise error
+
+    def pictograph(cp: int) -> bool:
+        return (
+            0x1F000 <= cp <= 0x1FAFF
+            or 0x2600 <= cp <= 0x27BF
+            or 0x2300 <= cp <= 0x23FF
+            or 0x2B00 <= cp <= 0x2BFF
+            or cp in (0x00A9, 0x00AE, 0x203C, 0x2049, 0x2122, 0x2139, 0x3030, 0x303D)
+            or 0x2190 <= cp <= 0x21FF
+        )
+
+    def regional(cp: int) -> bool:
+        return 0x1F1E6 <= cp <= 0x1F1FF
+
+    def modifier(cp: int) -> bool:
+        return (
+            cp in (0x200D, 0xFE0F, 0xFE0E, 0x20E3)
+            or 0x1F3FB <= cp <= 0x1F3FF
+            or 0xE0020 <= cp <= 0xE007F
+        )
+
+    cps = [ord(ch) for ch in value]
+    first = cps[0]
+    if regional(first):
+        if len(cps) != 2 or not regional(cps[1]):
+            raise error
+        return
+    if not pictograph(first) and not (
+        # A keycap: digit/#/* + VS16 + U+20E3.
+        len(cps) == 3
+        and chr(first) in "0123456789#*"
+        and cps[2] == 0x20E3
+    ):
+        raise error
+    previous_joiner = False
+    for cp in cps[1:]:
+        if modifier(cp):
+            previous_joiner = cp == 0x200D
+            continue
+        if previous_joiner and pictograph(cp):
+            previous_joiner = False
+            continue
+        raise error
+
 
 # The longest forum password the admin sets or a reader may submit (todo 680):
 # an unbounded body would make every unlock attempt hash it whole.
@@ -207,6 +309,83 @@ class Forum(models.Model):
     )
     # Incremented atomically by the redirect (`/forum/links/<id>/go/`).
     click_count = models.PositiveIntegerField(default=0, editable=False)
+    # Display settings (todo 669). `is_closed`, not phpBB's "locked": the API
+    # already says `is_locked` for a password forum this session has not
+    # unlocked (todo 680), and a closed forum mirrors `Topic.is_closed`: no
+    # new topics or replies, staff and the forum's moderators exempt.
+    is_closed = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=_(
+            "No new topics or replies. Staff and this forum's moderators can "
+            "still post."
+        ),
+    )
+    # Rules (owner decision 2026-10-30): plain text plus an optional link,
+    # phpBB style. Served verbatim and rendered as escaped text.
+    rules = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text=_("Plain text shown above the topic list. Each line a paragraph."),
+    )
+    rules_url = models.URLField(
+        max_length=2000,
+        blank=True,
+        default="",
+        db_default="",
+        validators=[URLValidator(schemes=list(LINK_URL_SCHEMES))],
+        help_text=_("Optional link to the full rules (http or https only)."),
+    )
+    icon = models.CharField(
+        max_length=FORUM_ICON_MAX_LENGTH,
+        blank=True,
+        default="",
+        db_default="",
+        validators=[validate_forum_icon],
+        help_text=_("A single emoji shown beside the forum's name."),
+    )
+    colour = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        db_default="",
+        choices=FORUM_COLOUR_CHOICES,
+        help_text=_("An accent from the site palette, safe in light and dark."),
+    )
+    # Owner decision 2026-10-31: an optional Wagtail image, chosen in the
+    # admin and shown on the forum index. SET_NULL: deleting the image never
+    # takes the forum with it.
+    image = models.ForeignKey(
+        get_image_model_string(),
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    topics_per_page = models.PositiveSmallIntegerField(
+        default=0,
+        db_default=0,
+        validators=[MaxValueValidator(FORUM_TOPICS_PER_PAGE_MAX)],
+        help_text=_("Topics on each page of this forum. 0 = the site default."),
+    )
+    default_sort = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        db_default="",
+        choices=FORUM_SORT_CHOICES,
+        help_text=_("The topic order readers see first. Blank = latest activity."),
+    )
+    # Todo 681: one of the fixed Canopy-safe themes, or blank.
+    theme = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        db_default="",
+        choices=FORUM_THEME_CHOICES,
+        help_text=_("A colour theme for this forum's pages."),
+    )
 
     class Meta:
         ordering = ["position", "id"]

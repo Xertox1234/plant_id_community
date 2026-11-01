@@ -45,6 +45,7 @@ from typing import Any
 from django.contrib.auth.models import Group, Permission
 from django.db import transaction
 from django.db.models import (
+    BooleanField,
     CharField,
     Exists,
     ExpressionWrapper,
@@ -52,6 +53,7 @@ from django.db.models import (
     OuterRef,
     Q,
     QuerySet,
+    Value,
 )
 from django.utils.crypto import constant_time_compare, salted_hmac
 from wagtail.models import PageViewRestriction
@@ -65,6 +67,8 @@ REPLY = "reply"
 POLL = "poll"
 ATTACH = "attach"
 FLAGS = (LIST, READ, POST, REPLY, POLL, ATTACH)
+# The flags a writer needs (todo 677); each is a `can_<flag>` capability.
+WRITE_FLAGS = (POST, REPLY, POLL, ATTACH)
 
 ROLE_FLAGS: dict[str, frozenset[str]] = {
     ForumRole.FULL: frozenset(FLAGS),
@@ -392,6 +396,47 @@ def user_can(user: Any, forum: Forum, flag: str) -> bool:
     if cache is not None:
         cache[forum.pk] = flags
     return flag in flags
+
+
+def bypasses_closed(user: Any, forum: Forum) -> bool:
+    """Staff and the forum's moderators may still post in a closed forum
+    (todo 669)."""
+    return sees_everything(user) or is_forum_moderator(user, forum)
+
+
+def forum_capabilities(user: Any, forum: Forum) -> dict[str, bool]:
+    """``{can_post, can_reply, can_poll, can_attach}`` for ``user`` on
+    ``forum`` (todo 677), with a closed forum's rule folded in (todo 669).
+    Guests can write nothing whatever the guest grants say: every write
+    endpoint needs a signed-in member."""
+    if not _authenticated(user):
+        return {f"can_{flag}": False for flag in WRITE_FLAGS}
+    if getattr(forum, "is_closed", False) and not bypasses_closed(user, forum):
+        return {f"can_{flag}": False for flag in WRITE_FLAGS}
+    return {f"can_{flag}": user_can(user, forum, flag) for flag in WRITE_FLAGS}
+
+
+def capability_annotations(user: Any) -> dict[str, Any]:
+    """``forum_capabilities`` as queryset annotations on ``Forum`` rows, so a
+    list of forums gets every row's capabilities in its own SELECT (no query
+    per row)."""
+    if not _authenticated(user):
+        return {
+            f"can_{flag}": Value(False, output_field=BooleanField())
+            for flag in WRITE_FLAGS
+        }
+    if sees_everything(user):
+        return {
+            f"can_{flag}": Value(True, output_field=BooleanField())
+            for flag in WRITE_FLAGS
+        }
+    open_to_user = Q(is_closed=False) | _moderator_q(user)
+    return {
+        f"can_{flag}": ExpressionWrapper(
+            open_to_user & access_q(user, flag), output_field=BooleanField()
+        )
+        for flag in WRITE_FLAGS
+    }
 
 
 def copy_permissions(source: Forum, target: Forum) -> int:

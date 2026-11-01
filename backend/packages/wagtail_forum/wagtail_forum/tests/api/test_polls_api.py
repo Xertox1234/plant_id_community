@@ -8,15 +8,29 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
-from wagtail_forum.models import Poll, PollOption, PollVote, Post, Topic
+from wagtail_forum.models import (
+    ForumGrant,
+    ForumRole,
+    Poll,
+    PollOption,
+    PollVote,
+    Post,
+    Topic,
+)
+from wagtail_forum.services.forum_permissions import set_grant
 from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
-def _board(slug="general"):
-    return make_forum(name="General", slug=slug)
+def _board(slug="general", *, polls=False):
+    # Todo 677 enforces the poll flag: the default members role (Standard)
+    # has none, so a board that takes new polls grants Standard + polls.
+    board = make_forum(name="General", slug=slug)
+    if polls:
+        set_grant(board, ForumGrant.MEMBERS, ForumRole.STANDARD_POLLS)
+    return board
 
 
 def _topic(slug="t", live=True, board=None, author=None):
@@ -61,7 +75,7 @@ def _create_topic(client, board, poll=None, slug="poll-thread"):
 
 @pytest.mark.django_db
 def test_compose_a_topic_with_a_poll():
-    board = _board("pc1")
+    board = _board("pc1", polls=True)
     author = User.objects.create_user(username="pc1-author")
     client = APIClient()
     client.force_authenticate(author)
@@ -83,7 +97,7 @@ def test_compose_a_topic_with_a_poll():
 
 @pytest.mark.django_db
 def test_compose_without_a_poll_creates_none():
-    board = _board("pc2")
+    board = _board("pc2", polls=True)
     author = User.objects.create_user(username="pc2-author")
     client = APIClient()
     client.force_authenticate(author)
@@ -98,7 +112,7 @@ def test_compose_without_a_poll_creates_none():
 def test_blank_options_are_dropped_not_rejected():
     """A composer with a fixed number of option inputs sends empties for the
     ones left untouched — a normal submission, not a malformed one."""
-    board = _board("pc3")
+    board = _board("pc3", polls=True)
     author = User.objects.create_user(username="pc3-author")
     client = APIClient()
     client.force_authenticate(author)
@@ -131,7 +145,7 @@ def test_blank_options_are_dropped_not_rejected():
     ],
 )
 def test_invalid_poll_is_rejected_and_creates_no_topic(poll, reason):
-    board = _board(f"pc-invalid-{abs(hash(reason)) % 10000}")
+    board = _board(f"pc-invalid-{abs(hash(reason)) % 10000}", polls=True)
     author = User.objects.create_user(username=f"author-{abs(hash(reason)) % 10000}")
     client = APIClient()
     client.force_authenticate(author)
@@ -157,7 +171,7 @@ def test_invalid_poll_is_rejected_and_creates_no_topic(poll, reason):
 
 @pytest.mark.django_db
 def test_a_close_time_in_the_past_is_rejected():
-    board = _board("pc4")
+    board = _board("pc4", polls=True)
     author = User.objects.create_user(username="pc4-author")
     client = APIClient()
     client.force_authenticate(author)
@@ -180,7 +194,7 @@ def test_a_close_time_in_the_past_is_rejected():
 def test_a_vote_count_in_the_create_payload_is_ignored():
     """AC 5, creation half: there is no writable count anywhere in the poll
     write shape, so a caller cannot seed results at compose time either."""
-    board = _board("pc5")
+    board = _board("pc5", polls=True)
     author = User.objects.create_user(username="pc5-author")
     client = APIClient()
     client.force_authenticate(author)
@@ -431,7 +445,7 @@ def test_vote_response_matches_topic_detail_poll_shape():
 
 @pytest.mark.django_db
 def test_compose_a_multi_choice_poll_stores_max_choices():
-    board = _board("mc1")
+    board = _board("mc1", polls=True)
     author = User.objects.create_user(username="mc1-author")
     client = APIClient()
     client.force_authenticate(author)
@@ -455,7 +469,7 @@ def test_compose_a_multi_choice_poll_stores_max_choices():
 
 @pytest.mark.django_db
 def test_max_choices_defaults_to_single_choice():
-    board = _board("mc2")
+    board = _board("mc2", polls=True)
     author = User.objects.create_user(username="mc2-author")
     client = APIClient()
     client.force_authenticate(author)
