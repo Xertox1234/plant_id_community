@@ -4,6 +4,8 @@ priority: p3
 issue_id: "684"
 tags: [forum, forum-categories, database, migrations]
 dependencies: ["675"]
+triage: ready
+triaged: 2026-11-01
 ---
 
 # Drop the `wagtail_forum_forum.is_hidden` column (contract half of migration 0049)
