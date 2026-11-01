@@ -7,7 +7,7 @@ dependencies: ["665"]
 triage: ready
 triaged: 2026-10-30
 blocked_on: "The owner needs to define the levels and the delivery channels for a new-topic notification."
-owner_decision: "Discourse four levels: watching = every post (auto-subscribe each new topic), watching_first_post = new topics only, tracking = unread counts only, muted = hidden from Recent. New-topic alerts go to in-app + push, following the existing notification preference matrix; no new email. (owner, 2026-10-30) Open: a new question raised at the 2026-10-30 re-triage; skipped per overnight orders (2026-10-30)"
+owner_decision: "Discourse four levels: watching = every post (auto-subscribe each new topic), watching_first_post = new topics only, tracking = unread counts only, muted = hidden from Recent. New-topic alerts go to in-app + push, following the existing notification preference matrix; no new email. (owner, 2026-10-30) Tracking: store and select the level AND show per-forum unread badges on forum rows, built on the per-forum read markers from #1226 (todo 671). (owner, 2026-10-31)"
 ---
 
 # Forum categories slice 8: Watch / Track / Mute per forum
@@ -48,3 +48,7 @@ Discourse lets a member watch, track or mute a category; phpBB lets members subs
 ### 2026-10-30 - Owner decision
 
 - The 2026-10-29 triage question was answered by the owner: Discourse four levels: watching = every post (auto-subscribe each new topic), watching_first_post = new topics only, tracking = unread counts only, muted = hidden from Recent. New-topic alerts go to in-app + push, following the existing notification preference matrix; no new email.
+
+### 2026-10-31 - owner decision
+
+- Owner answered the re-triage question: tracking is stored and selectable and also shows per-forum unread badges.
