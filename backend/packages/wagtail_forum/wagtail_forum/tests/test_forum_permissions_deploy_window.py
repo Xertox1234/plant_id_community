@@ -5,13 +5,17 @@ release's ``Forum`` model (the 0046 state) filters ``is_hidden`` on every
 forum read and inserts forums without the columns 0047 adds. So after the new
 migrations the ``is_hidden`` column must still exist, and every new NOT NULL
 column must carry a database default (docs/rules/database.md expand/contract).
+
+0053 is the contract half (todo 684): it drops ``is_hidden`` once every
+container runs code that never selects it, so the release before 0053 (the
+0052 state) must still read and write forums with the column gone.
 """
 
 import pytest
 from django.db import connection
 from django.db.migrations.loader import MigrationLoader
 
-PREVIOUS_RELEASE = ("wagtail_forum", "0046_forum_links_reads_collapsed")
+PREVIOUS_RELEASE = ("wagtail_forum", "0052_forum_theme")
 NEW_COLUMNS = (
     "password_hash",
     "prune_enabled",
@@ -38,7 +42,7 @@ def test_the_previous_release_still_reads_and_writes_forums():
         forum_type="forum", parent=category, name="Kept", slug="kept"
     )
 
-    assert OldForum.objects.filter(is_hidden=False, pk=forum.pk).exists()
+    assert OldForum.objects.filter(pk=forum.pk).exists()
 
     from wagtail_forum.models import Forum
 
@@ -48,16 +52,13 @@ def test_the_previous_release_still_reads_and_writes_forums():
     assert new.prune_polls is False
 
 
-def test_the_new_release_inserts_forums_while_is_hidden_still_exists():
-    from wagtail_forum.models import Forum
-
-    forum = Forum.objects.create(forum_type="category", name="New", slug="new")
-
+def test_the_is_hidden_column_is_dropped():
     with connection.cursor() as cursor:
         cursor.execute(
-            "SELECT is_hidden FROM wagtail_forum_forum WHERE id = %s", [forum.pk]
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = 'wagtail_forum_forum' AND column_name = 'is_hidden'"
         )
-        assert cursor.fetchone() == (False,)
+        assert cursor.fetchone() is None
 
 
 def test_every_new_column_has_a_database_default():
@@ -65,9 +66,9 @@ def test_every_new_column_has_a_database_default():
         cursor.execute(
             "SELECT column_name, column_default FROM information_schema.columns "
             "WHERE table_name = 'wagtail_forum_forum' AND column_name = ANY(%s)",
-            [list(NEW_COLUMNS) + ["is_hidden"]],
+            [list(NEW_COLUMNS)],
         )
         defaults = dict(cursor.fetchall())
 
-    assert set(defaults) == set(NEW_COLUMNS) | {"is_hidden"}
+    assert set(defaults) == set(NEW_COLUMNS)
     assert all(default is not None for default in defaults.values()), defaults
