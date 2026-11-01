@@ -179,7 +179,7 @@ have all six flags (`list`, `read`, `post`, `reply`, `poll`, `attach`),
 *Standard* all but `poll`, *Limited* `list/read/post/reply`, *Read only*
 `list/read`, *No access* none. A member's flags are the union over All members
 and each of their groups. The fallback is **per principal**: a pseudo-group
-with no row on a forum gets its default (members Standard, guests Read only),
+with no row on a forum gets its default (members Standard + polls, guests Read only),
 and a group with no row adds nothing, so a forum nobody set up stays open and
 one group row never closes it to everyone else. A new forum copies its
 category's grants; the admin's *Permissions* screen (edit page → actions) is a
@@ -206,11 +206,12 @@ upload that sends the optional `forum_id` needs `attach` there (no
 `forum_id`: accepted, the body check still holds). A forum the caller cannot
 see is still 404; a visible one answers 403 `forum_post_denied`,
 `forum_reply_denied`, `forum_poll_denied` or `forum_attach_denied`. Staff
-bypass every flag. `Standard`, the members' no-grant default, has no `poll`:
-on a forum with no members grant only staff can add polls until the forum
-grants *Standard + polls*. The forum rows of `/forum/categories/` carry the
-viewer's `can_post`, `can_reply`, `can_poll` and `can_attach` (false for
-guests), folded into the same SELECT.
+bypass every flag. The members' no-grant default is *Standard + polls*, not
+*Standard*, so a forum with no members grant keeps taking polls (owner
+decision 2026-11-01); granting members *Standard* is what takes `poll` away.
+The forum rows of `/forum/categories/` carry the viewer's `can_post`,
+`can_reply`, `can_poll` and `can_attach` (false for guests), folded into the
+same SELECT.
 
 **Moderators** (todo 674; `permissions.py`). A `ForumModerator` is a user or a
 group, set on the forum's *Moderators* tab. They moderate through the existing

@@ -55,7 +55,7 @@ The forum is a reusable, Wagtail-native package — no django-machina, no
   shared caches, the vector index). The rule is
   `services.forum_permissions.visible_forums` (todos 675-676): grants folded in
   as `Exists` subqueries, so it adds no query; the per-principal fallback
-  (members Standard, guests Read only) keeps an ungranted forum open. Hidden is
+  (members Standard + polls, guests Read only) keeps an ungranted forum open. Hidden is
   404, never 403. Many users at once (who may hear about a post) is
   `readers_of_forum`, three queries whatever the count. Boards are not pages
   any more; `.live().public()` still applies to the `ForumIndex` page itself

@@ -25,8 +25,9 @@ pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _board(slug="general", *, polls=False):
-    # Todo 677 enforces the poll flag: the default members role (Standard)
-    # has none, so a board that takes new polls grants Standard + polls.
+    # Todo 677 enforces the poll flag. The members' no-grant default is
+    # Standard + polls (owner decision 2026-11-01), so `polls=True` only makes
+    # the grant explicit; an ungranted board takes polls too (see below).
     board = make_forum(name="General", slug=slug)
     if polls:
         set_grant(board, ForumGrant.MEMBERS, ForumRole.STANDARD_POLLS)
@@ -93,6 +94,23 @@ def test_compose_a_topic_with_a_poll():
     assert [o.text for o in poll.options.all()] == ["Peat", "Coir", "Bark"]
     assert [o.order for o in poll.options.all()] == [0, 1, 2]
     assert poll.closes_at is None
+
+
+@pytest.mark.django_db
+def test_a_member_adds_a_poll_on_a_board_with_no_grant():
+    """No members grant falls back to Standard + polls, so existing forums
+    keep taking polls once todo 677 enforces the flag (owner 2026-11-01)."""
+    board = _board("pc-default")
+    author = User.objects.create_user(username="pc-default-author")
+    client = APIClient()
+    client.force_authenticate(author)
+
+    resp = _create_topic(
+        client, board, poll={"question": "Best soil?", "options": ["Peat", "Coir"]}
+    )
+
+    assert resp.status_code == 201, resp.content
+    assert Poll.objects.filter(topic_id=resp.data["id"]).exists()
 
 
 @pytest.mark.django_db

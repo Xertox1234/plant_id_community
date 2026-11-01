@@ -1,7 +1,7 @@
 """Forum permission roles and grants (todo 675; owner decision 2026-10-30).
 
 phpBB's role matrix, grants unioned across a member's groups, and the
-per-principal fallback (members Standard, guests Read only) that keeps a
+per-principal fallback (members Standard + polls, guests Read only) that keeps a
 forum nobody has set up open. Plus the copy rules: a new forum starts with
 its category's grants, and "copy permissions" overwrites exactly.
 """
@@ -92,23 +92,36 @@ def test_grants_union_across_a_members_groups():
     assert _flags(_fresh(member), forum) == ALL
 
 
-def test_a_forum_with_no_grant_is_standard_for_members_and_read_only_for_guests():
+def test_a_forum_with_no_grant_is_standard_polls_for_members_and_read_only_for_guests():
+    """Members default to Standard + polls, not Standard: members could always
+    add polls, and todo 677 enforces the poll flag (owner decision 2026-11-01)."""
     forum = make_forum()
     member = User.objects.create_user(username="m")
 
-    assert _flags(member, forum) == EXPECTED[ForumRole.STANDARD]
+    assert _flags(member, forum) == EXPECTED[ForumRole.STANDARD_POLLS]
+    assert POLL in _flags(member, forum)
     assert _flags(AnonymousUser(), forum) == EXPECTED[ForumRole.READ_ONLY]
+
+
+def test_an_explicit_standard_grant_still_has_no_poll():
+    """Only the fallback changed: granting members Standard takes polls away."""
+    forum = make_forum()
+    set_grant(forum, ForumGrant.MEMBERS, ForumRole.STANDARD)
+    member = User.objects.create_user(username="m")
+
+    assert _flags(member, forum) == EXPECTED[ForumRole.STANDARD]
+    assert POLL not in _flags(member, forum)
 
 
 def test_one_group_row_never_takes_the_forum_away_from_everyone_else():
     """The fallback is per principal: the members row is still missing, so
-    members keep Standard (no invisible-forum footgun)."""
+    members keep their default, Standard + polls (no invisible-forum footgun)."""
     forum = make_forum()
     group = Group.objects.create(name="Experts")
     set_grant(forum, ForumGrant.GROUP, ForumRole.FULL, group=group)
     member = User.objects.create_user(username="m")
 
-    assert _flags(member, forum) == EXPECTED[ForumRole.STANDARD]
+    assert _flags(member, forum) == EXPECTED[ForumRole.STANDARD_POLLS]
     assert visible_forums(member).filter(pk=forum.pk).exists()
     assert visible_forums(None).filter(pk=forum.pk).exists()
 

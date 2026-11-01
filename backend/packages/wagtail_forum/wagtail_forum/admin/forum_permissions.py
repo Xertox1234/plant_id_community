@@ -6,7 +6,7 @@ after a confirmation step. Behind the Forum ``change`` permission, like the
 edit form it is opened from.
 
 A pseudo-group left on *Default* has no grant row and gets its default role
-(Standard for members, Read only for guests); a group left on *No grant*
+(Standard + polls for members, Read only for guests); a group left on *No grant*
 adds nothing (``services.forum_permissions``).
 """
 

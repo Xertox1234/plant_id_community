@@ -10,11 +10,11 @@ Django group they belong to; a guest's only principal is the *guests*
 pseudo-group. What a user may do is the **union** of their principals' roles.
 
 **The no-grant fallback is per principal, not per forum.** A pseudo-group with
-no row on a forum gets its default role: *Standard* for members, *Read only*
+no row on a forum gets its default role: *Standard + polls* for members, *Read only*
 for guests. A real group with no row adds nothing. So a forum nobody has set
 up works as it always did, and adding one row ("Experts: Full") never takes
 the forum away from everyone else: the members row is still missing, so
-members still get Standard. Hiding a forum is an explicit act: *No access*
+members still get their default. Hiding a forum is an explicit act: *No access*
 for guests and members (``hide_for_everyone``), which is what the
 ``is_hidden`` data migration wrote. (A per-forum reading of "a forum with no
 grant", where any one row switches the defaults off, is the invisible-forum
@@ -79,10 +79,13 @@ ROLE_FLAGS: dict[str, frozenset[str]] = {
     ForumRole.NO_ACCESS: frozenset(),
 }
 
-# The role a pseudo-group gets on a row that has no grant for it.
+# The role a pseudo-group gets on a row that has no grant for it. Members get
+# Standard + polls, not Standard: members could always add polls, and todo 677
+# enforces the poll flag, so a Standard default would make every ungranted
+# forum staff-only for polls (owner decision 2026-11-01).
 DEFAULT_ROLES: dict[str, str] = {
     ForumGrant.ANONYMOUS: ForumRole.READ_ONLY,
-    ForumGrant.MEMBERS: ForumRole.STANDARD,
+    ForumGrant.MEMBERS: ForumRole.STANDARD_POLLS,
 }
 
 # The session key holding the forum ids this session unlocked (todo 680).

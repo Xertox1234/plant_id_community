@@ -78,3 +78,7 @@ Write permissions per forum (phpBB f_post, f_reply, f_poll, f_attach) must be en
 ### 2026-11-01 - Completed by the todo sweep (run 2026-11-01-0035)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-01 - owner decision: members' poll default
+
+- The worker flagged that the members' no-grant default (*Standard*, no `poll`) would make every ungranted forum staff-only for polls once this todo enforced the flag, which contradicts 675's "existing forums keep working with no setup". The owner chose to make the fallback *Standard + polls* (2026-11-01). `DEFAULT_ROLES[MEMBERS]` is now `STANDARD_POLLS`; an explicit *Standard* grant still has no `poll`. Tests: `test_a_forum_with_no_grant_is_standard_polls_for_members_and_read_only_for_guests`, `test_an_explicit_standard_grant_still_has_no_poll`, `test_a_member_adds_a_poll_on_a_board_with_no_grant`. A mutation back to `STANDARD` fails 3 tests. wagtail_forum + forum_host: 2518 passed.
