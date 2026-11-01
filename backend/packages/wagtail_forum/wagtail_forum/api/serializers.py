@@ -340,7 +340,8 @@ class ForumRowSerializer(BoardSerializer):
 
     has_unread = serializers.BooleanField(read_only=True)
     # Todo 680: a password forum this session has not unlocked. Its row is
-    # listed with `last_post_at` null and `has_unread` false.
+    # listed with `last_post_at` null, `has_unread` false, and `rules`,
+    # `rules_url`, `icon`, `topic_template` "" and `image_url` null.
     is_locked = serializers.BooleanField(read_only=True)
     # Todo 674: the names on the row's "Moderators:" line, users (by
     # username) then groups, from CategoryListView's `moderator_names`.

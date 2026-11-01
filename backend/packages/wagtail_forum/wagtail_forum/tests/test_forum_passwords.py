@@ -103,6 +103,37 @@ def test_a_locked_forum_hides_its_topics_until_unlocked(locked):
     assert client.get(topic_url).status_code == 200
 
 
+def test_a_locked_row_hides_its_rules_icon_and_image_until_unlocked(locked):
+    # Owner decision 2026-11-01: a locked row shows its name and description
+    # only. Rules, rules URL, icon and image appear once the session unlocks.
+    from wagtail.images import get_image_model
+    from wagtail.images.tests.utils import get_test_image_file
+
+    forum = locked["forum"]
+    forum.rules = "Members: be kind."
+    forum.rules_url = "https://example.com/club-rules"
+    forum.icon = "🔐"
+    forum.image = get_image_model().objects.create(
+        title="club", file=get_test_image_file()
+    )
+    forum.save()
+    client, _ = _member()
+
+    row = _row(client)
+    assert row["is_locked"] is True
+    assert (row["rules"], row["rules_url"], row["icon"]) == ("", "", "")
+    assert row["image_url"] is None
+
+    assert _unlock(client).status_code == 200
+
+    row = _row(client)
+    assert row["is_locked"] is False
+    assert row["rules"] == "Members: be kind."
+    assert row["rules_url"] == "https://example.com/club-rules"
+    assert row["icon"] == "🔐"
+    assert row["image_url"] is not None
+
+
 def test_wrong_passwords_count_toward_the_limit_and_return_429(locked):
     client, _ = _member()
 
