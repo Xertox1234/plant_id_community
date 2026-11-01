@@ -5,9 +5,9 @@ issue_id: "672"
 tags: [forum, forum-categories, backend, web, notifications]
 dependencies: ["665"]
 triage: ready
-triaged: 2026-10-30
+triaged: 2026-11-01
 blocked_on: "The owner needs to define the levels and the delivery channels for a new-topic notification."
-owner_decision: "Discourse four levels: watching = every post (auto-subscribe each new topic), watching_first_post = new topics only, tracking = unread counts only, muted = hidden from Recent. New-topic alerts go to in-app + push, following the existing notification preference matrix; no new email. (owner, 2026-10-30) Tracking: store and select the level AND show per-forum unread badges on forum rows, built on the per-forum read markers from #1226 (todo 671). (owner, 2026-10-31)"
+owner_decision: "Discourse four levels: watching = every post (auto-subscribe each new topic), watching_first_post = new topics only, tracking = unread counts only, muted = hidden from Recent. New-topic alerts go to in-app + push, following the existing notification preference matrix; no new email. (owner, 2026-10-30) Tracking: store and select the level AND show per-forum unread badges on forum rows, built on the per-forum read markers from #1226 (todo 671). (owner, 2026-10-31) New-topic alert gets its OWN new_topic row in the push/in-app preference matrix (push on, in-app on, email off; also shown on the mobile settings card), not the reply row. A tracked forum's badge shows an unread COUNT, not just the has_unread dot. (owner, 2026-11-01)"
 ---
 
 # Forum categories slice 8: Watch / Track / Mute per forum

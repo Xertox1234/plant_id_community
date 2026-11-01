@@ -4,10 +4,9 @@ priority: p2
 issue_id: "677"
 tags: [forum, forum-categories, backend, web, permissions, security]
 dependencies: ["676"]
-triage: needs-design
-triaged: 2026-10-30
-blocked_on: "Owner picks where f_attach is enforced; todos 675 and 676 (user_can service, read enforcement) must merge first."
-owner_decision: "Enforce f_attach both ways: reject image blocks in post bodies for principals without f_attach, AND require a forum id on image upload that is checked against f_attach. (owner, 2026-10-31)"
+triage: ready
+triaged: 2026-11-01
+owner_decision: "Enforce f_attach both ways: reject image blocks in post bodies for principals without f_attach, AND accept a forum id on image upload that is checked against f_attach. (owner, 2026-10-31) forum_id on POST /forum/images/ is OPTIONAL: checked against f_attach when sent; when absent the upload is accepted and the body image-block check still enforces f_attach. The Identify upload and shipped Flutter builds keep working. (owner, 2026-11-01)"
 ---
 
 # Forum categories slice 11c: enforce post/reply/poll/attach permissions and reflect them in the web UI

@@ -5,7 +5,7 @@ issue_id: "669"
 tags: [forum, forum-categories, backend, web, wagtail]
 dependencies: ["666"]
 triage: ready
-triaged: 2026-10-30
+triaged: 2026-11-01
 blocked_on: "An owner choice on the rules format (plain text, limited rich text, rules_url, or text plus link like phpBB) and the icon format (emoji or a named icon)"
 owner_decision: "Rules: plain text plus an optional rules URL (phpBB style). Icon: a single emoji. Colour: chosen from the existing Canopy accent tokens (dark-mode safe). (owner, 2026-10-30) Forum image: add it now as an optional wagtailimages.Image FK with on_delete=SET_NULL, chosen in the Wagtail admin and shown on the forum index. (owner, 2026-10-31)"
 ---
