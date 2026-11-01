@@ -7,7 +7,7 @@ dependencies: ["666"]
 triage: ready
 triaged: 2026-10-30
 blocked_on: "An owner choice on the rules format (plain text, limited rich text, rules_url, or text plus link like phpBB) and the icon format (emoji or a named icon)"
-owner_decision: "Rules: plain text plus an optional rules URL (phpBB style). Icon: a single emoji. Colour: chosen from the existing Canopy accent tokens (dark-mode safe). (owner, 2026-10-30) Open: a new question raised at the 2026-10-30 re-triage; skipped per overnight orders (2026-10-30)"
+owner_decision: "Rules: plain text plus an optional rules URL (phpBB style). Icon: a single emoji. Colour: chosen from the existing Canopy accent tokens (dark-mode safe). (owner, 2026-10-30) Forum image: add it now as an optional wagtailimages.Image FK with on_delete=SET_NULL, chosen in the Wagtail admin and shown on the forum index. (owner, 2026-10-31)"
 ---
 
 # Forum categories slice 5: per-forum display settings (locked, rules, icon/colour/image, topics per page, default sort)
@@ -49,3 +49,7 @@ phpBB forums carry status and display settings; Discourse adds colour/icon and a
 ### 2026-10-30 - Owner decision
 
 - The 2026-10-29 triage question was answered by the owner: Rules: plain text plus an optional rules URL (phpBB style). Icon: a single emoji. Colour: chosen from the existing Canopy accent tokens (dark-mode safe).
+
+### 2026-10-31 - owner decision
+
+- Owner answered the re-triage question: add the optional forum image now (wagtailimages FK, SET_NULL).

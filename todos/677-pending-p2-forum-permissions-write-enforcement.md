@@ -7,7 +7,7 @@ dependencies: ["676"]
 triage: needs-design
 triaged: 2026-10-30
 blocked_on: "Owner picks where f_attach is enforced; todos 675 and 676 (user_can service, read enforcement) must merge first."
-owner_decision: "new owner question at re-triage; skipped per overnight orders (2026-10-30)"
+owner_decision: "Enforce f_attach both ways: reject image blocks in post bodies for principals without f_attach, AND require a forum id on image upload that is checked against f_attach. (owner, 2026-10-31)"
 ---
 
 # Forum categories slice 11c: enforce post/reply/poll/attach permissions and reflect them in the web UI
@@ -42,3 +42,7 @@ Write permissions per forum (phpBB f_post, f_reply, f_poll, f_attach) must be en
 ### 2026-10-28 - Filed
 
 - Filed from the forum-categories research session (owner decisions in the design spec §1).
+
+### 2026-10-31 - owner decision
+
+- Owner answered the re-triage question: enforce f_attach both ways (reject image blocks in the body and require a checked forum id on upload).
