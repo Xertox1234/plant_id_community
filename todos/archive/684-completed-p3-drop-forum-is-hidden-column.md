@@ -93,3 +93,12 @@ Add `wagtail_forum/0050_drop_forum_is_hidden_column.py` (or the next free number
 ### 2026-11-01 - Completed by the todo sweep (run 2026-11-01-1340)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-01 - Review round 1: non-blocking findings (PR #1234)
+
+Round 1 found 5 lows and nothing blocking.
+
+- Fixed: the deploy-window test's module docstring still said the column "must still exist". Its first paragraph is now the past-tense history of the 0047-0049 window. No test needed; this is a docstring.
+- Declined: `DROP COLUMN IF EXISTS`. The precedent `users/0017` uses a plain `DROP COLUMN`. A missing column means the schema has drifted, and the deploy should fail loudly then, not pass silently.
+- Declined: the previous-release test at 0052 passes with or without 0053. That is expected: the 0053 assertion is `test_the_is_hidden_column_is_dropped` (information_schema), and the 0047 default checks belonged to the 0049 window, which shipped.
+- Owner hand-off, not run: a pre-0047 container could have written `is_hidden=True` after 0048 converted flags to grants during the #1228 deploy window, and 0053 would drop that record. This is unlikely: the window lasted minutes. Checking it needs a prod query (`SELECT id FROM wagtail_forum_forum WHERE is_hidden`), and this sweep never reads prod. The owner can run it before deploying if they want.

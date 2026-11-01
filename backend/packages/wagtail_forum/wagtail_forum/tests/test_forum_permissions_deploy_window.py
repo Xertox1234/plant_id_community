@@ -1,10 +1,10 @@
 """The deploy window of migrations 0047-0049 (round-1 review, todos 675-680).
 
-Railway runs ``migrate`` while the previous release still serves. That
-release's ``Forum`` model (the 0046 state) filters ``is_hidden`` on every
-forum read and inserts forums without the columns 0047 adds. So after the new
-migrations the ``is_hidden`` column must still exist, and every new NOT NULL
-column must carry a database default (docs/rules/database.md expand/contract).
+Railway runs ``migrate`` while the previous release still serves. During the
+0047-0049 window that release's ``Forum`` model (the 0046 state) filtered
+``is_hidden`` on every forum read and inserted forums without the columns 0047
+adds, so 0049 kept the ``is_hidden`` column and every new NOT NULL column got
+a database default (docs/rules/database.md expand/contract).
 
 0053 is the contract half (todo 684): it drops ``is_hidden`` once every
 container runs code that never selects it, so the release before 0053 (the
