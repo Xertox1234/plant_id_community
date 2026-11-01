@@ -12,7 +12,7 @@ from .posts import Post
 from .profiles import DigestFrequency, ForumProfile, TrustLevel
 from .reactions import Reaction
 from .reports import Report
-from .subscriptions import TopicSubscription
+from .subscriptions import ForumSubscription, ForumWatchLevel, TopicSubscription
 from .tombstones import TopicDeletedLog
 from .topic_reads import ForumRead, TopicRead
 from .topics import Topic
@@ -36,6 +36,8 @@ __all__ = [
     "ForumProfile",
     "ForumRead",
     "ForumRole",
+    "ForumSubscription",
+    "ForumWatchLevel",
     "Message",
     "Notification",
     "NotificationVerb",

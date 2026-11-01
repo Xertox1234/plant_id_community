@@ -179,7 +179,7 @@ have all six flags (`list`, `read`, `post`, `reply`, `poll`, `attach`),
 *Standard* all but `poll`, *Limited* `list/read/post/reply`, *Read only*
 `list/read`, *No access* none. A member's flags are the union over All members
 and each of their groups. The fallback is **per principal**: a pseudo-group
-with no row on a forum gets its default (members Standard, guests Read only),
+with no row on a forum gets its default (members Standard + polls, guests Read only),
 and a group with no row adds nothing, so a forum nobody set up stays open and
 one group row never closes it to everyone else. A new forum copies its
 category's grants; the admin's *Permissions* screen (edit page → actions) is a
@@ -197,8 +197,23 @@ global moderators (`change_post`) and a forum's own moderators see it whatever
 its grants. Migration 0048 turned `is_hidden` into *No access* for guests and
 members; 0049 removes the flag from the model but keeps the column, with a
 database default, so the previous release keeps serving while the new one
-migrates (a later migration drops it). Write flags (`post`, `reply`, `poll`,
-`attach`) are stored but not yet enforced (todo 677).
+migrates (a later migration drops it).
+
+Write enforcement (todo 677): topic create needs `post` (and `poll` with a
+poll, `attach` with an image block), a reply needs `reply` (and `attach` with
+an image block), an edit that adds an image needs `attach`, and an image
+upload that sends the optional `forum_id` needs `attach` there (no
+`forum_id`: accepted, the body check still holds). A forum the caller cannot
+see is still 404; a visible one answers 403 `forum_post_denied`,
+`forum_reply_denied`, `forum_poll_denied` or `forum_attach_denied`. Staff
+bypass every flag, and a forum's moderators (and global moderators) have every
+write flag where they moderate, whatever its grants (owner decision
+2026-11-01). The members' no-grant default is *Standard + polls*, not
+*Standard*, so a forum with no members grant keeps taking polls (owner
+decision 2026-11-01); granting members *Standard* is what takes `poll` away.
+The forum rows of `/forum/categories/` carry the viewer's `can_post`,
+`can_reply`, `can_poll` and `can_attach` (false for guests), folded into the
+same SELECT.
 
 **Moderators** (todo 674; `permissions.py`). A `ForumModerator` is a user or a
 group, set on the forum's *Moderators* tab. They moderate through the existing
@@ -226,6 +241,30 @@ mark; its topic list is 403 `forum_locked` and its topics are 404; search,
 notifications and the digest leave it out. The flat `/forum/boards/` list (the
 Flutter app's) leaves a locked forum out until the app has an unlock screen.
 Staff and moderators bypass the password.
+
+**Display settings** (todo 669; the *Display* and *Rules* tabs). `is_closed`
+(phpBB "locked"; named so because `is_locked` above already means an
+un-unlocked password forum) refuses new topics and replies with 403
+`forum_closed`, staff and the forum's moderators exempt; `rules` (plain text)
+and `rules_url` (http/https); `icon` (one emoji); `colour` (one of the Canopy
+accents `sage`, `pollen`, `bloom`, `orchid`); `image` (a Wagtail image,
+`SET_NULL`, served as `image_url`); `topics_per_page` (0 = the default, at
+most 100; an explicit `?page_size=` wins); `default_sort` (one of the topic
+list's `?sort=` values, applied when the request sends none). All are on the
+forum rows of `/forum/categories/`; categories carry `icon` and `colour`.
+`theme` (todo 681) is one of `botanical`, `moss`, `terracotta`, `slate` or
+blank; the web applies it as a token scope on the forum and thread pages.
+
+**Watch / Track / Mute** (todo 672). `GET|PUT|DELETE
+/forum/boards/{slug}/subscription/` `{"level": ...}` stores a member's level on
+one forum: `watching` (each new topic notifies, and the member is subscribed to
+it so its replies notify too), `watching_first_post` (new topics only),
+`tracking` (the row's `unread_count`), `muted` (left out of
+`/forum/topics/recent/` and the digest). Forum rows carry `watch_level` and,
+for the three counted levels, `unread_count`. The new-topic notification is
+the `new_topic` verb, with its own push preference row (push on, no email);
+the host fans it out to watchers who may read the forum, minus the author and
+blocked pairs, in a fixed number of queries.
 
 **Topic template** (todo 678). The *Posting* tab's plain-text template is on
 the forum rows of `/forum/categories/` as `topic_template`; the web composer

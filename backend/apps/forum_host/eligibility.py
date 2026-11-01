@@ -51,7 +51,7 @@ REASON_UNSUBSCRIBED = "unsubscribed"
 REASON_READ = "already_read"
 
 # The events whose actor is the post's author when the payload names none.
-_AUTHOR_IS_ACTOR = frozenset({"reply_added", "mention", "quote"})
+_AUTHOR_IS_ACTOR = frozenset({"reply_added", "mention", "quote", "new_topic"})
 # The events about someone else's new post: reading the topic past the post
 # reads it. An accepted answer is about the recipient's OWN post, which they
 # have always "read", so only its own bell row being read counts there.
@@ -266,6 +266,20 @@ def recheck(
                 ).values_list("user_id", flat=True)
             )
             unsubscribed = set(by_pk) - subscribed
+        if not content_gone and event == "new_topic" and post is not None:
+            # A held new_topic push (quiet hours) goes only to members who
+            # still watch the forum when it is sent (todo 672).
+            from wagtail_forum.models import ForumSubscription
+            from wagtail_forum.models.subscriptions import NEW_TOPIC_LEVELS
+
+            watching = set(
+                ForumSubscription.objects.filter(
+                    forum_id=post.topic.board_id,
+                    level__in=NEW_TOPIC_LEVELS,
+                    user_id__in=list(by_pk),
+                ).values_list("user_id", flat=True)
+            )
+            unsubscribed = set(by_pk) - watching
         if not content_gone and post is not None:
             read = already_read_ids(event, post, by_pk)
 

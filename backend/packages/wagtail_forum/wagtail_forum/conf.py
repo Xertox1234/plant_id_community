@@ -233,6 +233,8 @@ DEFAULTS: dict[str, Any] = {
         "mention": {"push": True, "email": False},
         "quote": {"push": True, "email": False},
         "solution": {"push": True, "email": False},
+        # Todo 672: push on; no email arm (owner decision 2026-11-01).
+        "new_topic": {"push": True},
     },
 }
 

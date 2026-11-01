@@ -1327,4 +1327,60 @@ describe('NewThreadPage topic template (todo 678)', () => {
 
     expect((screen.getByLabelText('body') as HTMLTextAreaElement).value).toBe('typed first');
   });
+
+  describe('forum capabilities (todos 669, 677)', () => {
+    const row = (capabilities: Partial<Record<string, boolean>>, extra = {}) => ({
+      id: '3',
+      name: 'Plant Care',
+      slug: 'plant-care',
+      created_at: '',
+      capabilities: {
+        can_post: true,
+        can_reply: true,
+        can_poll: true,
+        can_attach: true,
+        ...capabilities,
+      },
+      ...extra,
+    });
+
+    it('offers the poll when the member may add one', async () => {
+      vi.mocked(forumService.fetchForumRow).mockResolvedValue(row({}));
+      renderPage();
+      await screen.findByText('Plant Care');
+      await waitFor(() => expect(forumService.fetchForumRow).toHaveBeenCalledWith('3'));
+      expect(screen.getByLabelText(/Add a poll/)).toBeInTheDocument();
+    });
+
+    it('hides the poll where the member lacks the poll flag', async () => {
+      vi.mocked(forumService.fetchForumRow).mockResolvedValue(row({ can_poll: false }));
+      renderPage();
+      await screen.findByText('Plant Care');
+      await waitFor(() => expect(screen.queryByLabelText(/Add a poll/)).not.toBeInTheDocument());
+    });
+
+    it('disables posting where the member may not start topics', async () => {
+      vi.mocked(forumService.fetchForumRow).mockResolvedValue(row({ can_post: false }));
+      renderPage();
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'You cannot start topics in this forum.'
+      );
+      await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+      await userEvent.type(screen.getByLabelText('body'), 'hello');
+      expect(screen.getByRole('button', { name: /post thread/i })).toBeDisabled();
+    });
+
+    it('says a closed forum is closed', async () => {
+      vi.mocked(forumService.fetchForumRow).mockResolvedValue(
+        row(
+          { can_post: false, can_reply: false, can_poll: false, can_attach: false },
+          { is_closed: true }
+        )
+      );
+      renderPage();
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'This forum is closed to new topics.'
+      );
+    });
+  });
 });

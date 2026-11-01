@@ -175,6 +175,115 @@
   --gt-gap: 10px;
 }
 
+/* ───────── per-forum themes (todo 681) ─────────
+ * A fixed set of token scopes, set by `data-forum-theme` on the forum and
+ * thread pages (owner decision 2026-10-30: botanical, moss, terracotta,
+ * slate). Each overrides the surface/ink/primary tokens for light AND dark,
+ * as literal hex so utils/forumThemeContrast.test.ts can check every pair; a
+ * forum's accent colour (todo 669) stays on top, from the mode's own tokens.
+ */
+[data-mode='light'] [data-forum-theme='botanical'] {
+  --gt-ground: #d6ead0;
+  --gt-surface: #eef7ea;
+  --gt-surface-2: #f7fbf4;
+  --gt-surface-3: #e3f0dd;
+  --gt-ink: #1d3a1f;
+  --gt-ink-2: #3a5a3c;
+  --gt-ink-3: #5c7a5d;
+  --gt-primary: #2f6b33;
+  --gt-on-primary: #f7fbf4;
+  --gt-grad-card: linear-gradient(150deg, #f7fbf4 0%, #eef7ea 100%);
+}
+[data-mode='dark'] [data-forum-theme='botanical'] {
+  --gt-ground: #0c1f10;
+  --gt-surface: #13301a;
+  --gt-surface-2: #1a3d22;
+  --gt-surface-3: #214a2a;
+  --gt-ink: #e3f4e0;
+  --gt-ink-2: #b9d6b5;
+  --gt-ink-3: #8fb58c;
+  --gt-primary: #bfe8b8;
+  --gt-on-primary: #0c1f10;
+  --gt-grad-card: linear-gradient(150deg, #1a3d22 0%, #13301a 100%);
+}
+[data-mode='light'] [data-forum-theme='moss'] {
+  --gt-ground: #d9e4cf;
+  --gt-surface: #eef3e6;
+  --gt-surface-2: #f6f9f1;
+  --gt-surface-3: #e4ecd9;
+  --gt-ink: #26331b;
+  --gt-ink-2: #45573a;
+  --gt-ink-3: #66785a;
+  --gt-primary: #4a6b2a;
+  --gt-on-primary: #f6f9f1;
+  --gt-grad-card: linear-gradient(150deg, #f6f9f1 0%, #eef3e6 100%);
+}
+[data-mode='dark'] [data-forum-theme='moss'] {
+  --gt-ground: #141a0e;
+  --gt-surface: #1d2614;
+  --gt-surface-2: #26321b;
+  --gt-surface-3: #2f3d22;
+  --gt-ink: #eaf0dc;
+  --gt-ink-2: #c3d0aa;
+  --gt-ink-3: #9caf80;
+  --gt-primary: #c9dca0;
+  --gt-on-primary: #141a0e;
+  --gt-grad-card: linear-gradient(150deg, #26321b 0%, #1d2614 100%);
+}
+[data-mode='light'] [data-forum-theme='terracotta'] {
+  --gt-ground: #f3dccf;
+  --gt-surface: #fbede5;
+  --gt-surface-2: #fdf6f2;
+  --gt-surface-3: #f6e2d7;
+  --gt-ink: #3d1f14;
+  --gt-ink-2: #6a3a28;
+  --gt-ink-3: #8a5a46;
+  --gt-primary: #a3472a;
+  --gt-on-primary: #fdf6f2;
+  --gt-grad-card: linear-gradient(150deg, #fdf6f2 0%, #fbede5 100%);
+}
+[data-mode='dark'] [data-forum-theme='terracotta'] {
+  --gt-ground: #24120c;
+  --gt-surface: #321a11;
+  --gt-surface-2: #402317;
+  --gt-surface-3: #4d2c1e;
+  --gt-ink: #fbe9df;
+  --gt-ink-2: #e7c2ad;
+  --gt-ink-3: #c99a82;
+  --gt-primary: #f2b394;
+  --gt-on-primary: #24120c;
+  --gt-grad-card: linear-gradient(150deg, #402317 0%, #321a11 100%);
+}
+[data-mode='light'] [data-forum-theme='slate'] {
+  --gt-ground: #d8dee6;
+  --gt-surface: #eef1f5;
+  --gt-surface-2: #f7f9fb;
+  --gt-surface-3: #e3e8ee;
+  --gt-ink: #1c2733;
+  --gt-ink-2: #3b4a5a;
+  --gt-ink-3: #5c6b7b;
+  --gt-primary: #3c5a78;
+  --gt-on-primary: #f7f9fb;
+  --gt-grad-card: linear-gradient(150deg, #f7f9fb 0%, #eef1f5 100%);
+}
+[data-mode='dark'] [data-forum-theme='slate'] {
+  --gt-ground: #0f151c;
+  --gt-surface: #171f29;
+  --gt-surface-2: #1f2935;
+  --gt-surface-3: #283442;
+  --gt-ink: #e6edf5;
+  --gt-ink-2: #b9c6d4;
+  --gt-ink-3: #8fa0b2;
+  --gt-primary: #b8cde3;
+  --gt-on-primary: #0f151c;
+  --gt-grad-card: linear-gradient(150deg, #1f2935 0%, #171f29 100%);
+}
+.forum-theme {
+  border-radius: var(--radius-lg);
+  background: var(--gt-ground);
+  color: var(--gt-ink);
+}
+
 /* ───────── register tokens → utilities resolve the var AT THE ELEMENT ───────── */
 @theme inline {
   --color-surface: var(--gt-surface);

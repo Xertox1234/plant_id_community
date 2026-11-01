@@ -96,6 +96,8 @@ const VERB_LABELS: Record<NotificationVerb, string> = {
   mention: 'Mentions',
   quote: 'Quotes of your posts',
   solution: 'Answer accepted',
+  // Todo 672: the new-topic row (push only).
+  new_topic: 'New topics in forums you watch',
 };
 const CHANNEL_LABELS: Record<NotificationChannel, string> = { push: 'Push', email: 'Email' };
 

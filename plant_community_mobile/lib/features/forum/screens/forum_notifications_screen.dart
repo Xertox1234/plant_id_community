@@ -185,6 +185,11 @@ String _labelFor(ForumNotification notification) {
       return topicTitle != null
           ? '$actorName marked your reply as the answer in "$topicTitle"'
           : '$actorName marked your reply as the answer';
+    case 'new_topic':
+      // A new topic in a forum the member watches (todo 672).
+      return topicTitle != null
+          ? '$actorName started "$topicTitle" in a forum you watch'
+          : '$actorName started a topic in a forum you watch';
     case 'reply':
       return topicTitle != null
           ? '$actorName replied to "$topicTitle"'

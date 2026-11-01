@@ -135,6 +135,9 @@ class ForumAdminForm(WagtailAdminModelForm):
             "Links only: count each click through the forum's redirect."
         )
         self.fields["slug"].required = False
+        # Todo 669: an empty page size is the site default, like 0.
+        if "topics_per_page" in self.fields:
+            self.fields["topics_per_page"].required = False
         self.fields["slug"].help_text = _(
             "Used in the forum's web address. Left blank, it is made from the name."
         )
@@ -156,6 +159,9 @@ class ForumAdminForm(WagtailAdminModelForm):
                 self.fields["new_password"].help_text = _(
                     "This forum has a password. Enter a new one to change it."
                 )
+
+    def clean_topics_per_page(self) -> int:
+        return self.cleaned_data.get("topics_per_page") or 0
 
     def clean_moderator_users(self) -> list[Any]:
         raw = self.cleaned_data.get("moderator_users") or ""
@@ -364,6 +370,23 @@ class ForumViewSet(ModelViewSet):
                     FieldPanel("clear_password"),
                 ],
                 heading=_("General"),
+            ),
+            # Todo 669: status and how the forum looks; todo 681: its theme.
+            ObjectList(
+                [
+                    FieldPanel("is_closed"),
+                    FieldPanel("icon"),
+                    FieldPanel("colour"),
+                    FieldPanel("image"),
+                    FieldPanel("theme"),
+                    FieldPanel("topics_per_page"),
+                    FieldPanel("default_sort"),
+                ],
+                heading=_("Display"),
+            ),
+            # Todo 669: plain text plus an optional link (phpBB style).
+            ObjectList(
+                [FieldPanel("rules"), FieldPanel("rules_url")], heading=_("Rules")
             ),
             # Todo 678: plain text, each line a paragraph in the composer.
             ObjectList([FieldPanel("topic_template")], heading=_("Posting")),

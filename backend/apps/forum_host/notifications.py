@@ -44,6 +44,32 @@ def _drop_blocked_pairs(users, actor):
     return [u for u in users if u.pk not in blocked]
 
 
+def _forum_watchers(topic, author):
+    """[(user, level)] to tell about a new topic in ``topic``'s forum (todo
+    672): active members watching the forum or its first posts, minus the
+    author, anyone who cannot read the forum (its grants,
+    todo 676) and blocked/muted pairs. Five queries, whatever the number of
+    watchers."""
+    from wagtail_forum.models import ForumSubscription
+    from wagtail_forum.models.subscriptions import NEW_TOPIC_LEVELS
+    from wagtail_forum.services.forum_permissions import readers_of_forum
+
+    if topic is None:
+        return []
+    rows = ForumSubscription.objects.filter(
+        forum_id=topic.board_id, level__in=NEW_TOPIC_LEVELS, user__is_active=True
+    ).select_related("user")
+    if author is not None:
+        rows = rows.exclude(user_id=author.pk)
+    level_by_pk = {}
+    users = []
+    for row in rows:
+        level_by_pk[row.user_id] = row.level
+        users.append(row.user)
+    users = _drop_blocked_pairs(readers_of_forum(users, topic.board_id), author)
+    return [(user, level_by_pk[user.pk]) for user in users]
+
+
 def dispatch(event, **kwargs):
     """Route a forum signal event to FCM/email via background Celery tasks.
 
@@ -96,7 +122,13 @@ def dispatch(event, **kwargs):
         the opening post as already-read for the topic's own author (todo
         253 slice 5, H10), same reasoning as reply_added. No reply
         push/email of its own — just the subscription row, the read marker,
-        and any mention notifications.
+        and any mention notifications. Also tells the forum's watchers
+        (todo 672): every member watching the forum or its first posts gets
+        one ``new_topic`` bell row and push (no email, owner decision
+        2026-11-01), unless they wrote it, cannot read the forum, are in a
+        blocked pair with the author, or are already mentioned or quoted in
+        it; a ``watching`` member is also subscribed to the topic, so its
+        replies reach them. A constant number of queries per topic.
     """
     from apps.core import delivery
     from apps.users.services import web_push_enabled
@@ -611,7 +643,12 @@ def dispatch(event, **kwargs):
         author = getattr(topic, "author", None)
 
         from wagtail_forum.mentions import resolve_mentioned_users
-        from wagtail_forum.models import NotificationVerb, TopicRead, TopicSubscription
+        from wagtail_forum.models import (
+            ForumWatchLevel,
+            NotificationVerb,
+            TopicRead,
+            TopicSubscription,
+        )
         from wagtail_forum.notifications import create_notifications
 
         payload = _build_payload(post)
@@ -697,11 +734,51 @@ def dispatch(event, **kwargs):
                         post=post,
                         quoted_post=quoted_post,
                     )
+                # Every watcher, mentioned or quoted ones included: the
+                # mention/quote alert replaces their new_topic alert, not their
+                # subscription to the topic's replies.
+                all_watchers = (
+                    _forum_watchers(topic, author) if post is not None else []
+                )
+                alerted_pks = {user.pk for user in mentioned} | {
+                    user.pk for user, _ in quoted
+                }
+                watchers = [
+                    (user, level)
+                    for user, level in all_watchers
+                    if user.pk not in alerted_pks
+                ]
+                if post is not None:
+                    create_notifications(
+                        recipients=[user for user, _ in watchers],
+                        verb=NotificationVerb.NEW_TOPIC,
+                        actor=author,
+                        topic=topic,
+                        post=post,
+                    )
+                # `watching` = every post (owner decision 2026-10-30): follow
+                # the new topic for them, in one insert.
+                TopicSubscription.objects.bulk_create(
+                    [
+                        TopicSubscription(user=user, topic=topic)
+                        for user, level in all_watchers
+                        if level == ForumWatchLevel.WATCHING
+                    ],
+                    ignore_conflicts=True,
+                )
+                watcher_users = [user for user, _ in watchers]
                 batches = {
                     **_record_events(
                         post,
                         (NotificationVerb.MENTION, mentioned, "mention"),
                         (NotificationVerb.QUOTE, [user for user, _ in quoted], "quote"),
+                        (NotificationVerb.NEW_TOPIC, watcher_users, "new_topic"),
+                    ),
+                    "new_topic_web": _record(
+                        delivery.Kind.FORUM_WEB_PUSH,
+                        NotificationVerb.NEW_TOPIC,
+                        watcher_users,
+                        post,
                     ),
                     "mention_web": _record(
                         delivery.Kind.FORUM_WEB_PUSH,
@@ -731,8 +808,32 @@ def dispatch(event, **kwargs):
                     batches.get("quote_email"),
                 )
 
+            def _enqueue_new_topic():
+                pks = [user.pk for user in watcher_users]
+                if not pks:
+                    return
+                try:
+                    send_forum_push_batch.delay(
+                        NotificationVerb.NEW_TOPIC,
+                        pks,
+                        payload,
+                        **_batch_kwargs(batches.get("new_topic_push")),
+                    )
+                except Exception:
+                    log_broker_failure(
+                        logger,
+                        "[CELERY] forum_host: failed to enqueue new-topic push batch",
+                    )
+                _enqueue_web_push(
+                    NotificationVerb.NEW_TOPIC,
+                    pks,
+                    payload,
+                    batches.get("new_topic_web"),
+                )
+
             transaction.on_commit(_enqueue_mention_push)
             transaction.on_commit(_enqueue_quotes)
+            transaction.on_commit(_enqueue_new_topic)
         except Exception:
             logger.exception(
                 "[ERROR] forum_host: failed to process topic_created topic=%s",

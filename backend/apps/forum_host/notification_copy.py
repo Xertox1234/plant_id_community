@@ -89,6 +89,13 @@ FORUM_NOTIFICATION_COPY: dict[str, ForumEventCopy] = {
         email_subject="You were mentioned in: {topic_title}",
         email_body="{actor} mentioned you",
     ),
+    # A new topic in a forum the member watches (todo 672). Push and the
+    # bell only: no email arm (owner decision 2026-11-01).
+    "new_topic": ForumEventCopy(
+        push_title='New topic: "{topic_title}"',
+        push_title_without_topic="New topic in a forum you watch",
+        push_body="{actor} started a topic in a forum you watch",
+    ),
     # Several replies on one topic folded into one message (todo 624). Not
     # an event of its own: ``reply_added`` renders it when count > 1.
     "replies_coalesced": ForumEventCopy(

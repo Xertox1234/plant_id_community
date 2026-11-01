@@ -32,6 +32,9 @@ function notificationLabel(notification: ForumNotification): string {
     case 'solution':
       // Your reply was accepted as the answer; post_id is the accepted post.
       return `${actorName} accepted your answer in "${topicTitle}"`;
+    case 'new_topic':
+      // A new topic in a forum you watch (todo 672); post_id is its opening post.
+      return `${actorName} started "${topicTitle}" in a forum you watch`;
     case 'reply':
     default:
       return `${actorName} replied to "${topicTitle}"`;

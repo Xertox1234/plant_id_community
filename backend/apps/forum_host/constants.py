@@ -70,6 +70,9 @@ DEFAULT_FORUM_RATELIMITS = {
     # counts wrong passwords per member per forum (WAGTAILFORUM_FORUM_UNLOCK_*)
     # and answers 429 past them; this bounds a client trying many forums.
     "forum_unlock": "20/m",
+    # Forum watch level (todo 672): an idempotent preference write, the
+    # same tier as the read marks.
+    "forum_subscription_update": "60/m",
     # Link redirects (todo 670), per IP: GET + AllowAny, and each one is a
     # counted click, so the limit bounds count inflation by one client.
     "link_go": "60/m",

@@ -10,11 +10,11 @@ Django group they belong to; a guest's only principal is the *guests*
 pseudo-group. What a user may do is the **union** of their principals' roles.
 
 **The no-grant fallback is per principal, not per forum.** A pseudo-group with
-no row on a forum gets its default role: *Standard* for members, *Read only*
+no row on a forum gets its default role: *Standard + polls* for members, *Read only*
 for guests. A real group with no row adds nothing. So a forum nobody has set
 up works as it always did, and adding one row ("Experts: Full") never takes
 the forum away from everyone else: the members row is still missing, so
-members still get Standard. Hiding a forum is an explicit act: *No access*
+members still get their default. Hiding a forum is an explicit act: *No access*
 for guests and members (``hide_for_everyone``), which is what the
 ``is_hidden`` data migration wrote. (A per-forum reading of "a forum with no
 grant", where any one row switches the defaults off, is the invisible-forum
@@ -45,6 +45,7 @@ from typing import Any
 from django.contrib.auth.models import Group, Permission
 from django.db import transaction
 from django.db.models import (
+    BooleanField,
     CharField,
     Exists,
     ExpressionWrapper,
@@ -52,6 +53,7 @@ from django.db.models import (
     OuterRef,
     Q,
     QuerySet,
+    Value,
 )
 from django.utils.crypto import constant_time_compare, salted_hmac
 from wagtail.models import PageViewRestriction
@@ -65,6 +67,8 @@ REPLY = "reply"
 POLL = "poll"
 ATTACH = "attach"
 FLAGS = (LIST, READ, POST, REPLY, POLL, ATTACH)
+# The flags a writer needs (todo 677); each is a `can_<flag>` capability.
+WRITE_FLAGS = (POST, REPLY, POLL, ATTACH)
 
 ROLE_FLAGS: dict[str, frozenset[str]] = {
     ForumRole.FULL: frozenset(FLAGS),
@@ -75,10 +79,13 @@ ROLE_FLAGS: dict[str, frozenset[str]] = {
     ForumRole.NO_ACCESS: frozenset(),
 }
 
-# The role a pseudo-group gets on a row that has no grant for it.
+# The role a pseudo-group gets on a row that has no grant for it. Members get
+# Standard + polls, not Standard: members could always add polls, and todo 677
+# enforces the poll flag, so a Standard default would make every ungranted
+# forum staff-only for polls (owner decision 2026-11-01).
 DEFAULT_ROLES: dict[str, str] = {
     ForumGrant.ANONYMOUS: ForumRole.READ_ONLY,
-    ForumGrant.MEMBERS: ForumRole.STANDARD,
+    ForumGrant.MEMBERS: ForumRole.STANDARD_POLLS,
 }
 
 # The session key holding the forum ids this session unlocked (todo 680).
@@ -372,7 +379,8 @@ def effective_flags(user: Any, forum: Forum) -> frozenset[str]:
 
 def user_can(user: Any, forum: Forum, flag: str) -> bool:
     """Whether ``user`` has ``flag`` on ``forum``, cached on the user object
-    (one request) per forum. Staff and superusers can do everything."""
+    (one request) per forum. Staff and superusers can do everything; the
+    forum's moderators have every write flag there."""
     if flag not in FLAGS:
         raise ValueError(f"unknown forum permission flag {flag!r}")
     if sees_everything(user):
@@ -389,9 +397,57 @@ def user_can(user: Any, forum: Forum, flag: str) -> bool:
     if cache is not None and forum.pk in cache:
         return flag in cache[forum.pk]
     flags = effective_flags(user, forum)
+    # A forum's moderators (and global moderators) write wherever they
+    # moderate, as they read it and post in it closed (owner decision
+    # 2026-11-01): their grants never take posting away from them.
+    if is_forum_moderator(user, forum):
+        flags = flags | frozenset(WRITE_FLAGS)
     if cache is not None:
         cache[forum.pk] = flags
     return flag in flags
+
+
+def bypasses_closed(user: Any, forum: Forum) -> bool:
+    """Staff and the forum's moderators may still post in a closed forum
+    (todo 669)."""
+    return sees_everything(user) or is_forum_moderator(user, forum)
+
+
+def forum_capabilities(user: Any, forum: Forum) -> dict[str, bool]:
+    """``{can_post, can_reply, can_poll, can_attach}`` for ``user`` on
+    ``forum`` (todo 677), with a closed forum's rule folded in (todo 669).
+    Guests can write nothing whatever the guest grants say: every write
+    endpoint needs a signed-in member."""
+    if not _authenticated(user):
+        return {f"can_{flag}": False for flag in WRITE_FLAGS}
+    if getattr(forum, "is_closed", False) and not bypasses_closed(user, forum):
+        return {f"can_{flag}": False for flag in WRITE_FLAGS}
+    return {f"can_{flag}": user_can(user, forum, flag) for flag in WRITE_FLAGS}
+
+
+def capability_annotations(user: Any) -> dict[str, Any]:
+    """``forum_capabilities`` as queryset annotations on ``Forum`` rows, so a
+    list of forums gets every row's capabilities in its own SELECT (no query
+    per row)."""
+    if not _authenticated(user):
+        return {
+            f"can_{flag}": Value(False, output_field=BooleanField())
+            for flag in WRITE_FLAGS
+        }
+    if sees_everything(user):
+        return {
+            f"can_{flag}": Value(True, output_field=BooleanField())
+            for flag in WRITE_FLAGS
+        }
+    moderates = _moderator_q(user)
+    open_to_user = Q(is_closed=False) | moderates
+    return {
+        f"can_{flag}": ExpressionWrapper(
+            open_to_user & (access_q(user, flag) | moderates),
+            output_field=BooleanField(),
+        )
+        for flag in WRITE_FLAGS
+    }
 
 
 def copy_permissions(source: Forum, target: Forum) -> int:

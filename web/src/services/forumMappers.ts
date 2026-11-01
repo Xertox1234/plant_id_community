@@ -2,7 +2,10 @@ import type { StreamFieldBlock } from '../types/blog';
 import type {
   Category,
   Forum,
+  ForumColour,
   ForumLink,
+  ForumTheme,
+  ForumWatchLevel,
   Thread,
   Post,
   ForumAuthor,
@@ -30,6 +33,22 @@ export interface BackendBoard {
   moderators?: string[];
   is_locked?: boolean;
   topic_template?: string;
+  /** Only on `GET categories/` rows (todos 669, 672, 677, 681). */
+  is_closed?: boolean;
+  rules?: string;
+  rules_url?: string;
+  icon?: string;
+  colour?: ForumColour | '';
+  image_url?: string | null;
+  topics_per_page?: number;
+  default_sort?: string;
+  theme?: ForumTheme | '';
+  can_post?: boolean;
+  can_reply?: boolean;
+  can_poll?: boolean;
+  can_attach?: boolean;
+  watch_level?: ForumWatchLevel | null;
+  unread_count?: number | null;
 }
 
 /** A link row of `GET categories/` (todo 670). */
@@ -56,6 +75,8 @@ export interface BackendCategory {
   forums: BackendBoard[];
   links?: BackendLink[];
   has_unread?: boolean;
+  icon?: string;
+  colour?: ForumColour | '';
 }
 
 export interface BackendTopicListItem {
@@ -228,7 +249,37 @@ export function mapBoardToForum(b: BackendBoard): Forum {
     moderators: b.moderators ?? [],
     is_locked: b.is_locked ?? false,
     topic_template: b.topic_template ?? '',
+    ...forumRowExtras(b),
   };
+}
+
+/**
+ * The `GET categories/` row keys of todos 669, 672, 677 and 681, only when
+ * the backend sent them: the flat `boards/` list (the Flutter contract)
+ * carries none, and a forum mapped from it must not claim, say, that the
+ * viewer cannot post.
+ */
+function forumRowExtras(b: BackendBoard): Partial<Forum> {
+  const extras: Partial<Forum> = {};
+  if (b.is_closed !== undefined) extras.is_closed = b.is_closed;
+  if (b.rules !== undefined) extras.rules = b.rules;
+  if (b.rules_url !== undefined) extras.rules_url = b.rules_url;
+  if (b.icon) extras.icon = b.icon;
+  if (b.colour !== undefined) extras.colour = b.colour;
+  if (b.image_url !== undefined) extras.image_url = b.image_url;
+  if (b.default_sort !== undefined) extras.default_sort = b.default_sort;
+  if (b.theme !== undefined) extras.theme = b.theme;
+  if (b.watch_level !== undefined) extras.watch_level = b.watch_level;
+  if (b.unread_count !== undefined) extras.unread_count = b.unread_count;
+  if (b.can_post !== undefined) {
+    extras.capabilities = {
+      can_post: b.can_post,
+      can_reply: b.can_reply ?? false,
+      can_poll: b.can_poll ?? false,
+      can_attach: b.can_attach ?? false,
+    };
+  }
+  return extras;
 }
 
 export function mapLink(l: BackendLink): ForumLink {
@@ -255,6 +306,8 @@ export function mapCategory(c: BackendCategory): Category {
     forums: (c.forums || []).map(mapBoardToForum),
     links: (c.links || []).map(mapLink),
     has_unread: c.has_unread ?? false,
+    ...(c.icon ? { icon: c.icon } : {}),
+    ...(c.colour ? { colour: c.colour } : {}),
   };
 }
 

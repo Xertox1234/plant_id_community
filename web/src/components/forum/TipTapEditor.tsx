@@ -119,6 +119,15 @@ interface TipTapEditorProps {
   className?: string;
   /** Focus the editor once it mounts — used to restore focus after posting (M25). */
   autoFocus?: boolean;
+  /**
+   * Whether the author may attach images here (todo 677: the forum's
+   * `can_attach`). False hides the image controls and ignores pasted or
+   * dropped files; the server refuses an image block either way.
+   */
+  allowImages?: boolean;
+  /** The forum the post is for, sent with each upload so the server checks
+   * `attach` there (todo 677). Optional: the upload works without it. */
+  forumId?: string | number;
 }
 
 /**
@@ -133,6 +142,8 @@ export default function TipTapEditor({
   placeholder = 'Write your post...',
   className = '',
   autoFocus = false,
+  allowImages = true,
+  forumId,
 }: TipTapEditorProps) {
   // Assigned on every render (below) so ProseMirror's paste/drop handlers —
   // configured once, before `editor` exists — always invoke the CURRENT
@@ -330,6 +341,10 @@ export default function TipTapEditor({
 
   const handleImageFile = (file: File) => {
     if (!editor) return;
+    if (!allowImages) {
+      setImageError('Images cannot be attached in this forum.');
+      return;
+    }
     // Paste and drop reach this too, so the in-flight gate lives HERE rather
     // than only on the toolbar button — otherwise pasting twice starts two
     // concurrent uploads and AC 4's "one request" does not hold.
@@ -494,7 +509,12 @@ export default function TipTapEditor({
     uploadsInFlightRef.current += 1;
     setUploadingImage(true);
     try {
-      const image = await uploadPostImage(file, trimmed, idempotencyKey);
+      // The forum id only when known, so an upload outside a forum (and
+      // every call site before todo 677) keeps its three-argument shape.
+      const image =
+        forumId != null
+          ? await uploadPostImage(file, trimmed, idempotencyKey, forumId)
+          : await uploadPostImage(file, trimmed, idempotencyKey);
       failedUploadRef.current = null;
       const attrs = {
         // alt/decorative come from what the AUTHOR typed, not the response:
@@ -756,41 +776,45 @@ export default function TipTapEditor({
             </ToolbarButton>
           )}
 
-          <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
+          {allowImages && (
+            <>
+              <div className="w-px bg-line-2 mx-1" aria-hidden="true" />
 
-          <ToolbarButton
-            onClick={() => fileInputRef.current?.click()}
-            // Disabled while an upload is in flight: without this a second
-            // activation reopens the picker mid-upload and starts a concurrent
-            // request, so AC 4's "one multipart request" would not hold. Matches
-            // the AI button's shape below.
-            disabled={uploadingImage}
-            title={uploadingImage ? 'Uploading image…' : 'Insert image'}
-          >
-            {uploadingImage ? (
-              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <ImageIcon className="h-4 w-4" aria-hidden="true" />
-            )}
-          </ToolbarButton>
+              <ToolbarButton
+                onClick={() => fileInputRef.current?.click()}
+                // Disabled while an upload is in flight: without this a second
+                // activation reopens the picker mid-upload and starts a concurrent
+                // request, so AC 4's "one multipart request" would not hold. Matches
+                // the AI button's shape below.
+                disabled={uploadingImage}
+                title={uploadingImage ? 'Uploading image…' : 'Insert image'}
+              >
+                {uploadingImage ? (
+                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <ImageIcon className="h-4 w-4" aria-hidden="true" />
+                )}
+              </ToolbarButton>
 
-          {/* Reuse a photo already uploaded to the forum (todo 374). Distinct
+              {/* Reuse a photo already uploaded to the forum (todo 374). Distinct
               from the upload button beside it: no file, no request, no new
               row — it references an image the user has already shared. NOT
               disabled during an upload, because it starts no upload of its
               own; the single alt-prompt slot is released by handlePickExisting
               rather than gated here, matching handleImageFile. */}
-          <ToolbarButton onClick={() => setPickerOpen(true)} title="Choose from your photos">
-            <Images className="h-4 w-4" aria-hidden="true" />
-          </ToolbarButton>
+              <ToolbarButton onClick={() => setPickerOpen(true)} title="Choose from your photos">
+                <Images className="h-4 w-4" aria-hidden="true" />
+              </ToolbarButton>
 
-          {/* Re-author an inserted image's alt (todo 357). Only reachable while
+              {/* Re-author an inserted image's alt (todo 357). Only reachable while
               the caret is on an image — and only possible at all because
               ImageBlock moved alt onto the USAGE; under ImageChooserBlock this
               would have meant re-uploading the file. */}
-          <ToolbarButton onClick={openAltEditor} title="Edit image alt text">
-            <Type className="h-4 w-4" aria-hidden="true" />
-          </ToolbarButton>
+              <ToolbarButton onClick={openAltEditor} title="Edit image alt text">
+                <Type className="h-4 w-4" aria-hidden="true" />
+              </ToolbarButton>
+            </>
+          )}
 
           {/* AI draft improvement (M14) — premium perk, server-gated. Once the
             server says this account/deployment can never use it, the button stays

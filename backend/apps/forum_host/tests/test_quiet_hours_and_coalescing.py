@@ -312,6 +312,82 @@ def test_an_accepted_answer_push_is_held_and_released_as_a_solution_push(
 
 @pytest.mark.django_db
 @override_settings(**PUSH_ON)
+def test_a_new_topic_push_is_held_by_quiet_hours(django_capture_on_commit_callbacks):
+    """A forum watcher's new_topic push (todo 672) is a tray push like a
+    reply: quiet hours hold it on both push channels until the window ends."""
+    from wagtail_forum.models import ForumSubscription, ForumWatchLevel
+
+    watcher = _member("qhwatcher", quiet=True)
+    topic, author = _topic("qhnew")
+    ForumSubscription.objects.create(
+        user=watcher, forum=topic.board, level=ForumWatchLevel.WATCHING
+    )
+    opening = Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        body=[{"type": "paragraph", "value": "<p>A new fern</p>"}],
+    )
+
+    with freeze_time(NIGHT):
+        sent = _dispatch_and_run(
+            django_capture_on_commit_callbacks,
+            "topic_created",
+            topic=topic,
+            post=opening,
+        )
+    got = _to(sent, watcher)
+    assert (got.fcm, got.web) == ([], [])
+    held = set(_rows(watcher).values_list("kind", "last_error"))
+    assert held == {
+        (Kind.FORUM_PUSH, delivery.HOLD_QUIET_HOURS),
+        (Kind.FORUM_WEB_PUSH, delivery.HOLD_QUIET_HOURS),
+    }
+
+    with freeze_time(DAWN + datetime.timedelta(minutes=1)):
+        released = _reconcile_and_run()
+    got = _to(released, watcher)
+    assert len(got.fcm) == 1 and len(got.web) == 1
+
+
+@pytest.mark.django_db
+@override_settings(**PUSH_ON)
+def test_a_held_new_topic_push_is_dropped_once_the_watcher_mutes_the_forum(
+    django_capture_on_commit_callbacks,
+):
+    """The send-time recheck asks whether the member still watches the forum,
+    as a reply push asks about the topic subscription."""
+    from wagtail_forum.models import ForumSubscription, ForumWatchLevel
+
+    watcher = _member("qhmuter", quiet=True)
+    topic, author = _topic("qhmute")
+    subscription = ForumSubscription.objects.create(
+        user=watcher, forum=topic.board, level=ForumWatchLevel.WATCHING
+    )
+    opening = Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        body=[{"type": "paragraph", "value": "<p>A new fern</p>"}],
+    )
+    with freeze_time(NIGHT):
+        _dispatch_and_run(
+            django_capture_on_commit_callbacks,
+            "topic_created",
+            topic=topic,
+            post=opening,
+        )
+    subscription.level = ForumWatchLevel.MUTED
+    subscription.save(update_fields=["level"])
+
+    with freeze_time(DAWN + datetime.timedelta(minutes=1)):
+        released = _reconcile_and_run()
+    got = _to(released, watcher)
+    assert (got.fcm, got.web) == ([], [])
+
+
+@pytest.mark.django_db
+@override_settings(**PUSH_ON)
 def test_preferences_changed_while_held_are_honoured_at_release(
     django_capture_on_commit_callbacks,
 ):

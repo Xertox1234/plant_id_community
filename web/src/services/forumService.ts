@@ -34,6 +34,7 @@ import {
   type BackendSearchPost,
 } from './forumMappers';
 import type {
+  ForumWatchLevel,
   Category,
   Forum,
   ForumAuthor,
@@ -186,6 +187,25 @@ export async function fetchForumTopicTemplate(forumId: number | string): Promise
 }
 
 /**
+ * A forum's row of `GET categories/` (todos 669, 672, 677, 681): its display
+ * settings, theme, the viewer's capabilities and watch level. null when the
+ * forum is not listed or the fetch fails. Never throws: callers fall back to
+ * offering everything and let the server refuse.
+ */
+export async function fetchForumRow(forumId: number | string): Promise<Forum | null> {
+  try {
+    const categories = await fetchCategories();
+    for (const category of categories) {
+      const forum = category.forums.find((f) => f.id === String(forumId));
+      if (forum) return forum;
+    }
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
+/**
  * Unlock a password forum for the rest of this session (todo 680). Throws a
  * ForumApiError: 400 for a wrong password, 429 after too many.
  */
@@ -194,6 +214,25 @@ export async function unlockForum(slug: string, password: string): Promise<void>
     `${FORUM_BASE}/boards/${encodeURIComponent(slug)}/unlock/`,
     { method: 'POST', body: JSON.stringify({ password }) }
   );
+}
+
+/**
+ * Set the signed-in member's watch level on one forum (todo 672), or clear
+ * it with null. Returns the stored level.
+ */
+export async function setForumWatchLevel(
+  slug: string,
+  level: ForumWatchLevel | null
+): Promise<ForumWatchLevel | null> {
+  const url = `${FORUM_BASE}/boards/${encodeURIComponent(slug)}/subscription/`;
+  const data =
+    level === null
+      ? await authenticatedFetch<{ level: null }>(url, { method: 'DELETE' })
+      : await authenticatedFetch<{ level: ForumWatchLevel }>(url, {
+          method: 'PUT',
+          body: JSON.stringify({ level }),
+        });
+  return data?.level ?? null;
 }
 
 /** Mark every topic in one forum read for the signed-in member (todo 671). */
@@ -710,13 +749,17 @@ export interface UploadedImage {
 export async function uploadPostImage(
   imageFile: File,
   alt?: string,
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  /** The forum the image is for (todo 677): the server checks `attach` there.
+   * Omitted (IdentifyPage), the upload is accepted as before. */
+  forumId?: string | number
 ): Promise<UploadedImage> {
   const csrfToken = await getCsrfToken();
   const formData = new FormData();
   formData.append('image', imageFile);
   const trimmedAlt = alt?.trim();
   if (trimmedAlt) formData.append('alt', trimmedAlt);
+  if (forumId != null && forumId !== '') formData.append('forum_id', String(forumId));
   const response = await fetch(`${FORUM_BASE}/images/`, {
     method: 'POST',
     credentials: 'include',

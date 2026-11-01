@@ -54,7 +54,9 @@ logger = logging.getLogger("forum_host.pacing")
 
 # Events a member sees in their tray or inbox: these are held by quiet
 # hours. ``moderation_decided`` is a tray-silent client sync and is not.
-PACED_EVENTS = frozenset({"reply_added", "mention", "quote", "answer_accepted"})
+PACED_EVENTS = frozenset(
+    {"reply_added", "mention", "quote", "answer_accepted", "new_topic"}
+)
 # Events folded by the coalescing window.
 COALESCED_EVENTS = frozenset({"reply_added"})
 

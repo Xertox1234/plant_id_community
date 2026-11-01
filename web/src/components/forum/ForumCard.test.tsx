@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import ForumCard, { ForumLinkCard } from './ForumCard';
 import { createMockForum } from '../../tests/forumUtils';
 import type { ForumLink } from '../../types/forum';
+import { API_ORIGIN } from '@/config/api';
 
 /**
  * Helper to render ForumCard with Router context
@@ -17,6 +18,17 @@ function renderCategoryCard(category) {
 }
 
 describe('ForumCard', () => {
+  it('serves the forum image from the API media origin, not the web origin', () => {
+    // Local storage answers a relative /media/ path, which would resolve
+    // against the Vite origin and 404 (todo 669, review round 1).
+    renderCategoryCard(createMockForum({ image_url: '/media/original_images/ferns.jpg' }));
+
+    expect(screen.getByTestId('forum-image')).toHaveAttribute(
+      'src',
+      `${API_ORIGIN}/media/original_images/ferns.jpg`
+    );
+  });
+
   it('renders category name and description', () => {
     const category = createMockForum({
       name: 'Plant Care Tips',
