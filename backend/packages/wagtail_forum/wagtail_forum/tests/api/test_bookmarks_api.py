@@ -3,17 +3,15 @@
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
-from wagtail.models import Page, PageViewRestriction
-from wagtail_forum.models import ForumBoard, ForumIndex, Topic, TopicBookmark
+from wagtail_forum.models import Topic, TopicBookmark
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _board(slug="general"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    return index.add_child(instance=ForumBoard(title="General", slug=slug))
+    return make_forum(name="General", slug=slug)
 
 
 def _topic(slug="t", live=True, board=None):
@@ -131,7 +129,7 @@ def test_bookmark_restricted_board_topic_404s():
     user = User.objects.create_user(username="bm8")
     board = _board("bm-b8")
     topic = _topic("bm-t8", board=board)
-    PageViewRestriction.objects.create(page=board, restriction_type="login")
+    hide_forum(board)
 
     client = APIClient()
     client.force_authenticate(user)
@@ -214,7 +212,7 @@ def test_bookmarks_list_excludes_topic_on_restricted_board():
     board = _board("bm-b25")
     topic = _topic("bm-t25", board=board)
     TopicBookmark.bookmark(user, topic)
-    PageViewRestriction.objects.create(page=board, restriction_type="login")
+    hide_forum(board)
 
     client = APIClient()
     client.force_authenticate(user)
@@ -295,7 +293,9 @@ def test_bookmarks_list_query_count_is_pinned():
     # authenticated caller's ForumProfile, throttled to once per ~5 min —
     # every authenticated forum request pays this once). If this changes,
     # explain the new count here.
-    assert len(ctx.captured_queries) == 4, [q["sql"] for q in ctx.captured_queries]
+    # 4 -> 3 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 3, [q["sql"] for q in ctx.captured_queries]
 
 
 @pytest.mark.django_db

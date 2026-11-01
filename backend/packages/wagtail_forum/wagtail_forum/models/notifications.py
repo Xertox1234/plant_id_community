@@ -22,6 +22,9 @@ class NotificationVerb(models.TextChoices):
     # Someone quoted this member's post with a structured post_quote block
     # (todo 342). Carries `post` (the quoting post) and `quoted_post`.
     QUOTE = "quote", _("Quoted")
+    # A new topic in a forum the member watches (todo 672). Carries `post`
+    # (the opening post), so the (recipient, verb, post) dedupe holds.
+    NEW_TOPIC = "new_topic", _("New topic")
     # moderation/subscription verbs are added by later slices of todo 253.
 
 

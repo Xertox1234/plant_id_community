@@ -8,15 +8,23 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import IntegrityError, transaction
 from django.db.models import (
     BooleanField,
+    Case,
+    CharField,
     DateTimeField,
     Exists,
+    ExpressionWrapper,
     F,
+    Func,
+    IntegerField,
     OuterRef,
+    Prefetch,
     Q,
+    StringAgg,
     Subquery,
     Value,
+    When,
 )
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, Greatest
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
@@ -26,7 +34,12 @@ from django.utils.html import strip_tags
 from django.utils.translation import gettext_lazy as _
 from rest_framework import generics
 from rest_framework import status as http_status
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import (
+    APIException,
+    NotFound,
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import (
     AllowAny,
@@ -80,10 +93,13 @@ from ..collections import get_forum_image_collection
 from ..conf import get_setting
 from ..link_previews import link_preview_snapshots
 from ..models import (
-    ForumBoard,
+    Forum,
     ForumIdentificationAttachment,
     ForumIndex,
+    ForumModerator,
     ForumProfile,
+    ForumRead,
+    ForumSubscription,
     Poll,
     PollOption,
     Post,
@@ -95,9 +111,31 @@ from ..models import (
     UserMute,
 )
 from ..models.posts import BLOCK_FORBIDDEN
+from ..models.subscriptions import COUNTED_LEVELS
 from ..quotes import quoted_post_ids
+from ..services.forum_permissions import (
+    ATTACH,
+    POLL,
+    POST,
+    REPLY,
+    bypasses_closed,
+    capability_annotations,
+    unlocked_forum_ids,
+    user_can,
+    visible_categories,
+    visible_forums,
+)
 from ..workflow import submit_edit_for_moderation, submit_for_moderation
-from .exceptions import Conflict, UnprocessableEntity
+from .exceptions import (
+    Conflict,
+    ForumAttachDenied,
+    ForumClosed,
+    ForumLocked,
+    ForumPollDenied,
+    ForumPostDenied,
+    ForumReplyDenied,
+    UnprocessableEntity,
+)
 from .idempotency import fingerprint, idempotency_cache_key, remember, replay, reserve
 from .pagination import PostCursorPagination, TopicCursorPagination
 from .presence import effective_online_window_seconds
@@ -105,7 +143,10 @@ from .sanitize import image_block_pk, normalise_alt_text, serialize_forum_intro
 from .serializers import (
     AUTHOR_SCHEMA,
     FORUM_BODY_SCHEMA,
+    MODERATOR_NAME_SEPARATOR,
     BoardSerializer,
+    ForumCategoryListSerializer,
+    ForumCategorySerializer,
     MeProfileSerializer,
     PostEditSerializer,
     PostSerializer,
@@ -131,67 +172,129 @@ logger = logging.getLogger("wagtail_forum")
 MAX_SLUG_ATTEMPTS = 5
 
 
-def _visible_boards():
-    """Boards the API may expose: live AND without a Wagtail view restriction.
+def _visible_boards(user=None, *, request=None):
+    """The forums the API may expose to ``user`` (the guest view when None).
 
-    `PageViewRestriction` (login/password/group privacy) is not enforced
-    automatically by custom views — `.public()` is the opt-in (audit M7).
-    Restricted boards are conservatively invisible to the whole API.
+    Given ``request``, the reader is ``request.user`` and the password forums
+    this session unlocked count as open (todo 680). The rule itself, grants,
+    bypasses and the ForumIndex gate, is ``services.forum_permissions.
+    visible_forums`` (todos 675-676): one lazy queryset, so a
+    ``board__in=_visible_boards(...)`` caller adds no query of its own.
     """
-    return ForumBoard.objects.live().public()
+    return _visible_rows(Forum.FORUM, user=user, request=request)
 
 
-def visible_topics():
-    """Topics the API may expose: live, on a visible board (audit M6/M7).
+def _visible_rows(*forum_types, user=None, request=None, include_locked=False):
+    """The visible rows of ``forum_types`` for ``user`` / ``request`` (the
+    category index adds links, todo 670). Same rules for every type.
+
+    Categories and links never hold topics, so they are never "boards" —
+    `/forum/boards/` (the Flutter contract) lists only forums. Hidden rows
+    are 404, never 403 (no existence leak).
+    """
+    unlocked: list[int] = []
+    if request is not None:
+        user = request.user
+        unlocked = unlocked_forum_ids(request)
+    return visible_forums(
+        user, *forum_types, unlocked=unlocked, include_locked=include_locked
+    )
+
+
+def visible_topics(user=None, *, request=None):
+    """Topics the API may expose: live, on a board visible to the reader
+    (audit M6/M7; todo 676).
 
     The one definition of topic visibility. Public so a host can apply the
     same rule outside a REST view (the live-updates socket).
     """
-    return Topic.objects.filter(live=True, board__in=_visible_boards())
+    return Topic.objects.filter(
+        live=True, board__in=_visible_boards(user, request=request)
+    )
 
 
-def _get_visible_post(post_id):
+def _get_visible_post(post_id, request=None):
     """Fetch a live, visible post or 404 in a SINGLE query.
 
     Folds the no-existence-leak visibility guard (audit M6/M7) into the lookup:
-    a hidden post, a post on a non-live topic, or a post on a hidden/restricted
-    board is 404, never 403. Shared by PostWriteView (edit/delete) and
-    ReactionToggleView so the predicate has one shape, not three.
+    a hidden post, a post on a non-live topic, or a post on a board the
+    reader may not read is 404, never 403. Shared by PostWriteView
+    (edit/delete) and ReactionToggleView so the predicate has one shape.
     """
     return get_object_or_404(
         Post.objects.filter(
-            live=True, topic__live=True, topic__board__in=_visible_boards()
-        ).select_related("topic", "author__wagtail_forum_profile__avatar"),
+            live=True,
+            topic__live=True,
+            topic__board__in=_visible_boards(request=request),
+        ).select_related("topic__board", "author__wagtail_forum_profile__avatar"),
         id=post_id,
     )
 
 
-def _get_visible_topic(topic_id):
+def _get_visible_topic(topic_id, request=None):
     """Fetch a live, visible topic or 404 in a SINGLE query.
 
     Same no-existence-leak visibility guard as _get_visible_post, scoped to
-    Topic. Shared by PostListView.post, TopicDetailView.get_queryset-style
-    lookups, and TopicSubscriptionView.post (audit M6/M7, todo 253 slice 3) —
-    so the predicate has one shape, not four.
+    Topic (audit M6/M7, todo 253 slice 3).
     """
-    return get_object_or_404(visible_topics(), id=topic_id)
+    return get_object_or_404(visible_topics(request=request), id=topic_id)
 
 
-def _get_board(slug):
-    """Resolve a board by slug, 404ing hidden boards and 409ing ambiguity.
+def _get_board(slug, request=None):
+    """Resolve a board the reader may read by slug, 404ing hidden or unknown
+    ones. A password forum this session has not unlocked is 403
+    ``forum_locked`` (todo 680): its row is listed with a lock, so its
+    existence is no secret, and the web client shows the unlock form.
 
-    Wagtail slugs are unique only among siblings, so two boards under
-    different ForumIndex pages can share a slug — `.get()` would raise
-    `MultipleObjectsReturned` → 500 (audit M8).
+    Forum and link slugs are unique forum-wide (a partial DB constraint,
+    todo 665).
     """
-    boards = list(_visible_boards().filter(slug=slug)[:2])
-    if not boards:
+    board = (
+        _visible_rows(Forum.FORUM, request=request, include_locked=True)
+        .filter(slug=slug)
+        .first()
+    )
+    if board is None:
         raise NotFound()
-    if len(boards) > 1:
-        raise Conflict(
-            _("Board slug is ambiguous across forum trees; contact the site admin.")
-        )
-    return boards[0]
+    if (
+        board.password_hash
+        and not _visible_boards(request=request).filter(pk=board.pk).exists()
+    ):
+        raise ForumLocked()
+    return board
+
+
+# The 403 each write flag answers with (todo 677).
+_FLAG_DENIED: dict[str, type[APIException]] = {
+    POST: ForumPostDenied,
+    REPLY: ForumReplyDenied,
+    POLL: ForumPollDenied,
+    ATTACH: ForumAttachDenied,
+}
+
+
+def _enforce_forum_write(request, board, *flags):
+    """Reject a write to ``board`` the caller may not make: 403
+    ``forum_closed`` for a closed forum (todo 669; staff and the forum's
+    moderators exempt), then 403 ``forum_<flag>_denied`` for the first
+    missing flag (todo 677). Runs after the visibility lookup, so a forum the
+    caller cannot see is still a 404."""
+    user = request.user
+    if board.is_closed and not bypasses_closed(user, board):
+        raise ForumClosed()
+    for flag in flags:
+        if not user_can(user, board, flag):
+            raise _FLAG_DENIED[flag]()
+
+
+def _image_block_ids(body):
+    """The image ids a raw stream body references (``None`` for an image
+    block with no usable id). A forum body is a flat stream (blocks.py)."""
+    ids = []
+    for block in body or []:
+        if isinstance(block, dict) and block.get("type") == "image":
+            ids.append(image_block_pk(block.get("value")))
+    return ids
 
 
 def _annotate_topic_unread(qs, user):
@@ -200,12 +303,17 @@ def _annotate_topic_unread(qs, user):
     Always present — a constant for anonymous requests, the real chain for
     authenticated ones — so the serializer field needs no special-casing.
 
-    A topic is unread when its `last_post_at` is newer than the most
-    specific baseline available: this user's explicit `TopicRead` for this
-    exact topic, else their `ForumProfile.read_watermark_at` (backfilled to
-    launch time for existing profiles; stamped at profile-creation time for
-    new ones), else the fixed `UNREAD_LAUNCH_AT` launch constant (only
-    reached for a user with no profile row at all).
+    A topic is unread when its `last_post_at` is newer than the LATEST of
+    this user's read floors (todo 671): their explicit `TopicRead` for this
+    exact topic, their `ForumRead` "mark forum read" for its forum, and their
+    `ForumProfile.read_watermark_at` ("mark all read"; backfilled to launch
+    time for existing profiles, stamped at profile-creation time for new
+    ones), falling back to the fixed `UNREAD_LAUNCH_AT` launch constant for
+    a user with no profile row at all. The latest, not the most specific
+    (it was a Coalesce before 671): a topic read last week must still clear
+    when its forum, or the whole board, is marked read today. Each floor is
+    Coalesced to the base first, so a missing row never NULLs the GREATEST
+    (NULL-propagating outside PostgreSQL).
 
     Both `Subquery` lookups below fold into the single SELECT as correlated
     scalar-subquery expressions — zero added Python-level queries, so this
@@ -231,13 +339,66 @@ def _annotate_topic_unread(qs, user):
         )
     if timezone.is_naive(launch_at):
         launch_at = timezone.make_aware(launch_at)
+    forum_read = ForumRead.objects.filter(user=user, forum=OuterRef("board_id")).values(
+        "marked_at"
+    )[:1]
+    base = Coalesce(Subquery(watermark), Value(launch_at, output_field=DateTimeField()))
     return qs.alias(
-        _read_baseline=Coalesce(
-            Subquery(read_at),
-            Subquery(watermark),
-            Value(launch_at, output_field=DateTimeField()),
+        _read_baseline=Greatest(
+            Coalesce(Subquery(read_at), base),
+            Coalesce(Subquery(forum_read), base),
+            base,
         ),
     ).annotate(is_unread=Q(last_post_at__gt=F("_read_baseline")))
+
+
+def _annotate_forum_has_unread(qs, user):
+    """Annotate `has_unread` on a Forum queryset (todo 671): any live topic
+    the viewer would see as unread in that forum's topic list (same floors as
+    `_annotate_topic_unread`, same hidden authors). One correlated `EXISTS`
+    per row inside the caller's SELECT, so it adds no query. A constant
+    `False` for anonymous viewers, who have no read state."""
+    if not user.is_authenticated:
+        return qs.annotate(has_unread=Value(False, output_field=BooleanField()))
+    topics = _annotate_topic_unread(
+        Topic.objects.filter(board=OuterRef("pk"), live=True), user
+    ).filter(is_unread=True)
+    topics = _exclude_blocked_authors(topics, user)
+    return qs.annotate(has_unread=Exists(topics))
+
+
+def _annotate_forum_watch(qs, user):
+    """Annotate the viewer's ``watch_level`` (todo 672) and, for a forum they
+    track or watch, ``unread_count``: how many of its topics read as unread
+    (the topic list's own rule, ``_annotate_topic_unread``, and hidden
+    authors left out). Both are correlated subqueries inside the caller's
+    SELECT, so neither adds a query. Null for guests and untracked forums."""
+    if not user.is_authenticated:
+        return qs.annotate(
+            watch_level=Value(None, output_field=CharField()),
+            unread_count=Value(None, output_field=IntegerField()),
+        )
+    level = ForumSubscription.objects.filter(user=user, forum=OuterRef("pk")).values(
+        "level"
+    )[:1]
+    topics = _annotate_topic_unread(
+        Topic.objects.filter(board=OuterRef("pk"), live=True), user
+    ).filter(is_unread=True)
+    topics = _exclude_blocked_authors(topics, user)
+    # COUNT with no GROUP BY: a Func, not an Aggregate, so Django adds none.
+    counted = (
+        topics.order_by().annotate(n=Func(F("pk"), function="COUNT")).values("n")[:1]
+    )
+    return qs.annotate(watch_level=Subquery(level, output_field=CharField())).annotate(
+        unread_count=Case(
+            When(
+                watch_level__in=COUNTED_LEVELS,
+                then=Coalesce(Subquery(counted, output_field=IntegerField()), 0),
+            ),
+            default=Value(None, output_field=IntegerField()),
+            output_field=IntegerField(),
+        )
+    )
 
 
 def _should_filter_blocks(user):
@@ -493,21 +654,14 @@ class BoardListView(
     def get_queryset(self):
         # `last_post_at` per board (todo 278 L2) as a correlated scalar
         # subquery — same idiom as _annotate_topic_unread, so it folds into the
-        # single SELECT rather than adding a GROUP BY over the Page join.
-        # `last_post_at__isnull=False` is load-bearing, not defensive: Postgres
-        # orders DESC as NULLS FIRST, so a live topic that never got a
-        # published post would otherwise win the sort and blank the column.
-        latest_activity = (
-            Topic.objects.filter(
-                board=OuterRef("pk"), live=True, last_post_at__isnull=False
-            )
-            .order_by("-last_post_at")
-            .values("last_post_at")[:1]
-        )
+        # single SELECT rather than adding a GROUP BY.
+        # A password forum is left out until unlocked (todo 680): the
+        # Flutter app, this list's client, has no unlock screen yet, so a
+        # locked forum is hidden there (owner decision 2026-10-30).
         return (
-            _visible_boards()
-            .annotate(last_post_at=Subquery(latest_activity))
-            .order_by("path")
+            _visible_boards(request=self.request)
+            .annotate(last_post_at=_board_last_post_subquery())
+            .order_by("parent__position", "parent_id", "position", "id")
         )
 
     def list(self, request, *args, **kwargs):
@@ -523,6 +677,164 @@ class BoardListView(
                 "intro": serialize_forum_intro(index.intro) if index else "",
             }
         )
+
+
+def _forum_moderator_names_subquery():
+    """The forum in `OuterRef("pk")`'s moderators, users then groups, each
+    alphabetically, as one string (`MODERATOR_NAME_SEPARATOR`), or NULL."""
+    name = Coalesce("user__username", "group__name")
+    return Subquery(
+        ForumModerator.objects.filter(forum=OuterRef("pk"))
+        .order_by()
+        .values("forum")
+        .annotate(
+            names=StringAgg(
+                name,
+                delimiter=Value(MODERATOR_NAME_SEPARATOR),
+                # Users (no group) first, then groups; each by name. The
+                # group id is not an order (round-2 review).
+                order_by=(
+                    ExpressionWrapper(
+                        Q(group__isnull=False), output_field=BooleanField()
+                    ),
+                    name,
+                ),
+            )
+        )
+        .values("names")[:1],
+        output_field=CharField(),
+    )
+
+
+def _board_last_post_subquery():
+    """The newest live topic's `last_post_at` for the board in `OuterRef("pk")`.
+
+    `last_post_at__isnull=False` is load-bearing: Postgres orders DESC as NULLS
+    FIRST, so a live topic that never got a published post would otherwise win
+    the sort and blank the column (todo 278 L2).
+    """
+    return Subquery(
+        Topic.objects.filter(
+            board=OuterRef("pk"), live=True, last_post_at__isnull=False
+        )
+        .order_by("-last_post_at")
+        .values("last_post_at")[:1]
+    )
+
+
+@extend_schema(
+    responses={
+        200: ForumCategoryListSerializer,
+    },
+    description=(
+        "List the forum's categories in `position` order, each with its "
+        "visible forums nested under `forums` (same row shape as "
+        "`/forum/boards/`). A category's `topic_count`, `post_count` and "
+        "`last_post_at` are summed from its visible forums at read time; a "
+        "category with no visible forum or link is omitted. Each forum row and "
+        "each category carries `has_unread` (always false when anonymous); "
+        "link rows are under `links`, with `click_count` when tracked. Flat "
+        "and unpaginated."
+    ),
+)
+class CategoryListView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
+    """`GET /forum/categories/` — the index grouped by category (todo 665).
+
+    Additive: `/forum/boards/` keeps its flat forum list for Flutter. Two
+    queries whatever the number of categories or forums: the categories, and
+    one prefetch of their visible forums with the last-post subquery.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        # Forums and links in ONE prefetch (split below), so the query count
+        # stays two. A link with no URL (a row saved before todo 670 made the
+        # URL required) has nowhere to send a reader and is left out.
+        #
+        # A password forum this session has not unlocked (todo 680) is listed
+        # with `is_locked` and nothing that reveals its topics: no last-post
+        # time, no unread mark, no topic template, and no rules, rules URL,
+        # icon or image. Moderators (todo 674) are one more correlated
+        # subquery, so the count stays two.
+        open_rows = _visible_rows(Forum.FORUM, Forum.LINK, request=request)
+        locked = ~Q(password_hash="") & ~Q(pk__in=open_rows.values("pk"))
+        children = (
+            _annotate_forum_has_unread(
+                _visible_rows(
+                    Forum.FORUM, Forum.LINK, request=request, include_locked=True
+                )
+                .exclude(forum_type=Forum.LINK, link_url="")
+                .annotate(
+                    is_locked=ExpressionWrapper(locked, output_field=BooleanField()),
+                    last_post_at=_board_last_post_subquery(),
+                ),
+                request.user,
+            )
+            .annotate(moderator_names=_forum_moderator_names_subquery())
+            # The viewer's capabilities (todo 677) and watch level and unread
+            # count (todo 672), each folded into this SELECT.
+            .annotate(**capability_annotations(request.user))
+            .select_related("image")
+            .order_by("position", "id")
+        )
+        children = _annotate_forum_watch(children, request.user)
+        categories = (
+            visible_categories(request.user)
+            .order_by("position", "id")
+            .prefetch_related(
+                Prefetch("children", queryset=children, to_attr="visible_rows")
+            )
+        )
+        rows = []
+        for category in categories:
+            # Any: each row carries the `last_post_at` and `has_unread`
+            # annotations, which the Prefetch(to_attr=...) list type does not
+            # know about.
+            visible: list[Any] = [
+                row for row in category.visible_rows if row.forum_type == Forum.FORUM
+            ]
+            for row in visible:
+                if row.is_locked:
+                    row.last_post_at = None
+                    row.has_unread = False
+                    row.unread_count = None
+                    # Written for those who know the password (round-2
+                    # review); this response may be the cached guest one.
+                    row.topic_template = ""
+                    # Owner decision 2026-11-01: name and description only.
+                    # The rules, rules URL, icon and image wait for the unlock.
+                    row.rules = ""
+                    row.rules_url = ""
+                    row.icon = ""
+                    row.image_id = None
+            links: list[Any] = [
+                row for row in category.visible_rows if row.forum_type == Forum.LINK
+            ]
+            if not visible and not links:
+                continue  # phpBB skips a category with nothing to show
+            stamps = [f.last_post_at for f in visible if f.last_post_at]
+            rows.append(
+                {
+                    "id": category.pk,
+                    "name": category.name,
+                    "slug": category.slug,
+                    "description": category.description,
+                    "icon": category.icon,
+                    "colour": category.colour,
+                    "position": category.position,
+                    "topic_count": sum(f.topic_count for f in visible),
+                    "post_count": sum(f.post_count for f in visible),
+                    "last_post_at": max(stamps) if stamps else None,
+                    "has_unread": any(f.has_unread for f in visible),
+                    "visible_forums": visible,
+                    "visible_links": links,
+                }
+            )
+        data = ForumCategorySerializer(
+            rows, many=True, context={"request": request}
+        ).data
+        return Response({"results": data})
 
 
 @extend_schema(
@@ -547,13 +859,16 @@ class TopicListView(
     # GET (list) is public; only the merged POST (create) needs auth — exactly
     # IsAuthenticatedOrReadOnly (also the project default), declared explicitly.
     permission_classes = [IsAuthenticatedOrReadOnly]
+    board: Forum | None = None
 
     def get_queryset(self):
         # Suppress drf-spectacular's "Failed to obtain model" warning: during
         # schema generation there is no `slug` kwarg to look the board up by.
         if getattr(self, "swagger_fake_view", False):
             return Topic.objects.none()
-        board = _get_board(self.kwargs["slug"])
+        board = _get_board(self.kwargs["slug"], self.request)
+        # The paginator reads the forum's page size and default sort (todo 669).
+        self.board = board
         # Join author + last_post_author down to their ForumProfile.avatar so the
         # unified author object (todo 257 H26) serializes with zero per-row
         # queries — select_related adds JOINs, not queries, so the list pin stays
@@ -594,7 +909,15 @@ class TopicListView(
 
     @extend_schema(
         request=TopicCreateSerializer,
-        responses={201: dict, 400: dict, 401: dict, 404: dict, 409: dict, 422: dict},
+        responses={
+            201: dict,
+            400: dict,
+            401: dict,
+            403: dict,
+            404: dict,
+            409: dict,
+            422: dict,
+        },
         examples=[
             OpenApiExample(
                 "Create a topic",
@@ -674,10 +997,20 @@ class TopicListView(
             data=request.data, context={"request": request}
         )
         serializer.is_valid(raise_exception=True)
-        board = _get_board(slug)
+        board = _get_board(slug, request)
+        validated = serializer.validated_data
+        flags = [POST]
+        if validated.get("poll"):
+            flags.append(POLL)
+        # An identification photo is an image on the thread too (its card and
+        # the Recent thumbnail), so it needs `attach` like an image block.
+        identification = validated.get("identification") or {}
+        if _image_block_ids(validated["body"]) or identification.get("image_id"):
+            flags.append(ATTACH)
+        _enforce_forum_write(request, board, *flags)
 
         reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
-        topic, opening = self._create_topic(request, board, serializer.validated_data)
+        topic, opening = self._create_topic(request, board, validated)
 
         # Route through moderation OUTSIDE the creation transaction. A pluggable
         # spam backend can raise; the draft is already live=False, so never 500 —
@@ -827,7 +1160,7 @@ class TopicDetailView(
         if getattr(self, "swagger_fake_view", False):
             return Topic.objects.none()
         qs = (
-            Topic.objects.filter(live=True, board__in=_visible_boards())  # type: ignore[misc]  # taggit `tags` is untyped to the plugin
+            Topic.objects.filter(live=True, board__in=_visible_boards(request=self.request))  # type: ignore[misc]  # taggit `tags` is untyped to the plugin
             .select_related(
                 "board",
                 "author__wagtail_forum_profile__avatar",
@@ -973,7 +1306,9 @@ def _post_page_context(objects, request, base_context):
         **base_context,
         "forum_image_map": build_forum_image_map(objects),
         "forum_embed_map": build_forum_embed_map(objects),
-        "forum_quote_map": build_forum_quote_map(objects, request.user),
+        "forum_quote_map": build_forum_quote_map(
+            objects, request.user, request=request
+        ),
         "forum_reacted_map": reacted_map,
     }
 
@@ -998,7 +1333,9 @@ class PostListView(
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return Post.objects.none()
-        topic = get_object_or_404(visible_topics(), id=self.kwargs["topic_id"])
+        topic = get_object_or_404(
+            visible_topics(request=self.request), id=self.kwargs["topic_id"]
+        )
         # select_related("topic") so PostSerializer.can_edit/can_delete
         # (Post.edit_block reads obj.topic) adds no per-post query — flat, no N+1
         # for authenticated listers (todo 252).
@@ -1026,7 +1363,15 @@ class PostListView(
 
     @extend_schema(
         request=ReplyCreateSerializer,
-        responses={201: dict, 400: dict, 401: dict, 404: dict, 409: dict, 422: dict},
+        responses={
+            201: dict,
+            400: dict,
+            401: dict,
+            403: dict,
+            404: dict,
+            409: dict,
+            422: dict,
+        },
         description=(
             "Reply to a topic; the reply routes through moderation. On success "
             "returns 201 with a Location header for the new post. Supports an "
@@ -1050,7 +1395,9 @@ class PostListView(
         # leak its existence, and a reply must never go live on a hidden
         # thread. Board liveness/privacy counts too (audit M6/M7).
         topic = get_object_or_404(
-            Topic.objects.filter(live=True, board__in=_visible_boards()),
+            Topic.objects.filter(
+                live=True, board__in=_visible_boards(request=request)
+            ).select_related("board"),
             id=topic_id,
         )
         if topic.is_closed or topic.locked:
@@ -1059,6 +1406,10 @@ class PostListView(
             data=request.data, context={"request": request}
         )
         serializer.is_valid(raise_exception=True)
+        flags = [REPLY]
+        if _image_block_ids(serializer.validated_data["body"]):
+            flags.append(ATTACH)
+        _enforce_forum_write(request, topic.board, *flags)
 
         reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
         post = Post(
@@ -1116,9 +1467,9 @@ class PostWriteView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIVie
     )
     def get(self, request, post_id):
         queryset = _annotate_author_blocked(
-            Post.objects.filter(live=True, topic__in=visible_topics()).select_related(
-                "author__wagtail_forum_profile__avatar", "topic"
-            ),
+            Post.objects.filter(
+                live=True, topic__in=visible_topics(request=request)
+            ).select_related("author__wagtail_forum_profile__avatar", "topic"),
             request.user,
         )
         post = get_object_or_404(queryset, id=post_id)
@@ -1131,7 +1482,7 @@ class PostWriteView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIVie
         # topic, opening-post) lives in Post.edit_block/delete_block, single-
         # sourced with PostSerializer's can_edit/can_delete (todo 252);
         # patch()/delete() enforce it via _enforce_writable.
-        return _get_visible_post(post_id)
+        return _get_visible_post(post_id, request)
 
     def _get_patchable(self, request, post_id):
         """``_get_editable``, plus the caller's own pending opening post (todo
@@ -1158,9 +1509,9 @@ class PostWriteView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIVie
                 first_published_at__isnull=True,
                 topic__live=False,
                 topic__first_published_at__isnull=True,
-                topic__board__in=_visible_boards(),
+                topic__board__in=_visible_boards(request=request),
             )
-            .select_related("topic", "author__wagtail_forum_profile__avatar")
+            .select_related("topic__board", "author__wagtail_forum_profile__avatar")
             .first()
         )
         if pending is None:
@@ -1239,6 +1590,12 @@ class PostWriteView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIVie
             },
         )
         serializer.is_valid(raise_exception=True)
+        # Todo 677: an edit may keep the images the post already shows, but a
+        # new one needs `attach` on the forum, as on create.
+        kept = set(_image_block_ids(post.body.raw_data))
+        added = set(_image_block_ids(serializer.validated_data["body"])) - kept
+        if added and not user_can(request.user, post.topic.board, ATTACH):
+            raise ForumAttachDenied()
         post.body = ForumBodyBlock().to_python(serializer.validated_data["body"])
         reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
         # submit_edit_for_moderation owns the persistence contract: a pre-revision
@@ -1275,7 +1632,7 @@ class PostWriteView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIVie
                 "forum_image_map": build_forum_image_map([serialize_source]),
                 "forum_embed_map": build_forum_embed_map([serialize_source]),
                 "forum_quote_map": build_forum_quote_map(
-                    [serialize_source], request.user
+                    [serialize_source], request.user, request=request
                 ),
             },
         ).data
@@ -1382,7 +1739,7 @@ def _readable_post_revisions(request, post_id):
     Shared by the list and detail views so the visibility gate, the privacy
     gate and the ``select_related`` chain cannot drift between them.
     """
-    post = _get_visible_post(post_id)
+    post = _get_visible_post(post_id, request)
     if _revision_privacy_block(post, request.user) is not None:
         raise PermissionDenied()
     revisions = post.revisions.select_related(
@@ -1495,7 +1852,9 @@ class PostRevisionDetailView(
                     image_map=build_forum_image_map([snapshot]),
                     request=request,
                     embed_map=build_forum_embed_map([snapshot]),
-                    quote_map=build_forum_quote_map([snapshot], request.user),
+                    quote_map=build_forum_quote_map(
+                        [snapshot], request.user, request=request
+                    ),
                 ),
             }
         )
@@ -1535,6 +1894,17 @@ class PostImageUploadView(UnversionedForumAPIMixin, APIView):
                 "type": "object",
                 "properties": {
                     "image": {"type": "string", "format": "binary"},
+                    "forum_id": {
+                        "type": "integer",
+                        "description": (
+                            "Optional (todo 677): the forum the image is for. "
+                            "When sent, the caller needs `attach` there (403 "
+                            "forum_attach_denied; 404 for a forum they cannot "
+                            "see). When absent the upload is accepted, and an "
+                            "image block in a post body is still checked "
+                            "against the forum it is posted to."
+                        ),
+                    },
                     "alt": {
                         "type": "string",
                         "maxLength": 255,
@@ -1547,7 +1917,15 @@ class PostImageUploadView(UnversionedForumAPIMixin, APIView):
                 },
             }
         },
-        responses={201: dict, 400: dict, 401: dict, 409: dict, 422: dict},
+        responses={
+            201: dict,
+            400: dict,
+            401: dict,
+            403: dict,
+            404: dict,
+            409: dict,
+            422: dict,
+        },
         description=(
             "Upload an inline post image (4-layer validated: extension, MIME, "
             "size, PIL decode) into the forum image collection. Returns "
@@ -1566,6 +1944,7 @@ class PostImageUploadView(UnversionedForumAPIMixin, APIView):
         image_file = request.FILES.get("image")
         if image_file is None:
             raise ValidationError(_("No image file provided."))
+        self._enforce_forum_attach(request)
         validate_image_upload(image_file)
         # Idempotency (M36): the multipart upload is the most retry-prone shape
         # (mobile composer on a flaky network). request.data holds the
@@ -1617,6 +1996,31 @@ class PostImageUploadView(UnversionedForumAPIMixin, APIView):
         response["Location"] = data["url"]  # created image's absolute URL (L19)
         return response
 
+    @staticmethod
+    def _enforce_forum_attach(request):
+        """The optional ``forum_id`` part (todo 677, owner decision
+        2026-11-01): checked against ``attach`` when sent. Absent, the upload
+        is accepted as before (the Identify upload and shipped app builds send
+        none); the body's image-block check still holds at post time."""
+        raw = request.data.get("forum_id")
+        if raw is None or raw == "":
+            return
+        if not isinstance(raw, (str, int)) or isinstance(raw, bool):
+            raise ValidationError({"forum_id": [_("A forum id is a whole number.")]})
+        try:
+            forum_id = int(raw)
+        except ValueError:
+            raise ValidationError(
+                {"forum_id": [_("A forum id is a whole number.")]}
+            ) from None
+        board = _visible_boards(request=request).filter(pk=forum_id).first()
+        if board is None:
+            raise NotFound()
+        # `attach` only, not the closed rule: an upload posts nothing, and an
+        # edit in a closed forum may still add an image (the PATCH check).
+        if not user_can(request.user, board, ATTACH):
+            raise _FLAG_DENIED[ATTACH]()
+
 
 class ReactionToggleView(UnversionedForumAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
@@ -1641,7 +2045,9 @@ class ReactionToggleView(UnversionedForumAPIMixin, APIView):
         if replayed is not None:
             return replayed
 
-        post = _get_visible_post(post_id)  # 404s hidden posts/topics/boards (M6/M7)
+        post = _get_visible_post(
+            post_id, request
+        )  # 404s hidden posts/topics/boards (M6/M7)
         serializer = ReactionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
@@ -1692,7 +2098,9 @@ class PostReportView(UnversionedForumAPIMixin, APIView):
         if replayed is not None:
             return replayed
 
-        post = _get_visible_post(post_id)  # 404s hidden posts/topics/boards (M6/M7)
+        post = _get_visible_post(
+            post_id, request
+        )  # 404s hidden posts/topics/boards (M6/M7)
         # Single-sourced on the model (can_be_reported_by) so this guard and the
         # serializer's can_report affordance cannot diverge — same discipline as
         # PostWriteView's edit_block/delete_block (todo 252).
@@ -1947,7 +2355,7 @@ class PublicProfileView(UnversionedForumAPIMixin, APIView):
             is_active=True,
         )
         profile = getattr(user, "wagtail_forum_profile", None)
-        boards = _visible_boards()
+        boards = _visible_boards(request=request)
         # todo 284/M9: a single .exists() check, not list-pinned (this is a
         # one-off profile-page load, not a paginated endpoint) — never
         # exposes whether the TARGET has blocked the viewer, only the
@@ -2130,8 +2538,15 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         limit = max(1, min(limit, get_setting("RECENT_TOPICS_MAX_LIMIT")))
 
         recent = Topic.objects.filter(
-            board__in=_visible_boards(), live=True, last_post_at__isnull=False
+            board__in=_visible_boards(request=request),
+            live=True,
+            last_post_at__isnull=False,
         ).select_related("board")
+        # A forum the member muted is left out of Recent (todo 672).
+        if request.user.is_authenticated:
+            recent = recent.exclude(
+                board__in=ForumSubscription.muted_forum_ids(request.user)
+            )
         # HIDE (todo 347 review): the home "Active now" feed had never been
         # block-aware — a member's own blocks and mutes shape it now like the
         # board topic list. No-op for anonymous and moderators
@@ -2361,7 +2776,7 @@ class EventHeroView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView
                 Topic.objects.filter(
                     pk=index.featured_topic_id,
                     live=True,
-                    board__in=_visible_boards(),
+                    board__in=_visible_boards(request=request),
                 )
                 .select_related("board")
                 .first()
@@ -2428,7 +2843,7 @@ class SearchView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
         topics_has_more = posts_has_more = False
         if query:
             backend = get_search_backend()
-            boards = _visible_boards()
+            boards = _visible_boards(request=request)
             topic_qs = Topic.objects.filter(live=True, board__in=boards)
             post_qs = Post.objects.filter(
                 live=True, topic__live=True, topic__board__in=boards
@@ -2554,7 +2969,7 @@ class SyncView(UnversionedForumAPIMixin, APIView):
                 {"since_id": _("Provide an integer topic id.")}
             ) from exc
 
-        qs = Topic.objects.filter(live=True, board__in=_visible_boards())
+        qs = Topic.objects.filter(live=True, board__in=_visible_boards(request=request))
         board_slug = request.query_params.get("board")
         if board_slug:
             qs = qs.filter(board__slug=board_slug)

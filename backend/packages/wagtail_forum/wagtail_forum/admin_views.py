@@ -83,6 +83,7 @@ from wagtail.models import Revision, WorkflowState
 from wagtail.permission_policies import ModelPermissionPolicy
 
 from .models import Post, Report, Topic, TrustLevel
+from .permissions import forum_ids_moderated_by, moderates_any_forum, report_policy
 
 logger = logging.getLogger("wagtail_forum")
 
@@ -100,7 +101,19 @@ QUEUE_PERMISSIONS = ["add", "change", "delete", "view"]
 
 
 def user_can_view_queue(user):
-    return queue_permission_policy.user_has_any_permission(user, QUEUE_PERMISSIONS)
+    """Whoever may open the Report snippet, or moderates a forum (todo 674:
+    they see that forum's post reports only)."""
+    return queue_permission_policy.user_has_any_permission(
+        user, QUEUE_PERMISSIONS
+    ) or moderates_any_forum(user)
+
+
+def _scope_reports(queryset, user):
+    """A forum moderator's queue holds their forums' post reports only;
+    message reports stay with global moderators."""
+    if queue_permission_policy.user_has_any_permission(user, QUEUE_PERMISSIONS):
+        return queryset
+    return queryset.filter(post__topic__board__in=forum_ids_moderated_by(user))
 
 
 def _inspect_url(report):
@@ -147,7 +160,9 @@ class ModerationQueueView(ReportView):
     index_url_name = "wagtail_forum_reports:moderation_queue"
     index_results_url_name = "wagtail_forum_reports:moderation_queue_results"
     filterset_class = ModerationQueueFilterSet
-    permission_policy = queue_permission_policy
+    # Forum moderators (todo 674) may open it too; `_scope_reports` narrows
+    # their rows to their forums' post reports.
+    permission_policy = report_policy
     any_permission_required = QUEUE_PERMISSIONS
     # Oldest first: the queue is a backlog, and the report nobody has looked
     # at for longest is the one to open next.
@@ -263,7 +278,9 @@ class ModerationQueueView(ReportView):
             .values("n")
         )
         self.queryset = (
-            Report.objects.filter(status__in=QUEUE_STATUSES)
+            _scope_reports(
+                Report.objects.filter(status__in=QUEUE_STATUSES), self.request.user
+            )
             .select_related(
                 "post",
                 "post__topic",  # target_excerpt prefixes the topic title
@@ -302,16 +319,32 @@ KIND_REPLY = _("Reply")
 KIND_EDIT = _("Edit")
 
 
+def _moderates_all_pending(user):
+    return pending_permission_policy.user_has_permission(
+        user, PENDING_PERMISSION
+    ) and topic_permission_policy.user_has_permission(user, PENDING_PERMISSION)
+
+
 def user_can_moderate_pending(user):
     """Approve publishes a post and, for an opening post, its topic, so the
     page opens for whoever may publish both: superusers and the host's forum
     moderator group (``publish_post`` and ``publish_topic``). ``publish_post``
     alone is not enough (todo 495): Approve publishes the topic with
     ``skip_permission_checks``, so it would publish topics for a user the
-    host never let publish one."""
-    return pending_permission_policy.user_has_permission(
-        user, PENDING_PERMISSION
-    ) and topic_permission_policy.user_has_permission(user, PENDING_PERMISSION)
+    host never let publish one.
+
+    A forum's own moderators (todo 674) may open it too, for their forums'
+    posts only (``pending_posts_for``)."""
+    return _moderates_all_pending(user) or moderates_any_forum(user)
+
+
+def pending_posts_for(user):
+    """``pending_posts()`` narrowed to the forums ``user`` moderates, unless
+    they moderate every forum."""
+    posts = pending_posts()
+    if _moderates_all_pending(user):
+        return posts
+    return posts.filter(topic__board__in=forum_ids_moderated_by(user))
 
 
 def _taken_down(obj):
@@ -462,6 +495,14 @@ def _reject_target(post):
 def _user_can_reject(user, target):
     """Reject deletes, so it needs the same ``delete`` permission the snippet
     delete view it replaced required."""
+    if not _moderates_all_pending(user):
+        # A forum moderator rejects (deletes) pending content in their own
+        # forums: the row is already scoped by pending_posts_for (todo 674).
+        board_id = (
+            target.board_id if isinstance(target, Topic) else target.topic.board_id
+        )
+        if board_id in forum_ids_moderated_by(user):
+            return True
     return ModelPermissionPolicy(type(target)).user_has_permission(user, "delete")
 
 
@@ -628,7 +669,7 @@ def _shown_revision(post):
     return str(_held_revision_id(post) or "")
 
 
-def _lock_pending_post(pk, *, whole_thread=False):
+def _lock_pending_post(pk, *, user, whole_thread=False):
     """Lock the post row, then its topic's, and only then look the post up in
     ``pending_posts()`` as its own query, so the lookup sees whatever a
     concurrent Approve or Reject (a double-click, a second moderator)
@@ -669,7 +710,10 @@ def _lock_pending_post(pk, *, whole_thread=False):
         )
     Topic.objects.select_for_update().filter(pk=locked.topic_id).first()
     return (
-        pending_posts().select_related("topic", "latest_revision").filter(pk=pk).first()
+        pending_posts_for(user)
+        .select_related("topic", "latest_revision")
+        .filter(pk=pk)
+        .first()
     )
 
 
@@ -753,7 +797,7 @@ class PendingContentView(ReportView):
 
     def get_queryset(self):
         self.queryset = (
-            pending_posts()
+            pending_posts_for(self.request.user)
             .select_related("topic", "author", "latest_revision")
             .annotate(
                 # LEFT JOIN: an author with no ForumProfile row lists blank.
@@ -786,7 +830,7 @@ class ApprovePendingView(View):
         if not user_can_moderate_pending(request.user):
             raise PermissionDenied
         with transaction.atomic():
-            post = _lock_pending_post(pk)
+            post = _lock_pending_post(pk, user=request.user)
             if post is None:
                 return _already_decided(request)
             if not _approve_allowed(post):
@@ -841,7 +885,7 @@ class RejectPendingView(WagtailAdminTemplateMixin, View):
         if not user_can_moderate_pending(request.user):
             raise PermissionDenied
         post = (
-            pending_posts()
+            pending_posts_for(request.user)
             .select_related("topic", "latest_revision")
             .filter(pk=pk)
             .first()
@@ -874,7 +918,7 @@ class RejectPendingView(WagtailAdminTemplateMixin, View):
         if not user_can_moderate_pending(request.user):
             raise PermissionDenied
         with transaction.atomic():
-            post = _lock_pending_post(pk, whole_thread=True)
+            post = _lock_pending_post(pk, user=request.user, whole_thread=True)
             if post is None:
                 return _already_decided(request)
             target = _reject_target(post)

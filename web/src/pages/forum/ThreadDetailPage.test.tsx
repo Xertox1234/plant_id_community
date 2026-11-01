@@ -4,13 +4,19 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import * as ReactRouter from 'react-router-dom';
 import ThreadDetailPage, { NEW_REPLIES_POLL_INTERVAL_MS } from './ThreadDetailPage';
-import { createMockThread, createMockPost } from '../../tests/forumUtils';
+import {
+  createMockCategory,
+  createMockForum,
+  createMockThread,
+  createMockPost,
+} from '../../tests/forumUtils';
 import * as forumService from '../../services/forumService';
 import * as blogService from '../../services/blogService';
 import { useAuth } from '../../contexts/AuthContext';
 import { AnnouncerProvider } from '../../contexts/AnnouncerContext';
 import { logger } from '../../utils/logger';
 import type { JSONContent } from '@tiptap/react';
+import type { Forum } from '@/types';
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -225,6 +231,27 @@ describe('ThreadDetailPage', () => {
     expect(breadcrumb).toHaveTextContent('Plant Care');
   });
 
+  it('puts the forum category between Forum and the board in the breadcrumb (todo 665)', async () => {
+    const board = createMockForum({ id: '3', name: 'Plant Care', slug: 'plant-care' });
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+      createMockThread({ title: 'Watering tips', category: board })
+    );
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+    vi.mocked(forumService.fetchForumCategory).mockResolvedValue(
+      createMockCategory({ id: '1', name: 'Indoor plants', forums: [board] })
+    );
+
+    renderThreadDetailPage();
+
+    const breadcrumb = await screen.findByLabelText('Breadcrumb');
+    await waitFor(() =>
+      expect(breadcrumb.textContent?.replace(/\s+/g, '')).toBe(
+        'Forum/Indoorplants/PlantCare/Wateringtips'
+      )
+    );
+    expect(forumService.fetchForumCategory).toHaveBeenCalledWith('3');
+  });
+
   it('displays pinned badge when thread is pinned', async () => {
     const mockThread = createMockThread({ is_pinned: true });
 
@@ -314,6 +341,55 @@ describe('ThreadDetailPage', () => {
     expect(screen.getByLabelText('Write a reply...')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Post Reply/i })).toBeInTheDocument();
     expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
+  });
+
+  describe('forum capabilities and theme (todos 677, 681)', () => {
+    const board = createMockForum({ id: '3', name: 'Plant Care', slug: 'plant-care' });
+    const allowed = { can_post: true, can_reply: true, can_poll: true, can_attach: true };
+
+    function serve(row: Partial<Forum>) {
+      vi.spyOn(forumService, 'fetchThread').mockResolvedValue(
+        createMockThread({ title: 'Watering tips', category: board })
+      );
+      vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({ items: [], meta: { count: 0 } });
+      vi.mocked(forumService.fetchForumCategory).mockResolvedValue(
+        createMockCategory({ id: '1', name: 'Indoor', forums: [{ ...board, ...row }] })
+      );
+    }
+
+    it('replaces the reply box for a member who may not reply here', async () => {
+      serve({ capabilities: { ...allowed, can_reply: false } });
+      renderThreadDetailPage();
+      expect(await screen.findByTestId('reply-refused')).toHaveTextContent(
+        'You cannot reply in this forum.'
+      );
+      expect(screen.queryByRole('button', { name: /Post Reply/i })).not.toBeInTheDocument();
+    });
+
+    it('says a closed forum takes no replies', async () => {
+      serve({
+        is_closed: true,
+        capabilities: { can_post: false, can_reply: false, can_poll: false, can_attach: false },
+      });
+      renderThreadDetailPage();
+      expect(await screen.findByTestId('reply-refused')).toHaveTextContent('This forum is closed');
+    });
+
+    it('keeps the reply box where the member may reply', async () => {
+      serve({ capabilities: allowed });
+      renderThreadDetailPage();
+      await waitFor(() => expect(forumService.fetchForumCategory).toHaveBeenCalledWith('3'));
+      expect(await screen.findByRole('button', { name: /Post Reply/i })).toBeInTheDocument();
+      expect(screen.queryByTestId('reply-refused')).not.toBeInTheDocument();
+    });
+
+    it('applies the forum theme as a token scope', async () => {
+      serve({ theme: 'slate', capabilities: allowed });
+      renderThreadDetailPage();
+      await waitFor(() =>
+        expect(screen.getByTestId('thread-page')).toHaveAttribute('data-forum-theme', 'slate')
+      );
+    });
   });
 
   it('hides the reply composer when the thread is locked', async () => {

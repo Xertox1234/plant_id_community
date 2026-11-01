@@ -86,7 +86,7 @@ class TopicSolutionView(UnversionedForumAPIMixin, APIView):
 
         # Visibility first: a hidden/restricted topic 404s before any
         # permission or validation error can confirm it exists (audit M6/M7).
-        topic = _get_visible_topic(topic_id)
+        topic = _get_visible_topic(topic_id, request)
         self._enforce_can_mark(topic, request.user)
         serializer = SolutionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -138,7 +138,7 @@ class TopicSolutionView(UnversionedForumAPIMixin, APIView):
         # only the caller's OWN subscription row, so 404ing a subscriber out of
         # unsubscribing would strand them. This mutates SHARED topic state, so
         # the same no-existence-leak rule as post() applies.
-        topic = _get_visible_topic(topic_id)
+        topic = _get_visible_topic(topic_id, request)
         self._enforce_can_mark(topic, request.user)
         if topic.solved_post_id is not None:
             topic.solved_post = None

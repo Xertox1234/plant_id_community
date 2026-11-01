@@ -12,6 +12,14 @@ from .direct_messages import (
     MessageReportView,
     MessageSendView,
 )
+from .forum_rows import (
+    ForumLinkGoView,
+    ForumMarkAllReadView,
+    ForumMarkReadView,
+    ForumSubscriptionView,
+    ForumUnlockView,
+    MeCollapsedCategoriesView,
+)
 from .image_management import ForumImageDetailView, MyForumImagesView
 from .notifications import (
     NotificationListView,
@@ -26,6 +34,7 @@ from .user_mutes import MyMutesView, UserMuteView
 from .user_search import UserMentionSearchView
 from .views import (
     BoardListView,
+    CategoryListView,
     EventHeroView,
     ExpertsView,
     MeProfileView,
@@ -49,7 +58,28 @@ app_name = "wagtail_forum_api"
 
 urlpatterns = [
     path("boards/", BoardListView.as_view(), name="board-list"),
+    path("categories/", CategoryListView.as_view(), name="category-list"),
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),
+    # Read marks (todo 671) and link redirects (todo 670).
+    path(
+        "boards/<slug:slug>/read/",
+        ForumMarkReadView.as_view(),
+        name="forum-mark-read",
+    ),
+    path("read-all/", ForumMarkAllReadView.as_view(), name="forum-mark-all-read"),
+    # Password forums (todo 680).
+    path(
+        "boards/<slug:slug>/unlock/",
+        ForumUnlockView.as_view(),
+        name="forum-unlock",
+    ),
+    # Watch / track / mute (todo 672).
+    path(
+        "boards/<slug:slug>/subscription/",
+        ForumSubscriptionView.as_view(),
+        name="forum-subscription",
+    ),
+    path("links/<int:link_id>/go/", ForumLinkGoView.as_view(), name="forum-link-go"),
     path("topics/recent/", RecentTopicsView.as_view(), name="topics-recent"),
     # MUST come before topics/<int:topic_id>/ — literal-over-capture, same rule
     # this file already documents for users/search/ vs users/<str:username>/.
@@ -108,6 +138,11 @@ urlpatterns = [
     ),
     path("me/profile/", MeProfileView.as_view(), name="me-profile"),
     path("me/stats/", MeStatsView.as_view(), name="me-stats"),
+    path(
+        "me/collapsed-categories/",
+        MeCollapsedCategoriesView.as_view(),
+        name="me-collapsed-categories",
+    ),
     path("me/bookmarks/", TopicBookmarkListView.as_view(), name="me-bookmarks"),
     path("me/blocks/", MyBlocksView.as_view(), name="me-blocks"),
     path("me/mutes/", MyMutesView.as_view(), name="me-mutes"),

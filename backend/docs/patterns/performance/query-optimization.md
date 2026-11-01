@@ -331,10 +331,12 @@ WHERE user_id = 123;
 
 ```python
 from django.db.models import Count, Q
-from wagtail_forum.models import ForumBoard, Post, Topic
+from wagtail_forum.api.views import _visible_boards
+from wagtail_forum.models import Post, Topic
 
-# Only what the forum itself shows: live topics on live, unrestricted boards.
-visible_boards = ForumBoard.objects.live().public()
+# Only what the forum itself shows: live topics on visible boards (the
+# package's own rule — boards are Forum rows since todo 665).
+visible_boards = _visible_boards()
 my_topics = Topic.objects.filter(
     author=request.user, live=True, board__in=visible_boards
 )
@@ -356,8 +358,9 @@ post_aggregation = my_replies.aggregate(
     posts_this_month=Count('pk', filter=Q(created_at__gte=thirty_days_ago)),
 )
 
-# Total: 5 queries — the view-restriction lookup behind .public(), these 2
-# aggregates, and 2 select_related recent-activity lists. Pinned by
+# Total: 4 queries — these 2 aggregates and 2 select_related recent-activity
+# lists (5 before todo 665, when boards were pages and `.public()` added a
+# view-restriction lookup). Pinned by
 # test_query_count_is_constant (apps/users/tests/test_dashboard_stats.py).
 ```
 

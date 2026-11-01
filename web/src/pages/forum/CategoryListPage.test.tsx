@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import CategoryListPage from './CategoryListPage';
 import { resolveBoardFilter } from '../../utils/forumBoardFilter';
-import { createMockCategory } from '../../tests/forumUtils';
-import type { Category, ForumMyStats, EventHeroTopic } from '../../types/forum';
+import { createMockCategory, createMockForum } from '../../tests/forumUtils';
+import type { Forum, ForumMyStats, EventHeroTopic } from '../../types/forum';
 import * as forumService from '../../services/forumService';
 import * as blogService from '../../services/blogService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -36,8 +36,8 @@ vi.mock('../../utils/logger', () => ({
  * The forum home payload: boards plus the CMS welcome copy, in one response
  * (todo 278 L2 — `GET boards/` returns `{results, intro}`).
  */
-function indexPayload(categories: Category[], intro = '') {
-  return { categories, intro };
+function indexPayload(forums: Forum[], intro = '') {
+  return { forums, intro };
 }
 
 /**
@@ -89,6 +89,8 @@ describe('CategoryListPage', () => {
     // global `mockReset: true` wipes any factory-chained mock value before
     // every test.
     vi.mocked(blogService.fetchPopularPosts).mockResolvedValue([]);
+    // The module is auto-mocked; ForumCard's image goes through mediaUrl.
+    vi.mocked(blogService.mediaUrl).mockImplementation((url) => url);
     // Default every test to logged-out + no recent topics; individual tests
     // override either mock to exercise the authed / event-hero paths.
     vi.mocked(useAuth).mockReturnValue(mockAuth(false));
@@ -114,14 +116,14 @@ describe('CategoryListPage', () => {
 
   it('renders categories when API call succeeds', async () => {
     const mockCategories = [
-      createMockCategory({
+      createMockForum({
         id: 'cat-1',
         name: 'Plant Care',
         description: 'Tips for plant care',
         thread_count: 50,
         post_count: 300,
       }),
-      createMockCategory({
+      createMockForum({
         id: 'cat-2',
         name: 'Plant Identification',
         description: 'Help identify plants',
@@ -182,9 +184,7 @@ describe('CategoryListPage', () => {
     const fetchSpy = vi
       .spyOn(forumService, 'fetchForumIndex')
       .mockRejectedValueOnce(new Error('Network error'))
-      .mockResolvedValueOnce(
-        indexPayload([createMockCategory({ id: 'cat-1', name: 'Plant Care' })])
-      );
+      .mockResolvedValueOnce(indexPayload([createMockForum({ id: 'cat-1', name: 'Plant Care' })]));
 
     renderCategoryListPage();
 
@@ -293,9 +293,9 @@ describe('CategoryListPage', () => {
 
   it('renders multiple categories in grid layout', async () => {
     const mockCategories = [
-      createMockCategory({ id: 'cat-1', name: 'Category 1' }),
-      createMockCategory({ id: 'cat-2', name: 'Category 2' }),
-      createMockCategory({ id: 'cat-3', name: 'Category 3' }),
+      createMockForum({ id: 'cat-1', name: 'Category 1' }),
+      createMockForum({ id: 'cat-2', name: 'Category 2' }),
+      createMockForum({ id: 'cat-3', name: 'Category 3' }),
     ];
 
     vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload(mockCategories));
@@ -313,7 +313,7 @@ describe('CategoryListPage', () => {
   });
 
   it('hides loading spinner after data loads', async () => {
-    const mockCategories = [createMockCategory()];
+    const mockCategories = [createMockForum()];
 
     vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload(mockCategories));
 
@@ -350,13 +350,13 @@ describe('CategoryListPage', () => {
   });
 
   describe('board filter chips', () => {
-    // Distinct slugs (createMockCategory defaults them all to 'plant-care')
+    // Distinct slugs (createMockForum defaults them all to 'plant-care')
     // and one real Canopy slug (pests-diseases) so a passing test proves the
     // identity map is wired into the page, not just into the unit test.
     const boards = [
-      createMockCategory({ id: 'cat-1', name: 'Pests & Diseases', slug: 'pests-diseases' }),
-      createMockCategory({ id: 'cat-2', name: 'Care Problems', slug: 'care-problems' }),
-      createMockCategory({ id: 'cat-3', name: 'Random Board', slug: 'random-board' }),
+      createMockForum({ id: 'cat-1', name: 'Pests & Diseases', slug: 'pests-diseases' }),
+      createMockForum({ id: 'cat-2', name: 'Care Problems', slug: 'care-problems' }),
+      createMockForum({ id: 'cat-3', name: 'Random Board', slug: 'random-board' }),
     ];
 
     // Board-list membership is checked via the card's h3 heading, not a bare
@@ -440,7 +440,7 @@ describe('CategoryListPage', () => {
 
     it('does not render the chip row for a single board', async () => {
       vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
-        indexPayload([createMockCategory({ id: 'cat-1', name: 'Solo Board' })])
+        indexPayload([createMockForum({ id: 'cat-1', name: 'Solo Board' })])
       );
 
       renderCategoryListPage();
@@ -464,8 +464,8 @@ describe('CategoryListPage', () => {
     // without the fix (a bare `activeBoard ? categories.filter(...) : categories`
     // would return an empty array here, not the full list) and passes with it.
     const boards = [
-      createMockCategory({ id: 'cat-1', name: 'Pests & Diseases', slug: 'pests-diseases' }),
-      createMockCategory({ id: 'cat-2', name: 'Care Problems', slug: 'care-problems' }),
+      createMockForum({ id: 'cat-1', name: 'Pests & Diseases', slug: 'pests-diseases' }),
+      createMockForum({ id: 'cat-2', name: 'Care Problems', slug: 'care-problems' }),
     ];
 
     it('falls back to "All" when the selected board is no longer in the fetched list', () => {
@@ -535,7 +535,7 @@ describe('CategoryListPage', () => {
 
     it('never surfaces the page error state when fetchEventHero rejects', async () => {
       vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
-        indexPayload([createMockCategory({ id: 'cat-1', name: 'Plant Care' })])
+        indexPayload([createMockForum({ id: 'cat-1', name: 'Plant Care' })])
       );
       vi.mocked(forumService.fetchEventHero).mockRejectedValue(new Error('network error'));
 
@@ -668,7 +668,7 @@ describe('CategoryListPage', () => {
 
     it('shows the original trio and no "Your season" heading when anonymous', async () => {
       vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
-        indexPayload([createMockCategory({ id: 'cat-1', name: 'Plant Care' })])
+        indexPayload([createMockForum({ id: 'cat-1', name: 'Plant Care' })])
       );
 
       renderCategoryListPage();
@@ -681,7 +681,7 @@ describe('CategoryListPage', () => {
 
     it('hides the stats row (trio absent, no crash) when the authed stats fetch rejects', async () => {
       vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
-        indexPayload([createMockCategory({ id: 'cat-1', name: 'Plant Care' })])
+        indexPayload([createMockForum({ id: 'cat-1', name: 'Plant Care' })])
       );
       vi.mocked(useAuth).mockReturnValue(mockAuth(true));
       vi.mocked(forumService.fetchMyStats).mockRejectedValue(new Error('network error'));
@@ -693,6 +693,296 @@ describe('CategoryListPage', () => {
       expect(screen.getByRole('heading', { level: 3, name: 'Plant Care' })).toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: 'Your season' })).not.toBeInTheDocument();
       expect(screen.queryByText('Threads')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('category headers (todo 665)', () => {
+    const ferns = createMockForum({ id: '11', name: 'Ferns', slug: 'ferns' });
+    const palms = createMockForum({ id: '12', name: 'Palms', slug: 'palms' });
+    const aphids = createMockForum({ id: '21', name: 'Aphids', slug: 'aphids' });
+    const sections = () => [
+      createMockCategory({ id: '1', name: 'Plants', slug: 'plants', forums: [palms, ferns] }),
+      createMockCategory({ id: '2', name: 'Pests', slug: 'pests', forums: [aphids] }),
+    ];
+
+    function groupOf(name: string) {
+      return screen.getByRole('region', { name });
+    }
+
+    it('renders one header per category with its forums beneath, in order', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
+        indexPayload([ferns, palms, aphids])
+      );
+      vi.mocked(forumService.fetchCategories).mockResolvedValue(sections());
+
+      renderCategoryListPage();
+
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { level: 3, name: 'Plants' })).toBeInTheDocument()
+      );
+      const headers = screen
+        .getAllByRole('heading', { level: 3 })
+        .map((h) => h.textContent)
+        .filter((t) => t === 'Plants' || t === 'Pests');
+      expect(headers).toEqual(['Plants', 'Pests']);
+
+      // Forums nest under their own header (h4 beneath the h3), in the
+      // category's order — not the flat list's.
+      const plants = within(groupOf('Plants'))
+        .getAllByRole('heading', { level: 4 })
+        .map((h) => h.textContent);
+      expect(plants).toEqual(['Palms', 'Ferns']);
+      expect(
+        within(groupOf('Pests'))
+          .getAllByRole('heading', { level: 4 })
+          .map((h) => h.textContent)
+      ).toEqual(['Aphids']);
+    });
+
+    it('narrows each section with the board chips and drops a section left empty', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(
+        indexPayload([ferns, palms, aphids])
+      );
+      vi.mocked(forumService.fetchCategories).mockResolvedValue(sections());
+
+      renderCategoryListPage();
+      await waitFor(() => expect(groupOf('Pests')).toBeInTheDocument());
+
+      const chips = screen.getByRole('group', { name: 'Filter boards' });
+      await userEvent.click(within(chips).getByRole('button', { name: 'Aphids' }));
+
+      expect(screen.queryByRole('region', { name: 'Plants' })).not.toBeInTheDocument();
+      expect(
+        within(groupOf('Pests'))
+          .getAllByRole('heading', { level: 4 })
+          .map((h) => h.textContent)
+      ).toEqual(['Aphids']);
+    });
+
+    it('falls back to the flat board list when the categories fetch fails', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns, aphids]));
+      vi.mocked(forumService.fetchCategories).mockRejectedValue(new Error('404'));
+
+      renderCategoryListPage();
+
+      await waitFor(() =>
+        expect(screen.getByRole('heading', { level: 3, name: 'Ferns' })).toBeInTheDocument()
+      );
+      expect(screen.getByRole('heading', { level: 3, name: 'Aphids' })).toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'Plants' })).not.toBeInTheDocument();
+      expect(logger.error).toHaveBeenCalledWith(
+        'Error loading forum categories',
+        expect.objectContaining({ component: 'CategoryListPage' })
+      );
+    });
+  });
+  describe('collapsible categories (todo 673)', () => {
+    const ferns = createMockForum({ id: '11', name: 'Ferns', slug: 'ferns' });
+    const aphids = createMockForum({ id: '21', name: 'Aphids', slug: 'aphids' });
+    const sections = () => [
+      createMockCategory({ id: '1', name: 'Plants', slug: 'plants', forums: [ferns] }),
+      createMockCategory({ id: '2', name: 'Pests', slug: 'pests', forums: [aphids] }),
+    ];
+
+    beforeEach(() => {
+      window.localStorage.clear();
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns, aphids]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue(sections());
+    });
+
+    const toggleFor = (name: string) =>
+      within(screen.getByRole('heading', { level: 3, name })).getByRole('button', { name });
+
+    it('hides a category’s forums when its header is toggled and flips aria-expanded', async () => {
+      renderCategoryListPage();
+      await waitFor(() => expect(toggleFor('Plants')).toBeInTheDocument());
+
+      const toggle = toggleFor('Plants');
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('heading', { level: 4, name: 'Ferns' })).toBeVisible();
+
+      await userEvent.click(toggle);
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('heading', { level: 4, name: 'Ferns' })).not.toBeInTheDocument();
+      expect(document.getElementById(toggle.getAttribute('aria-controls')!)).not.toBeVisible();
+      // Other categories are untouched.
+      expect(toggleFor('Pests')).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('heading', { level: 4, name: 'Aphids' })).toBeVisible();
+
+      await userEvent.click(toggle);
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('heading', { level: 4, name: 'Ferns' })).toBeVisible();
+    });
+
+    it('keeps a guest’s collapsed category collapsed after a reload', async () => {
+      const first = renderCategoryListPage();
+      await waitFor(() => expect(toggleFor('Plants')).toBeInTheDocument());
+      await userEvent.click(toggleFor('Plants'));
+      first.unmount();
+
+      renderCategoryListPage();
+      await waitFor(() => expect(toggleFor('Plants')).toBeInTheDocument());
+
+      expect(toggleFor('Plants')).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('heading', { level: 4, name: 'Ferns' })).not.toBeInTheDocument();
+      expect(toggleFor('Pests')).toHaveAttribute('aria-expanded', 'true');
+      expect(forumService.saveCollapsedCategories).not.toHaveBeenCalled();
+    });
+
+    it('saves a signed-in member’s toggle to their profile, not localStorage', async () => {
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+      vi.mocked(forumService.fetchMyStats).mockResolvedValue(null as unknown as ForumMyStats);
+      vi.mocked(forumService.fetchMyForumProfile).mockResolvedValue({
+        collapsed_categories: [2],
+      } as Awaited<ReturnType<typeof forumService.fetchMyForumProfile>>);
+      vi.mocked(forumService.saveCollapsedCategories).mockResolvedValue([2, 1]);
+
+      renderCategoryListPage();
+      await waitFor(() => expect(toggleFor('Pests')).toHaveAttribute('aria-expanded', 'false'));
+
+      await userEvent.click(toggleFor('Plants'));
+
+      await waitFor(() =>
+        expect(forumService.saveCollapsedCategories).toHaveBeenCalledWith([2, 1])
+      );
+      expect(window.localStorage.length).toBe(0);
+    });
+  });
+
+  describe('link rows and read state (todos 670, 671)', () => {
+    const ferns = createMockForum({ id: '11', name: 'Ferns', slug: 'ferns', has_unread: true });
+
+    it('renders a category’s link rows as external links', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({
+          id: '1',
+          name: 'Plants',
+          forums: [ferns],
+          links: [
+            {
+              id: '9',
+              name: 'Plant shop',
+              slug: 'shop',
+              link_url: 'https://shop.example.com/',
+              track_clicks: true,
+              click_count: 3,
+            },
+          ],
+        }),
+      ]);
+
+      renderCategoryListPage();
+      const link = await screen.findByRole('link', { name: /Plant shop/ });
+
+      expect(link.getAttribute('href')).toMatch(/\/links\/9\/go\/$/);
+      expect(within(link).getByText('3 clicks')).toBeInTheDocument();
+    });
+
+    it('offers "Mark all read" to a signed-in member and clears the unread markers', async () => {
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+      vi.mocked(forumService.fetchMyStats).mockResolvedValue(null as unknown as ForumMyStats);
+      vi.mocked(forumService.markAllForumsRead).mockResolvedValue(undefined);
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({ id: '1', name: 'Plants', forums: [ferns], has_unread: true }),
+      ]);
+
+      renderCategoryListPage();
+      await screen.findByText('Unread posts');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Mark all read' }));
+
+      expect(forumService.markAllForumsRead).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(screen.queryByText('Unread posts')).not.toBeInTheDocument());
+    });
+
+    it('offers no "Mark all read" to a guest', async () => {
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({ id: '1', name: 'Plants', forums: [ferns] }),
+      ]);
+
+      renderCategoryListPage();
+      await screen.findByRole('heading', { level: 4, name: /Ferns/ });
+
+      expect(screen.queryByRole('button', { name: 'Mark all read' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('display settings and tracked unread counts (todos 669, 672)', () => {
+    it('renders the category and forum icon and colour, closed state and image', async () => {
+      const ferns = createMockForum({
+        id: '11',
+        name: 'Ferns',
+        slug: 'ferns',
+        icon: '🌿',
+        colour: 'sage',
+        is_closed: true,
+      });
+      const cacti = createMockForum({
+        id: '12',
+        name: 'Cacti',
+        slug: 'cacti',
+        image_url: 'https://cdn.example/cacti.jpg',
+      });
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns, cacti]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({
+          id: '1',
+          name: 'Plants',
+          icon: '🪴',
+          colour: 'orchid',
+          forums: [ferns, cacti],
+        }),
+      ]);
+
+      renderCategoryListPage();
+
+      const header = await screen.findByRole('heading', { level: 3, name: /Plants/ });
+      expect(within(header).getByTestId('category-icon')).toHaveTextContent('🪴');
+      expect(header.getAttribute('style')).toContain('var(--gt-sky)');
+
+      const fernsRow = screen.getByRole('link', { name: /Ferns/ });
+      const tile = within(fernsRow).getByTestId('forum-tile');
+      expect(tile).toHaveTextContent('🌿');
+      expect(tile.getAttribute('style')).toContain('var(--gt-leaf)');
+      expect(within(fernsRow).getByText('Closed')).toBeInTheDocument();
+
+      const cactiRow = screen.getByRole('link', { name: /Cacti/ });
+      expect(within(cactiRow).getByTestId('forum-image')).toHaveAttribute(
+        'src',
+        'https://cdn.example/cacti.jpg'
+      );
+    });
+
+    it('shows a tracked forum’s unread count instead of the dot', async () => {
+      const tracked = createMockForum({
+        id: '11',
+        name: 'Ferns',
+        slug: 'ferns',
+        has_unread: true,
+        watch_level: 'tracking',
+        unread_count: 4,
+      });
+      const plain = createMockForum({ id: '12', name: 'Cacti', slug: 'cacti', has_unread: true });
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([tracked, plain]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({ id: '1', name: 'Plants', forums: [tracked, plain] }),
+      ]);
+
+      renderCategoryListPage();
+
+      const fernsRow = await screen.findByRole('link', { name: /Ferns/ });
+      expect(within(fernsRow).getByTestId('forum-unread-count')).toHaveTextContent(
+        '4 unread topics'
+      );
+      expect(within(fernsRow).queryByText('Unread posts')).not.toBeInTheDocument();
+      const cactiRow = screen.getByRole('link', { name: /Cacti/ });
+      expect(within(cactiRow).queryByTestId('forum-unread-count')).not.toBeInTheDocument();
+      expect(within(cactiRow).getByText('Unread posts')).toBeInTheDocument();
     });
   });
 });

@@ -20,8 +20,18 @@ class Topic(
     index.Indexed,
     models.Model,
 ):
+    # PROTECT, not CASCADE (todo 665): deleting a forum must never take its
+    # topics with it. The field keeps the name `board` from the page era so
+    # topic URLs, the API and every `board_id` reader are unchanged.
+    # Only `forum_type="forum"` rows hold topics: categories and links never do
+    # (todo 665 round-1 review). limit_choices_to narrows the CMS snippet
+    # select, and ForeignKey.validate applies it on every full_clean(), which
+    # save_revision() runs, so a category or link is refused there too.
     board = models.ForeignKey(
-        "wagtail_forum.ForumBoard", on_delete=models.CASCADE, related_name="topics"
+        "wagtail_forum.Forum",
+        on_delete=models.PROTECT,
+        related_name="topics",
+        limit_choices_to={"forum_type": "forum"},
     )
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255)

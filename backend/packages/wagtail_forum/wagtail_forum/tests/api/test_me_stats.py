@@ -7,16 +7,14 @@ from django.contrib.auth import get_user_model
 from PIL import Image as PILImage
 from rest_framework.test import APIClient
 from wagtail.images import get_image_model
-from wagtail.models import Page
 from wagtail_forum.collections import get_forum_image_collection
 from wagtail_forum.models import (
-    ForumBoard,
     ForumIdentificationAttachment,
-    ForumIndex,
     ForumProfile,
     Post,
     Topic,
 )
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
@@ -33,9 +31,7 @@ def clear_idempotency_cache():
 
 
 def _board():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug="general"))
+    return make_forum(name="General", slug="general")
 
 
 def _jpeg_bytes():

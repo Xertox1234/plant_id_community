@@ -7,16 +7,16 @@
  * Previous version was deleted but not converted, causing test failures.
  */
 
-import type { Category, Thread, Post, ForumAuthor } from '../types/forum';
+import type { Category, Forum, Thread, Post, ForumAuthor } from '../types/forum';
 
 /**
- * Create a mock Category for testing
+ * Create a mock Forum for testing
  *
  * @param overrides - Partial category data to override defaults
- * @returns Complete Category object with defaults
+ * @returns Complete Forum object with defaults
  */
-export function createMockCategory(overrides: Partial<Category> = {}): Category {
-  const defaults: Category = {
+export function createMockForum(overrides: Partial<Forum> = {}): Forum {
+  const defaults: Forum = {
     id: 'cat-1',
     name: 'Plant Care',
     slug: 'plant-care',
@@ -26,6 +26,24 @@ export function createMockCategory(overrides: Partial<Category> = {}): Category 
     post_count: 50,
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7).toISOString(), // 7 days ago
     children: [],
+  };
+
+  return { ...defaults, ...overrides };
+}
+
+/**
+ * Create a mock Category (a header row holding forums, todo 665) for testing.
+ */
+export function createMockCategory(overrides: Partial<Category> = {}): Category {
+  const defaults: Category = {
+    id: 'sec-1',
+    name: 'Plants',
+    slug: 'plants',
+    description: '',
+    thread_count: 0,
+    post_count: 0,
+    last_post_at: null,
+    forums: [],
   };
 
   return { ...defaults, ...overrides };
@@ -61,7 +79,7 @@ export function createMockThread(overrides: Partial<Thread> = {}): Thread {
     title: 'How to water succulents?',
     slug: 'how-to-water-succulents',
     excerpt: 'Looking for advice on watering frequency',
-    category: createMockCategory(),
+    category: createMockForum(),
     author: createMockForumAuthor(),
     created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(), // 3 days ago
     updated_at: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago

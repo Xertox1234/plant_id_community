@@ -3,17 +3,10 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import override_settings
 from rest_framework.test import APIClient
-from wagtail.models import Page
 from wagtail_forum.api.sanitize import MAX_BODY_BLOCKS
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    ForumProfile,
-    Post,
-    Topic,
-    TrustLevel,
-)
+from wagtail_forum.models import ForumProfile, Post, Topic, TrustLevel
 from wagtail_forum.spam.base import SpamBackend
+from wagtail_forum.tests.factories import make_forum
 from wagtail_forum.workflow import ensure_default_workflow
 
 User = get_user_model()
@@ -34,9 +27,7 @@ class RaisingSpamBackend(SpamBackend):
 
 
 def _board():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug="general"))
+    return make_forum(name="General", slug="general")
 
 
 @pytest.mark.django_db

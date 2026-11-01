@@ -1,14 +1,17 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Layers, MessagesSquare, Reply } from 'lucide-react';
+import { ChevronDown, Layers, MessagesSquare, Reply } from 'lucide-react';
 import {
+  fetchCategories,
   fetchForumIndex,
   fetchRecentTopics,
   fetchMyStats,
   fetchEventHero,
+  markAllForumsRead,
 } from '../../services/forumService';
 import { createSafeMarkup, SANITIZE_PRESETS } from '../../utils/sanitize';
-import CategoryCard from '../../components/forum/CategoryCard';
+import ForumCard, { ForumLinkCard } from '../../components/forum/ForumCard';
+import { forumAccent } from '../../utils/forumDisplay';
 import SeasonStatsGrid from '../../components/forum/SeasonStatsGrid';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import { CategoryListSkeleton } from '../../components/forum/ForumSkeleton';
@@ -24,12 +27,13 @@ import ActiveNowModule from '../../components/forum/rail/ActiveNowModule';
 import FromTheBlogModule from '../../components/forum/rail/FromTheBlogModule';
 import PageMeta from '../../components/PageMeta';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
+import { useCollapsedCategories } from '../../hooks/useCollapsedCategories';
 import { useAuth } from '../../contexts/AuthContext';
 import { logger } from '../../utils/logger';
 import { eventHeroTopicPath } from '../../utils/forumUrls';
 import { boardIdentity } from '../../utils/forumTones';
 import { resolveBoardFilter } from '../../utils/forumBoardFilter';
-import type { Category, ForumMyStats, RecentTopic, EventHeroTopic } from '@/types';
+import type { Category, Forum, ForumMyStats, RecentTopic, EventHeroTopic } from '@/types';
 import { FEATURED_ART_WIDTH } from '../../components/ui/dimensions';
 
 // The landing rail's recent-activity fetch, passed through to
@@ -49,7 +53,12 @@ const RECENT_TOPICS_FETCH_LIMIT = 5;
 export default function CategoryListPage() {
   useScrollToTop();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
-  const [categories, setCategories] = useState<Category[]>([]);
+  // Every visible forum, flat (`GET boards/`): the stats row and the chips.
+  const [categories, setCategories] = useState<Forum[]>([]);
+  // The same forums grouped under their categories (`GET categories/`, todo
+  // 665). null = not available (fetch failed, or an older backend without the
+  // endpoint): the board list then renders flat, as it did before categories.
+  const [sections, setSections] = useState<Category[] | null>(null);
   // CMS-authored welcome copy (ForumIndex.intro, audit L2). Sanitized
   // server-side too — this is the second layer, not the only one.
   const [intro, setIntro] = useState<string>('');
@@ -70,6 +79,16 @@ export default function CategoryListPage() {
   // both of which hide the row rather than erroring the page.
   const [myStats, setMyStats] = useState<ForumMyStats | null>(null);
   const boardsRef = useRef<HTMLDivElement>(null);
+  // Collapsed category headers (todo 673): on the member's profile, or in
+  // localStorage for a guest.
+  const { isCollapsed, toggle: toggleCategory } = useCollapsedCategories({
+    isAuthenticated,
+    authLoading,
+    userId: user?.id,
+  });
+  // "Mark all read" (todo 671) in flight / failed.
+  const [markingAll, setMarkingAll] = useState(false);
+  const [markAllError, setMarkAllError] = useState<string | null>(null);
 
   useEffect(() => {
     // react.dev's prescribed race guard: a stale response (unmount, or a retry
@@ -80,8 +99,20 @@ export default function CategoryListPage() {
         setLoading(true);
         setError(null);
 
-        const [{ categories: boards, intro: welcome }, recent, event] = await Promise.all([
+        const [{ forums: boards, intro: welcome }, grouped, recent, event] = await Promise.all([
           fetchForumIndex(),
+          // The category headers. A failure degrades to the flat list rather
+          // than failing the page: every forum is still in `boards`. Wrapped
+          // in a `.then` so even a synchronous throw lands in the `.catch`.
+          Promise.resolve()
+            .then(() => fetchCategories())
+            .catch((err) => {
+              logger.error('Error loading forum categories', {
+                component: 'CategoryListPage',
+                error: err,
+              });
+              return null;
+            }),
           // ActiveNowModule's feed — a nice-to-have on top of the board
           // list, not a dependency of it, so a failure here must never
           // surface the page's error state.
@@ -105,6 +136,7 @@ export default function CategoryListPage() {
         ]);
         if (ignore) return;
         setCategories(boards);
+        setSections(Array.isArray(grouped) && grouped.length > 0 ? grouped : null);
         setIntro(welcome);
         setRecentTopics(recent);
         setEventHero(event.topic);
@@ -163,6 +195,37 @@ export default function CategoryListPage() {
       ignore = true;
     };
   }, [isAuthenticated, authLoading, userId]);
+
+  const markAllRead = async () => {
+    setMarkingAll(true);
+    setMarkAllError(null);
+    try {
+      await markAllForumsRead();
+      // Every forum is read now: clear the markers without a refetch.
+      setSections((prev) =>
+        prev
+          ? prev.map((section) => ({
+              ...section,
+              has_unread: false,
+              forums: section.forums.map((f) => ({
+                ...f,
+                has_unread: false,
+                // A tracked forum's count clears with it (todo 672).
+                ...(f.unread_count != null ? { unread_count: 0 } : {}),
+              })),
+            }))
+          : prev
+      );
+    } catch (err) {
+      logger.error('Error marking all forums read', {
+        component: 'CategoryListPage',
+        error: err,
+      });
+      setMarkAllError('Could not mark the forums read. Try again.');
+    } finally {
+      setMarkingAll(false);
+    }
+  };
 
   // Sanitize once so the render can gate on the result rather than the input.
   const introMarkup = useMemo(() => createSafeMarkup(intro, SANITIZE_PRESETS.STANDARD), [intro]);
@@ -295,7 +358,19 @@ export default function CategoryListPage() {
           )}
 
       <div ref={boardsRef}>
-        <h2 className="gt-h3 mt-8">Boards</h2>
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="gt-h3">Boards</h2>
+          {isAuthenticated && sections && (
+            <Button variant="ghost" onClick={markAllRead} disabled={markingAll}>
+              {markingAll ? 'Marking…' : 'Mark all read'}
+            </Button>
+          )}
+        </div>
+        {markAllError && (
+          <p role="alert" className="mt-2 text-sm text-error">
+            {markAllError}
+          </p>
+        )}
 
         {categories.length > 1 && (
           <div
@@ -346,10 +421,76 @@ export default function CategoryListPage() {
               Identify a plant in the meantime →
             </Link>
           </Card>
+        ) : sections ? (
+          /* One header per category with its forums beneath (todo 665). The
+             chip filter narrows each section; a section left empty by it is
+             skipped, as the backend skips a category with nothing visible. */
+          <div className="mt-6 flex flex-col gap-8">
+            {sections.map((section) => {
+              const forums = section.forums.filter(
+                (f) => effectiveBoard === null || f.slug === effectiveBoard
+              );
+              // Links are not boards, so a board filter hides them.
+              const links = effectiveBoard === null ? (section.links ?? []) : [];
+              if (forums.length === 0 && links.length === 0) return null;
+              const headingId = `forum-category-${section.id}`;
+              const listId = `forum-category-${section.id}-rows`;
+              const collapsed = isCollapsed(section.id);
+              return (
+                <section key={section.id} aria-labelledby={headingId}>
+                  <h3
+                    id={headingId}
+                    className="gt-label text-ink-2"
+                    style={
+                      forumAccent(section.colour)
+                        ? { color: forumAccent(section.colour) }
+                        : undefined
+                    }
+                    data-colour={section.colour || undefined}
+                  >
+                    {/* Collapsible header (todo 673): the whole name is the
+                        toggle, so the target is the row, not a tiny chevron. */}
+                    <button
+                      type="button"
+                      aria-expanded={!collapsed}
+                      aria-controls={listId}
+                      onClick={() => toggleCategory(section.id)}
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-sm text-left transition-colors hover:text-ink"
+                    >
+                      <ChevronDown
+                        aria-hidden="true"
+                        className={`h-4 w-4 transition-transform motion-reduce:transition-none ${collapsed ? '-rotate-90' : ''}`}
+                      />
+                      {section.icon && (
+                        <span aria-hidden="true" data-testid="category-icon">
+                          {section.icon}
+                        </span>
+                      )}
+                      {section.name}
+                      {section.has_unread && <span className="sr-only"> (unread posts)</span>}
+                    </button>
+                  </h3>
+                  {!collapsed && section.description && (
+                    <p className="mt-1 max-w-prose text-sm text-ink-2">{section.description}</p>
+                  )}
+                  {/* `hidden`, not unmounted, so aria-controls always names
+                      an element. */}
+                  <div id={listId} hidden={collapsed} className="mt-3 flex flex-col gap-3">
+                    {forums.map((forum) => (
+                      <ForumCard key={forum.id} forum={forum} headingLevel="h4" />
+                    ))}
+                    {links.map((link) => (
+                      <ForumLinkCard key={`link-${link.id}`} link={link} headingLevel="h4" />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
         ) : (
           <div className="mt-6 flex flex-col gap-3">
-            {visibleCategories.map((category) => (
-              <CategoryCard key={category.id} category={category} />
+            {visibleCategories.map((forum) => (
+              <ForumCard key={forum.id} forum={forum} />
             ))}
           </div>
         )}

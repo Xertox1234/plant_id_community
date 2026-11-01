@@ -75,14 +75,6 @@ QUOTA_KEY_PREFIX_PLANTNET_HOURLY = "quota:plantnet:hourly"
 
 
 # ============================================================================
-# Temperature Constants
-# ============================================================================
-
-# Default temperature range for care instructions
-TEMPERATURE_RANGE_CELSIUS = "18-24°C"
-
-
-# ============================================================================
 # Circuit Breaker Configuration
 # ============================================================================
 

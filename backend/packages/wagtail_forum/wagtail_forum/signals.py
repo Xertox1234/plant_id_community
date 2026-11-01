@@ -5,7 +5,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.db.models import Count, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce
-from django.db.models.signals import post_delete, pre_delete
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import Signal, receiver
 from django.utils import timezone
 from wagtail.images import get_image_model_string
@@ -40,6 +40,14 @@ solution_unmarked = Signal()
 # transaction.on_commit at every signal-site trigger — so a receiver may
 # deliver a push/email directly without its own on_commit.
 badge_awarded = Signal()
+# A forum's topics were moved to another forum (todo 667,
+# services.forum_structure.move_topics). kwargs: source, target (Forum rows),
+# moves — a list of (topic_id, old_slug, new_slug); new_slug differs only
+# when the target already used the old one. The move is a bulk UPDATE, so no
+# Topic save signal fires: a host that tracks topic URLs (redirects) listens
+# here. Sent inside the move's transaction; a receiver that raises rolls the
+# whole move back, as a failing per-topic redirect receiver does for a save.
+topics_moved = Signal()
 
 
 def notify(signal, **kwargs):
@@ -114,9 +122,9 @@ def _refresh_topic_counters(topic_id):
 
 
 def _refresh_board_counters(board_id):
-    from .models import ForumBoard, Post, Topic
+    from .models import Forum, Post, Topic
 
-    ForumBoard.objects.filter(pk=board_id).update(
+    Forum.objects.filter(pk=board_id).update(
         post_count=Coalesce(
             Subquery(
                 # topic__live too: posts of an unpublished (taken-down) topic
@@ -576,3 +584,19 @@ def warn_when_deleting_an_image_live_posts_show(sender, instance, **kwargs):
         len(live),
         ", ".join(f"post {pk} in topic {topic_id}" for pk, topic_id in live),
     )
+
+
+@receiver(post_save, sender="wagtail_forum.Forum")
+def copy_category_grants_to_new_forum(sender, instance, created, raw=False, **kwargs):
+    """A new forum or link starts with its category's grants (todo 675), so
+    a forum created in a restricted category is never more open than it,
+    and no new forum is ever invisible (phpBB's footgun). A category with no
+    grants leaves the new row on the defaults. Fixtures (``raw``) are left
+    as loaded."""
+    if not created or raw or instance.parent_id is None:
+        return
+    from .models import ForumGrant
+    from .services.forum_permissions import copy_permissions
+
+    if ForumGrant.objects.filter(forum_id=instance.parent_id).exists():
+        copy_permissions(instance.parent, instance)

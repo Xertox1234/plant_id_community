@@ -19,13 +19,13 @@ from django.db import connection
 from django.test import Client, RequestFactory, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
-from wagtail.models import Page
 from wagtail_forum.admin_views import (
     ModerationQueueMenuItem,
     PendingContentMenuItem,
     pending_posts,
 )
-from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
+from wagtail_forum.models import ForumProfile, Post, Topic
+from wagtail_forum.tests.factories import make_forum
 from wagtail_forum.wagtail_hooks import (
     _pending_moderation_count,
     register_moderation_queue_menu_item,
@@ -45,9 +45,7 @@ SPAM = "http://a.com http://b.com http://c.com http://d.com http://e.com http://
 
 def _board():
     ensure_default_workflow()
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug="general"))
+    return make_forum(name="General", slug="general")
 
 
 def _member(username):

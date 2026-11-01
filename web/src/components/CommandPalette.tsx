@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Plus, ScanSearch, Search, type LucideIcon } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  fetchCategories,
+  fetchForums,
   searchForum,
   searchForumUsers,
   type ForumUserSearchResult,
@@ -12,7 +12,7 @@ import { categoryPath, threadPath, userProfilePath } from '../utils/forumUrls';
 import { boardIdentity } from '../utils/forumTones';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { useModalFocus } from '../hooks/useModalFocus';
-import type { Category, Thread } from '../types/forum';
+import type { Forum, Thread } from '../types/forum';
 
 const MIN_QUERY_LENGTH = 2;
 // CLAUDE.md gotcha: the debounce timer id lives in a ref, never useState —
@@ -79,7 +79,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [hasNavigated, setHasNavigated] = useState(false);
   const [visible, setVisible] = useState(false);
 
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<Forum[]>([]);
   const categoriesFetchedRef = useRef(false);
 
   const [topicsResult, setTopicsResult] = useState<QueryResult<Thread> | null>(null);
@@ -127,7 +127,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   useEffect(() => {
     if (!open || categoriesFetchedRef.current) return;
     categoriesFetchedRef.current = true;
-    fetchCategories()
+    fetchForums()
       .then(setCategories)
       .catch(() => {
         // Allow a retry on the next open — transient failure, not permanent.

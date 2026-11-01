@@ -15,6 +15,7 @@ from rest_framework.test import APIClient
 from wagtail.images import get_image_model
 from wagtail_forum.collections import get_forum_image_collection
 from wagtail_forum.conf import get_setting
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
@@ -135,21 +136,11 @@ def test_image_round_trips_through_create_and_read():
     references it (plus heading/code blocks), and read the whole body back. This
     exercises membership validation -> to_python storage -> serialize_forum_body
     (rewritten in PR-3a) for image AND the text/struct block types together."""
-    from wagtail.models import Page
-    from wagtail_forum.models import (
-        ForumBoard,
-        ForumIndex,
-        ForumProfile,
-        Post,
-        Topic,
-        TrustLevel,
-    )
+    from wagtail_forum.models import ForumProfile, Post, Topic, TrustLevel
     from wagtail_forum.workflow import ensure_default_workflow
 
     ensure_default_workflow()
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     author = User.objects.create_user(username="mem")
     profile = ForumProfile.for_user(author)
     profile.trust_level = TrustLevel.MEMBER  # autopublish, so the reply goes live
@@ -208,14 +199,11 @@ def test_image_uploaded_by_another_member_cannot_be_referenced():
     membership alone (audit L5) does not stop one member from embedding
     another member's upload by PK. A different member's post referencing it
     must be rejected."""
-    from wagtail.models import Page
-    from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Topic
+    from wagtail_forum.models import ForumProfile, Topic
     from wagtail_forum.workflow import ensure_default_workflow
 
     ensure_default_workflow()
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     uploader = User.objects.create_user(username="uploader")
     ForumProfile.for_user(uploader)
     intruder = User.objects.create_user(username="intruder")

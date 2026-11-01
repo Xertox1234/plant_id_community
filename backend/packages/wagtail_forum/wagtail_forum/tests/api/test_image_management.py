@@ -20,6 +20,7 @@ from PIL import Image as PILImage
 from rest_framework.test import APIClient
 from wagtail.images import get_image_model
 from wagtail_forum.collections import get_forum_image_collection
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
@@ -161,23 +162,18 @@ class TestForumImageDetailView:
         with the product owner: deleting an image must not corrupt a post
         that already referenced it — serialize_forum_body already resolves a
         missing image id to None (no rewrite, no new revision needed)."""
-        from wagtail.models import Page
         from wagtail_forum.api.serializers import (
             build_forum_image_map,
             serialize_forum_body,
         )
-        from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+        from wagtail_forum.models import Post, Topic
         from wagtail_forum.workflow import ensure_default_workflow
 
         ensure_default_workflow()
         owner = _member("owner")
         image = _create_image(owner)
 
-        root = Page.objects.get(id=1)
-        index = root.add_child(instance=ForumIndex(title="Forum", slug="forum-imgdel"))
-        board = index.add_child(
-            instance=ForumBoard(title="General", slug="general-imgdel")
-        )
+        board = make_forum(name="General", slug="general-imgdel")
         topic = Topic.objects.create(
             board=board, title="T", slug="t-imgdel", author=owner, live=True
         )
@@ -205,25 +201,18 @@ class TestForumImageDetailView:
         only for the legacy shape would not cover a single post written since
         the ImageBlock migration.
         """
-        from wagtail.models import Page
         from wagtail_forum.api.serializers import (
             build_forum_image_map,
             serialize_forum_body,
         )
-        from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+        from wagtail_forum.models import Post, Topic
         from wagtail_forum.workflow import ensure_default_workflow
 
         ensure_default_workflow()
         owner = _member("owner2")
         image = _create_image(owner)
 
-        root = Page.objects.get(id=1)
-        index = root.add_child(
-            instance=ForumIndex(title="Forum", slug="forum-imgdel-dict")
-        )
-        board = index.add_child(
-            instance=ForumBoard(title="General", slug="general-imgdel-dict")
-        )
+        board = make_forum(name="General", slug="general-imgdel-dict")
         topic = Topic.objects.create(
             board=board, title="T", slug="t-imgdel-dict", author=owner, live=True
         )

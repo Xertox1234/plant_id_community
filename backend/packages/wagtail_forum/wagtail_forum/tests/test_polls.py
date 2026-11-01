@@ -6,23 +6,14 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-from wagtail.models import Page
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    Poll,
-    PollOption,
-    PollVote,
-    Topic,
-)
+from wagtail_forum.models import Poll, PollOption, PollVote, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
 
 def _poll(slug="p", options=("A", "B"), closes_at=None, max_choices=1):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    board = index.add_child(instance=ForumBoard(title="General", slug=slug))
+    board = make_forum(name="General", slug=slug)
     topic = Topic.objects.create(board=board, title="T", slug=slug)
     poll = Poll.objects.create(
         topic=topic, question="Q?", closes_at=closes_at, max_choices=max_choices

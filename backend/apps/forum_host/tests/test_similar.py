@@ -14,8 +14,8 @@ from django.test import override_settings
 from django_ai_core.llm import LLMService
 from freezegun import freeze_time
 from rest_framework.test import APIClient
-from wagtail.models import Page, PageViewRestriction
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import Post, Topic
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 User = get_user_model()
 
@@ -54,15 +54,9 @@ def _clear_cache():
 
 
 def _board(suffix="", restricted=False):
-    root = Page.objects.get(id=1)
-    index = root.add_child(
-        instance=ForumIndex(title=f"Forum{suffix}", slug=f"forum{suffix}")
-    )
-    board = index.add_child(
-        instance=ForumBoard(title=f"General{suffix}", slug=f"general{suffix}")
-    )
+    board = make_forum(name=f"General{suffix}", slug=f"general{suffix}")
     if restricted:
-        PageViewRestriction.objects.create(page=board, restriction_type="login")
+        hide_forum(board)
     return board
 
 

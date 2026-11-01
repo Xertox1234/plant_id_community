@@ -223,20 +223,24 @@ def test_write_endpoints_declare_provable_error_codes():
         # Strip the host-injected 429 so the package pins only the codes it owns.
         return set(paths[path][method]["responses"]) - {"429"}
 
-    # topic create: 400/401/404 were undeclared (only 201/409/422).
+    # topic create: 400/401/404 were undeclared (only 201/409/422). 403 is
+    # a closed forum or a missing post/poll/attach flag (todos 669, 677).
     assert codes("/forum/boards/{slug}/topics/", "post") == {
         "201",
         "400",
         "401",
+        "403",
         "404",
         "409",
         "422",
     }
-    # reply create: 400/401 were undeclared.
+    # reply create: 400/401 were undeclared. 403: closed forum or a missing
+    # reply/attach flag (todos 669, 677).
     assert codes("/forum/topics/{topic_id}/posts/", "post") == {
         "201",
         "400",
         "401",
+        "403",
         "404",
         "409",
         "422",
@@ -270,7 +274,17 @@ def test_write_endpoints_declare_provable_error_codes():
         "422",
     }
     # image upload gains Idempotency-Key (M36): 409/422 were undeclared.
-    assert codes("/forum/images/", "post") == {"201", "400", "401", "409", "422"}
+    # Todo 677: an optional forum_id is checked against attach (403) and
+    # must name a forum the caller can see (404).
+    assert codes("/forum/images/", "post") == {
+        "201",
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+    }
     # list GETs documented 404 in prose only.
     assert codes("/forum/boards/{slug}/topics/", "get") == {"200", "404"}
     assert codes("/forum/topics/{topic_id}/posts/", "get") == {"200", "404"}

@@ -88,12 +88,29 @@ _IDENTIFY_FAILURE = inline_serializer(
                 ),
                 "plant_name": serializers.CharField(required=False),
                 "scientific_name": serializers.CharField(required=False),
-                "confidence": serializers.FloatField(required=False),
+                "confidence": serializers.FloatField(
+                    required=False,
+                    help_text="The confidence of the plant named in plant_name.",
+                ),
+                "top_source": serializers.ChoiceField(
+                    choices=["plant_id", "plantnet", "both"],
+                    required=False,
+                    allow_null=True,
+                    help_text=(
+                        "Which provider the top suggestion came from; "
+                        '"both" when they agree on it.'
+                    ),
+                ),
                 "suggestions": serializers.ListField(
                     child=serializers.DictField(), required=False
                 ),
                 "care_instructions": serializers.DictField(
-                    required=False, allow_null=True
+                    required=False,
+                    allow_null=True,
+                    help_text=(
+                        "Always null for now: no provider returns plant-specific "
+                        "care, so clients hide their care section (todo 662)."
+                    ),
                 ),
                 "disease_detection": serializers.DictField(
                     required=False, allow_null=True
@@ -167,8 +184,9 @@ def identify_plant(request: Request) -> Response:
         "plant_name": "Monstera Deliciosa",
         "scientific_name": "Monstera deliciosa",
         "confidence": 0.95,
+        "top_source": "both",
         "suggestions": [...],
-        "care_instructions": {...},
+        "care_instructions": null,
         "disease_detection": {...},
 
         "degraded": false,
@@ -266,7 +284,10 @@ def identify_plant(request: Request) -> Response:
             "scientific_name": (
                 top_suggestion.get("scientific_name") if top_suggestion else ""
             ),
+            # The top suggestion's own number, from whichever provider named it
+            # (todo 661); it used to be Plant.id's even for a PlantNet plant.
             "confidence": results.get("confidence_score", 0),
+            "top_source": results.get("top_source"),
             "suggestions": results.get("combined_suggestions", []),
             "care_instructions": results.get("care_instructions"),
             "disease_detection": results.get("disease_detection"),

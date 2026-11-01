@@ -3,25 +3,15 @@ from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    ForumProfile,
-    Post,
-    Reaction,
-    Topic,
-    TrustLevel,
-)
+from wagtail_forum.models import ForumProfile, Post, Reaction, Topic, TrustLevel
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _topic_with_posts(n):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     author = User.objects.create_user(username="ada")
     topic = Topic.objects.create(
         board=board, title="T", slug="t", author=author, live=True
@@ -85,7 +75,9 @@ def test_post_list_is_cursor_paginated_with_bounded_queries():
     # Q3: posts page with select_related author (cursor fetches page_size+1 rows; the
     #     extra row is the has-next probe — no separate COUNT query)
     # Pinned EXACTLY (docs/rules/testing.md). If this changes, explain the new number.
-    assert len(ctx.captured_queries) == 3
+    # 3 -> 2 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 2
 
 
 def _topic_with_image_posts(n):
@@ -93,9 +85,7 @@ def _topic_with_image_posts(n):
     from wagtail.images.tests.utils import get_test_image_file
     from wagtail_forum.collections import get_forum_image_collection
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     author = User.objects.create_user(username="ada")
     collection = get_forum_image_collection()
     topic = Topic.objects.create(
@@ -156,7 +146,9 @@ def test_post_list_with_images_is_not_n_plus_one():
     # the batched image fetch + its prefetched renditions — FLAT regardless of
     # how many image blocks the page carries (two-pass batching, no N+1).
     # Pinned EXACTLY (docs/rules/testing.md); explain any change to this number.
-    assert len(ctx.captured_queries) == 5
+    # 5 -> 4 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 4
 
 
 @pytest.mark.django_db
@@ -278,14 +270,14 @@ def test_post_list_affordances_add_no_per_post_queries():
     # scenario and always costs exactly 2 queries (user + group permission
     # JOINs). Per-REQUEST, not per-row — the annotation itself is a
     # correlated EXISTS folded into the posts-page SELECT.
-    assert len(ctx.captured_queries) == 7
+    # 7 -> 6 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 6
 
 
 @pytest.mark.django_db
 def test_post_list_author_carries_trust_level_and_display_name():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     author = User.objects.create_user(username="ada")
     topic = Topic.objects.create(
         board=board, title="T", slug="t", author=author, live=True
@@ -334,9 +326,7 @@ def test_post_list_author_profiles_add_no_per_post_queries():
     # 20 posts by 20 DISTINCT authors, each with their own ForumProfile — the
     # worst case for an author-profile N+1. select_related folds every profile
     # into the single posts SELECT, so the count stays the pinned 3.
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     starter = User.objects.create_user(username="starter")
     topic = Topic.objects.create(
         board=board, title="T", slug="t", author=starter, live=True
@@ -357,16 +347,16 @@ def test_post_list_author_profiles_add_no_per_post_queries():
     assert len(resp.data["results"]) == 20
     # Pinned EXACTLY (docs/rules/testing.md): Q1 visibility prefetch, Q2 topic
     # lookup, Q3 posts page (author + author profile + topic all select_related).
-    assert len(ctx.captured_queries) == 3
+    # 3 -> 2 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 2
 
 
 @pytest.mark.django_db
 def test_post_list_author_without_profile_still_renders():
     # A reverse OneToOne select_related is a LEFT OUTER JOIN, so a post whose
     # author has no ForumProfile row must NOT be dropped from the results.
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     author = User.objects.create_user(username="ghost")
     topic = Topic.objects.create(
         board=board, title="T", slug="t", author=author, live=True
@@ -439,7 +429,9 @@ def test_post_list_reacted_is_batched_no_per_post_queries():
     # reacted map = 6. Anonymous never runs the last three (pins 3). FLAT under N;
     # if this changes, explain the new count here. Plus 1 (todo 301): the
     # presence touch, paid by every authenticated forum request.
-    assert len(ctx.captured_queries) == 7
+    # 7 -> 6 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 6
 
 
 @pytest.mark.django_db
@@ -518,7 +510,9 @@ def test_post_list_moderator_own_blocks_add_no_per_post_queries():
     # moderator doesn't own these posts, so no owner short-circuit) pays the
     # one-time 2-query has_perm cost first; the block-check's has_perm call
     # then hits the warm per-request cache, adding nothing further.
-    assert len(ctx.captured_queries) == 7
+    # 7 -> 6 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 6
 
 
 # --- ImageBlock shapes on the read path (0037/0038) ------------------------
@@ -543,9 +537,7 @@ def _image(description="", title="img"):
 
 def _topic_with_body(author_name, slug, body):
     author = User.objects.create_user(username=author_name)
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     topic = Topic.objects.create(
         board=board, title="T", slug=slug, author=author, live=True
     )

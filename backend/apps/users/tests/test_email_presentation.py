@@ -501,3 +501,32 @@ def test_site_name_fallback_is_the_product_name():
     with override_settings():
         del settings.SITE_NAME
         assert EmailService().site_name == "Houseplant MD"
+
+
+# --- owner inbox check (todo 626) ----------------------------------------------
+
+
+@pytest.mark.django_db
+@override_settings(SITE_URL=SITE, API_PUBLIC_URL=API)
+def test_forum_digest_is_cards_without_topic_dividers():
+    html = _html(forum_digest())
+    # Everything before the shared footer is this template's content.
+    content = html.rsplit("border-top: 1px solid #e9ecef", 1)[0]
+    content = content.split('class="email-pad" style="padding: 32px 24px', 1)[1]
+    assert "border-top" not in content  # Outlook dark mode drew them white
+    assert "background-color: #f0f7f2" in content
+    assert "2 new" in content
+    assert f'href="{SITE}/forum"' in content
+
+
+def test_welcome_tip_uses_the_brand_palette():
+    from django.template.loader import render_to_string
+
+    html = render_to_string(
+        "emails/welcome_email.html",
+        {"user": User(username="sam"), "user_first_name": "Sam"},
+    )
+    tip = html.split(">Tip<", 1)[0].rsplit("<table", 1)[1]
+    # Amber clashed with the greens once Outlook's dark mode inverted it.
+    assert "#fef3c7" not in tip and "#b45309" not in tip
+    assert "#2c5f41" in tip

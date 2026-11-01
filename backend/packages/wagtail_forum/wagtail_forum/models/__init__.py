@@ -1,19 +1,20 @@
 from .activity import ForumActivityDate
 from .badges import Badge, BadgeMetric, BadgeRule, UserBadge
-from .boards import ForumBoard, ForumIndex
+from .boards import Forum, ForumIndex
 from .bookmarks import TopicBookmark
 from .identifications import ForumIdentificationAttachment
 from .messages import Conversation, ConversationKind, ConversationParticipant, Message
 from .moderation import SpamCheckTask
 from .notifications import Notification, NotificationVerb
+from .permissions import ForumGrant, ForumModerator, ForumRole
 from .polls import Poll, PollOption, PollVote
 from .posts import Post
 from .profiles import DigestFrequency, ForumProfile, TrustLevel
 from .reactions import Reaction
 from .reports import Report
-from .subscriptions import TopicSubscription
+from .subscriptions import ForumSubscription, ForumWatchLevel, TopicSubscription
 from .tombstones import TopicDeletedLog
-from .topic_reads import TopicRead
+from .topic_reads import ForumRead, TopicRead
 from .topics import Topic
 from .user_blocks import UserBlock
 from .user_mutes import UserMute
@@ -27,10 +28,16 @@ __all__ = [
     "ConversationKind",
     "ConversationParticipant",
     "ForumActivityDate",
-    "ForumBoard",
+    "Forum",
+    "ForumGrant",
     "ForumIdentificationAttachment",
     "ForumIndex",
+    "ForumModerator",
     "ForumProfile",
+    "ForumRead",
+    "ForumRole",
+    "ForumSubscription",
+    "ForumWatchLevel",
     "Message",
     "Notification",
     "NotificationVerb",

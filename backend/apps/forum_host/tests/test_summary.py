@@ -18,8 +18,8 @@ from django.core.cache import cache
 from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework.test import APIClient
-from wagtail.models import Page, PageViewRestriction
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import Post, Topic
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 User = get_user_model()
 
@@ -38,13 +38,7 @@ def _clear_cache():
 
 
 def _board(suffix=""):
-    root = Page.objects.get(id=1)
-    index = root.add_child(
-        instance=ForumIndex(title=f"Forum{suffix}", slug=f"forum{suffix}")
-    )
-    return index.add_child(
-        instance=ForumBoard(title=f"General{suffix}", slug=f"general{suffix}")
-    )
+    return make_forum(name=f"General{suffix}", slug=f"general{suffix}")
 
 
 def _topic_with_posts(n_posts, *, suffix="", body_text="a gardening reply"):
@@ -343,7 +337,7 @@ def _restricted_topic_with_posts(n_posts=3):
     """A live topic on a board carrying a login PageViewRestriction."""
     author = User.objects.create_user(username="secret-author")
     board = _board(suffix="secret")
-    PageViewRestriction.objects.create(page=board, restriction_type="login")
+    hide_forum(board)
     topic = Topic.objects.create(
         board=board, title="Members only", slug="secret", author=author
     )

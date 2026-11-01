@@ -38,6 +38,7 @@ from .conf import get_setting
 from .models import (
     DigestFrequency,
     ForumProfile,
+    ForumSubscription,
     Notification,
     NotificationVerb,
     Topic,
@@ -162,7 +163,12 @@ def build_digest(user, since: datetime, profile: ForumProfile | None = None) -> 
     if profile is None:
         profile = ForumProfile.for_user(user)
 
-    visible_topics = Topic.objects.filter(live=True, board__in=_visible_boards())
+    # The recipient's own view (todo 676); password forums are left out
+    # whatever a web session unlocked (todo 680).
+    # A forum the member muted (todo 672) is left out of both sections.
+    visible_topics = Topic.objects.filter(
+        live=True, board__in=_visible_boards(user)
+    ).exclude(board__in=ForumSubscription.muted_forum_ids(user))
 
     # Watched: unread reply notifications on visible topics since `since`,
     # minus blocked repliers, grouped per topic (newest activity first).

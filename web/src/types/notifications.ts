@@ -25,7 +25,7 @@ export interface NotificationTopicRef {
  * 'solution' when your reply is accepted as the answer (backend
  * NotificationVerb.SOLUTION). Later slices add moderation/subscription.
  */
-export type ForumNotificationVerb = 'reply' | 'mention' | 'quote' | 'solution';
+export type ForumNotificationVerb = 'reply' | 'mention' | 'quote' | 'solution' | 'new_topic';
 
 export interface ForumNotification {
   id: number;

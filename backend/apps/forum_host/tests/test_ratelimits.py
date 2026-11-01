@@ -14,8 +14,8 @@ from django.test import override_settings
 from freezegun import freeze_time
 from PIL import Image as PILImage
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, TrustLevel
+from wagtail_forum.models import ForumProfile, TrustLevel
+from wagtail_forum.tests.factories import make_forum
 from wagtail_forum.workflow import ensure_default_workflow
 
 User = get_user_model()
@@ -29,9 +29,7 @@ def clear_ratelimit_cache():
 
 
 def _board():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug="general"))
+    return make_forum(name="General", slug="general")
 
 
 def _upload_image(client):
@@ -103,12 +101,9 @@ def test_topic_detail_is_throttled_per_ip_with_429_and_retry_after():
     """Topic detail became a polling target in todo 346 (`?peek=1` every 30 s
     per visible tab), so it gets sync/'s per-IP floor. Anonymous, like the
     poll from a logged-out reader; peek and plain reads share the bucket."""
-    from wagtail.models import Page
-    from wagtail_forum.models import ForumBoard, ForumIndex, Topic
+    from wagtail_forum.models import Topic
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum-td-rl"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="td-rl"))
+    board = make_forum(name="General", slug="td-rl")
     topic = Topic.objects.create(board=board, title="T", slug="t", live=True)
 
     client = APIClient()

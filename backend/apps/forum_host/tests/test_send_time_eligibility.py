@@ -21,10 +21,7 @@ from django.contrib.auth import get_user_model
 from django.core import mail
 from django.test import override_settings
 from django.utils import timezone
-from wagtail.models import Page
 from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
     ForumProfile,
     Post,
     Topic,
@@ -32,6 +29,7 @@ from wagtail_forum.models import (
     UserBlock,
     UserMute,
 )
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
@@ -61,12 +59,7 @@ def _thread(prefix):
     owner = _member(f"{prefix}owner")
     control = _member(f"{prefix}control")
     replier = _member(f"{prefix}replier")
-    index = Page.objects.get(id=1).add_child(
-        instance=ForumIndex(title=f"{prefix} forum", slug=f"{prefix}-forum")
-    )
-    board = index.add_child(
-        instance=ForumBoard(title=f"{prefix} board", slug=f"{prefix}-board")
-    )
+    board = make_forum(name=f"{prefix} board", slug=f"{prefix}-board")
     topic = Topic.objects.create(
         board=board, title="Yellow leaves", slug=f"{prefix}-leaves", author=owner
     )

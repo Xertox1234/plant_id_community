@@ -9,12 +9,14 @@ import '../../core/theme/green_thumb_extension.dart';
 import '../../services/auth_service.dart';
 import 'login_screen.dart'
     show GoogleSignInButton, dismissAfterAuth, validateEmail, validatePassword;
+import 'verify_email_screen.dart';
 
 /// Email/password account creation.
 ///
-/// Replaces `PlaceholderScreen(title: 'Register')`. Like [LoginScreen] this
-/// navigates nowhere on success: the router's `refreshListenable` redirect
-/// moves an authenticated user off `authOnlyRoutes` to `/home` (todo 384).
+/// Replaces `PlaceholderScreen(title: 'Register')` (todo 384). A new
+/// email/password account is unverified, and the backend refuses its token
+/// until the mailed link is opened, so on success this screen swaps its form
+/// for the [VerifyEmailPanel] instead of leaving (todo 660).
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
@@ -30,6 +32,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _confirmController = TextEditingController();
   bool _obscurePassword = true;
   bool _submitting = false;
+  bool _awaitingVerification = false;
   String? _error;
 
   @override
@@ -51,7 +54,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     });
 
     try {
-      await ref
+      final needsVerification = await ref
           .read(authServiceProvider.notifier)
           .registerWithEmailPassword(
             email: _emailController.text.trim(),
@@ -59,7 +62,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             displayName: _nameController.text.trim(),
           );
       if (!mounted) return;
-      dismissAfterAuth(context);
+      if (needsVerification) {
+        setState(() => _awaitingVerification = true);
+      } else {
+        dismissAfterAuth(context);
+      }
     } on AuthException catch (e) {
       if (!mounted) return;
       setState(() => _error = e.message);
@@ -82,118 +89,127 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             padding: EdgeInsets.all(ext.padScreen),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Join Houseplant MD',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                      textAlign: TextAlign.center,
-                    ),
-                    SizedBox(height: ext.gapY * 2),
-                    TextFormField(
-                      controller: _nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Display name',
-                        prefixIcon: Icon(LucideIcons.user),
-                      ),
-                      textInputAction: TextInputAction.next,
-                      autofillHints: const [AutofillHints.name],
-                      enabled: !_submitting,
-                      validator: (v) => (v == null || v.trim().isEmpty)
-                          ? 'Enter a display name'
-                          : null,
-                    ),
-                    SizedBox(height: ext.gapY),
-                    TextFormField(
-                      controller: _emailController,
-                      decoration: const InputDecoration(
-                        labelText: 'Email',
-                        prefixIcon: Icon(LucideIcons.mail),
-                      ),
-                      keyboardType: TextInputType.emailAddress,
-                      textInputAction: TextInputAction.next,
-                      autofillHints: const [AutofillHints.email],
-                      autocorrect: false,
-                      enabled: !_submitting,
-                      validator: validateEmail,
-                    ),
-                    SizedBox(height: ext.gapY),
-                    TextFormField(
-                      controller: _passwordController,
-                      decoration: InputDecoration(
-                        labelText: 'Password',
-                        helperText: 'At least 6 characters',
-                        prefixIcon: const Icon(LucideIcons.lock),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscurePassword
-                                ? LucideIcons.eye
-                                : LucideIcons.eyeOff,
+              child: _awaitingVerification
+                  ? VerifyEmailPanel(
+                      onCancel: () =>
+                          setState(() => _awaitingVerification = false),
+                    )
+                  : Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            'Join Houseplant MD',
+                            style: Theme.of(context).textTheme.headlineSmall,
+                            textAlign: TextAlign.center,
                           ),
-                          tooltip: _obscurePassword
-                              ? 'Show password'
-                              : 'Hide password',
-                          onPressed: () => setState(
-                            () => _obscurePassword = !_obscurePassword,
+                          SizedBox(height: ext.gapY * 2),
+                          TextFormField(
+                            controller: _nameController,
+                            decoration: const InputDecoration(
+                              labelText: 'Display name',
+                              prefixIcon: Icon(LucideIcons.user),
+                            ),
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.name],
+                            enabled: !_submitting,
+                            validator: (v) => (v == null || v.trim().isEmpty)
+                                ? 'Enter a display name'
+                                : null,
                           ),
-                        ),
+                          SizedBox(height: ext.gapY),
+                          TextFormField(
+                            controller: _emailController,
+                            decoration: const InputDecoration(
+                              labelText: 'Email',
+                              prefixIcon: Icon(LucideIcons.mail),
+                            ),
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.email],
+                            autocorrect: false,
+                            enabled: !_submitting,
+                            validator: validateEmail,
+                          ),
+                          SizedBox(height: ext.gapY),
+                          TextFormField(
+                            controller: _passwordController,
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              helperText: 'At least 6 characters',
+                              prefixIcon: const Icon(LucideIcons.lock),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? LucideIcons.eye
+                                      : LucideIcons.eyeOff,
+                                ),
+                                tooltip: _obscurePassword
+                                    ? 'Show password'
+                                    : 'Hide password',
+                                onPressed: () => setState(
+                                  () => _obscurePassword = !_obscurePassword,
+                                ),
+                              ),
+                            ),
+                            obscureText: _obscurePassword,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.newPassword],
+                            enabled: !_submitting,
+                            validator: validatePassword,
+                          ),
+                          SizedBox(height: ext.gapY),
+                          TextFormField(
+                            controller: _confirmController,
+                            decoration: const InputDecoration(
+                              labelText: 'Confirm password',
+                              prefixIcon: Icon(LucideIcons.lock),
+                            ),
+                            obscureText: _obscurePassword,
+                            textInputAction: TextInputAction.done,
+                            enabled: !_submitting,
+                            validator: (v) => v != _passwordController.text
+                                ? 'Passwords do not match'
+                                : null,
+                            onFieldSubmitted: (_) => _submit(),
+                          ),
+                          if (_error != null) ...[
+                            SizedBox(height: ext.gapY),
+                            _RegisterErrorBanner(message: _error!),
+                          ],
+                          SizedBox(height: ext.gapY * 2),
+                          FilledButton(
+                            onPressed: _submitting ? null : _submit,
+                            child: _submitting
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text('Create account'),
+                          ),
+                          SizedBox(height: ext.gapY),
+                          // Offered here too: Google needs no verification mail,
+                          // so it signs in at once. See
+                          // AuthService.signInWithGoogle.
+                          GoogleSignInButton(enabled: !_submitting),
+                          SizedBox(height: ext.gapY),
+                          TextButton(
+                            onPressed: _submitting
+                                ? null
+                                : () =>
+                                      context.pushReplacement(AppRoutes.login),
+                            child: const Text(
+                              'Already have an account? Sign in',
+                            ),
+                          ),
+                        ],
                       ),
-                      obscureText: _obscurePassword,
-                      textInputAction: TextInputAction.next,
-                      autofillHints: const [AutofillHints.newPassword],
-                      enabled: !_submitting,
-                      validator: validatePassword,
                     ),
-                    SizedBox(height: ext.gapY),
-                    TextFormField(
-                      controller: _confirmController,
-                      decoration: const InputDecoration(
-                        labelText: 'Confirm password',
-                        prefixIcon: Icon(LucideIcons.lock),
-                      ),
-                      obscureText: _obscurePassword,
-                      textInputAction: TextInputAction.done,
-                      enabled: !_submitting,
-                      validator: (v) => v != _passwordController.text
-                          ? 'Passwords do not match'
-                          : null,
-                      onFieldSubmitted: (_) => _submit(),
-                    ),
-                    if (_error != null) ...[
-                      SizedBox(height: ext.gapY),
-                      _RegisterErrorBanner(message: _error!),
-                    ],
-                    SizedBox(height: ext.gapY * 2),
-                    FilledButton(
-                      onPressed: _submitting ? null : _submit,
-                      child: _submitting
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Create account'),
-                    ),
-                    SizedBox(height: ext.gapY),
-                    // Offered here too: creating an email/password account
-                    // currently dead-ends at the backend's 403 for unverified
-                    // email, so a user who lands on this screen still needs a
-                    // path that works. See AuthService.signInWithGoogle.
-                    GoogleSignInButton(enabled: !_submitting),
-                    SizedBox(height: ext.gapY),
-                    TextButton(
-                      onPressed: _submitting
-                          ? null
-                          : () => context.pushReplacement(AppRoutes.login),
-                      child: const Text('Already have an account? Sign in'),
-                    ),
-                  ],
-                ),
-              ),
             ),
           ),
         ),

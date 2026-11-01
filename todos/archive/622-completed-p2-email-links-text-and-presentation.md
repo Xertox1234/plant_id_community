@@ -57,7 +57,7 @@ Audit baseline: five targeted web test files passed (100 tests), but did not exe
 
 ### 2026-10-12 - Triage (run 2026-10-12-1637)
 
-- Owner: AC6 inbox checks re-pointed to [todo 626](626-pending-p2-email-inbox-rendering-verification.md); blog_post.html links fixed too despite no caller.
+- Owner: AC6 inbox checks re-pointed to [todo 626](626-completed-p2-email-inbox-rendering-verification.md); blog_post.html links fixed too despite no caller.
 
 ### 2026-10-12 - Implemented by the todo sweep (run 2026-10-12-1637)
 

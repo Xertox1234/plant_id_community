@@ -24,9 +24,11 @@ export type ForumBodyWriteBlock =
   | { type: 'embed'; value: string };
 
 /**
- * Forum category
+ * A forum (the backend's `forum_type="forum"` row): holds topics. The
+ * `/forum/boards/` endpoint calls these "boards". Named `Forum` since todo 665;
+ * `Category` is now the real category a forum sits under.
  */
-export interface Category {
+export interface Forum {
   id: string;
   name: string;
   slug: string;
@@ -37,7 +39,95 @@ export interface Category {
   created_at: string;
   /** ISO timestamp of the newest live topic's activity; null when nobody has posted. */
   last_post_at?: string | null;
-  children?: Category[];
+  children?: Forum[];
+  /** Any topic the signed-in viewer has not read (todo 671). Only on rows of
+   * `GET categories/`; false for anonymous viewers. */
+  has_unread?: boolean;
+  /** Names on the row's "Moderators:" line, users then groups (todo 674).
+   * Only on rows of `GET categories/`. */
+  moderators?: string[];
+  /** A password forum this session has not unlocked (todo 680). */
+  is_locked?: boolean;
+  /** Plain text prefilled into an empty new-topic composer, one paragraph
+   * per line (todo 678). Only on rows of `GET categories/`. */
+  topic_template?: string;
+  // The rest are only on rows of `GET categories/` too.
+  /** Closed to new topics and replies (todo 669); staff and its moderators
+   * may still post, which `capabilities` already reflects. */
+  is_closed?: boolean;
+  /** Plain-text rules, one paragraph per line, and an optional link (todo 669). */
+  rules?: string;
+  rules_url?: string;
+  /** A Canopy accent name (todo 669); '' = none. */
+  colour?: ForumColour | '';
+  /** The forum's image (todo 669), an absolute URL, or null. */
+  image_url?: string | null;
+  /** The order the topic list opens in (todo 669); '' = latest activity. */
+  default_sort?: string;
+  /** One of the fixed themes (todo 681); '' = the site's own tokens. */
+  theme?: ForumTheme | '';
+  /** What the viewer may do here (todo 677). */
+  capabilities?: ForumCapabilities;
+  /** The viewer's watch level (todo 672); null = none set. */
+  watch_level?: ForumWatchLevel | null;
+  /** Unread topics, only when the viewer tracks or watches the forum (todo 672). */
+  unread_count?: number | null;
+}
+
+/** The Canopy accents a forum or category may use (todo 669). */
+export type ForumColour = 'sage' | 'pollen' | 'bloom' | 'orchid';
+
+/** The per-forum themes (todo 681). */
+export type ForumTheme = 'botanical' | 'moss' | 'terracotta' | 'slate';
+
+/** Per-forum watch levels (todo 672; Discourse's four). */
+export type ForumWatchLevel = 'watching' | 'watching_first_post' | 'tracking' | 'muted';
+
+/** The viewer's write capabilities on one forum (todo 677). */
+export interface ForumCapabilities {
+  can_post: boolean;
+  can_reply: boolean;
+  can_poll: boolean;
+  can_attach: boolean;
+}
+
+/**
+ * A link row (todo 670; phpBB's link forum): a row under a category that
+ * sends the reader to `link_url`. A tracked link is followed through the
+ * backend's counting redirect, and `click_count` is its count (null when
+ * untracked).
+ */
+export interface ForumLink {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  link_url: string;
+  track_clicks: boolean;
+  click_count: number | null;
+}
+
+/**
+ * A forum category (todo 665): a header row on the forum index that holds
+ * forums, never topics. Counts and `last_post_at` are summed by the backend
+ * from the forums the viewer may see (`GET categories/`).
+ */
+export interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  thread_count: number;
+  post_count: number;
+  last_post_at: string | null;
+  forums: Forum[];
+  /** Link rows (todo 670). Optional: a backend before 670 sends none. */
+  links?: ForumLink[];
+  /** Any of its forums has an unread topic (todo 671). */
+  has_unread?: boolean;
+  /** The header's emoji and Canopy accent (todo 669); '' = none. */
+  icon?: string;
+  colour?: ForumColour | '';
 }
 
 /**
@@ -46,7 +136,7 @@ export interface Category {
  * screen and always change together (todo 278 L2).
  */
 export interface ForumIndexPayload {
-  categories: Category[];
+  forums: Forum[];
   /** Sanitized HTML from the CMS; `''` when no intro is set. */
   intro: string;
 }
@@ -146,7 +236,7 @@ export interface Thread {
   title: string;
   slug: string;
   excerpt?: string;
-  category: Category;
+  category: Forum;
   author: ForumAuthor;
   created_at: string;
   updated_at?: string;
@@ -545,7 +635,7 @@ export type DigestFrequency = 'off' | 'weekly';
 /** Notification events a member can tune per channel (todo 343) — mirrors
  * the backend verb set. In-app notifications are always on and are NOT a
  * preference; only the two opt-in channels below are. */
-export type NotificationVerb = 'reply' | 'mention' | 'quote' | 'solution';
+export type NotificationVerb = 'reply' | 'mention' | 'quote' | 'solution' | 'new_topic';
 
 /** The opt-in delivery channels (todo 343). */
 export type NotificationChannel = 'push' | 'email';
@@ -555,9 +645,8 @@ export type NotificationChannel = 'push' | 'email';
  * `reply` alone today. The KEYS of the object tell the client which cells
  * exist; a cell that is present is always a boolean (the client never
  * supplies defaults), a cell that is absent has no channel to switch. */
-export type NotificationPreferences = Record<
-  NotificationVerb,
-  Partial<Record<NotificationChannel, boolean>>
+export type NotificationPreferences = Partial<
+  Record<NotificationVerb, Partial<Record<NotificationChannel, boolean>>>
 >;
 
 /** `notification_preferences` on PATCH me/profile/ — a PARTIAL matrix. Only
@@ -602,6 +691,10 @@ export interface ForumMyProfile {
   quiet_hours_end?: string;
   /** IANA zone the client reported; "" means UTC. */
   time_zone?: string;
+  /** Category ids collapsed on the forum index (todo 673); read-only here,
+   * saved with `saveCollapsedCategories`. Optional for the same deploy-skew
+   * reason. */
+  collapsed_categories?: number[];
 }
 
 /** PATCH me/profile/ body. Editable from the web: the digest cadence

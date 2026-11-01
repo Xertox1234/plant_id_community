@@ -161,8 +161,9 @@ def reopen_reverify(run, todo_id, reason):
         raise TransitionError(f"{todo_id}: is {entry['stage']}; only a blocked todo is re-verified in place")
     # A tree a verifier already judged (a retry worker's, or one blocked after a failed verdict) is never
     # re-verified: that would re-judge a rejected tree without spending a retry (PR #885 review). A todo
-    # that has been retried had a tree rejected already, whoever blocked it since (todo 494 F11).
-    if entry.get("attempts", 0) != 0:
+    # that has been retried had a tree rejected already, whoever blocked it since (todo 494 F11) -- unless no
+    # earlier attempt left a tree at all: an execute workflow lost to a crash is retried with nothing judged.
+    if entry.get("attempts", 0) != 0 and any(a.get("tree_id") for a in entry.get("previous", [])):
         raise TransitionError(f"{todo_id}: was retried after a failed verdict, so a verifier already judged its "
                               "work; reopen it without --reverify")
     if entry.get("blocked_by") != "worker":

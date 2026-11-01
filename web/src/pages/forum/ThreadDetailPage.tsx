@@ -70,6 +70,8 @@ import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { useTopicLive } from '../../hooks/useTopicLive';
+import { useForumCategory } from '../../hooks/useForumCategory';
+import { forumThemeAttr } from '../../utils/forumDisplay';
 import {
   markMissingOutShown,
   mayShowMissingOut,
@@ -801,6 +803,12 @@ export default function ThreadDetailPage() {
   const [boardThreads, setBoardThreads] = useState<Thread[]>([]);
   const railVisible = useMediaQuery(RAIL_MEDIA_QUERY);
   const boardSlug = thread?.category?.slug;
+  // The board's own category, for the Category › Forum breadcrumb (todo 665).
+  const parentCategory = useForumCategory(thread?.category?.id);
+  // This forum's row of `GET categories/`: its theme (todo 681) and the
+  // viewer's capabilities there (todo 677).
+  const forumRow =
+    parentCategory?.forums.find((f) => f.id === String(thread?.category?.id)) ?? null;
   useEffect(() => {
     // Reset before fetching: navigating to a thread on another board (or a
     // fetch failure) must not leave the previous board's list in the rail.
@@ -1343,8 +1351,18 @@ export default function ThreadDetailPage() {
     .filter((t) => t.id !== thread.id && !t.is_pinned)
     .slice(0, RAIL_BOARD_TOPICS_LIMIT);
 
+  const forumTheme = forumThemeAttr(forumRow?.theme);
+  const forumCaps = forumRow?.capabilities;
+  // A member who may not reply here (todo 677), or a closed forum (669).
+  const replyRefused = isAuthenticated && forumCaps != null && !forumCaps.can_reply;
+  const canAttach = forumCaps?.can_attach ?? true;
+
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div
+      className={`max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8${forumTheme ? ' forum-theme' : ''}`}
+      data-forum-theme={forumTheme}
+      data-testid="thread-page"
+    >
       <PageMeta
         title={`${thread.title} · Houseplant MD`}
         description={`${thread.title} — a discussion in ${thread.category.name} on the Houseplant MD community forum.`}
@@ -1366,6 +1384,12 @@ export default function ThreadDetailPage() {
             </Link>
           </li>
           <li aria-hidden="true">/</li>
+          {parentCategory && (
+            <>
+              <li>{parentCategory.name}</li>
+              <li aria-hidden="true">/</li>
+            </>
+          )}
           <li>
             <Link to={`/forum/${categorySlug}`} viewTransition className="hover:text-primary">
               {thread.category.name}
@@ -1562,7 +1586,13 @@ export default function ThreadDetailPage() {
                 className="canopy-card space-y-3 rounded-md p-5 sm:p-6"
               >
                 <span className="gt-label block">Edit post</span>
-                <TipTapEditor key={post.id} content={editBody} onChange={setEditBody} />
+                <TipTapEditor
+                  key={post.id}
+                  content={editBody}
+                  onChange={setEditBody}
+                  allowImages={canAttach}
+                  forumId={thread.category.id || undefined}
+                />
                 <div className="flex gap-2">
                   <Button
                     type="submit"
@@ -1674,6 +1704,15 @@ export default function ThreadDetailPage() {
             are disabled.
           </p>
         </div>
+      ) : replyRefused ? (
+        <div className="canopy-card rounded-md mt-8 p-6 text-center" data-testid="reply-refused">
+          <p className="inline-flex items-center gap-2 text-ink-2">
+            <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+            {forumRow?.is_closed
+              ? 'This forum is closed — new replies are disabled.'
+              : 'You cannot reply in this forum.'}
+          </p>
+        </div>
       ) : !isAuthenticated ? (
         <div className="canopy-card rounded-md mt-8 p-6 text-center">
           <p className="text-ink-2">
@@ -1701,6 +1740,8 @@ export default function ThreadDetailPage() {
             key={composerKey}
             content={replyBody}
             autoFocus={autoFocusComposer}
+            allowImages={canAttach}
+            forumId={thread.category.id || undefined}
             onChange={(doc) => {
               setReplyBody(doc);
               if (topicId != null) {

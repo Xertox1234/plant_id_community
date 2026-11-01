@@ -74,7 +74,7 @@ function renderPage() {
 // switch to finish -- the fetch resolved and the page re-rendered with it --
 // rather than for the fetch to start (todo 634).
 function serveBoardFive() {
-  vi.mocked(forumService.fetchCategory).mockImplementation(async (id) =>
+  vi.mocked(forumService.fetchForum).mockImplementation(async (id) =>
     Number(id) === 5
       ? { id: '5', name: 'Pests', slug: 'pests', created_at: '' }
       : { id: '3', name: 'Plant Care', slug: 'plant-care', created_at: '' }
@@ -94,7 +94,7 @@ describe('NewThreadPage', () => {
       new URLSearchParams('category=3-plant-care'),
       vi.fn(),
     ]);
-    vi.spyOn(forumService, 'fetchCategory').mockResolvedValue({
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue({
       id: '3',
       name: 'Plant Care',
       slug: 'plant-care',
@@ -446,7 +446,7 @@ describe('NewThreadPage', () => {
 
   it('offers a board picker when no ?category= is supplied, and lets you pick one (L4)', async () => {
     vi.mocked(ReactRouter.useSearchParams).mockReturnValue([new URLSearchParams(''), vi.fn()]);
-    vi.spyOn(forumService, 'fetchCategories').mockResolvedValue([
+    vi.spyOn(forumService, 'fetchForums').mockResolvedValue([
       { id: '3', name: 'Plant Care', slug: 'plant-care', created_at: '' },
       { id: '4', name: 'Pests', slug: 'pests', created_at: '' },
     ]);
@@ -688,7 +688,7 @@ describe('NewThreadPage', () => {
         </AnnouncerProvider>
       </MemoryRouter>
     );
-    await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(forumService.fetchForum).toHaveBeenCalledWith(5));
     // Board B's draft is loaded into the form (todo 575), not left unseen
     // under a form the next keystroke would save over it.
     await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue('Board B words'));
@@ -724,7 +724,7 @@ describe('NewThreadPage', () => {
         </AnnouncerProvider>
       </MemoryRouter>
     );
-    await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(forumService.fetchForum).toHaveBeenCalledWith(5));
     await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue('Pest question'));
     expect(screen.getByLabelText('body')).toHaveValue('<p>aphids</p>');
     expect(screen.getByLabelText(/tags/i)).toHaveValue('bugs');
@@ -760,7 +760,7 @@ describe('NewThreadPage', () => {
         </AnnouncerProvider>
       </MemoryRouter>
     );
-    await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(forumService.fetchForum).toHaveBeenCalledWith(5));
     // B has a stored draft, so the form switches to it — empty, as on mount.
     await waitFor(() => expect(screen.getByLabelText(/title/i)).toHaveValue(''));
     expect(loadDraft(keyB)).toBe(storedB);
@@ -1031,7 +1031,7 @@ describe('NewThreadPage', () => {
         </AnnouncerProvider>
       </MemoryRouter>
     );
-    await waitFor(() => expect(forumService.fetchCategory).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(forumService.fetchForum).toHaveBeenCalledWith(5));
     expect(loadDraft(keyB)).toBeNull();
     // Board B has no stored draft, so the form keeps board A's text (owner
     // decision 2026-10-11) and A's draft stays saved under A's key.
@@ -1101,7 +1101,7 @@ describe('NewThreadPage', () => {
       // ?category= — so the live path is the board-picker one (L4), not the
       // pre-selected board every other test here mocks.
       vi.mocked(ReactRouter.useSearchParams).mockReturnValue([new URLSearchParams(''), vi.fn()]);
-      vi.spyOn(forumService, 'fetchCategories').mockResolvedValue([
+      vi.spyOn(forumService, 'fetchForums').mockResolvedValue([
         { id: '3', name: 'Plant Care', slug: 'plant-care', created_at: '' },
       ]);
       vi.spyOn(forumService, 'createThread').mockResolvedValue({
@@ -1258,5 +1258,129 @@ describe('NewThreadPage', () => {
     expect(screen.getByRole('button', { name: /post|create|submit/i })).toBeDisabled();
     await userEvent.type(screen.getByLabelText('body'), 'hello');
     expect(screen.getByRole('button', { name: /post|create|submit/i })).toBeEnabled();
+  });
+});
+
+describe('NewThreadPage topic template (todo 678)', () => {
+  const key = draftKey('new-thread', '3-plant-care');
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    vi.mocked(useAuth).mockReturnValue(mockAuth());
+    vi.mocked(ReactRouter.useNavigate).mockReturnValue(
+      vi.fn() as unknown as ReturnType<typeof ReactRouter.useNavigate>
+    );
+    vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+      new URLSearchParams('category=3-plant-care'),
+      vi.fn(),
+    ]);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue({
+      id: '3',
+      name: 'Plant Care',
+      slug: 'plant-care',
+      created_at: '',
+    });
+  });
+
+  it('prefills an empty composer, one paragraph per line, without saving a draft', async () => {
+    vi.mocked(forumService.fetchForumTopicTemplate).mockResolvedValue(
+      'What plant is it?\nWhat changed?'
+    );
+    renderPage();
+
+    await waitFor(() =>
+      expect((screen.getByLabelText('body') as HTMLTextAreaElement).value).toBe(
+        '<p>What plant is it?</p><p>What changed?</p>'
+      )
+    );
+    expect(forumService.fetchForumTopicTemplate).toHaveBeenCalledWith('3');
+    expect(loadDraft(key)).toBeNull();
+  });
+
+  it('never overwrites a saved draft', async () => {
+    saveDraft(key, JSON.stringify({ title: 'Mine', body: '<p>my own words</p>' }));
+    vi.mocked(forumService.fetchForumTopicTemplate).mockResolvedValue('Template line');
+    renderPage();
+
+    await waitFor(() => expect(forumService.fetchForumTopicTemplate).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((screen.getByLabelText('body') as HTMLTextAreaElement).value).toBe(
+      '<p>my own words</p>'
+    );
+    expect(JSON.parse(loadDraft(key) as string).body).toBe('<p>my own words</p>');
+  });
+
+  it('keeps text typed before the template arrives', async () => {
+    let resolveTemplate: (value: string) => void = () => {};
+    vi.mocked(forumService.fetchForumTopicTemplate).mockReturnValue(
+      new Promise<string>((resolve) => {
+        resolveTemplate = resolve;
+      })
+    );
+    renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText('body'), 'typed first');
+
+    resolveTemplate('Template line');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect((screen.getByLabelText('body') as HTMLTextAreaElement).value).toBe('typed first');
+  });
+
+  describe('forum capabilities (todos 669, 677)', () => {
+    const row = (capabilities: Partial<Record<string, boolean>>, extra = {}) => ({
+      id: '3',
+      name: 'Plant Care',
+      slug: 'plant-care',
+      created_at: '',
+      capabilities: {
+        can_post: true,
+        can_reply: true,
+        can_poll: true,
+        can_attach: true,
+        ...capabilities,
+      },
+      ...extra,
+    });
+
+    it('offers the poll when the member may add one', async () => {
+      vi.mocked(forumService.fetchForumRow).mockResolvedValue(row({}));
+      renderPage();
+      await screen.findByText('Plant Care');
+      await waitFor(() => expect(forumService.fetchForumRow).toHaveBeenCalledWith('3'));
+      expect(screen.getByLabelText(/Add a poll/)).toBeInTheDocument();
+    });
+
+    it('hides the poll where the member lacks the poll flag', async () => {
+      vi.mocked(forumService.fetchForumRow).mockResolvedValue(row({ can_poll: false }));
+      renderPage();
+      await screen.findByText('Plant Care');
+      await waitFor(() => expect(screen.queryByLabelText(/Add a poll/)).not.toBeInTheDocument());
+    });
+
+    it('disables posting where the member may not start topics', async () => {
+      vi.mocked(forumService.fetchForumRow).mockResolvedValue(row({ can_post: false }));
+      renderPage();
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'You cannot start topics in this forum.'
+      );
+      await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+      await userEvent.type(screen.getByLabelText('body'), 'hello');
+      expect(screen.getByRole('button', { name: /post thread/i })).toBeDisabled();
+    });
+
+    it('says a closed forum is closed', async () => {
+      vi.mocked(forumService.fetchForumRow).mockResolvedValue(
+        row(
+          { can_post: false, can_reply: false, can_poll: false, can_attach: false },
+          { is_closed: true }
+        )
+      );
+      renderPage();
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'This forum is closed to new topics.'
+      );
+    });
   });
 });

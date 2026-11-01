@@ -23,17 +23,16 @@ from django.test.utils import CaptureQueriesContext
 from PIL import Image as PILImage
 from rest_framework.test import APIClient
 from wagtail.images import get_image_model
-from wagtail.models import Collection, Page
+from wagtail.models import Collection
 from wagtail_forum.api.serializers import TopicIdentificationSerializer
 from wagtail_forum.collections import get_forum_image_collection
 from wagtail_forum.models import (
-    ForumBoard,
     ForumIdentificationAttachment,
-    ForumIndex,
     ForumProfile,
     Topic,
     TrustLevel,
 )
+from wagtail_forum.tests.factories import make_forum
 from wagtail_forum.workflow import ensure_default_workflow
 
 User = get_user_model()
@@ -61,9 +60,7 @@ def clear_idempotency_cache():
 
 
 def _board():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug="general"))
+    return make_forum(name="General", slug="general")
 
 
 def _trusted_client(username="asker"):
@@ -553,4 +550,6 @@ def test_topic_detail_query_count_with_an_identification_is_pinned():
     assert resp.data["identification"]["image"] is not None
     # 6, not 7, since Django 6.1: the opening-post PK refetch behind
     # get_opening_post_id is gone (see test_topic_detail.py's anonymous pin).
-    assert len(ctx.captured_queries) == 6, [q["sql"] for q in ctx.captured_queries]
+    # 6 -> 5 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 5, [q["sql"] for q in ctx.captured_queries]

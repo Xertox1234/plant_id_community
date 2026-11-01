@@ -4,10 +4,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
-from wagtail.models import Page, PageViewRestriction
 from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
     ForumProfile,
     Notification,
     NotificationVerb,
@@ -16,15 +13,14 @@ from wagtail_forum.models import (
     TrustLevel,
 )
 from wagtail_forum.notifications import create_notifications
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _board(slug="general"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    return index.add_child(instance=ForumBoard(title="General", slug=slug))
+    return make_forum(name="General", slug=slug)
 
 
 def _topic_and_post(board, topic_author, post_author=None, slug="t"):
@@ -112,7 +108,9 @@ def test_notification_list_query_count_pinned():
     # permission JOINs), confirmed via direct probe; not warmable by anything
     # else on this endpoint. Per-REQUEST, not per-row — the exclusion itself
     # is a correlated EXISTS used directly in .exclude(), zero added queries.
-    assert len(ctx.captured_queries) == 5
+    # 5 -> 4 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 4
 
 
 @pytest.mark.django_db
@@ -165,7 +163,7 @@ def test_notification_list_excludes_restricted_board_topic():
     board = _board("general13")
     topic, post = _topic_and_post(board, recipient, actor)
     _notify(recipient, actor, topic, post)
-    PageViewRestriction.objects.create(page=board, restriction_type="login")
+    hide_forum(board)
 
     client = APIClient()
     client.force_authenticate(recipient)
@@ -415,7 +413,9 @@ def test_notification_list_actor_profiles_add_no_per_row_queries():
     # Plus TWO (todo 284/M9): the has_perm moderator check — see the sibling
     # pin test above. Still no per-row cost across the 5 distinct actors —
     # the block exclusion is a correlated EXISTS in the same query.
-    assert len(ctx.captured_queries) == 5
+    # 5 -> 4 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 4
 
 
 @pytest.mark.django_db

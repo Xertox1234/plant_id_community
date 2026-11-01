@@ -15,8 +15,8 @@ file guards the envelope contract, which is the thing the README promises.
 
 import pytest
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
@@ -29,9 +29,7 @@ RESULTS_ONLY_ENVELOPE = {"results"}
 
 
 def _seeded_board():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum-env"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general-env"))
+    board = make_forum(name="General", slug="general-env")
     topic = Topic.objects.create(
         board=board, title="Monstera care", slug="monstera-env", live=True
     )

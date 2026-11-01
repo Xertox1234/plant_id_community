@@ -1,4 +1,4 @@
-import type { Category } from '../types/forum';
+import type { Forum } from '../types/forum';
 
 /**
  * Which boards the chip row's current selection actually resolves to. Pure
@@ -29,9 +29,9 @@ import type { Category } from '../types/forum';
  * activeBoard filter" describe block.
  */
 export function resolveBoardFilter(
-  categories: Category[],
+  categories: Forum[],
   activeBoard: string | null
-): { effectiveBoard: string | null; visibleCategories: Category[] } {
+): { effectiveBoard: string | null; visibleCategories: Forum[] } {
   const activeBoardExists = activeBoard !== null && categories.some((c) => c.slug === activeBoard);
   const effectiveBoard = activeBoardExists ? activeBoard : null;
   return {

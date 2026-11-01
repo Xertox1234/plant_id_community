@@ -12,16 +12,9 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import override_settings
 from rest_framework.test import APIClient
-from wagtail.models import Page
 from wagtail_forum.blocks import ForumBodyBlock
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    ForumProfile,
-    Post,
-    Topic,
-    TrustLevel,
-)
+from wagtail_forum.models import ForumProfile, Post, Topic, TrustLevel
+from wagtail_forum.tests.factories import make_forum
 from wagtail_forum.workflow import ensure_default_workflow, submit_for_moderation
 
 User = get_user_model()
@@ -40,9 +33,7 @@ def _member_reply():
     """A published reply by a MEMBER (trust >= autopublish) whose edits publish
     immediately and fire moderation_decided(status='published')."""
     ensure_default_workflow()
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     author = User.objects.create_user(username="ed258")
     profile = ForumProfile.for_user(author)
     profile.trust_level = TrustLevel.MEMBER
@@ -115,9 +106,7 @@ def test_topic_create_location_header_under_namespaced_host_mount():
     `_created_location`'s fallback branch. Also pins that a same-key replay
     carries the identical namespaced Location."""
     ensure_default_workflow()
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     author = User.objects.create_user(username="loc258")
     profile = ForumProfile.for_user(author)
     profile.trust_level = TrustLevel.MEMBER

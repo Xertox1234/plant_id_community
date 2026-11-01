@@ -16,10 +16,10 @@ from django.db import transaction
 from django.test import override_settings
 from rest_framework.test import APIClient
 from wagtail.actions.unpublish import UnpublishAction
-from wagtail.models import Page
 from wagtail_forum.admin_views import approve_pending_post
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Report, Topic
+from wagtail_forum.models import Post, Report, Topic
 from wagtail_forum.signals import _refresh_topic_counters
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 # The real sender, kept before the autouse fixture swaps in the recorder.
@@ -38,9 +38,7 @@ def sent():
 def _thread(slug):
     """A topic and its opening post, both published once (first publish)."""
     author = User.objects.create_user(username=f"author-{slug}")
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    board = index.add_child(instance=ForumBoard(title="General", slug=slug))
+    board = make_forum(name="General", slug=slug)
     topic = Topic.objects.create(
         board=board, title="T", slug=f"t-{slug}", author=author, live=False
     )

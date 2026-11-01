@@ -4,16 +4,14 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.utils import timezone
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Topic, TopicRead
+from wagtail_forum.models import Topic, TopicRead
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
 
 def _topic(author=None, slug="t"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    board = index.add_child(instance=ForumBoard(title="General", slug=slug))
+    board = make_forum(name="General", slug=slug)
     return Topic.objects.create(board=board, title="T", slug=slug, author=author)
 
 

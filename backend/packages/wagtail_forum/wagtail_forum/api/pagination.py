@@ -47,13 +47,30 @@ class TopicCursorPagination(ForumCursorPagination):
         "-post_count": ("-is_pinned", "-reply_count", "-id"),
     }
 
+    def paginate_queryset(self, queryset, request, view=None):
+        # The board the view resolved (TopicListView.get_queryset), so its
+        # topics-per-page and default sort (todo 669) apply.
+        self._board = getattr(view, "board", None)
+        return super().paginate_queryset(queryset, request, view)
+
+    def get_page_size(self, request):
+        # A forum's `topics_per_page` (todo 669) replaces the site default;
+        # an explicit ?page_size= still wins. 0 = the site default.
+        board = getattr(self, "_board", None)
+        per_page = getattr(board, "topics_per_page", 0) or 0
+        if per_page and self.page_size_query_param not in request.query_params:
+            return min(per_page, self.max_page_size)
+        return super().get_page_size(request)
+
     def get_ordering(self, request, queryset, view):
-        # An unknown or blank ?sort= falls back to the default ordering — a bad
-        # value is ignored, never a 500. The chosen ordering is baked into the
-        # cursor's base_url, so `next`/`previous` links preserve the sort.
-        return self.SORT_ORDERINGS.get(
-            request.query_params.get("sort", ""), self.ordering
-        )
+        # An unknown or blank ?sort= falls back to the forum's default sort
+        # (todo 669), then the default ordering — a bad value is ignored,
+        # never a 500. Every page of the list resolves the same way, so
+        # `next`/`previous` links keep the order.
+        sort = request.query_params.get("sort", "")
+        if sort not in self.SORT_ORDERINGS:
+            sort = getattr(getattr(view, "board", None), "default_sort", "") or ""
+        return self.SORT_ORDERINGS.get(sort, self.ordering)
 
 
 class PostCursorPagination(ForumCursorPagination):

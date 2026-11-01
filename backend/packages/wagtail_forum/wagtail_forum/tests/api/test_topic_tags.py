@@ -15,8 +15,8 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Topic, TrustLevel
+from wagtail_forum.models import ForumProfile, Topic, TrustLevel
+from wagtail_forum.tests.factories import make_forum
 from wagtail_forum.workflow import ensure_default_workflow
 
 User = get_user_model()
@@ -31,9 +31,7 @@ def clear_idempotency_cache():
 
 
 def _board():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug="general"))
+    return make_forum(name="General", slug="general")
 
 
 def _trusted_client(username="tagger"):
@@ -274,7 +272,9 @@ def test_tag_serialization_does_not_scale_with_row_count():
     # Exactly 4: board lookup, topics page, cursor has-next probe, tags prefetch.
     # (The first three are pinned in test_topics_list.py; the 4th is the prefetch
     # this feature adds.) Pinned EXACTLY per docs/rules/testing.md.
-    assert len(ctx.captured_queries) == 4
+    # 4 -> 3 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 3
 
 
 # --------------------------------------------------------------------------

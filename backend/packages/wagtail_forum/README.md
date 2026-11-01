@@ -11,7 +11,7 @@ The core imports nothing host-specific and uses `settings.AUTH_USER_MODEL`.
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Bootstrap: workflow and moderator group](#bootstrap-workflow-and-moderator-group)
-- [Creating the page tree](#creating-the-page-tree)
+- [Creating the forum structure](#creating-the-forum-structure)
 - [Previews](#previews)
 - [Mounting the API](#mounting-the-api)
 - [Settings](#settings)
@@ -131,24 +131,151 @@ def connect():
 Call `connect()` from your app config's `ready()`, and list your app **after**
 `wagtail_forum` in `INSTALLED_APPS` so the permission rows exist when it runs.
 
-## Creating the page tree
+## Creating the forum structure
 
-Boards live in the Wagtail page tree so a host can place the forum wherever it
-likes:
+One page places the forum on the site; the structure itself is plain data:
 
-- `ForumIndex` — the root forum node. Allowed child: `ForumBoard`.
-- `ForumBoard` — one board/category. No children.
+- `ForumIndex` — a Wagtail page, the forum's place in the page tree (welcome
+  copy, the landing-page event hero). No child pages.
+- `Forum` — a plain model (not a page) with a `forum_type` of `category`,
+  `forum` or `link` (todo 665). A category holds forums and links and never
+  topics; a forum holds topics; every forum and link has a category `parent`.
+  Depth is exactly two. `position` orders siblings. Forum and link slugs are
+  unique forum-wide (a partial constraint); category slugs only among
+  categories. `Topic.board` points at a `forum` row with `on_delete=PROTECT`.
 
-Create a `ForumIndex` under your site root in the Wagtail admin, then add
-`ForumBoard` children. Both render a minimal server-side fallback template so
-"View live", sitemaps, and crawlers do not 500; the DRF API is the intended UI.
-The two page templates extend a shared `wagtail_forum/base.html` skeleton that
-also renders `{% wagtailuserbar %}`, so an editor landing on "View live" has a
-route back to the admin. Hosts may override any of the three templates under
+Create a `ForumIndex` under your site root in the Wagtail admin, and the
+categories and forums as `Forum` rows (`manage.py seed_default_forum` in the
+reference host makes one of each). The index renders a minimal server-side
+fallback template so "View live", sitemaps, and crawlers do not 500; the DRF
+API is the intended UI. It extends a shared `wagtail_forum/base.html` skeleton
+that also renders `{% wagtailuserbar %}`, so an editor landing on "View live"
+has a route back to the admin. Hosts may override either template under
 `templates/wagtail_forum/`.
 
-Board visibility is enforced through Wagtail: a board with a `PageViewRestriction`
-(or any descendant of a restricted ancestor) is invisible to the entire API.
+In the Wagtail admin, *Forum → Categories & forums* opens on the **structure
+tree** (todo 668): categories in order, each with its forums, and row actions
+(edit, add forum, delete). Staff with the `change` permission on `Forum` drag
+rows by their handle to reorder categories, reorder forums within a category,
+or move a forum to another category; up/down and "move to category" buttons
+do the same from the keyboard, and work without JavaScript. Every move is one
+`POST {forum_id, parent_id, position}` to the viewset's `move/` URL
+(`services.forum_structure.move_forum` checks the type and parent rules and
+renumbers both levels 0..n-1 in one transaction); an illegal drop is a 400 and
+the row snaps back. The drag and drop uses a pinned SortableJS shipped in
+`static/wagtail_forum/js/vendor/` (see the README there), not Wagtail's
+bundled copy. Moving a forum changes no topic URL, since they carry ids only.
+
+Boards were Wagtail pages until migrations 0041–0044 copied each into a
+`Forum` row with the same id, so topic URLs survive.
+
+## Forum permissions, moderators, passwords and pruning
+
+**Permissions** (todos 675–676; `services/forum_permissions.py`). A
+`ForumGrant` gives one principal one role on a category, forum or link. The
+principals are Django groups plus two pseudo-groups, *Guests* (anonymous) and
+*All members* (signed in). Roles are phpBB's: *Full* and *Standard + polls*
+have all six flags (`list`, `read`, `post`, `reply`, `poll`, `attach`),
+*Standard* all but `poll`, *Limited* `list/read/post/reply`, *Read only*
+`list/read`, *No access* none. A member's flags are the union over All members
+and each of their groups. The fallback is **per principal**: a pseudo-group
+with no row on a forum gets its default (members Standard + polls, guests Read only),
+and a group with no row adds nothing, so a forum nobody set up stays open and
+one group row never closes it to everyone else. A new forum copies its
+category's grants; the admin's *Permissions* screen (edit page → actions) is a
+principal × role grid with "Copy permissions from" (overwrites exactly, after a
+confirmation), behind the Forum `change` permission.
+
+Read enforcement: a forum or link needs `read` on itself and `list` on its
+category. `visible_forums(user)` is one lazy queryset (grants folded in as
+`Exists` subqueries), so every `board__in=` caller costs no extra query. Every
+read path uses the reader's own view: topic, post, lists, search, quotes,
+mentions, notifications, the digest, bookmarks, the live socket and the member
+dashboard. A hidden row is 404, never 403. Sitemaps, feeds, the vector index,
+RAG retrieval and thread summaries use the guest view. Staff, superusers,
+global moderators (`change_post`) and a forum's own moderators see it whatever
+its grants. Migration 0048 turned `is_hidden` into *No access* for guests and
+members; 0049 removes the flag from the model but keeps the column, with a
+database default, so the previous release keeps serving while the new one
+migrates (a later migration drops it).
+
+Write enforcement (todo 677): topic create needs `post` (and `poll` with a
+poll, `attach` with an image block), a reply needs `reply` (and `attach` with
+an image block), an edit that adds an image needs `attach`, and an image
+upload that sends the optional `forum_id` needs `attach` there (no
+`forum_id`: accepted, the body check still holds). A forum the caller cannot
+see is still 404; a visible one answers 403 `forum_post_denied`,
+`forum_reply_denied`, `forum_poll_denied` or `forum_attach_denied`. Staff
+bypass every flag, and a forum's moderators (and global moderators) have every
+write flag where they moderate, whatever its grants (owner decision
+2026-11-01). The members' no-grant default is *Standard + polls*, not
+*Standard*, so a forum with no members grant keeps taking polls (owner
+decision 2026-11-01); granting members *Standard* is what takes `poll` away.
+The forum rows of `/forum/categories/` carry the viewer's `can_post`,
+`can_reply`, `can_poll` and `can_attach` (false for guests), folded into the
+same SELECT.
+
+**Moderators** (todo 674; `permissions.py`). A `ForumModerator` is a user or a
+group, set on the forum's *Moderators* tab. They moderate through the existing
+admin, scoped to their forums: the pending and reports queues show only their
+forums' rows; the Topic, Post and Report snippets list only those rows and
+refuse any other object URL (403); they may view, change, publish, unpublish,
+lock and unlock there, never add or delete, and Reject on the pending page
+deletes only in their forums. A topic move offers only forums they moderate,
+so both ends are theirs. A model permission widens only the views it
+satisfies on its own: a moderator who also holds `view_post` everywhere may
+list and inspect every post but still edits only their forums', and a
+`delete_post` holder keeps the delete view and the full listing. They need admin access (`wagtailadmin.access_admin`)
+like any admin user. `GET /forum/categories/` lists each forum's
+`moderators` (usernames, then group names) for the "Moderators:" line.
+
+**Passwords** (todo 680). A forum's General tab takes a write-only password
+(stored as a Django hash). A signed-in member unlocks it for their session with
+`POST /forum/boards/{slug}/unlock/` `{"password": ...}`; the unlock is stored in
+the session with their id, so a new session or another account starts locked.
+Wrong passwords are counted per member per forum
+(`WAGTAILFORUM_FORUM_UNLOCK_MAX_FAILURES` in `WAGTAILFORUM_FORUM_UNLOCK_WINDOW_SECONDS`)
+and answer 429 past the limit. While locked, the forum's row on
+`/forum/categories/` carries `is_locked: true`, no `last_post_at` and no unread
+mark; its topic list is 403 `forum_locked` and its topics are 404; search,
+notifications and the digest leave it out. The flat `/forum/boards/` list (the
+Flutter app's) leaves a locked forum out until the app has an unlock screen.
+Staff and moderators bypass the password.
+
+**Display settings** (todo 669; the *Display* and *Rules* tabs). `is_closed`
+(phpBB "locked"; named so because `is_locked` above already means an
+un-unlocked password forum) refuses new topics and replies with 403
+`forum_closed`, staff and the forum's moderators exempt; `rules` (plain text)
+and `rules_url` (http/https); `icon` (one emoji); `colour` (one of the Canopy
+accents `sage`, `pollen`, `bloom`, `orchid`); `image` (a Wagtail image,
+`SET_NULL`, served as `image_url`); `topics_per_page` (0 = the default, at
+most 100; an explicit `?page_size=` wins); `default_sort` (one of the topic
+list's `?sort=` values, applied when the request sends none). All are on the
+forum rows of `/forum/categories/`; categories carry `icon` and `colour`.
+`theme` (todo 681) is one of `botanical`, `moss`, `terracotta`, `slate` or
+blank; the web applies it as a token scope on the forum and thread pages.
+
+**Watch / Track / Mute** (todo 672). `GET|PUT|DELETE
+/forum/boards/{slug}/subscription/` `{"level": ...}` stores a member's level on
+one forum: `watching` (each new topic notifies, and the member is subscribed to
+it so its replies notify too), `watching_first_post` (new topics only),
+`tracking` (the row's `unread_count`), `muted` (left out of
+`/forum/topics/recent/` and the digest). Forum rows carry `watch_level` and,
+for the three counted levels, `unread_count`. The new-topic notification is
+the `new_topic` verb, with its own push preference row (push on, no email);
+the host fans it out to watchers who may read the forum, minus the author and
+blocked pairs, in a fixed number of queries.
+
+**Topic template** (todo 678). The *Posting* tab's plain-text template is on
+the forum rows of `/forum/categories/` as `topic_template`; the web composer
+prefills an empty body with it, one paragraph per line.
+
+**Pruning** (todo 679). The *Pruning* tab: `prune_enabled`,
+`prune_days_since_last_post`, `prune_pinned`, `prune_polls`.
+`manage.py prune_forums [--dry-run]` unpublishes (never deletes) each enabled
+forum's live topics with no post for that many days, sparing pinned and poll
+topics unless the forum says otherwise, with one `[PRUNE]` log line per forum.
+The host runs it nightly from `forum-prune-cron`.
 
 ## Previews
 
@@ -221,7 +348,7 @@ The package ships **no authentication and no throttling** by design — see
 The page types are deliberately **not** registered with Wagtail API v2 and
 declare no `api_fields`. The DRF API above is the sole content contract:
 `ForumIndex.intro` is delivered — expanded and nh3-sanitized — inside the
-board-list envelope, and `ForumBoard.description` inside each board object.
+board-list envelope, and `Forum.description` inside each board object.
 Declaring `api_fields` would open a second delivery path that serves rich text
 in raw DB form (v2 does not run `expand_db_html`) and bypasses the sanitizer.
 A host's generic `pages` endpoint still lists the forum pages with base `Page`
@@ -432,6 +559,8 @@ Things worth knowing before changing this:
 |---|---|---|
 | `WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS` | `900` (15 min) | Window in which repeat topic-detail GETs from the same user/IP count as one view. A `?peek=1` read (a client polling `post_count` for new replies) never counts a view and never writes the read marker below — a poll is not a visit. |
 | `WAGTAILFORUM_TOPIC_READ_DEDUP_SECONDS` | `900` (15 min) | Read-marker dedup window. Deliberately **separate** from the view-count window — they gate unrelated concerns and only happen to share a default. |
+| `WAGTAILFORUM_FORUM_UNLOCK_MAX_FAILURES` | `5` | Wrong passwords one member may try on one password forum per window before `POST boards/{slug}/unlock/` answers 429 (todo 680). Only a wrong password counts; the right one clears the count. |
+| `WAGTAILFORUM_FORUM_UNLOCK_WINDOW_SECONDS` | `900` (15 min) | The window of the count above, from the first wrong password; also the 429's `Retry-After`. |
 | `WAGTAILFORUM_PUBLIC_READ_CACHE_SECONDS` | `60` | Shared-cache TTL for **anonymous** board list, topic list, search, recent topics, experts rails, and the event hero only, so a CDN can offload public reads. Authenticated responses are always `private, no-store`. Topic detail and post list are never shared-cached (view counting; moderated-away content must stop serving immediately). Tradeoff: a just-removed topic can linger in the anon-cached *list* for up to this TTL. |
 | `WAGTAILFORUM_RECENT_TOPICS_DEFAULT_LIMIT` | `5` | Default row count for `GET topics/recent/` (the landing "Active now" rail) when `?limit=` is omitted. |
 | `WAGTAILFORUM_RECENT_TOPICS_MAX_LIMIT` | `20` | Cap on `?limit=` for `GET topics/recent/`. Bounded because each row may resolve a thumbnail rendition. |
@@ -759,6 +888,7 @@ They live in `wagtail_forum.signals`.
 | `solution_marked` | A post is accepted as a topic's answer | `sender=Topic`, `topic=<Topic>`, `post=<accepted Post>`, `actor=<User who accepted>` |
 | `solution_unmarked` | A topic's accepted answer is cleared: the API unmark, or the answer is unpublished or deleted | `sender=Topic`, `topic_id=<int>` |
 | `badge_awarded` | The badge engine grants a badge (todo 348) | `sender=Badge`, `user_id=<int>`, `badge=<Badge>` — already inside `transaction.on_commit`, so a receiver may deliver directly |
+| `topics_moved` | The admin's forum delete or change type moves a forum's topics to another forum in one bulk UPDATE (todo 667), so no Topic save signal fires | `sender=Forum`, `source=<Forum>`, `target=<Forum>`, `moves=[(topic_id, old_slug, new_slug), ...]` — inside the move's transaction; a receiver that raises rolls the move back |
 
 ```python
 from django.dispatch import receiver
@@ -832,7 +962,8 @@ an LLM) can flatten a large body once and screen the same string twice.
 
 ## List envelopes
 
-The forum API ships **five** list-collection shapes. They are not converging:
+The forum API ships **five** list-collection shapes (`categories/` reuses the
+flat shape without `intro`). They are not converging:
 each one carries information the cursor envelope cannot express, and the audit
 that raised this (M40) asked for one documented contract *or* a documented
 divergence. This is the divergence, stated deliberately.
@@ -840,7 +971,8 @@ divergence. This is the divergence, stated deliberately.
 | Endpoint(s) | Envelope | Why not cursor |
 |---|---|---|
 | topic list, post list, notification list | `{results, next, previous}` (DRF `CursorPagination`) | — this is the default; use it for any new collection. |
-| `GET boards/` | `{results, intro}` — flat, no cursor | Boards are a handful of Wagtail pages rendered as one nav tree. `pagination_class = None`; a `next` that is always `null` would imply paging that does not exist. `intro` is the `ForumIndex` welcome copy (expanded + sanitized HTML, `""` when unset) — it belongs to the same screen as the boards and is always fetched with them, so it rides the envelope instead of costing a second round-trip. Media embeds and images are stripped *before* expansion, never after: expanding one would fire Wagtail's untimed oEmbed `requests.get` (or generate a rendition) on this public, CDN-fronted endpoint, and sanitizing only the output would discard the result while still paying for it. |
+| `GET categories/` | `{results}` — flat, no cursor | Categories in `position` order, each with its visible forums nested under `forums` (the `boards/` row shape). A category's `topic_count`, `post_count` and `last_post_at` are summed from those forums at read time; a category with no visible forum is omitted. Same reason as `boards/`: a handful of rows, never paged. |
+| `GET boards/` | `{results, intro}` — flat, no cursor | Boards (`forum_type="forum"` rows only — never categories or links) are a handful of rows rendered as one nav tree. `pagination_class = None`; a `next` that is always `null` would imply paging that does not exist. `intro` is the `ForumIndex` welcome copy (expanded + sanitized HTML, `""` when unset) — it belongs to the same screen as the boards and is always fetched with them, so it rides the envelope instead of costing a second round-trip. Media embeds and images are stripped *before* expansion, never after: expanding one would fire Wagtail's untimed oEmbed `requests.get` (or generate a rendition) on this public, CDN-fronted endpoint, and sanitizing only the output would discard the result while still paying for it. |
 | `GET search/` | `{topics, posts, topics_has_more, posts_has_more, page}` | **Two** independently-paged result sets in one response. A cursor envelope has one `results`; splitting search into two round-trips would double the query cost of every keystroke. Offset-paged (not keyset) because the ordering is relevance, which a concurrent write reshuffles — so `page` is echoed back and clients dedup by id when appending. |
 | `GET sync/` | `{topics, deleted, has_more, next_since, next_since_id}` | A delta poll, not a page. `deleted` carries tombstones (ids to evict) that no `results` list can represent, and the cursor is a compound `(updated_at, id)` the client persists across sessions — DRF's opaque cursor is per-response and not resumable days later. |
 | `GET topics/recent/`, `GET users/experts/` | `{results}` — bare, no cursor, no `intro` | Fixed-size landing-rail snapshots (`?limit=`/`RECENT_TOPICS_MAX_LIMIT`, `EXPERTS_LIMIT`), not incrementally paged — there is no `next` page to request, and neither carries a sibling field like `intro` to justify the flat envelope's extra key. |
@@ -1045,9 +1177,9 @@ Two deliberate omissions:
   adopting the mixin would add `locale`/`translation_key` fields and a
   `unique_together(translation_key, locale)` constraint interacting with the
   existing slug and opening-post constraints, plus migrations on live tables —
-  cost with no current consumer. Note that `ForumIndex`/`ForumBoard` are Wagtail
-  `Page` subclasses and therefore *already* carry `locale`/`translation_key`, so
-  board structure is translatable today. Revisit if a host adopts
+  cost with no current consumer. Note that `ForumIndex` is a Wagtail `Page`
+  subclass and therefore *already* carries `locale`/`translation_key`; `Forum`
+  rows (boards, since todo 665) do not. Revisit if a host adopts
   wagtail-localize and genuinely needs per-locale topic content.
 
 ## Development

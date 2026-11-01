@@ -38,9 +38,12 @@ logger = logging.getLogger(__name__)
 
 
 @database_sync_to_async
-def _topic_is_visible(topic_id: int) -> bool:
+def _topic_is_visible(topic_id: int, user=None) -> bool:
+    # The reader's own view (todo 676): a member of a group-only forum may
+    # follow its topics live. Password forums stay closed here: a socket has
+    # no unlocked session (todo 680).
     # bool() only for mypy: the package is untyped to it, so exists() is Any.
-    return bool(visible_topics().filter(pk=topic_id).exists())
+    return bool(visible_topics(user).filter(pk=topic_id).exists())
 
 
 class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
@@ -71,7 +74,7 @@ class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
             return await self._refuse(
                 constants.LIVE_CLOSE_UNAUTHENTICATED, "unauthenticated"
             )
-        if not await _topic_is_visible(self.topic_id):
+        if not await _topic_is_visible(self.topic_id, self.scope.get("user")):
             return await self._refuse(constants.LIVE_CLOSE_NOT_FOUND, "not visible")
         if not await self._take_slots():
             return await self._refuse(constants.LIVE_CLOSE_LIMITED, "over cap")
@@ -145,7 +148,7 @@ class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
                 * random.uniform(*constants.LIVE_VISIBILITY_RECHECK_JITTER)
             )
             try:
-                visible = await _topic_is_visible(self.topic_id)
+                visible = await _topic_is_visible(self.topic_id, self.scope.get("user"))
             except Exception as exc:  # CancelledError is not an Exception
                 if not failure_logged:
                     failure_logged = True

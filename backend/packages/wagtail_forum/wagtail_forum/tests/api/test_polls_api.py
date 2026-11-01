@@ -8,25 +8,30 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
-from wagtail.models import Page
 from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
+    ForumGrant,
+    ForumRole,
     Poll,
     PollOption,
     PollVote,
     Post,
     Topic,
 )
+from wagtail_forum.services.forum_permissions import set_grant
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
-def _board(slug="general"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    return index.add_child(instance=ForumBoard(title="General", slug=slug))
+def _board(slug="general", *, polls=False):
+    # Todo 677 enforces the poll flag. The members' no-grant default is
+    # Standard + polls (owner decision 2026-11-01), so `polls=True` only makes
+    # the grant explicit; an ungranted board takes polls too (see below).
+    board = make_forum(name="General", slug=slug)
+    if polls:
+        set_grant(board, ForumGrant.MEMBERS, ForumRole.STANDARD_POLLS)
+    return board
 
 
 def _topic(slug="t", live=True, board=None, author=None):
@@ -71,7 +76,7 @@ def _create_topic(client, board, poll=None, slug="poll-thread"):
 
 @pytest.mark.django_db
 def test_compose_a_topic_with_a_poll():
-    board = _board("pc1")
+    board = _board("pc1", polls=True)
     author = User.objects.create_user(username="pc1-author")
     client = APIClient()
     client.force_authenticate(author)
@@ -92,8 +97,25 @@ def test_compose_a_topic_with_a_poll():
 
 
 @pytest.mark.django_db
+def test_a_member_adds_a_poll_on_a_board_with_no_grant():
+    """No members grant falls back to Standard + polls, so existing forums
+    keep taking polls once todo 677 enforces the flag (owner 2026-11-01)."""
+    board = _board("pc-default")
+    author = User.objects.create_user(username="pc-default-author")
+    client = APIClient()
+    client.force_authenticate(author)
+
+    resp = _create_topic(
+        client, board, poll={"question": "Best soil?", "options": ["Peat", "Coir"]}
+    )
+
+    assert resp.status_code == 201, resp.content
+    assert Poll.objects.filter(topic_id=resp.data["id"]).exists()
+
+
+@pytest.mark.django_db
 def test_compose_without_a_poll_creates_none():
-    board = _board("pc2")
+    board = _board("pc2", polls=True)
     author = User.objects.create_user(username="pc2-author")
     client = APIClient()
     client.force_authenticate(author)
@@ -108,7 +130,7 @@ def test_compose_without_a_poll_creates_none():
 def test_blank_options_are_dropped_not_rejected():
     """A composer with a fixed number of option inputs sends empties for the
     ones left untouched — a normal submission, not a malformed one."""
-    board = _board("pc3")
+    board = _board("pc3", polls=True)
     author = User.objects.create_user(username="pc3-author")
     client = APIClient()
     client.force_authenticate(author)
@@ -141,7 +163,7 @@ def test_blank_options_are_dropped_not_rejected():
     ],
 )
 def test_invalid_poll_is_rejected_and_creates_no_topic(poll, reason):
-    board = _board(f"pc-invalid-{abs(hash(reason)) % 10000}")
+    board = _board(f"pc-invalid-{abs(hash(reason)) % 10000}", polls=True)
     author = User.objects.create_user(username=f"author-{abs(hash(reason)) % 10000}")
     client = APIClient()
     client.force_authenticate(author)
@@ -167,7 +189,7 @@ def test_invalid_poll_is_rejected_and_creates_no_topic(poll, reason):
 
 @pytest.mark.django_db
 def test_a_close_time_in_the_past_is_rejected():
-    board = _board("pc4")
+    board = _board("pc4", polls=True)
     author = User.objects.create_user(username="pc4-author")
     client = APIClient()
     client.force_authenticate(author)
@@ -190,7 +212,7 @@ def test_a_close_time_in_the_past_is_rejected():
 def test_a_vote_count_in_the_create_payload_is_ignored():
     """AC 5, creation half: there is no writable count anywhere in the poll
     write shape, so a caller cannot seed results at compose time either."""
-    board = _board("pc5")
+    board = _board("pc5", polls=True)
     author = User.objects.create_user(username="pc5-author")
     client = APIClient()
     client.force_authenticate(author)
@@ -441,7 +463,7 @@ def test_vote_response_matches_topic_detail_poll_shape():
 
 @pytest.mark.django_db
 def test_compose_a_multi_choice_poll_stores_max_choices():
-    board = _board("mc1")
+    board = _board("mc1", polls=True)
     author = User.objects.create_user(username="mc1-author")
     client = APIClient()
     client.force_authenticate(author)
@@ -465,7 +487,7 @@ def test_compose_a_multi_choice_poll_stores_max_choices():
 
 @pytest.mark.django_db
 def test_max_choices_defaults_to_single_choice():
-    board = _board("mc2")
+    board = _board("mc2", polls=True)
     author = User.objects.create_user(username="mc2-author")
     client = APIClient()
     client.force_authenticate(author)
@@ -784,7 +806,9 @@ def test_multi_choice_poll_costs_no_more_queries_than_single_choice():
     # unchanged_by_the_poll_field) + ONE options query that carries the
     # distinct-voter subquery. A regression that made the total a separate
     # query would move both counts together and pass the equality alone.
-    assert len(multi_ctx.captured_queries) == 5
+    # 5 -> 4 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(multi_ctx.captured_queries) == 4
 
 
 @pytest.mark.django_db
@@ -909,14 +933,17 @@ def test_a_poll_less_topic_detail_query_count_is_unchanged_by_the_poll_field():
     with CaptureQueriesContext(connection) as anon_ctx:
         anon = APIClient().get(f"/forum/topics/{topic.id}/")
     assert anon.data["poll"] is None
-    assert len(anon_ctx.captured_queries) == 4
+    # 4 -> 3 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(anon_ctx.captured_queries) == 3
 
     client = APIClient()
     client.force_authenticate(viewer)
     with CaptureQueriesContext(connection) as auth_ctx:
         auth = client.get(f"/forum/topics/{topic.id}/")
     assert auth.data["poll"] is None
-    assert len(auth_ctx.captured_queries) == 9
+    # 9 -> 8 (todo 665): the board-side PageViewRestriction query is gone.
+    assert len(auth_ctx.captured_queries) == 8
 
 
 @pytest.mark.django_db

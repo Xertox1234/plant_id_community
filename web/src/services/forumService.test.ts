@@ -3,7 +3,11 @@ import * as forumService from './forumService';
 import { resetAllCapabilityLatches } from './capabilityLatch';
 import {
   fetchCategories,
-  fetchCategory,
+  fetchForumCategory,
+  fetchForums,
+  fetchForum,
+  fetchForumTopicTemplate,
+  unlockForum,
   fetchThreads,
   fetchThread,
   createThread,
@@ -36,6 +40,11 @@ import {
   ComposeAssistError,
   fetchTopicSummary,
   TopicSummaryError,
+  markForumRead,
+  markAllForumsRead,
+  saveCollapsedCategories,
+  setForumWatchLevel,
+  fetchForumRow,
 } from './forumService';
 import { clearCsrfToken } from '../utils/csrf';
 
@@ -177,11 +186,175 @@ function okJson(body: unknown) {
 // ---------------------------------------------------------------------------
 
 describe('forumService (wagtail_forum API contract)', () => {
+  // --- Read marks (todo 671) ------------------------------------------------
+
+  it('markForumRead POSTs to the forum’s read/ endpoint', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ marked_at: '2026-10-30T00:00:00Z' }));
+    await markForumRead('plant-care');
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/v1\/forum\/boards\/plant-care\/read\/$/),
+      expect.objectContaining({ method: 'POST', credentials: 'include' })
+    );
+  });
+
+  it('saveCollapsedCategories PUTs the whole list to me/collapsed-categories/', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ collapsed_categories: [3, 1] }));
+    await expect(saveCollapsedCategories([3, 1])).resolves.toEqual([3, 1]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/v1\/forum\/me\/collapsed-categories\/$/),
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ collapsed_categories: [3, 1] }),
+      })
+    );
+  });
+
+  // --- Watch levels, forum rows, upload forum id (todos 669, 672, 677, 681) --
+
+  it('setForumWatchLevel PUTs the level and DELETE clears it', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ level: 'tracking' }));
+    await expect(setForumWatchLevel('ferns', 'tracking')).resolves.toBe('tracking');
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.stringMatching(/\/api\/v1\/forum\/boards\/ferns\/subscription\/$/),
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ level: 'tracking' }) })
+    );
+    fetchMock.mockResolvedValueOnce(okJson({ level: null }));
+    await expect(setForumWatchLevel('ferns', null)).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.stringMatching(/\/boards\/ferns\/subscription\/$/),
+      expect.objectContaining({ method: 'DELETE' })
+    );
+  });
+
+  it('fetchForumRow maps the row’s display settings, capabilities and watch level', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({
+        results: [
+          {
+            id: 1,
+            title: 'Plants',
+            slug: 'plants',
+            position: 0,
+            topic_count: 0,
+            post_count: 0,
+            last_post_at: null,
+            icon: '🪴',
+            colour: 'bloom',
+            forums: [
+              {
+                id: 7,
+                title: 'Ferns',
+                slug: 'ferns',
+                is_closed: true,
+                rules: 'Be kind.',
+                rules_url: 'https://example.com/rules',
+                icon: '🌿',
+                colour: 'sage',
+                image_url: null,
+                topics_per_page: 10,
+                default_sort: '-created_at',
+                theme: 'moss',
+                can_post: false,
+                can_reply: true,
+                can_poll: false,
+                can_attach: true,
+                watch_level: 'tracking',
+                unread_count: 3,
+              },
+            ],
+          },
+        ],
+      })
+    );
+    const row = await fetchForumRow(7);
+    expect(row).toMatchObject({
+      id: '7',
+      is_closed: true,
+      rules: 'Be kind.',
+      rules_url: 'https://example.com/rules',
+      icon: '🌿',
+      colour: 'sage',
+      default_sort: '-created_at',
+      theme: 'moss',
+      capabilities: { can_post: false, can_reply: true, can_poll: false, can_attach: true },
+      watch_level: 'tracking',
+      unread_count: 3,
+    });
+  });
+
+  it('fetchForumRow is null when the fetch fails', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('down'));
+    await expect(fetchForumRow(7)).resolves.toBeNull();
+  });
+
+  it('uploadPostImage sends forum_id only when given', async () => {
+    const file = new File(['x'], 'a.jpg', { type: 'image/jpeg' });
+    fetchMock.mockResolvedValue(okJson({ id: 1, url: 'u' }));
+    await uploadPostImage(file, '', undefined, 7);
+    expect((fetchMock.mock.calls.at(-1)![1].body as FormData).get('forum_id')).toBe('7');
+    await uploadPostImage(file);
+    expect((fetchMock.mock.calls.at(-1)![1].body as FormData).has('forum_id')).toBe(false);
+  });
+
+  it('markAllForumsRead POSTs to read-all/', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ marked_at: '2026-10-30T00:00:00Z' }));
+    await markAllForumsRead();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/v1\/forum\/read-all\/$/),
+      expect.objectContaining({ method: 'POST', credentials: 'include' })
+    );
+  });
+
+  it('fetchCategories maps link rows and unread flags', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({
+        results: [
+          {
+            id: 1,
+            title: 'Plants',
+            slug: 'plants',
+            position: 0,
+            topic_count: 0,
+            post_count: 0,
+            last_post_at: null,
+            has_unread: true,
+            forums: [{ ...backendBoard, has_unread: true }],
+            links: [
+              {
+                id: 9,
+                title: 'Shop',
+                slug: 'shop',
+                description: '',
+                link_url: 'https://shop.example.com/',
+                track_clicks: false,
+                click_count: null,
+              },
+            ],
+          },
+        ],
+      })
+    );
+    const [category] = await fetchCategories();
+    expect(category.has_unread).toBe(true);
+    expect(category.forums[0].has_unread).toBe(true);
+    expect(category.links).toEqual([
+      {
+        id: '9',
+        name: 'Shop',
+        slug: 'shop',
+        description: '',
+        link_url: 'https://shop.example.com/',
+        track_clicks: false,
+        click_count: null,
+      },
+    ]);
+  });
+
   // --- Categories (boards) --------------------------------------------------
 
-  it('fetchCategories hits /boards/ and maps board→category', async () => {
+  it('fetchForums hits /boards/ and maps board→category', async () => {
     fetchMock.mockResolvedValueOnce(okJson({ results: [backendBoard] }));
-    const result = await fetchCategories();
+    const result = await fetchForums();
     expect(result[0]).toMatchObject({
       id: '3',
       name: 'Plant Care',
@@ -195,16 +368,73 @@ describe('forumService (wagtail_forum API contract)', () => {
     );
   });
 
-  it('fetchCategory resolves by integer id from /boards/', async () => {
+  it('fetchForum resolves by integer id from /boards/', async () => {
     fetchMock.mockResolvedValueOnce(okJson({ results: [backendBoard] }));
-    const c = await fetchCategory(3);
+    const c = await fetchForum(3);
     expect(c.id).toBe('3');
     expect(c.slug).toBe('plant-care');
   });
 
-  it('fetchCategory throws when id not found', async () => {
+  it('fetchForum throws when id not found', async () => {
     fetchMock.mockResolvedValueOnce(okJson({ results: [backendBoard] }));
-    await expect(fetchCategory(999)).rejects.toThrow('Category not found');
+    await expect(fetchForum(999)).rejects.toThrow('Forum not found');
+  });
+
+  it('fetchCategories hits /categories/ and maps each category with its forums (todo 665)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okJson({
+        results: [
+          {
+            id: 1,
+            title: 'Indoor plants',
+            slug: 'indoor',
+            description: '',
+            position: 0,
+            topic_count: 2,
+            post_count: 9,
+            last_post_at: null,
+            forums: [backendBoard],
+          },
+        ],
+      })
+    );
+    const [category] = await fetchCategories();
+    expect(category).toMatchObject({
+      id: '1',
+      name: 'Indoor plants',
+      slug: 'indoor',
+      thread_count: 2,
+      post_count: 9,
+      last_post_at: null,
+    });
+    expect(category.forums.map((f) => f.id)).toEqual(['3']);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/forum/categories/'),
+      expect.objectContaining({ credentials: 'include' })
+    );
+  });
+
+  it('fetchForumCategory finds the category holding a forum, null when none or on failure', async () => {
+    const page = {
+      results: [
+        {
+          id: 1,
+          title: 'Indoor plants',
+          slug: 'indoor',
+          position: 0,
+          topic_count: 2,
+          post_count: 9,
+          last_post_at: null,
+          forums: [backendBoard],
+        },
+      ],
+    };
+    fetchMock.mockResolvedValueOnce(okJson(page));
+    expect((await fetchForumCategory(3))?.name).toBe('Indoor plants');
+    fetchMock.mockResolvedValueOnce(okJson(page));
+    expect(await fetchForumCategory(999)).toBeNull();
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) });
+    expect(await fetchForumCategory(3)).toBeNull();
   });
 
   // --- Threads (topics) -----------------------------------------------------
@@ -1155,5 +1385,56 @@ describe('capability latch wrappers', () => {
     for (const other of capabilities) {
       expect(other.is()).toBe(other.reset !== reset);
     }
+  });
+});
+
+describe('password forums and topic templates (todos 678, 680)', () => {
+  const lockedCategory = {
+    id: 1,
+    title: 'Clubs',
+    slug: 'clubs',
+    description: '',
+    position: 0,
+    topic_count: 0,
+    post_count: 0,
+    last_post_at: null,
+    forums: [
+      {
+        id: 9,
+        title: 'Club',
+        slug: 'club',
+        is_locked: true,
+        topic_template: 'Line one\nLine two',
+        moderators: ['ann'],
+      },
+    ],
+  };
+
+  it('fetchForum finds a locked forum on the category index', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ results: [] }));
+    fetchMock.mockResolvedValueOnce(okJson({ results: [lockedCategory] }));
+
+    const forum = await fetchForum(9);
+
+    expect(forum.is_locked).toBe(true);
+    expect(forum.moderators).toEqual(['ann']);
+  });
+
+  it('fetchForumTopicTemplate reads the forum row of the category index', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ results: [lockedCategory] }));
+
+    expect(await fetchForumTopicTemplate('9')).toBe('Line one\nLine two');
+  });
+
+  it('unlockForum posts the password to the unlock endpoint', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ unlocked: true }));
+
+    await unlockForum('club', 'fake-pass');
+
+    const [url, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
+    expect(url).toMatch(/\/boards\/club\/unlock\/$/);
+    expect(init.method).toBe('POST');
+    // An obviously fake test value.
+    expect(JSON.parse(init.body as string)).toEqual({ password: 'fake-pass' }); // pragma: allowlist secret
   });
 });

@@ -7,10 +7,7 @@ from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
-from wagtail.models import Page, PageViewRestriction
 from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
     ForumProfile,
     Notification,
     Post,
@@ -19,6 +16,7 @@ from wagtail_forum.models import (
     UserBlock,
     UserMute,
 )
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 from .test_topic_create import ensure_default_workflow
 
@@ -27,11 +25,9 @@ pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _board(slug="general", *, restricted=False):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug=f"forum-{slug}"))
-    board = index.add_child(instance=ForumBoard(title="General", slug=slug))
+    board = make_forum(name="General", slug=slug)
     if restricted:
-        PageViewRestriction.objects.create(page=board, restriction_type="login")
+        hide_forum(board)
     return board
 
 

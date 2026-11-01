@@ -195,6 +195,11 @@ repos:
         entry: scripts/test-staged.sh backend
         language: script
         files: ^backend/(apps|packages)/.*test.*\.py$
+        # One pytest process for all staged files. Without this, pre-commit
+        # splits the files into parallel batches, and each batch's pytest
+        # creates and drops the same test_plant_community database, so the
+        # batches race on it and fail.
+        require_serial: true
 
   # ===================================
   # JavaScript/TypeScript Code Quality

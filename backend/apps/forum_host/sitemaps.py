@@ -6,9 +6,13 @@ Every ``<loc>`` is emitted at the SPA **frontend** canonical URL
 minimal crawler fallback (audit H17: "the SPA remains the real forum UI"), so the
 frontend origin is canonical, not the backend host that serves this sitemap.
 
-Security: only live topics on live + **public** boards are listed — a hidden or
-view-restricted board's topics never leak into the sitemap. Mirrors the API's
-visibility boundary.
+Security: only live topics on visible forums are listed — a hidden forum's
+topics never leak into the sitemap. Mirrors the API's visibility boundary.
+
+Boards come from the ``Forum`` model (todo 665): only ``forum_type="forum"``
+rows, which is what ``_visible_boards()`` returns. Categories and links have
+no page of their own on the web app, so they are never listed (owner decision
+2026-10-28).
 """
 
 from django.conf import settings
@@ -41,8 +45,10 @@ class ForumBoardSitemap(_FrontendSitemap):
     priority = 0.6
 
     def items(self):
-        # The /forum landing (ForumIndex) plus every public board.
-        return list(ForumIndex.objects.live().public()) + list(_visible_boards())
+        # The /forum landing (ForumIndex) plus every visible forum.
+        return list(ForumIndex.objects.live().public()) + list(
+            _visible_boards().order_by("parent__position", "position", "id")
+        )
 
     def location(self, obj):
         # Frontend routes: /forum (index) and /forum/{id}-{slug} (board).

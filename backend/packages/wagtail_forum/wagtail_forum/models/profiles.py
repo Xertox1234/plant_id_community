@@ -82,10 +82,18 @@ class ForumProfile(models.Model):
     quiet_hours_start = models.TimeField(default=datetime.time(22, 0))
     quiet_hours_end = models.TimeField(default=datetime.time(7, 0))
     time_zone = models.CharField(max_length=64, blank=True, default="")
+    # Category ids this member collapsed on the forum index (todo 673;
+    # phpBB's collapsible-categories extension stores them per user, a
+    # cookie for guests — the web keeps a guest's in localStorage). A plain
+    # id list, not FKs: a deleted category's id is harmless and is dropped
+    # the next time the member toggles. Capped on write
+    # (`PUT /forum/me/collapsed-categories/`, CollapsedCategoriesSerializer).
+    collapsed_categories = models.JSONField(default=list, blank=True)
     # Per-user fallback baseline for "unread" (todo 253 slice 5, H10): a
     # topic is unread if its last_post_at is newer than this, UNLESS a more
     # specific TopicRead row exists for that exact topic. Plain default (not
-    # auto_now_add) so a future "mark all read" action can advance it.
+    # auto_now_add) so "mark all read" (todo 671, `POST /forum/read-all/`)
+    # can advance it.
     #
     # This wall-clock default is now only the LAST resort: both creation paths
     # pass an explicit seed from initial_read_watermark() (see that method), so

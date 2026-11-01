@@ -4,8 +4,8 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail_forum.models import Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
@@ -13,9 +13,7 @@ pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _board():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug="general"))
+    return make_forum(name="General", slug="general")
 
 
 @pytest.mark.django_db
@@ -386,9 +384,7 @@ def test_prune_tombstones_command_removes_old_rows(capsys):
 
 @pytest.mark.django_db
 def test_search_topics_include_metadata_and_board():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum-meta"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general-meta"))
+    board = make_forum(name="General", slug="general-meta")
     topic = Topic.objects.create(
         board=board, title="Monstera propagation tips", slug="monstera-meta"
     )
@@ -424,9 +420,7 @@ def test_search_topics_carry_the_solved_flag():
     every search hit as unsolved rather than fail. Solved is set ON here for the
     same discriminating reason is_pinned is.
     """
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum-solved"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general-solved"))
+    board = make_forum(name="General", slug="general-solved")
     topic = Topic.objects.create(
         board=board, title="Monstera propagation rescue", slug="monstera-solved"
     )
@@ -444,10 +438,8 @@ def test_search_topics_carry_the_solved_flag():
 
 @pytest.mark.django_db
 def test_search_board_filter_narrows_topics_and_posts():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum-filter"))
-    board_a = index.add_child(instance=ForumBoard(title="A", slug="board-a"))
-    board_b = index.add_child(instance=ForumBoard(title="B", slug="board-b"))
+    board_a = make_forum(name="A", slug="board-a")
+    board_b = make_forum(name="B", slug="board-b")
     topic_a = Topic.objects.create(board=board_a, title="Fern care", slug="fern-a")
     topic_b = Topic.objects.create(board=board_b, title="Fern care", slug="fern-b")
     author = User.objects.create_user(username="fern_author")

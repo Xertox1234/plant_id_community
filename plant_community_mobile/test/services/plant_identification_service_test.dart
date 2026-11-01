@@ -49,6 +49,19 @@ void main() {
       ]);
     });
 
+    // Todo 662: the backend returns `care_instructions: null` until it has
+    // plant-specific care. The parser used to fill in a generic sentence,
+    // which the results screen then showed as this plant's care.
+    test('null care_instructions gives no care, not generic text', () async {
+      final plant = await identifyWith({
+        ..._backendResponse(),
+        'care_instructions': null,
+      });
+
+      expect(plant.name, 'Fiddle-leaf fig');
+      expect(plant.care, isEmpty);
+    });
+
     test('surfaces the backend error from a success:false response', () {
       expect(
         identifyWith({'success': false, 'error': 'Image too blurry'}),

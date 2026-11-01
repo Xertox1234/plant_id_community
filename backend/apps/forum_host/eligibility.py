@@ -51,7 +51,7 @@ REASON_UNSUBSCRIBED = "unsubscribed"
 REASON_READ = "already_read"
 
 # The events whose actor is the post's author when the payload names none.
-_AUTHOR_IS_ACTOR = frozenset({"reply_added", "mention", "quote"})
+_AUTHOR_IS_ACTOR = frozenset({"reply_added", "mention", "quote", "new_topic"})
 # The events about someone else's new post: reading the topic past the post
 # reads it. An accepted answer is about the recipient's OWN post, which they
 # have always "read", so only its own bell row being read counts there.
@@ -131,6 +131,27 @@ def visible_post(post_id):
         .select_related("topic__board", "author")
         .first()
     )
+
+
+def _live_post(post_id):
+    """The post if it is live on a live topic, whoever may read its forum."""
+    from wagtail_forum.models import Post
+
+    return (
+        Post.objects.filter(pk=post_id, live=True, topic__live=True)
+        .select_related("topic__board", "author")
+        .first()
+    )
+
+
+def _unreadable_ids(users_by_pk, forum_id) -> set[int]:
+    """The recipients who may not read forum ``forum_id`` (todo 676)."""
+    from wagtail_forum.services.forum_permissions import readers_of_forum
+
+    readers = {
+        user.pk for user in readers_of_forum(list(users_by_pk.values()), forum_id)
+    }
+    return set(users_by_pk) - readers
 
 
 def visible_posts(post_ids) -> dict:
@@ -220,10 +241,17 @@ def recheck(
     unsubscribed: set[int] = set()
     read: set[int] = set()
     post = None
+    unreadable: set[int] = set()
     if full:
         post_id = _int_or_none(data.get("post_id"))
         if post_id is not None:
-            post = visible_post(post_id)
+            # Not on a guest-visible forum (todo 676)? It may still be live
+            # on a forum some members read. Either way each recipient's own
+            # grants decide: guests reading a forum says nothing about a
+            # member whose grants deny it (round-1 review). Constant queries.
+            post = visible_post(post_id) or _live_post(post_id)
+            if post is not None:
+                unreadable = _unreadable_ids(by_pk, post.topic.board_id)
             content_gone = post is None
         result.post = post
         actor_id = _int_or_none(data.get("actor_id"))
@@ -238,6 +266,20 @@ def recheck(
                 ).values_list("user_id", flat=True)
             )
             unsubscribed = set(by_pk) - subscribed
+        if not content_gone and event == "new_topic" and post is not None:
+            # A held new_topic push (quiet hours) goes only to members who
+            # still watch the forum when it is sent (todo 672).
+            from wagtail_forum.models import ForumSubscription
+            from wagtail_forum.models.subscriptions import NEW_TOPIC_LEVELS
+
+            watching = set(
+                ForumSubscription.objects.filter(
+                    forum_id=post.topic.board_id,
+                    level__in=NEW_TOPIC_LEVELS,
+                    user_id__in=list(by_pk),
+                ).values_list("user_id", flat=True)
+            )
+            unsubscribed = set(by_pk) - watching
         if not content_gone and post is not None:
             read = already_read_ids(event, post, by_pk)
 
@@ -256,7 +298,7 @@ def recheck(
             reason = REASON_PREFERENCE
         elif channel == "email" and not user.email:
             reason = REASON_NO_DESTINATION
-        elif content_gone:
+        elif content_gone or pk in unreadable:
             reason = REASON_CONTENT
         elif pk in blocked:
             reason = REASON_BLOCKED

@@ -39,25 +39,31 @@ def quoted_post_ids(raw_data) -> list[int]:
     return seen
 
 
-def visible_quoted_posts(ids) -> dict[int, Post]:
-    """{id: Post} for the quoted posts that are live on a live, visible
-    board — one query, the author (and avatar) joined for the attribution.
-    Only `topic_id` is read downstream, so the topic itself is not joined."""
+def visible_quoted_posts(ids, reader=None, *, request=None) -> dict[int, Post]:
+    """{id: Post} for the quoted posts that are live on a live board `reader`
+    may read (the guest view when None; todo 676). Given `request`, the reader
+    is its user and the password forums this session unlocked count (todo
+    680, round-2 review) — one query, the author
+    (and avatar) joined for the attribution. Only `topic_id` is read
+    downstream, so the topic itself is not joined."""
     from .api.views import _visible_boards  # local import — avoids a cycle
 
     ids = [i for i in ids if isinstance(i, int)]
     if not ids:
         return {}
     qs = Post.objects.filter(
-        pk__in=ids, live=True, topic__live=True, topic__board__in=_visible_boards()
+        pk__in=ids,
+        live=True,
+        topic__live=True,
+        topic__board__in=_visible_boards(reader, request=request),
     ).select_related("author__wagtail_forum_profile__avatar")
     return {post.pk: post for post in qs}
 
 
-def resolve_quotable_posts(ids, writer) -> dict[int, Post]:
+def resolve_quotable_posts(ids, writer, *, request=None) -> dict[int, Post]:
     """The subset of `ids` the writer may quote: visible (above) and not
     authored by someone block-paired with the writer, either direction."""
-    posts = visible_quoted_posts(ids)
+    posts = visible_quoted_posts(ids, writer, request=request)
     if not posts or writer is None or not getattr(writer, "is_authenticated", False):
         return posts
     author_ids = {p.author_id for p in posts.values() if p.author_id}
@@ -82,7 +88,7 @@ def resolve_quoted_authors(
     already-mentioned users). Blocked pairs are the host's concern
     (`_drop_blocked_pairs`), as for mentions."""
     ids = quoted_post_ids(post.body.raw_data)[: get_setting("QUOTES_MAX_PER_POST")]
-    posts = visible_quoted_posts(ids)
+    posts = visible_quoted_posts(ids, post.author)
     out: list[tuple[AbstractBaseUser, Post]] = []
     seen: set[int] = set()
     for pid in ids:
@@ -96,4 +102,11 @@ def resolve_quoted_authors(
             continue
         seen.add(quoted.author_id)
         out.append((author, quoted))
-    return out
+    if not out:
+        return out
+    # Only authors who may read the quoting post's forum hear about it
+    # (todo 676), as for mentions.
+    from .services.forum_permissions import readers_of_forum
+
+    readers = {u.pk for u in readers_of_forum([a for a, _ in out], post.topic.board_id)}
+    return [(a, q) for a, q in out if a.pk in readers]

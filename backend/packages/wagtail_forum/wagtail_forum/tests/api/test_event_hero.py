@@ -9,8 +9,9 @@ its board restricted after being featured) alongside the happy path.
 
 import pytest
 from rest_framework.test import APIClient
-from wagtail.models import Page, PageViewRestriction
-from wagtail_forum.models import ForumBoard, ForumIndex, Topic
+from wagtail.models import Page
+from wagtail_forum.models import ForumIndex, Topic
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
@@ -18,7 +19,7 @@ pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 def _index_and_board():
     root = Page.objects.get(id=1)
     index = root.add_child(instance=ForumIndex(title="Forum", slug="forum-event"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general-event"))
+    board = make_forum(name="General", slug="general-event")
     return index, board
 
 
@@ -104,7 +105,7 @@ def test_event_hero_restricted_board_returns_null():
     )
     index.featured_topic = topic
     index.save()
-    PageViewRestriction.objects.create(page=board, restriction_type="login")
+    hide_forum(board)
 
     resp = APIClient().get("/forum/event/")
     assert resp.status_code == 200

@@ -1,9 +1,10 @@
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
-from wagtail.models import Page, Workflow, WorkflowContentType, WorkflowTask
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail.models import Workflow, WorkflowContentType, WorkflowTask
+from wagtail_forum.models import Post, Topic
 from wagtail_forum.models.moderation import SpamCheckTask
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
@@ -15,9 +16,7 @@ def _draft_post(author, body_text):
     sets live=False before running the workflow; the workflow's job is to publish
     clean content and leave spam as a draft. This helper mirrors that setup.
     """
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     topic = Topic.objects.create(board=board, title="T", slug="t", author=author)
     post = Post.objects.create(
         topic=topic,

@@ -1,18 +1,37 @@
 from django.core.management.base import BaseCommand, CommandError
 from wagtail.models import Site
 from wagtail_forum.collections import get_forum_image_collection
-from wagtail_forum.models import ForumBoard, ForumIndex
+from wagtail_forum.models import Forum, ForumIndex
 
 # The pre-Canopy starter board this command creates. Exported so other seed
 # commands (seed_demo_content) and their tests can reference the same literal
 # instead of each carrying their own copy (round-2 review: third-copy dedupe).
 DEFAULT_BOARD_SLUG = "general-discussion"
+# The category every forum sits under (todo 665: no forum lives at the root).
+# The same slug the 0041 migration gives the category it creates, so a seed
+# after that migration finds it instead of adding a second "General".
+DEFAULT_CATEGORY_SLUG = "general"
+
+
+def ensure_default_category():
+    """The default category, created on first call. Shared with
+    seed_demo_content so both commands parent their forums the same way."""
+    category = (
+        Forum.objects.filter(forum_type=Forum.CATEGORY)
+        .order_by("position", "id")
+        .first()
+    )
+    if category is None:
+        category = Forum.objects.create(
+            forum_type=Forum.CATEGORY, name="General", slug=DEFAULT_CATEGORY_SLUG
+        )
+    return category
 
 
 class Command(BaseCommand):
     help = (
-        "Idempotently ensure a ForumIndex + a starter ForumBoard + the forum "
-        "image collection exist."
+        "Idempotently ensure a ForumIndex + a category with a starter forum + "
+        "the forum image collection exist."
     )
 
     def handle(self, *args, **options):
@@ -49,25 +68,24 @@ class Command(BaseCommand):
             index.move(site_root, pos="last-child")
             index = ForumIndex.objects.get(pk=index.pk)
             # A pre-audit seed also never published a revision — repair that
-            # too, for the index and any boards it already contains.
-            for page in [index, *index.get_children().type(ForumBoard).specific()]:
-                if not page.revisions.exists():
-                    page.save_revision().publish()
+            # too. (Boards are Forum rows since todo 665, not child pages.)
+            if not index.revisions.exists():
+                index.save_revision().publish()
             self.stdout.write(
                 self.style.SUCCESS("Moved ForumIndex under the site root page.")
             )
         else:
             self.stdout.write("ForumIndex 'forum' already exists.")
 
-        if not index.get_children().type(ForumBoard).exists():
-            board = index.add_child(
-                instance=ForumBoard(
-                    title="General Discussion",
-                    slug=DEFAULT_BOARD_SLUG,
-                    description="Talk about anything plant-related.",
-                )
+        category = ensure_default_category()
+        if not Forum.objects.filter(forum_type=Forum.FORUM).exists():
+            Forum.objects.create(
+                forum_type=Forum.FORUM,
+                parent=category,
+                name="General Discussion",
+                slug=DEFAULT_BOARD_SLUG,
+                description="Talk about anything plant-related.",
             )
-            board.save_revision().publish()
             self.stdout.write(
                 self.style.SUCCESS(f"Created board '{DEFAULT_BOARD_SLUG}'.")
             )

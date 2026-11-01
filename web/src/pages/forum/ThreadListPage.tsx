@@ -1,11 +1,16 @@
-import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, useContext, FormEvent } from 'react';
 import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
-import { Info } from 'lucide-react';
-import { fetchThreads, fetchCategory } from '../../services/forumService';
+import { Info, Lock, ScrollText } from 'lucide-react';
+import { fetchThreads, fetchForum, markForumRead } from '../../services/forumService';
 import { parseLeadingId } from '../../utils/forumUrls';
+import { useForumCategory } from '../../hooks/useForumCategory';
+import { AuthContext } from '../../contexts/AuthContext';
+import ForumWatchLevelPicker from '../../components/forum/ForumWatchLevelPicker';
+import { forumAccent, forumThemeAttr } from '../../utils/forumDisplay';
 import { boardIdentity } from '../../utils/forumTones';
 import ThreadCard from '../../components/forum/ThreadCard';
 import ForumErrorState from '../../components/forum/ForumErrorState';
+import ForumUnlockForm from '../../components/forum/ForumUnlockForm';
 import { ThreadListSkeleton } from '../../components/forum/ForumSkeleton';
 import Button from '../../components/ui/Button';
 import ButtonLink from '../../components/ui/ButtonLink';
@@ -17,7 +22,7 @@ import FromTheBlogModule from '../../components/forum/rail/FromTheBlogModule';
 import PageMeta from '../../components/PageMeta';
 import { useScrollToTop } from '../../hooks/useScrollToTop';
 import { logger } from '../../utils/logger';
-import type { Thread, Category } from '@/types';
+import type { Thread, Forum } from '@/types';
 
 const SORT_OPTIONS = [
   { value: '-last_activity_at', label: 'Active' },
@@ -39,7 +44,16 @@ export default function ThreadListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const [category, setCategory] = useState<Category | null>(null);
+  const [category, setCategory] = useState<Forum | null>(null);
+  // The forum's own category, for the Category › Forum breadcrumb (todo 665).
+  const [reloadKey, setReloadKey] = useState(0);
+  const parentCategory = useForumCategory(category?.id, reloadKey);
+  // This forum's row of `GET categories/`: its display settings (todo 669),
+  // theme (681), the viewer's capabilities (677) and watch level (672). The
+  // flat board list `fetchForum` reads carries none of them.
+  const forumRow = parentCategory?.forums.find((f) => f.id === category?.id) ?? null;
+  // Read without useAuth: this page also renders outside an AuthProvider.
+  const isAuthenticated = useContext(AuthContext)?.isAuthenticated ?? false;
   const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,12 +61,17 @@ export default function ThreadListPage() {
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
   // Bumped by the error-state Retry to re-run the load effect (the effect's
   // own loadGenRef already drops stale responses — M22 was handled here).
-  const [reloadKey, setReloadKey] = useState(0);
+  // "Mark forum read" (todo 671) in flight / failed.
+  const [markingRead, setMarkingRead] = useState(false);
+  const [markReadError, setMarkReadError] = useState<string | null>(null);
 
   // Sort is URL-driven AND passed to the backend (fetchThreads → ?sort=). The
   // search box redirects to the dedicated /forum/search page (handleSearch), so
   // there is no in-page search state to track.
-  const ordering = searchParams.get('order') || '-last_activity_at';
+  // No ?order= sends no sort, so the backend applies the forum's own default
+  // sort (todo 669); the chips show that default as the active one.
+  const urlOrder = searchParams.get('order') || '';
+  const ordering = urlOrder || forumRow?.default_sort || '-last_activity_at';
   // Tag filter (audit M5) — URL-driven like `order`, so it survives a reload and
   // is shareable, and passed through to the backend's ?tag= filter.
   const activeTag = searchParams.get('tag') || '';
@@ -61,7 +80,7 @@ export default function ThreadListPage() {
   const boardSlugRef = useRef<string | null>(null);
   // Cache the resolved category (keyed on its forum id) so a pure sort change
   // reuses it instead of re-fetching the boards list on every dropdown change.
-  const categoryCacheRef = useRef<{ forumId: number; category: Category } | null>(null);
+  const categoryCacheRef = useRef<{ forumId: number; category: Forum } | null>(null);
   // Monotonic request generation. A newer load (board nav or sort change) bumps
   // it; in-flight loads and Load More re-check it after each await and drop a
   // stale response, so a slow old-sort request can't clobber the current list or
@@ -103,7 +122,7 @@ export default function ThreadListPage() {
         let categoryData =
           categoryCacheRef.current?.forumId === forumId ? categoryCacheRef.current.category : null;
         if (!categoryData) {
-          categoryData = await fetchCategory(forumId);
+          categoryData = await fetchForum(forumId);
           if (loadGenRef.current !== gen) return;
           categoryCacheRef.current = { forumId, category: categoryData };
           boardSlugRef.current = categoryData.slug;
@@ -112,10 +131,12 @@ export default function ThreadListPage() {
         // nulls the state while the cache may still hold this board (A → B →
         // back to A before B resolved), and only this call restores it.
         setCategory(categoryData);
+        // A locked password forum (todo 680) shows its unlock form instead.
+        if (categoryData.is_locked) return;
 
         const threadsData = await fetchThreads({
           board: categoryData.slug,
-          sort: ordering,
+          sort: urlOrder || undefined,
           tag: activeTag || undefined,
         });
         if (loadGenRef.current !== gen) return;
@@ -137,7 +158,7 @@ export default function ThreadListPage() {
     };
 
     loadData();
-  }, [categorySlug, ordering, activeTag, reloadKey]);
+  }, [categorySlug, urlOrder, activeTag, reloadKey]);
 
   // The board page has no in-place search. Submitting redirects to the global
   // /forum/search page, pre-filtered to this board — real full-text search lives
@@ -229,6 +250,21 @@ export default function ThreadListPage() {
     );
   }
 
+  if (category?.is_locked) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <h1 className="gt-h1 mb-6 text-ink">{category.name}</h1>
+        <ForumUnlockForm
+          slug={category.slug}
+          onUnlocked={() => {
+            categoryCacheRef.current = null;
+            setReloadKey((k) => k + 1);
+          }}
+        />
+      </div>
+    );
+  }
+
   if (error && !category) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -237,8 +273,23 @@ export default function ThreadListPage() {
     );
   }
 
+  const accent = forumAccent(forumRow?.colour);
+  const theme = forumThemeAttr(forumRow?.theme);
+  const icon = forumRow?.icon || category?.icon;
+  const caps = forumRow?.capabilities;
+  // A signed-in member who may not start a topic here gets no composer link
+  // (todo 677); a closed forum (todo 669) says why. Guests keep the link,
+  // which leads them to sign in.
+  const canStartTopic =
+    !(isAuthenticated && caps && !caps.can_post) && !(forumRow?.is_closed && !caps?.can_post);
+  const rulesLines = (forumRow?.rules ?? '').split('\n').filter((line) => line.trim());
+
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <div
+      className={`mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8${theme ? ' forum-theme' : ''}`}
+      data-forum-theme={theme}
+      data-testid="forum-page"
+    >
       <PageMeta
         title={`${category?.name ?? 'Forum'} · Houseplant MD`}
         description={
@@ -255,6 +306,12 @@ export default function ThreadListPage() {
             </Link>
           </li>
           <li aria-hidden="true">/</li>
+          {parentCategory && (
+            <>
+              <li>{parentCategory.name}</li>
+              <li aria-hidden="true">/</li>
+            </>
+          )}
           <li aria-current="page" className="text-ink-2">
             {category?.name}
           </li>
@@ -267,9 +324,14 @@ export default function ThreadListPage() {
           (() => {
             const { tone, Icon } = boardIdentity(category.slug);
             return (
-              <Tile tone={tone} aria-hidden="true">
-                {category.icon ? (
-                  <span className="text-xl leading-none">{category.icon}</span>
+              <Tile
+                tone={tone}
+                aria-hidden="true"
+                data-testid="forum-icon"
+                style={accent ? { boxShadow: `inset 0 0 0 2px ${accent}` } : undefined}
+              >
+                {icon ? (
+                  <span className="text-xl leading-none">{icon}</span>
                 ) : (
                   <Icon className="h-5 w-5" />
                 )}
@@ -277,7 +339,14 @@ export default function ThreadListPage() {
             );
           })()}
         <div className="min-w-0 flex-1">
-          <h1 className="gt-h1 text-ink">{category?.name}</h1>
+          <h1 className="gt-h1 text-ink" style={accent ? { color: accent } : undefined}>
+            {category?.name}
+          </h1>
+          {forumRow?.is_closed && (
+            <p className="gt-label mt-1.5 inline-flex items-center gap-1 text-ink-2">
+              <Lock className="h-3.5 w-3.5" aria-hidden="true" /> Closed: no new topics or replies
+            </p>
+          )}
           {category?.description && (
             <p className="mt-1.5 max-w-prose leading-relaxed text-ink-2">{category.description}</p>
           )}
@@ -285,7 +354,65 @@ export default function ThreadListPage() {
             <p className="gt-label mt-2">{category.thread_count} threads</p>
           )}
         </div>
+        {/* Offered only while something here is unread, which only a
+            signed-in member ever sees (anonymous rows are never unread). */}
+        {category && threads.some((t) => t.is_unread) && (
+          <Button
+            variant="ghost"
+            disabled={markingRead}
+            onClick={async () => {
+              setMarkingRead(true);
+              setMarkReadError(null);
+              try {
+                await markForumRead(category.slug);
+                setThreads((prev) => prev.map((t) => ({ ...t, is_unread: false })));
+              } catch (err) {
+                logger.error('Error marking forum read', {
+                  component: 'ThreadListPage',
+                  error: err,
+                });
+                setMarkReadError('Could not mark this forum read. Try again.');
+              } finally {
+                setMarkingRead(false);
+              }
+            }}
+          >
+            {markingRead ? 'Marking…' : 'Mark forum read'}
+          </Button>
+        )}
       </div>
+      {markReadError && (
+        <p role="alert" className="-mt-4 mb-6 text-sm text-error">
+          {markReadError}
+        </p>
+      )}
+
+      {/* Forum rules (todo 669): plain text plus an optional link. */}
+      {(rulesLines.length > 0 || forumRow?.rules_url) && (
+        <section aria-labelledby="forum-rules-heading" className="canopy-card mb-6 rounded-md p-5">
+          <h2
+            id="forum-rules-heading"
+            className="gt-h3 mb-2 inline-flex items-center gap-2 text-ink"
+          >
+            <ScrollText className="h-4 w-4" aria-hidden="true" /> Forum rules
+          </h2>
+          {rulesLines.map((line, i) => (
+            <p key={i} className="max-w-prose leading-relaxed text-ink-2">
+              {line}
+            </p>
+          ))}
+          {forumRow?.rules_url && (
+            <a
+              href={forumRow.rules_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-block text-primary hover:underline"
+            >
+              Read the full rules
+            </a>
+          )}
+        </section>
+      )}
 
       {/* Toolbar: search, sort chips, new thread */}
       <div className="mb-6 flex flex-col gap-4">
@@ -307,9 +434,26 @@ export default function ThreadListPage() {
               </Button>
             </div>
           </form>
-          <ButtonLink to={`/forum/new-thread?category=${categorySlug}`} variant="primary">
-            + New Thread
-          </ButtonLink>
+          <div className="flex flex-wrap items-end gap-3">
+            {isAuthenticated && forumRow && category && (
+              <ForumWatchLevelPicker
+                key={forumRow.id}
+                slug={category.slug}
+                level={forumRow.watch_level ?? null}
+              />
+            )}
+            {canStartTopic ? (
+              <ButtonLink to={`/forum/new-thread?category=${categorySlug}`} variant="primary">
+                + New Thread
+              </ButtonLink>
+            ) : (
+              <p className="text-sm text-ink-3" data-testid="no-new-topics">
+                {forumRow?.is_closed
+                  ? 'This forum is closed to new topics.'
+                  : 'You cannot start topics in this forum.'}
+              </p>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Sort threads">

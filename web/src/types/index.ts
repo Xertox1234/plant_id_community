@@ -13,6 +13,12 @@ export type { User, LoginCredentials, SignupData, AuthResponse } from './auth';
 
 // Forum types
 export type {
+  Forum,
+  ForumLink,
+  ForumCapabilities,
+  ForumColour,
+  ForumTheme,
+  ForumWatchLevel,
   Category,
   Thread,
   Post,

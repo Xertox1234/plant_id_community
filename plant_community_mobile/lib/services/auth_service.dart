@@ -28,12 +28,22 @@ class AuthState {
   /// [error].
   final bool unverifiedAccountConflict;
 
+  /// True when the Firebase account's email is not verified yet, so the
+  /// backend refuses the token exchange (403, todos 447/449/660). No screen
+  /// watches it: the sign-in and register screens show the "Check your
+  /// email" panel from their call's return value, and the launch exchange
+  /// only shows [emailNotVerifiedMessage], which reads without it. Cleared
+  /// by [copyWith], like [unverifiedAccountConflict]: a successful exchange
+  /// or a new attempt ends it.
+  final bool emailVerificationRequired;
+
   const AuthState({
     this.firebaseUser,
     this.jwtToken,
     this.isLoading = false,
     this.error,
     this.unverifiedAccountConflict = false,
+    this.emailVerificationRequired = false,
   });
 
   bool get isAuthenticated => jwtToken != null;
@@ -67,6 +77,20 @@ const accountConflictMessage =
 const accountLinkFailedMessage =
     'This sign-in could not be linked to the existing account for this '
     'email.';
+
+/// The token exchange's 403 for an unverified email (todo 660): the account
+/// exists, and opening the link in the verification mail finishes the
+/// sign-in. Client-side wording, not the backend's, so a backend rewording
+/// cannot change what the user reads.
+const emailNotVerifiedMessage =
+    'Verify your email to finish signing in: open the link in the email we '
+    'sent you.';
+
+/// "I've verified" was tapped, but Firebase still reports the email
+/// unverified.
+const emailStillUnverifiedMessage =
+    'Your email is not verified yet. Open the link in the email we sent, '
+    'then try again.';
 
 /// Current Firebase user id, or `null` when signed out.
 ///
@@ -210,10 +234,21 @@ class AuthService extends _$AuthService {
     return AuthState(firebaseUser: currentUser);
   }
 
-  /// Sign in with email and password
+  /// Sign in with email and password.
+  ///
+  /// Returns true when the account's email is not verified yet: the backend
+  /// will refuse the token exchange, so the caller shows the "Check your
+  /// email" panel instead of leaving the sign-in screen (todo 660).
+  ///
+  /// When this account was ALREADY the Firebase user (an earlier exchange
+  /// failed, typically on the unverified-email 403, and left it signed in to
+  /// Firebase), signing in again changes no uid, so `authStateChanges` fires
+  /// nothing and the listener never retries. The exchange runs here instead,
+  /// with a forced token refresh, so a cached `email_verified=false` token is
+  /// not sent again (todo 660).
   ///
   /// Throws [AuthException] if sign in fails
-  Future<void> signInWithEmailPassword(String email, String password) async {
+  Future<bool> signInWithEmailPassword(String email, String password) async {
     try {
       state = state.copyWith(isLoading: true, error: null);
 
@@ -221,20 +256,42 @@ class AuthService extends _$AuthService {
         debugPrint('[AUTH] Signing in with email: ${redactEmail(email)}');
       }
 
+      final previousUid = _firebaseAuth.currentUser?.uid;
       final credential = await _firebaseAuth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
+      final user = credential.user;
 
       if (kDebugMode) {
         debugPrint(
-          '[AUTH] Firebase sign in successful: '
-          '${redactEmail(credential.user?.email)}',
+          '[AUTH] Firebase sign in successful: ${redactEmail(user?.email)}',
         );
       }
 
-      // Auth state listener will handle token exchange
-      state = AuthState(firebaseUser: credential.user, isLoading: false);
+      final needsVerification = user != null && !user.emailVerified;
+      state = AuthState(
+        firebaseUser: user,
+        isLoading: false,
+        emailVerificationRequired: needsVerification,
+      );
+
+      if (user != null && !needsVerification && previousUid == user.uid) {
+        // Same uid: no auth-state event is coming, so exchange here.
+        await _exchangeFirebaseTokenForJWT(user, forceRefresh: true);
+        if (!state.isAuthenticated) {
+          if (state.emailVerificationRequired) return true;
+          // Otherwise the screen would dismiss onto a signed-out Profile
+          // with the failure unseen (todo 660 review).
+          throw AuthException(
+            state.error ?? 'Sign in failed. Please try again.',
+          );
+        }
+      }
+      // Otherwise the auth state listener handles the token exchange.
+      return needsVerification;
+    } on AuthException {
+      rethrow;
     } on FirebaseAuthException catch (e) {
       final errorMessage = _handleFirebaseAuthException(e);
       state = state.copyWith(isLoading: false, error: errorMessage);
@@ -248,14 +305,14 @@ class AuthService extends _$AuthService {
 
   /// Sign in with Google.
   ///
-  /// **This is the only sign-in path that can actually complete.** The backend
-  /// (`firebase_auth_views.py`) refuses a Firebase token whose `email_verified`
-  /// claim is false, whatever the provider (todo 447 item 8), with 403 "Email
-  /// address must be verified before logging in.", even for a uid already
-  /// bound to an account (todo 449). A freshly created email/password account
-  /// is unverified and this app sends no verification mail, so that path
-  /// dead-ends at the token exchange. Firebase marks a Google email verified,
-  /// so this one does not.
+  /// The backend (`firebase_auth_views.py`) refuses a Firebase token whose
+  /// `email_verified` claim is false, whatever the provider (todo 447 item 8),
+  /// with 403 "Email address must be verified before logging in.", even for a
+  /// uid already bound to an account (todo 449). Firebase marks a Google email
+  /// verified, so this path completes at once. An email/password account
+  /// completes only after its holder opens the verification mail
+  /// [registerWithEmailPassword] sends, then taps "I've verified"
+  /// ([confirmEmailVerified]) or signs in again (todo 660).
   ///
   /// It also LINKS rather than duplicating: the exchange falls back to matching
   /// on email and backfills `firebase_uid` onto the existing Django user
@@ -338,10 +395,18 @@ class AuthService extends _$AuthService {
 
   bool _googleInitialized = false;
 
-  /// Register new user with email and password
+  /// Register new user with email and password, and send the verification
+  /// mail.
+  ///
+  /// Returns true when the new account still has to verify its email, which
+  /// is always the case for a fresh email/password account: the backend
+  /// refuses its token until then (403), so the caller shows the "Check your
+  /// email" panel rather than leaving the screen (todo 660). A failed send
+  /// does not fail the registration (the account exists); the panel's Resend
+  /// tries again.
   ///
   /// Throws [AuthException] if registration fails
-  Future<void> registerWithEmailPassword({
+  Future<bool> registerWithEmailPassword({
     required String email,
     required String password,
     required String displayName,
@@ -368,11 +433,26 @@ class AuthService extends _$AuthService {
         );
       }
 
-      // Auth state listener will handle token exchange
+      final user = _firebaseAuth.currentUser ?? credential.user;
+      final needsVerification = user != null && !user.emailVerified;
+      if (user != null && needsVerification) {
+        try {
+          await user.sendEmailVerification();
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('[AUTH ERROR] Verification email not sent: $e');
+          }
+        }
+      }
+
+      // Auth state listener will handle token exchange (it is refused with
+      // the 403 until the email is verified).
       state = AuthState(
-        firebaseUser: _firebaseAuth.currentUser,
+        firebaseUser: user,
         isLoading: false,
+        emailVerificationRequired: needsVerification,
       );
+      return needsVerification;
     } on FirebaseAuthException catch (e) {
       final errorMessage = _handleFirebaseAuthException(e);
       state = state.copyWith(isLoading: false, error: errorMessage);
@@ -382,6 +462,66 @@ class AuthService extends _$AuthService {
       state = state.copyWith(isLoading: false, error: errorMessage);
       throw AuthException(errorMessage);
     }
+  }
+
+  /// Send the verification mail again to the current Firebase user.
+  ///
+  /// Throws [AuthException] when there is no Firebase user or Firebase
+  /// refuses (e.g. `too-many-requests`).
+  Future<void> resendVerificationEmail() async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) {
+      throw AuthException('Sign in again to resend the verification email.');
+    }
+    try {
+      await user.sendEmailVerification();
+    } on FirebaseAuthException catch (e) {
+      throw AuthException(_handleFirebaseAuthException(e));
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH ERROR] Resend failed: $e');
+      throw AuthException(
+        'Could not send the verification email. Please try again.',
+      );
+    }
+  }
+
+  /// "I've verified": reload the Firebase user and, once its email reads as
+  /// verified, run the token exchange with a FORCED token refresh, so the
+  /// cached `email_verified=false` ID token is not sent again (todo 660).
+  ///
+  /// Returns true when the exchange signed the user in. When Firebase still
+  /// reports the email unverified, sets [emailStillUnverifiedMessage] and
+  /// sends nothing to the backend. Throws [AuthException] only when the
+  /// reload itself fails.
+  Future<bool> confirmEmailVerified() async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) {
+      throw AuthException('Sign in again to finish verifying your email.');
+    }
+    try {
+      await user.reload();
+    } on FirebaseAuthException catch (e) {
+      throw AuthException(_handleFirebaseAuthException(e));
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH ERROR] Reload failed: $e');
+      throw AuthException(
+        'Could not check your email status. Please try again.',
+      );
+    }
+    // reload() refreshes the current user; read it again rather than trust
+    // the instance held before the call.
+    final refreshed = _firebaseAuth.currentUser;
+    if (refreshed == null || refreshed.uid != user.uid) return false;
+    if (!refreshed.emailVerified) {
+      state = AuthState(
+        firebaseUser: refreshed,
+        error: emailStillUnverifiedMessage,
+        emailVerificationRequired: true,
+      );
+      return false;
+    }
+    await _exchangeFirebaseTokenForJWT(refreshed, forceRefresh: true);
+    return state.isAuthenticated;
   }
 
   /// Sign out current user
@@ -428,8 +568,17 @@ class AuthService extends _$AuthService {
 
   /// Exchange Firebase ID token for Django JWT
   ///
-  /// This is called automatically when user signs in
-  Future<void> _exchangeFirebaseTokenForJWT(User user) async {
+  /// This is called automatically when user signs in.
+  ///
+  /// [forceRefresh] fetches a new Firebase ID token instead of the cached
+  /// one. It is also forced whenever the user's email reads as unverified:
+  /// the cached token would carry `email_verified=false` until it expires
+  /// (about an hour) even after the link was opened, so a relaunch would get
+  /// the same 403 again (todo 660).
+  Future<void> _exchangeFirebaseTokenForJWT(
+    User user, {
+    bool forceRefresh = false,
+  }) async {
     final exchangeGeneration = ++_authGeneration;
     final apiService = ref.read(apiServiceProvider);
 
@@ -444,7 +593,9 @@ class AuthService extends _$AuthService {
       await _clearJWT();
 
       // Get Firebase ID token
-      final firebaseToken = await user.getIdToken();
+      final firebaseToken = await user.getIdToken(
+        forceRefresh || !user.emailVerified,
+      );
 
       if (firebaseToken == null) {
         throw AuthException('Failed to get Firebase ID token');
@@ -532,17 +683,24 @@ class AuthService extends _$AuthService {
       if (!await _clearJWTWhileCurrent(user, exchangeGeneration)) return;
       apiService.setAuthToken(null);
 
-      // Don't throw - allow user to stay signed in to Firebase
-      // They can retry later or we can implement retry logic
+      // Don't throw - allow user to stay signed in to Firebase. For the
+      // unverified-email 403 that is what lets "I've verified" and a second
+      // sign-in retry the exchange (todo 660).
       final unverified = e.statusCode == 409 && e.code == 'unverified_account';
+      // The view's own JSON 403 means an unverified email; a proxy's HTML
+      // 403 says nothing about this account (todo 500 finding 8).
+      final emailUnverified = e.statusCode == 403 && !e.unstructured;
       state = AuthState(
         firebaseUser: _firebaseAuth.currentUser,
-        error: unverified
+        error: emailUnverified
+            ? emailNotVerifiedMessage
+            : unverified
             ? accountConflictMessage
             : e.statusCode == 409
             ? accountLinkFailedMessage
             : 'Failed to connect to server. Some features may be unavailable.',
         unverifiedAccountConflict: unverified,
+        emailVerificationRequired: emailUnverified,
       );
     } catch (e) {
       if (!_isCurrentExchange(user, exchangeGeneration)) {

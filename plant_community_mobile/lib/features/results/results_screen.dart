@@ -46,9 +46,12 @@ class ResultsScreen extends StatelessWidget {
               _buildPlantInfo(context),
               const SizedBox(height: AppSpacing.lg),
 
-              // Care Instructions Card
-              _buildCareInstructions(context),
-              const SizedBox(height: AppSpacing.lg),
+              // Care Instructions Card: hidden when there is no
+              // plant-specific care (todo 662).
+              if (plant.care.isNotEmpty) ...[
+                _buildCareInstructions(context),
+                const SizedBox(height: AppSpacing.lg),
+              ],
 
               // Timestamp
               _buildTimestamp(context),

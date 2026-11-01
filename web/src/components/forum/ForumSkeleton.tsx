@@ -130,8 +130,8 @@ export function PostCardSkeleton() {
   );
 }
 
-/** Mirrors CategoryCard (no subcategory chips): tile, name, 2-line description, stat row. */
-export function CategoryCardSkeleton() {
+/** Mirrors ForumCard (no subcategory chips): tile, name, 2-line description, stat row. */
+export function ForumCardSkeleton() {
   return (
     <Card className="p-card">
       <div className="flex items-start gap-4">
@@ -195,7 +195,7 @@ export function CategoryListSkeleton() {
       </div>
       <div className="mt-6 flex flex-col gap-3">
         {Array.from({ length: BOARD_ROWS }, (_, i) => (
-          <CategoryCardSkeleton key={i} />
+          <ForumCardSkeleton key={i} />
         ))}
       </div>
     </SkeletonStatus>

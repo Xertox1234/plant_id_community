@@ -2,25 +2,21 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.test import override_settings
-from wagtail.models import Page
 from wagtail_forum.models import (
     Conversation,
-    ForumBoard,
-    ForumIndex,
     ForumProfile,
     Message,
     Post,
     Report,
     Topic,
 )
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
 
 def _post(author):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     topic = Topic.objects.create(board=board, title="T", slug="t", author=author)
     return Post.objects.create(topic=topic, author=author, is_opening_post=True)
 

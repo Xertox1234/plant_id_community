@@ -1,0 +1,91 @@
+/* The forum structure tree (todo 668). Wagtail admin tokens only, so it
+ * follows the admin's light and dark themes. */
+.wf-structure__categories,
+.wf-structure__forums {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wf-structure__category {
+  border: 1px solid var(--w-color-border-furniture);
+  border-radius: 0.3125rem;
+  margin-bottom: 1rem;
+  background: var(--w-color-surface-page);
+}
+
+.wf-structure__forums {
+  /* An empty category still takes a dropped forum. */
+  min-height: 2.75rem;
+  padding: 0 0.75rem 0.5rem 2.5rem;
+}
+
+.wf-structure__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.wf-structure__row--category {
+  border-bottom: 1px solid var(--w-color-border-furniture);
+}
+
+.wf-structure__forum > .wf-structure__row {
+  border-bottom: 1px dashed var(--w-color-border-furniture);
+  padding-left: 0;
+}
+
+.wf-structure__name {
+  font-weight: 600;
+}
+
+.wf-structure__actions,
+.wf-structure__moves {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.wf-structure__actions {
+  margin-left: auto;
+}
+
+.wf-structure__move {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0;
+}
+
+.wf-structure__handle {
+  cursor: grab;
+  color: var(--w-color-text-meta);
+  display: inline-flex;
+  padding: 0.25rem;
+}
+
+.wf-structure__handle .icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.wf-structure .sortable-ghost {
+  opacity: 0.4;
+}
+
+.wf-structure--busy .wf-structure__handle {
+  cursor: progress;
+}
+
+.wf-structure__status {
+  min-height: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.wf-structure__status--error {
+  color: var(--w-color-text-error);
+  font-weight: 600;
+}

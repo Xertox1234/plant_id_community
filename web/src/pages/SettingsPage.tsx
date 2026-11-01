@@ -439,6 +439,8 @@ const NOTIFICATION_VERBS: { verb: NotificationVerb; label: string }[] = [
   { verb: 'mention', label: 'Mentions' },
   { verb: 'quote', label: 'Quotes of your posts' },
   { verb: 'solution', label: 'Answer accepted' },
+  // Todo 672: a new topic in a forum you watch (push only, no email).
+  { verb: 'new_topic', label: 'New topics in forums you watch' },
 ];
 
 const NOTIFICATION_CHANNELS: { channel: NotificationChannel; label: string }[] = [
@@ -822,46 +824,50 @@ export function NotificationPreferencesSection() {
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {NOTIFICATION_VERBS.map((v) => (
-                <tr key={v.verb}>
-                  <th scope="row" className="py-2 pr-4 text-left font-normal text-ink">
-                    {v.label}
-                  </th>
-                  {NOTIFICATION_CHANNELS.map((c) => {
-                    const value = notificationCell(matrix, v.verb, c.channel);
-                    return (
-                      <td key={c.channel} className="py-1 text-center">
-                        {value === undefined ? (
-                          // The API sent no such cell: this channel has no
-                          // delivery path for the event, so there is nothing
-                          // to switch (and a PATCH for it would be a 400).
-                          <>
-                            <span aria-hidden="true" className="text-ink-3">
-                              —
-                            </span>
-                            <span className="sr-only">Not available</span>
-                          </>
-                        ) : (
-                          /* The label only enlarges the hit target to 44px;
+              {/* A row the API did not send is an event this backend does not
+                  have yet (new_topic, todo 672, on an older one): not shown. */}
+              {NOTIFICATION_VERBS.filter((v) => v.verb !== 'new_topic' || v.verb in matrix).map(
+                (v) => (
+                  <tr key={v.verb}>
+                    <th scope="row" className="py-2 pr-4 text-left font-normal text-ink">
+                      {v.label}
+                    </th>
+                    {NOTIFICATION_CHANNELS.map((c) => {
+                      const value = notificationCell(matrix, v.verb, c.channel);
+                      return (
+                        <td key={c.channel} className="py-1 text-center">
+                          {value === undefined ? (
+                            // The API sent no such cell: this channel has no
+                            // delivery path for the event, so there is nothing
+                            // to switch (and a PATCH for it would be a 400).
+                            <>
+                              <span aria-hidden="true" className="text-ink-3">
+                                —
+                              </span>
+                              <span className="sr-only">Not available</span>
+                            </>
+                          ) : (
+                            /* The label only enlarges the hit target to 44px;
                              the input's own aria-label is its accessible name. */
-                          <label className="inline-flex min-h-11 min-w-11 items-center justify-center">
-                            <input
-                              type="checkbox"
-                              checked={value}
-                              onChange={(event) => handleToggle(event, v.verb, c.channel)}
-                              disabled={saving}
-                              aria-busy={saving || undefined}
-                              aria-label={`${c.label} for ${v.label}`}
-                              aria-describedby="notification-preferences-status"
-                              className="h-5 w-5 accent-primary focus:ring-2 focus:ring-secondary focus:outline-none disabled:opacity-50"
-                            />
-                          </label>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+                            <label className="inline-flex min-h-11 min-w-11 items-center justify-center">
+                              <input
+                                type="checkbox"
+                                checked={value}
+                                onChange={(event) => handleToggle(event, v.verb, c.channel)}
+                                disabled={saving}
+                                aria-busy={saving || undefined}
+                                aria-label={`${c.label} for ${v.label}`}
+                                aria-describedby="notification-preferences-status"
+                                className="h-5 w-5 accent-primary focus:ring-2 focus:ring-secondary focus:outline-none disabled:opacity-50"
+                              />
+                            </label>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                )
+              )}
             </tbody>
           </table>
           <p className="mt-2 text-sm text-ink-3">

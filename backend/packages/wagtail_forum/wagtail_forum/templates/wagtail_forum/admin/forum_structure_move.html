@@ -1,0 +1,16 @@
+{% load i18n wagtailadmin_tags %}
+{# Move up / move down for one row of the structure tree (todo 668). Plain forms: they work without JavaScript; forum-structure.js posts them with fetch and keeps focus. #}
+<form class="wf-structure__move" method="post" action="{{ move_url }}" data-move="up">
+    {% csrf_token %}
+    <input type="hidden" name="forum_id" value="{{ row.pk }}">
+    <input type="hidden" name="parent_id" value="{{ parent_id }}">
+    <input type="hidden" name="position" value="{% if is_first %}0{% else %}{{ index|add:-1 }}{% endif %}">
+    <button type="submit" class="button button-small button-secondary"{% if is_first %} disabled{% endif %}>{% icon name="arrow-up" %}<span class="visuallyhidden">{% blocktrans with name=row.name %}Move {{ name }} up{% endblocktrans %}</span></button>
+</form>
+<form class="wf-structure__move" method="post" action="{{ move_url }}" data-move="down">
+    {% csrf_token %}
+    <input type="hidden" name="forum_id" value="{{ row.pk }}">
+    <input type="hidden" name="parent_id" value="{{ parent_id }}">
+    <input type="hidden" name="position" value="{{ index|add:1 }}">
+    <button type="submit" class="button button-small button-secondary"{% if is_last %} disabled{% endif %}>{% icon name="arrow-down" %}<span class="visuallyhidden">{% blocktrans with name=row.name %}Move {{ name }} down{% endblocktrans %}</span></button>
+</form>

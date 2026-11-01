@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  mapBoardToCategory,
+  mapBoardToForum,
   mapTopicListItemToThread,
   mapTopicDetailToThread,
   mapPostToPost,
@@ -10,11 +10,11 @@ import {
 
 describe('forumMappers (wagtail_forum contract)', () => {
   // -------------------------------------------------------------------------
-  // Boards → Category
+  // Boards → Forum
   // -------------------------------------------------------------------------
 
-  it('mapBoardToCategory maps id, title→name, slug, counts', () => {
-    const c = mapBoardToCategory({
+  it('mapBoardToForum maps id, title→name, slug, counts', () => {
+    const c = mapBoardToForum({
       id: 3,
       title: 'Plant Care',
       slug: 'plant-care',
@@ -32,8 +32,8 @@ describe('forumMappers (wagtail_forum contract)', () => {
     });
   });
 
-  it('mapBoardToCategory defaults counts to 0 when absent', () => {
-    const c = mapBoardToCategory({ id: 1, title: 'X', slug: 'x' });
+  it('mapBoardToForum defaults counts to 0 when absent', () => {
+    const c = mapBoardToForum({ id: 1, title: 'X', slug: 'x' });
     expect(c.thread_count).toBe(0);
     expect(c.post_count).toBe(0);
   });

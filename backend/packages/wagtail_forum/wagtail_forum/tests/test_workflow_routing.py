@@ -2,16 +2,9 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test import override_settings
-from wagtail.models import Page
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    ForumProfile,
-    Post,
-    Topic,
-    TrustLevel,
-)
+from wagtail_forum.models import ForumProfile, Post, Topic, TrustLevel
 from wagtail_forum.spam.base import SpamBackend
+from wagtail_forum.tests.factories import make_forum
 from wagtail_forum.workflow import ensure_default_workflow, submit_for_moderation
 
 User = get_user_model()
@@ -27,9 +20,7 @@ class DatabaseErrorSpamBackend(SpamBackend):
 
 
 def _post(author, text="hello world"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     topic = Topic.objects.create(board=board, title="T", slug="t", author=author)
     return Post(
         topic=topic,
@@ -253,9 +244,7 @@ def test_opening_post_by_another_author_cannot_publish_someone_elses_topic():
     p.trust_level = TrustLevel.MEMBER  # autopublishes their own content
     p.save()
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum2", slug="forum2"))
-    board = index.add_child(instance=ForumBoard(title="General2", slug="general2"))
+    board = make_forum(name="General2", slug="general2")
     draft_topic = Topic.objects.create(
         board=board, title="T", slug="t", author=owner, live=False
     )

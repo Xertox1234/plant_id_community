@@ -15,7 +15,8 @@ from rest_framework.test import APIClient
 from wagtail.images import get_image_model
 from wagtail.images.tests.utils import get_test_image_file
 from wagtail.models import Page, Site
-from wagtail_forum.models import ForumBoard, ForumIndex, Topic
+from wagtail_forum.models import ForumIndex, Topic
+from wagtail_forum.tests.factories import make_forum
 
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
@@ -26,7 +27,7 @@ def _index(intro="", slug="forum-bl"):
 
 
 def _board(index, slug="general-bl"):
-    return index.add_child(instance=ForumBoard(title="General", slug=slug))
+    return make_forum(name="General", slug=slug)
 
 
 def _boards_payload():
@@ -80,16 +81,17 @@ def test_intro_is_sanitized():
 def test_intro_expands_wagtail_page_links():
     """Wagtail stores `<a linktype="page" id=N>`; a raw dump is a dead anchor."""
     index = _index()
-    board = _board(index)
+    _board(index)
     # Page.url is None without a Site rooting the tree — give it one so the
     # assertion is "the real href landed", not just "the placeholder is gone".
+    # Boards are not pages since todo 665, so the link targets the index.
     Site.objects.create(hostname="forum-bl.test", root_page=index)
-    index.intro = f'<p><a linktype="page" id="{board.id}">Go</a></p>'
+    index.intro = f'<p><a linktype="page" id="{index.id}">Go</a></p>'
     index.save()
 
     intro = _boards_payload()["intro"]
     assert "linktype" not in intro
-    assert f'href="{ForumBoard.objects.get(pk=board.pk).url}"' in intro
+    assert f'href="{ForumIndex.objects.get(pk=index.pk).url}"' in intro
 
 
 @pytest.mark.django_db

@@ -9,8 +9,9 @@
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
-from wagtail.models import Page, PageViewRestriction
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail.models import Page
+from wagtail_forum.models import ForumIndex, Post, Topic
+from wagtail_forum.tests.factories import hide_forum, make_forum
 from wagtail_forum.workflow import ensure_default_workflow
 
 User = get_user_model()
@@ -22,7 +23,7 @@ def _board(slug="general"):
     index = ForumIndex.objects.first()
     if index is None:
         index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title=slug.title(), slug=slug))
+    return make_forum(name=slug.title(), slug=slug)
 
 
 def _live_topic(board, slug="t", body=None):
@@ -75,7 +76,7 @@ def test_unpublished_board_takedown_is_effective():
     ensure_default_workflow()
     board = _board()
     topic, post = _live_topic(board)
-    board.unpublish()
+    hide_forum(board)
     client = APIClient()
     user = User.objects.create_user(username="r")
     client.force_authenticate(user)
@@ -99,7 +100,7 @@ def test_unpublished_board_takedown_is_effective():
 def test_view_restricted_board_is_invisible_to_the_api():
     board = _board()
     _live_topic(board)
-    PageViewRestriction.objects.create(page=board, restriction_type="login")
+    hide_forum(board)
     client = APIClient()
 
     boards = client.get("/forum/boards/")
@@ -112,18 +113,20 @@ def test_view_restricted_board_is_invisible_to_the_api():
 
 
 @pytest.mark.django_db
-def test_ambiguous_board_slug_returns_409_not_500():
-    # Page slugs are unique only among siblings: two boards named "general"
-    # under different ForumIndex pages used to raise MultipleObjectsReturned
-    # → unhandled 500 (audit M8).
-    root = Page.objects.get(id=1)
-    idx1 = root.add_child(instance=ForumIndex(title="F1", slug="f1"))
-    idx2 = root.add_child(instance=ForumIndex(title="F2", slug="f2"))
-    idx1.add_child(instance=ForumBoard(title="General", slug="general"))
-    idx2.add_child(instance=ForumBoard(title="General", slug="general"))
+def test_a_board_slug_can_no_longer_be_ambiguous():
+    # Page slugs were unique only among siblings, so two boards named
+    # "general" under different ForumIndex pages once 500'd, then 409'd
+    # (audit M8). Forum slugs are unique forum-wide since todo 665: the
+    # second board cannot be created, so the lookup always resolves one.
+    from django.db import IntegrityError, transaction
+    from wagtail_forum.tests.factories import make_category
+
+    make_forum(name="General", slug="general")
+    with pytest.raises(IntegrityError), transaction.atomic():
+        make_forum(name="General", slug="general", category=make_category(slug="b"))
 
     resp = APIClient().get("/forum/boards/general/topics/")
-    assert resp.status_code == 409
+    assert resp.status_code == 200
 
 
 @pytest.mark.django_db
@@ -138,7 +141,7 @@ def test_search_excludes_taken_down_board():
         slug="findme",
         body=[{"type": "paragraph", "value": "<p>findme body text</p>"}],
     )
-    board.unpublish()
+    hide_forum(board)
 
     resp = APIClient().get("/forum/search/?q=findme")
     # A taken-down (unpublished) board must be excluded from BOTH search lists.

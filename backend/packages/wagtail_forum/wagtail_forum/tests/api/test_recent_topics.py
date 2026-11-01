@@ -11,33 +11,21 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 from wagtail.images import get_image_model
 from wagtail.images.tests.utils import get_test_image_file
-from wagtail.models import Page
 from wagtail_forum.collections import get_forum_image_collection
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIdentificationAttachment,
-    ForumIndex,
-    Post,
-    Topic,
-)
+from wagtail_forum.models import ForumIdentificationAttachment, Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _board(board_slug="general", board_title="General"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title=board_title, slug=board_slug))
+    return make_forum(name=board_title, slug=board_slug)
 
 
 def _two_boards():
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board_a = index.add_child(instance=ForumBoard(title="General", slug="general"))
-    board_b = index.add_child(
-        instance=ForumBoard(title="Show & Tell", slug="show-tell")
-    )
+    board_a = make_forum(name="General", slug="general")
+    board_b = make_forum(name="Show & Tell", slug="show-tell")
     return board_a, board_b
 
 
@@ -467,7 +455,9 @@ def test_recent_topics_query_count_is_pinned():
         resp = client.get("/forum/topics/recent/")
     assert resp.status_code == 200
     assert len(resp.data["results"]) == 5
-    assert len(ctx.captured_queries) == 6
+    # 6 -> 5 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 5
 
 
 @pytest.mark.django_db
@@ -554,9 +544,7 @@ def test_recent_topics_thumbnail_reads_the_imageblock_dict_shape():
     `set(...values())` raise `TypeError: unhashable type: 'dict'` — a 500 on the
     home "Active now" rail for any listed topic whose opening post has an image.
     """
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     author = get_user_model().objects.create_user(username="rail-imageblock")
     image = get_image_model().objects.create(
         title="body.jpg",

@@ -7,24 +7,15 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
-from wagtail.models import Page
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    ForumProfile,
-    Post,
-    Topic,
-    TopicRead,
-)
+from wagtail_forum.models import ForumProfile, Post, Topic, TopicRead
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 User = get_user_model()
 pytestmark = pytest.mark.urls("wagtail_forum.tests.api.urls")
 
 
 def _board(slug="general"):
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    return index.add_child(instance=ForumBoard(title="General", slug=slug))
+    return make_forum(name="General", slug=slug)
 
 
 @pytest.mark.django_db
@@ -71,7 +62,9 @@ def test_topic_detail_returns_live_topic():
     # vs 6.1.1: the only query that disappears is that PK refetch; the liveness and
     # page-view-restriction checks are untouched.
     # Pinned EXACTLY (docs/rules/testing.md) — if this changes, explain the new count here.
-    assert len(ctx.captured_queries) == 4
+    # 4 -> 3 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 3
 
 
 @pytest.mark.django_db
@@ -115,7 +108,9 @@ def test_topic_detail_is_subscribed_for_authenticated_user():
     # short-circuits on `user.pk == self.author_id`. Plus ONE for the todo 301
     # presence touch (an UPDATE on the caller's own ForumProfile, throttled —
     # every authenticated forum request pays this once).
-    assert len(ctx.captured_queries) == 9
+    # 9 -> 8 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 8
 
     client.force_authenticate(non_subscriber)
     resp = client.get(f"/forum/topics/{topic.id}/")
@@ -149,7 +144,9 @@ def test_topic_detail_is_bookmarked_for_authenticated_user():
     # Same pin as test_topic_detail_is_subscribed_for_authenticated_user (9)
     # — see that test's comment for the full breakdown (incl. the todo 301
     # presence touch).
-    assert len(ctx.captured_queries) == 9
+    # 9 -> 8 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 8
 
     client.force_authenticate(non_bookmarker)
     resp = client.get(f"/forum/topics/{topic.id}/")
@@ -166,8 +163,7 @@ def test_topic_detail_hides_draft_topic():
 @pytest.mark.django_db
 def test_topic_detail_hides_topic_on_unpublished_board():
     board = _board()
-    board.live = False
-    board.save()
+    hide_forum(board)
     topic = Topic.objects.create(board=board, title="X", slug="x", live=True)
     assert APIClient().get(f"/forum/topics/{topic.id}/").status_code == 404
 
@@ -282,7 +278,9 @@ def test_view_count_does_not_add_queries_to_response():
     assert resp.status_code == 200
     # Same 4 as the topic-detail pin above (3 + the todo-276 tags prefetch) —
     # the point of this test is that view_count adds NO query, not the absolute.
-    assert len(ctx.captured_queries) == 4
+    # 4 -> 3 (todo 665): boards are Forum rows, so the
+    # PageViewRestriction query behind the page-era `.public()` is gone.
+    assert len(ctx.captured_queries) == 3
 
 
 # ---- read-recording (todo 253 slice 5, H10) ---------------------------------

@@ -19,8 +19,9 @@ from django.core.management.base import CommandError
 from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
-from wagtail.models import Page, Revision
-from wagtail_forum.models import ForumBoard, ForumIndex, Post, Topic
+from wagtail.models import Revision
+from wagtail_forum.models import Post, Topic
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
@@ -46,10 +47,7 @@ def media_storage():
 @pytest.fixture
 def topic(db):
     author = User.objects.create_user(username="ada")
-    index = Page.objects.get(id=1).add_child(
-        instance=ForumIndex(title="Forum", slug="forum")
-    )
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     return Topic.objects.create(board=board, title="T", slug="t", author=author)
 
 

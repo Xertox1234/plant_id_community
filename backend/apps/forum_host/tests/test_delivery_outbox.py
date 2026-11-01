@@ -20,15 +20,8 @@ from django.contrib.auth import get_user_model
 from django.core import mail
 from django.test import override_settings
 from django.utils import timezone
-from wagtail.models import Page
-from wagtail_forum.models import (
-    ForumBoard,
-    ForumIndex,
-    ForumProfile,
-    Post,
-    Topic,
-    TopicSubscription,
-)
+from wagtail_forum.models import ForumProfile, Post, Topic, TopicSubscription
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 Status = DeliveryIntent.Status
@@ -65,12 +58,7 @@ def _member(username, *, browser=True):
 def _thread(prefix, subscribers=2):
     members = [_member(f"{prefix}sub{i}") for i in range(subscribers)]
     replier = _member(f"{prefix}replier")
-    index = Page.objects.get(id=1).add_child(
-        instance=ForumIndex(title=f"{prefix} forum", slug=f"{prefix}-forum")
-    )
-    board = index.add_child(
-        instance=ForumBoard(title=f"{prefix} board", slug=f"{prefix}-board")
-    )
+    board = make_forum(name=f"{prefix} board", slug=f"{prefix}-board")
     topic = Topic.objects.create(
         board=board, title="Repotting", slug=f"{prefix}-repot", author=members[0]
     )
@@ -615,10 +603,7 @@ def test_a_digest_recovery_run_retries_only_the_failed_and_rechecks_consent():
     that same command.)"""
     from wagtail_forum.models import DigestFrequency, Notification, NotificationVerb
 
-    index = Page.objects.get(id=1).add_child(
-        instance=ForumIndex(title="Digest", slug="digest-619")
-    )
-    board = index.add_child(instance=ForumBoard(title="Gen", slug="gen-619"))
+    board = make_forum(name="Gen", slug="gen-619")
     poster = User.objects.create_user(username="dg619poster")
     topic = Topic.objects.create(
         board=board, title="Monstera", slug="monstera-619", author=poster, live=True

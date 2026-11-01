@@ -1,5 +1,6 @@
 import pytest
 from django.contrib.auth import get_user_model
+from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
 
@@ -49,16 +50,7 @@ def test_report_snippet_list_renders_with_a_message_report_present(client):
     # index view still renders 200 — and shows something readable — with a
     # message report in the queryset, not just the post-report-only case
     # test_report_snippet_list_is_reachable_in_admin already covers.
-    from wagtail.models import Page
-    from wagtail_forum.models import (
-        Conversation,
-        ForumBoard,
-        ForumIndex,
-        Message,
-        Post,
-        Report,
-        Topic,
-    )
+    from wagtail_forum.models import Conversation, Message, Post, Report, Topic
 
     admin = User.objects.create_superuser(username="root", email="r@x.io")
     sender = User.objects.create_user(username="sender", email="s@x.io")
@@ -71,9 +63,7 @@ def test_report_snippet_list_renders_with_a_message_report_present(client):
 
     # A post report too, so both columns are exercised in the same listing —
     # mirrors test_reports.py's `_post()` helper.
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     topic = Topic.objects.create(board=board, title="T", slug="t", author=sender)
     post = Post.objects.create(topic=topic, author=sender, is_opening_post=True)
     Report.objects.create(post=post, reporter=recipient, reason=Report.ABUSE)
@@ -92,8 +82,7 @@ def test_moderation_summary_item_counts_spam_rejected_post(client):
     # rather than hand-constructing a WorkflowState, so this proves the whole
     # chain: reject -> active WorkflowState -> _pending_moderation_count ->
     # homepage summary item (audit H16).
-    from wagtail.models import Page
-    from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
+    from wagtail_forum.models import ForumProfile, Post, Topic
     from wagtail_forum.wagtail_hooks import _pending_moderation_count
     from wagtail_forum.workflow import ensure_default_workflow, submit_for_moderation
 
@@ -101,9 +90,7 @@ def test_moderation_summary_item_counts_spam_rejected_post(client):
     author = User.objects.create_user(username="spammer")
     ForumProfile.for_user(author)  # trust NEW -- screened, not autopublished
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     topic = Topic.objects.create(board=board, title="T", slug="t", author=author)
     spam = (
         "http://a.com http://b.com http://c.com http://d.com http://e.com http://f.com"
@@ -163,14 +150,11 @@ def test_forum_search_area_appears_on_admin_pages_search(client):
 
 @pytest.mark.django_db
 def test_post_search_fields_finds_live_post_by_body_text(client):
-    from wagtail.models import Page
-    from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
+    from wagtail_forum.models import ForumProfile, Post, Topic
 
     author = User.objects.create_user(username="searchable_author")
     ForumProfile.for_user(author)
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="SForum", slug="sforum"))
-    board = index.add_child(instance=ForumBoard(title="SGeneral", slug="sgeneral"))
+    board = make_forum(name="SGeneral", slug="sgeneral")
     topic = Topic.objects.create(board=board, title="ST", slug="st", author=author)
     post = Post(
         topic=topic,
@@ -208,14 +192,11 @@ def test_topic_listing_search_matches_a_title_prefix(client):
     A PREFIX query is the whole point: "mons" is not a word in the title, so it
     only matches through the autocomplete path.
     """
-    from wagtail.models import Page
-    from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Topic
+    from wagtail_forum.models import ForumProfile, Topic
 
     author = User.objects.create_user(username="topic_search_author")
     ForumProfile.for_user(author)
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="TSForum", slug="tsforum"))
-    board = index.add_child(instance=ForumBoard(title="TSGeneral", slug="tsgeneral"))
+    board = make_forum(name="TSGeneral", slug="tsgeneral")
     topic = Topic.objects.create(
         board=board,
         title="Monstera repotting",
@@ -256,17 +237,14 @@ def test_post_preview_renders_pending_revision_body():
     # previewing / moderation") — this is the actual M16 code path, not just
     # the edit page wiring (see test_post_edit_view_reachable_with_preview_
     # enabled for that).
-    from wagtail.models import Page
-    from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
+    from wagtail_forum.models import ForumProfile, Post, Topic
     from wagtail_forum.workflow import ensure_default_workflow, submit_for_moderation
 
     ensure_default_workflow()
     author = User.objects.create_user(username="pending_author")
     ForumProfile.for_user(author)  # trust NEW -- screened, not autopublished
 
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="PForum", slug="pforum"))
-    board = index.add_child(instance=ForumBoard(title="PGeneral", slug="pgeneral"))
+    board = make_forum(name="PGeneral", slug="pgeneral")
     topic = Topic.objects.create(board=board, title="PT", slug="pt", author=author)
     spam = (
         "http://a.com http://b.com http://c.com http://d.com http://e.com http://f.com"
@@ -293,14 +271,11 @@ def test_post_edit_view_reachable_with_preview_enabled(client):
     # PreviewableMixin wiring (SnippetViewSet.preview_enabled auto-detection)
     # doesn't break the ordinary snippet edit page (audit M16).
     from django.urls import reverse
-    from wagtail.models import Page
-    from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
+    from wagtail_forum.models import ForumProfile, Post, Topic
 
     author = User.objects.create_user(username="edit_view_author")
     ForumProfile.for_user(author)
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="EForum", slug="eforum"))
-    board = index.add_child(instance=ForumBoard(title="EGeneral", slug="egeneral"))
+    board = make_forum(name="EGeneral", slug="egeneral")
     topic = Topic.objects.create(board=board, title="ET", slug="et", author=author)
     post = Post(
         topic=topic,
@@ -328,14 +303,12 @@ def test_bulk_unpublish_action_unpublishes_selected_posts(client):
     # .execute(skip_permission_checks=True) mechanism as the single-object
     # DELETE view, attributed to the acting moderator.
     from django.urls import reverse
-    from wagtail.models import ModelLogEntry, Page
-    from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
+    from wagtail.models import ModelLogEntry
+    from wagtail_forum.models import ForumProfile, Post, Topic
 
     author = User.objects.create_user(username="bulk_target_author")
     ForumProfile.for_user(author)
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="BForum", slug="bforum"))
-    board = index.add_child(instance=ForumBoard(title="BGeneral", slug="bgeneral"))
+    board = make_forum(name="BGeneral", slug="bgeneral")
     topic = Topic.objects.create(board=board, title="BT", slug="bt", author=author)
 
     posts = []
@@ -433,16 +406,11 @@ def test_bulk_unpublish_action_blocks_user_without_change_permission(client):
     # golden-path test alone never proved check_perm actually blocks anyone).
     from django.contrib.auth.models import Permission
     from django.urls import reverse
-    from wagtail.models import Page
-    from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
+    from wagtail_forum.models import ForumProfile, Post, Topic
 
     author = User.objects.create_user(username="perm_test_author")
     ForumProfile.for_user(author)
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="PermForum", slug="permforum"))
-    board = index.add_child(
-        instance=ForumBoard(title="PermGeneral", slug="permgeneral")
-    )
+    board = make_forum(name="PermGeneral", slug="permgeneral")
     topic = Topic.objects.create(
         board=board, title="PermT", slug="permt", author=author
     )
@@ -497,14 +465,11 @@ def _admin_client(client):
 
 
 def _post_report(detail="looks like a bot"):
-    from wagtail.models import Page
-    from wagtail_forum.models import ForumBoard, ForumIndex, Post, Report, Topic
+    from wagtail_forum.models import Post, Report, Topic
 
     author = User.objects.create_user(username="author")
     reporter = User.objects.create_user(username="reporter")
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="Forum", slug="forum"))
-    board = index.add_child(instance=ForumBoard(title="General", slug="general"))
+    board = make_forum(name="General", slug="general")
     topic = Topic.objects.create(
         board=board, title="Seedling help", slug="seedling-help", author=author
     )
@@ -637,14 +602,11 @@ def test_post_listing_search_matches_a_body_prefix(client):
     admin `search_queryset` falls back to whole-word search() (plus a
     RuntimeWarning pytest does not fail on), so "photosynth" stops matching
     "photosynthesis basics" in the CMS with every test still green."""
-    from wagtail.models import Page
-    from wagtail_forum.models import ForumBoard, ForumIndex, ForumProfile, Post, Topic
+    from wagtail_forum.models import ForumProfile, Post, Topic
 
     author = User.objects.create_user(username="prefix_search_author")
     ForumProfile.for_user(author)
-    root = Page.objects.get(id=1)
-    index = root.add_child(instance=ForumIndex(title="PForum", slug="pforum"))
-    board = index.add_child(instance=ForumBoard(title="PGeneral", slug="pgeneral"))
+    board = make_forum(name="PGeneral", slug="pgeneral")
     topic = Topic.objects.create(board=board, title="PT", slug="pt", author=author)
     post = Post(
         topic=topic,

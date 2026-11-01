@@ -1,4 +1,6 @@
-import type { Category, EventHeroTopic, RecentTopic, Thread } from '../types/forum';
+import type { Forum, ForumLink, EventHeroTopic, RecentTopic, Thread } from '../types/forum';
+import { API_ORIGIN } from '@/config/api';
+import { safeExternalUrl } from './externalUrl';
 
 /** Lowercase, hyphenate, strip non-alphanumerics. Falls back to "topic" when empty. */
 export function slugifyTitle(input: string): string {
@@ -18,14 +20,14 @@ export function parseLeadingId(param: string | undefined): number | null {
 }
 
 /** /forum/{id}-{slug} — id is the lookup key, slug is decorative. */
-export function categoryPath(category: Pick<Category, 'id' | 'slug' | 'name'>): string {
+export function categoryPath(category: Pick<Forum, 'id' | 'slug' | 'name'>): string {
   const slug = category.slug || slugifyTitle(category.name);
   return `/forum/${category.id}-${slug}`;
 }
 
 /** /forum/{catId}-{catSlug}/{topicId}-{topicSlug} */
 export function threadPath(
-  category: Pick<Category, 'id' | 'slug' | 'name'>,
+  category: Pick<Forum, 'id' | 'slug' | 'name'>,
   thread: Pick<Thread, 'id' | 'slug' | 'title'>
 ): string {
   const tSlug = thread.slug || slugifyTitle(thread.title);
@@ -61,7 +63,7 @@ export function groupConversationPath(conversationId: number): string {
  *
  * Delegates to `threadPath` (which itself composes `categoryPath`) instead of
  * re-authoring the template — `RecentTopic.board.id`/`RecentTopic.id` are
- * `number` while `Category.id`/`Thread.id` are `string`, so the id fields are
+ * `number` while `Forum.id`/`Thread.id` are `string`, so the id fields are
  * cast to `string` at the call site rather than widening either helper's
  * parameter types repo-wide. Output stays byte-identical to the old literal
  * template for the normal case (board.slug/topic.slug always populated), and
@@ -83,4 +85,21 @@ export function eventHeroTopicPath(topic: EventHeroTopic): string {
     { id: String(topic.board.id), slug: topic.board.slug, name: topic.board.name },
     { id: String(topic.id), slug: topic.slug, title: topic.title }
   );
+}
+
+/**
+ * Where a link row (todo 670) sends the reader: a tracked link goes through
+ * the backend's counting redirect, an untracked one straight to its URL.
+ * Null when the URL is not a plain http(s) address, so the row renders no
+ * link at all rather than a `javascript:` href.
+ */
+export function forumLinkHref(
+  link: Pick<ForumLink, 'id' | 'link_url' | 'track_clicks'>
+): string | null {
+  const direct = safeExternalUrl(link.link_url);
+  if (!direct) return null;
+  if (link.track_clicks) {
+    return `${API_ORIGIN}/api/v1/forum/links/${encodeURIComponent(link.id)}/go/`;
+  }
+  return direct;
 }

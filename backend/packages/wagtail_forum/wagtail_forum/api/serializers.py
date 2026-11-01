@@ -15,7 +15,7 @@ from ..conf import get_setting
 from ..embeds import embed_envelope
 from ..link_previews import link_preview_envelope
 from ..models import (
-    ForumBoard,
+    Forum,
     ForumProfile,
     Notification,
     PollVote,
@@ -55,6 +55,9 @@ except ImportError:  # pragma: no cover
 # Bio is stored in an unbounded TextField; bound it at the API boundary like
 # post bodies are (MAX_BODY_CHARS) — PATCHing megabytes is storage abuse.
 MAX_BIO_CHARS = 2_000
+# Collapsed category ids a member may store (todo 673): more than any forum
+# has categories, small enough that the JSON column never grows unbounded.
+MAX_COLLAPSED_CATEGORIES = 200
 
 
 # Hard ceiling on the RAW submitted tag list, independent of the configurable
@@ -307,9 +310,12 @@ class BoardSerializer(serializers.ModelSerializer):
     # per-board round-trip (todo 278 L2). Null for a board nobody has posted
     # in yet; the only caller is BoardListView, which always annotates it.
     last_post_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    # The page-era key, kept for the Flutter board list (todo 665): the model
+    # field is `name` now, but the response shape is a client contract.
+    title = serializers.CharField(source="name", read_only=True)
 
     class Meta:
-        model = ForumBoard
+        model = Forum
         fields = [
             "id",
             "title",
@@ -319,6 +325,164 @@ class BoardSerializer(serializers.ModelSerializer):
             "post_count",
             "last_post_at",
         ]
+
+
+# Joins a forum's moderator names in one column (todo 674). A username or a
+# group name never holds a newline: the admin form takes usernames, and a
+# group name is a one-line CharField.
+MODERATOR_NAME_SEPARATOR = "\n"
+
+
+class ForumRowSerializer(BoardSerializer):
+    """A forum row of ``GET /forum/categories/``: the board shape plus
+    ``has_unread`` (todo 671), annotated by CategoryListView. The flat
+    ``/forum/boards/`` list (the Flutter contract) keeps ``BoardSerializer``."""
+
+    has_unread = serializers.BooleanField(read_only=True)
+    # Todo 680: a password forum this session has not unlocked. Its row is
+    # listed with `last_post_at` null, `has_unread` false, and `rules`,
+    # `rules_url`, `icon`, `topic_template` "" and `image_url` null.
+    is_locked = serializers.BooleanField(read_only=True)
+    # Todo 674: the names on the row's "Moderators:" line, users (by
+    # username) then groups, from CategoryListView's `moderator_names`.
+    moderators = serializers.SerializerMethodField()
+    # Todo 677: what the viewer may do here, from CategoryListView's
+    # annotations (grants, plus a closed forum's rule from todo 669). Always
+    # false for guests.
+    can_post = serializers.BooleanField(read_only=True)
+    can_reply = serializers.BooleanField(read_only=True)
+    can_poll = serializers.BooleanField(read_only=True)
+    can_attach = serializers.BooleanField(read_only=True)
+    # Todo 672: the viewer's watch level (null = none set) and, when they
+    # track or watch the forum, how many of its topics are unread.
+    watch_level = serializers.CharField(read_only=True, allow_null=True)
+    unread_count = serializers.IntegerField(read_only=True, allow_null=True)
+    # Todo 669: the forum image's URL (null = none).
+    image_url = serializers.SerializerMethodField()
+
+    class Meta(BoardSerializer.Meta):
+        fields = [
+            *BoardSerializer.Meta.fields,
+            "has_unread",
+            "is_locked",
+            "moderators",
+            # Todo 669 display settings. `is_closed`: no new topics or
+            # replies (staff and the forum's moderators exempt). `colour` is
+            # a Canopy accent name, `icon` one emoji, `rules` plain text.
+            "is_closed",
+            "rules",
+            "rules_url",
+            "icon",
+            "colour",
+            "image_url",
+            "topics_per_page",
+            "default_sort",
+            # Todo 681: one of the fixed themes, or "".
+            "theme",
+            "can_post",
+            "can_reply",
+            "can_poll",
+            "can_attach",
+            "watch_level",
+            "unread_count",
+            # Todo 678: plain text, each line a paragraph, prefilled into an
+            # empty new-topic composer. "" when the forum has none. Not on
+            # the flat `/forum/boards/` list, whose keys are the Flutter
+            # contract.
+            "topic_template",
+        ]
+
+    def get_moderators(self, obj) -> list[str]:
+        names = getattr(obj, "moderator_names", None) or ""
+        return [name for name in names.split(MODERATOR_NAME_SEPARATOR) if name]
+
+    @extend_schema_field({"type": "string", "nullable": True})
+    def get_image_url(self, obj) -> str | None:
+        return forum_image_url(obj, self.context.get("request"))
+
+
+def forum_image_url(forum, request) -> str | None:
+    """A forum's image (todo 669) as an absolute URL, or None. The original
+    file, like the avatar: a forum row's image is small, and no rendition is
+    written on a read path."""
+    if not (forum.image_id and forum.image):
+        return None
+    url = str(forum.image.file.url)
+    return str(request.build_absolute_uri(url)) if request is not None else url
+
+
+class ForumLinkSerializer(serializers.ModelSerializer):
+    """A link row of ``GET /forum/categories/`` (todo 670). ``click_count``
+    is null when the link is untracked; a tracked link is followed through
+    ``/forum/links/{id}/go/``, an untracked one straight to ``link_url``."""
+
+    title = serializers.CharField(source="name", read_only=True)
+    click_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Forum
+        fields = [
+            "id",
+            "title",
+            "slug",
+            "description",
+            "link_url",
+            "track_clicks",
+            "click_count",
+        ]
+
+    def get_click_count(self, obj) -> int | None:
+        return obj.click_count if obj.track_clicks else None
+
+
+class ForumCategorySerializer(serializers.Serializer):
+    """One category of ``GET /forum/categories/`` with its visible forums.
+
+    Not a ModelSerializer: the counts and ``last_post_at`` are not columns on
+    a category row — CategoryListView sums them from the forums it prefetched
+    (phpBB's read-time aggregation, spec 2026-10-28 §4), so a hidden forum
+    never leaks into a category's numbers.
+    """
+
+    id = serializers.IntegerField(read_only=True)
+    title = serializers.CharField(source="name", read_only=True)
+    slug = serializers.CharField(read_only=True)
+    description = serializers.CharField(read_only=True)
+    # Todo 669: a category header's emoji and Canopy accent name ("" = none).
+    icon = serializers.CharField(read_only=True)
+    colour = serializers.CharField(read_only=True)
+    position = serializers.IntegerField(read_only=True)
+    topic_count = serializers.IntegerField(read_only=True)
+    post_count = serializers.IntegerField(read_only=True)
+    last_post_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    has_unread = serializers.BooleanField(read_only=True)
+    forums = ForumRowSerializer(many=True, read_only=True, source="visible_forums")
+    links = ForumLinkSerializer(many=True, read_only=True, source="visible_links")
+
+
+class _BoundedCollapsedCategoryListField(_BoundedListField):
+    max_items = MAX_COLLAPSED_CATEGORIES
+    too_many_message = _("Too many collapsed categories.")
+
+
+class CollapsedCategoriesSerializer(serializers.Serializer):
+    """Body of ``PUT /forum/me/collapsed-categories/`` (todo 673): the whole
+    list, deduplicated with its order kept."""
+
+    collapsed_categories = _BoundedCollapsedCategoryListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=True,
+    )
+
+    def validate_collapsed_categories(self, value):
+        return list(dict.fromkeys(value))
+
+
+class ForumCategoryListSerializer(serializers.Serializer):
+    """Schema-only envelope of ``GET /forum/categories/``: flat ``results``,
+    like the board list (see the README's ``## List envelopes``)."""
+
+    results = ForumCategorySerializer(many=True, read_only=True)
 
 
 class TopicListSerializer(serializers.ModelSerializer):
@@ -715,7 +879,7 @@ def build_forum_embed_map(posts):
     )
 
 
-def build_forum_quote_map(posts, user=None):
+def build_forum_quote_map(posts, user=None, *, request=None):
     """Map {post_id: Post} for every `post_quote` block across *posts* — one
     query, or none (todo 342). Same reason as the image/embed maps: the
     post-list query count stays flat however many quotes a page carries.
@@ -735,7 +899,7 @@ def build_forum_quote_map(posts, user=None):
         for pid in quoted_post_ids(post.body.raw_data):
             if pid not in ids:
                 ids.append(pid)
-    quote_map = visible_quoted_posts(ids)
+    quote_map = visible_quoted_posts(ids, user, request=request)
     blocked: set[int] = set()
     muted: set[int] = set()
     author_ids = {p.author_id for p in quote_map.values() if p.author_id}
@@ -1086,6 +1250,8 @@ class _ForumBodyContract(serializers.Serializer):
             existing_quote_ids=self.context.get("existing_quote_ids", ()),
             # Edit only: the stored body's link cards, reused without a fetch.
             existing_link_previews=self.context.get("existing_link_previews"),
+            # A quote of a post in a password forum this session unlocked.
+            request=request,
         )
 
     def _allowed_uploader_ids(self):
@@ -1560,6 +1726,13 @@ class MeProfileSerializer(serializers.ModelSerializer):
         format="%H:%M", input_formats=["%H:%M", "%H:%M:%S"], required=False
     )
     time_zone = serializers.CharField(max_length=64, required=False, allow_blank=True)
+    # Categories collapsed on the forum index (todo 673). Read here; written
+    # through `PUT /forum/me/collapsed-categories/`, which has its own
+    # throttle: a header toggle is a frequent click and must not spend the
+    # shared profile-edit budget (FCM registration, the logout clear).
+    collapsed_categories = serializers.ListField(
+        child=serializers.IntegerField(), read_only=True
+    )
 
     class Meta:
         model = ForumProfile
@@ -1586,6 +1759,8 @@ class MeProfileSerializer(serializers.ModelSerializer):
             "quiet_hours_start",
             "quiet_hours_end",
             "time_zone",
+            # Collapsed index categories (todo 673).
+            "collapsed_categories",
         ]
         read_only_fields = ["title", "trust_level", "post_count"]
 

@@ -37,6 +37,9 @@ NOTIFICATION_MATRIX: dict[str, tuple[str, ...]] = {
     "mention": ("push", "email"),
     "quote": ("push", "email"),
     "solution": ("push", "email"),
+    # A new topic in a forum the member watches (todo 672): push only, and
+    # in-app always (owner decision 2026-11-01: no new email).
+    "new_topic": ("push",),
 }
 NOTIFICATION_VERBS: tuple[str, ...] = tuple(NOTIFICATION_MATRIX)
 NOTIFICATION_CHANNELS: tuple[str, ...] = ("push", "email")
@@ -50,6 +53,7 @@ EVENT_VERBS: dict[str, str] = {
     "quote": "quote",
     "answer_accepted": "solution",
     "solution": "solution",
+    "new_topic": "new_topic",
 }
 
 

@@ -61,3 +61,73 @@ class TopicSubscription(models.Model):
     @classmethod
     def unsubscribe(cls, user, topic):
         cls.objects.filter(user=user, topic=topic).delete()
+
+
+class ForumWatchLevel(models.TextChoices):
+    """Per-forum notification levels (todo 672; Discourse's four, owner
+    decision 2026-10-30). No row = the forum's default: topics you follow
+    still notify you, nothing else does."""
+
+    # Every post: notified of each new topic, and auto-subscribed to it so
+    # its replies notify too.
+    WATCHING = "watching", "Watching"
+    # New topics only: notified of each new topic, not of its replies.
+    WATCHING_FIRST_POST = "watching_first_post", "Watching first post"
+    # Unread counts on the forum's row; no notifications.
+    TRACKING = "tracking", "Tracking"
+    # Left out of Recent and the digest.
+    MUTED = "muted", "Muted"
+
+
+# The levels that are told about a new topic.
+NEW_TOPIC_LEVELS = (ForumWatchLevel.WATCHING, ForumWatchLevel.WATCHING_FIRST_POST)
+# The levels whose forum row shows an unread count (Discourse: watching
+# implies tracking).
+COUNTED_LEVELS = (
+    ForumWatchLevel.WATCHING,
+    ForumWatchLevel.WATCHING_FIRST_POST,
+    ForumWatchLevel.TRACKING,
+)
+
+
+class ForumSubscription(models.Model):
+    """One member's watch level on one forum (todo 672)."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="forum_watch_levels",
+    )
+    forum = models.ForeignKey(
+        "wagtail_forum.Forum",
+        on_delete=models.CASCADE,
+        related_name="subscriptions",
+    )
+    level = models.CharField(max_length=24, choices=ForumWatchLevel.choices)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "forum"], name="uniq_forum_subscription"
+            )
+        ]
+        indexes = [
+            # The new-topic fan-out reads "who watches this forum".
+            models.Index(fields=["forum", "level"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"ForumSubscription(user={self.user_id}, forum={self.forum_id}, "
+            f"level={self.level})"
+        )
+
+    @classmethod
+    def muted_forum_ids(cls, user):
+        """A lazy subquery of the forums ``user`` muted (empty for guests)."""
+        if user is None or not getattr(user, "is_authenticated", False):
+            return cls.objects.none().values("forum_id")
+        return cls.objects.filter(user=user, level=ForumWatchLevel.MUTED).values(
+            "forum_id"
+        )
