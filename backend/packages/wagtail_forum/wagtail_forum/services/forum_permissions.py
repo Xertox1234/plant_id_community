@@ -379,7 +379,8 @@ def effective_flags(user: Any, forum: Forum) -> frozenset[str]:
 
 def user_can(user: Any, forum: Forum, flag: str) -> bool:
     """Whether ``user`` has ``flag`` on ``forum``, cached on the user object
-    (one request) per forum. Staff and superusers can do everything."""
+    (one request) per forum. Staff and superusers can do everything; the
+    forum's moderators have every write flag there."""
     if flag not in FLAGS:
         raise ValueError(f"unknown forum permission flag {flag!r}")
     if sees_everything(user):
@@ -396,6 +397,11 @@ def user_can(user: Any, forum: Forum, flag: str) -> bool:
     if cache is not None and forum.pk in cache:
         return flag in cache[forum.pk]
     flags = effective_flags(user, forum)
+    # A forum's moderators (and global moderators) write wherever they
+    # moderate, as they read it and post in it closed (owner decision
+    # 2026-11-01): their grants never take posting away from them.
+    if is_forum_moderator(user, forum):
+        flags = flags | frozenset(WRITE_FLAGS)
     if cache is not None:
         cache[forum.pk] = flags
     return flag in flags
@@ -433,10 +439,12 @@ def capability_annotations(user: Any) -> dict[str, Any]:
             f"can_{flag}": Value(True, output_field=BooleanField())
             for flag in WRITE_FLAGS
         }
-    open_to_user = Q(is_closed=False) | _moderator_q(user)
+    moderates = _moderator_q(user)
+    open_to_user = Q(is_closed=False) | moderates
     return {
         f"can_{flag}": ExpressionWrapper(
-            open_to_user & access_q(user, flag), output_field=BooleanField()
+            open_to_user & (access_q(user, flag) | moderates),
+            output_field=BooleanField(),
         )
         for flag in WRITE_FLAGS
     }

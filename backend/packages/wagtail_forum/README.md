@@ -206,7 +206,9 @@ upload that sends the optional `forum_id` needs `attach` there (no
 `forum_id`: accepted, the body check still holds). A forum the caller cannot
 see is still 404; a visible one answers 403 `forum_post_denied`,
 `forum_reply_denied`, `forum_poll_denied` or `forum_attach_denied`. Staff
-bypass every flag. The members' no-grant default is *Standard + polls*, not
+bypass every flag, and a forum's moderators (and global moderators) have every
+write flag where they moderate, whatever its grants (owner decision
+2026-11-01). The members' no-grant default is *Standard + polls*, not
 *Standard*, so a forum with no members grant keeps taking polls (owner
 decision 2026-11-01); granting members *Standard* is what takes `poll` away.
 The forum rows of `/forum/categories/` carry the viewer's `can_post`,

@@ -90,3 +90,19 @@ Round 1 (PR #1232) was clean, with no blocking findings. Each non-blocking findi
 - **Fixed** (medium) `api/views.py` topic create: an `identification.image_id` photo skipped `attach`. It now needs `attach` like an image block. Test: `test_attach_denied_for_an_identification_photo_without_the_attach_flag`. A mutation removing the check fails it.
 - **Fixed** (low ×2) the upload `forum_id` check applied the closed rule, while an edit in a closed forum may still add an image. The upload now checks `attach` only. Test: `test_upload_to_a_closed_forum_checks_attach_only`, mutation-checked.
 - **Declined** (low, same finding) the web hides image/alt-text controls in a closed forum because `can_attach` folds in the closed rule. Only staff and moderators post there, and the server still accepts an edit, so this is a UI nicety, not a wrong result.
+
+### 2026-11-01 - Review round 2: non-blocking findings
+
+Round 2 (PR #1232) was clean. The regression fallback found one medium that was a real regression against main: a non-staff forum moderator whose grants lack a write flag, for example in a mod-only forum they see through the moderator bypass, got 403 on post and reply where main let them post. **Owner decision 2026-11-01:** moderators bypass the write flags on the forums they moderate, then arm without a round 3.
+
+- **Fixed:** `user_can` adds every write flag for a forum moderator or global moderator, and `capability_annotations` ORs `_moderator_q` into each `can_*`. Test: `test_a_forum_moderator_writes_where_their_grants_would_not_let_them`. Mutating either path fails it.
+- **Declined** (low ×13; recorded for the owner, none is a regression):
+  - **Password-locked rows serve rules, rules_url, image and icon** (4 phrasings). The owner chose the locked row as visible with a lock (todo 680), and these are display fields of the row itself, not topic content. A follow-up can blank them if the owner wants.
+  - **Closed forum's can_attach false while edits may add an image.** Same as round 1's decline.
+  - **NewThreadPage sends an identification photo to a no-attach forum** (403 with no upfront warning). The error is surfaced, and only Limited/Read-only forums hit it.
+  - **ForumSubscriptionView schema missing 403 forum_locked.** A minor schema gap, consistent with sibling locked-forum views.
+  - **update_or_create race on concurrent PUTs.** Two concurrent watch-level saves by one user are vanishingly rare, and a retry recovers.
+  - **forumAccent `in` operator prototype keys.** Latent: the backend choices block any non-token value.
+  - **Watch picker focus loss while saving, and the default-sort chip flicker on first render.** Minor UX.
+  - **Guest PUT test accepts 401 or 403.** It matches the project's auth setup, which returns either depending on the authenticator.
+  - **Orphan uploads without forum_id.** This is the owner's 2026-11-01 decision.

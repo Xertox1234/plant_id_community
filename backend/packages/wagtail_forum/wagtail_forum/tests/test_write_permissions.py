@@ -20,13 +20,18 @@ from wagtail.images import get_image_model
 from wagtail_forum.collections import get_forum_image_collection
 from wagtail_forum.models import (
     ForumGrant,
+    ForumModerator,
     ForumProfile,
     ForumRole,
     Post,
     Topic,
     TrustLevel,
 )
-from wagtail_forum.services.forum_permissions import forum_capabilities, set_grant
+from wagtail_forum.services.forum_permissions import (
+    forum_capabilities,
+    hide_for_everyone,
+    set_grant,
+)
 from wagtail_forum.tests.factories import make_forum
 from wagtail_forum.workflow import ensure_default_workflow
 
@@ -349,3 +354,33 @@ def test_category_rows_carry_the_viewers_capabilities():
     assert not any(
         guest["full"][k] for k in ("can_post", "can_reply", "can_poll", "can_attach")
     )
+
+
+def test_a_forum_moderator_writes_where_their_grants_would_not_let_them():
+    """A mod-only forum (No access for everyone) that its moderators see
+    through the moderator bypass: they post, reply, poll and attach there,
+    as they could before todo 677 (owner decision 2026-11-01)."""
+    ensure_default_workflow()
+    moderator, client = _member("forum-mod")
+    _, outsider = _member("outsider")
+    forum = make_forum(name="Mod room", slug="mod-room")
+    hide_for_everyone(forum)
+    ForumModerator.objects.create(forum=forum, user=moderator)
+    poll = {"question": "Ban or warn?", "options": ["Ban", "Warn"]}
+    body = [*BODY, {"type": "image", "value": _image(moderator).pk}]
+
+    resp = _create_topic(client, forum, body=body, poll=poll)
+    assert resp.status_code == 201, resp.content
+    topic = _live_topic(forum, moderator)
+    assert _reply(client, topic).status_code == 201
+    assert all(forum_capabilities(moderator, forum).values())
+    rows = {
+        row["slug"]: row
+        for category in client.get("/forum/categories/").json()["results"]
+        for row in category["forums"]
+    }
+    assert all(
+        rows["mod-room"][k] for k in ("can_post", "can_reply", "can_poll", "can_attach")
+    )
+    # Everyone else still cannot see it.
+    assert _create_topic(outsider, forum, slug="nope").status_code == 404
