@@ -10,12 +10,14 @@ from django.db.models import (
     BooleanField,
     Case,
     CharField,
+    Count,
     DateTimeField,
     Exists,
     ExpressionWrapper,
     F,
     Func,
     IntegerField,
+    Max,
     OuterRef,
     Prefetch,
     Q,
@@ -2654,6 +2656,144 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                     }
                     for t in topics
                 ]
+            }
+        )
+
+
+LATEST_REPLY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "integer"},
+        "author": AUTHOR_SCHEMA,
+        "created_at": {"type": "string", "format": "date-time"},
+        "excerpt": {"type": "string"},
+    },
+}
+TOPIC_LATEST_REPLIES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "replies": {"type": "array", "items": LATEST_REPLY_SCHEMA},
+        "solution": {**LATEST_REPLY_SCHEMA, "nullable": True},
+        "more_count": {"type": "integer"},
+        "participant_count": {"type": "integer"},
+        "participants": {"type": "array", "items": AUTHOR_SCHEMA},
+        "started_by": {**AUTHOR_SCHEMA, "nullable": True},
+    },
+}
+
+
+class TopicLatestRepliesView(
+    UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView
+):
+    """A peek at a topic for the expanded home activity card (spec
+    2026-11-02 §6.4): the accepted answer, the newest replies, who took part
+    and who started it.
+
+    HIDE, not COLLAPSE: unlike the post list, a summary drops members the
+    viewer blocked or muted entirely (``_exclude_blocked_authors``), from the
+    replies, the solution, the participants, ``started_by`` and every count,
+    so a hidden reply is never even counted. A peek has no side effect: no
+    view count, no topic-read record. Anonymous responses are identical for
+    every guest, so ``PublicForumReadCacheMixin`` may share them; a member's
+    response, shaped by their own blocks, is always ``private, no-store``.
+
+    The query count is flat (pinned in test_topic_latest_replies.py): every
+    author comes from a ``select_related`` join, and the excerpt reads
+    ``raw_data`` (``plain_text_excerpt``), never the resolved StreamValue.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        responses={200: TOPIC_LATEST_REPLIES_SCHEMA, 404: dict},
+        description=(
+            "Up to LATEST_REPLIES_LIMIT items: the accepted answer (`solution`, "
+            "counted toward the limit) and the newest live replies, newest "
+            "first, each with a plain-text excerpt. Members the viewer blocked "
+            "or muted are left out of every field and count. `more_count` is "
+            "the visible replies not shown. 404 when the viewer cannot see the "
+            "topic. Does not mark the topic read."
+        ),
+    )
+    def get(self, request, topic_id):
+        topic = get_object_or_404(
+            visible_topics(request=request).only("id", "solved_post_id"),
+            id=topic_id,
+        )
+        author_join = "author__wagtail_forum_profile__avatar"
+        live_posts = _exclude_blocked_authors(
+            Post.objects.filter(topic_id=topic.pk, live=True), request.user
+        )
+        visible_replies = live_posts.filter(is_opening_post=False)
+        limit = get_setting("LATEST_REPLIES_LIMIT")
+        excerpt_chars = get_setting("LATEST_REPLIES_EXCERPT_CHARS")
+
+        solution = None
+        if topic.solved_post_id is not None:
+            # Only when it survives the same filter: a hidden author's answer
+            # is left out, and the card shows just the newest visible replies.
+            solution = (
+                visible_replies.filter(pk=topic.solved_post_id)
+                .select_related(author_join)
+                .first()
+            )
+        newest = visible_replies.select_related(author_join).order_by(
+            "-created_at", "-id"
+        )
+        if solution is not None:
+            newest = newest.exclude(pk=solution.pk)
+        replies = list(newest[: max(0, limit - (1 if solution is not None else 0))])
+        shown = len(replies) + (1 if solution is not None else 0)
+        more_count = max(0, visible_replies.count() - shown)
+
+        # Participants include the opening post's author. Deleted accounts
+        # (NULL author, kept by _exclude_blocked_authors) are not people to
+        # show an avatar for, so they are left out here.
+        authored = live_posts.filter(author_id__isnull=False)
+        participant_count = authored.aggregate(n=Count("author_id", distinct=True))["n"]
+        participant_ids = list(
+            authored.values("author_id")
+            .annotate(last_post=Max("created_at"))
+            .order_by("-last_post", "-author_id")
+            .values_list("author_id", flat=True)[
+                : get_setting("LATEST_REPLIES_PARTICIPANTS")
+            ]
+        )
+        users = (
+            get_user_model()
+            .objects.select_related("wagtail_forum_profile__avatar")
+            .in_bulk(participant_ids)
+            if participant_ids
+            else {}
+        )
+
+        opening = live_posts.filter(is_opening_post=True).select_related(author_join)
+        opening_post = opening.first()
+
+        def reply_row(post):
+            return {
+                "id": post.pk,
+                "author": serialize_forum_author(post.author, request),
+                "created_at": post.created_at,
+                "excerpt": plain_text_excerpt(post.body, excerpt_chars),
+            }
+
+        return Response(
+            {
+                "replies": [reply_row(p) for p in replies],
+                "solution": reply_row(solution) if solution is not None else None,
+                "more_count": more_count,
+                "participant_count": participant_count,
+                "participants": [
+                    serialize_forum_author(users[pk], request)
+                    for pk in participant_ids
+                    if pk in users
+                ],
+                "started_by": (
+                    serialize_forum_author(opening_post.author, request)
+                    if opening_post is not None
+                    else None
+                ),
             }
         )
 

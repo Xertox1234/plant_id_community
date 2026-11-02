@@ -41,6 +41,7 @@ from wagtail_forum.api.views import (
     PostRevisionListView,
     PublicProfileView,
     RecentTopicsView,
+    TopicLatestRepliesView,
 )
 
 from .api import (
@@ -158,6 +159,13 @@ urlpatterns = [
         name="topic-solution",
     ),
     path("topics/<int:topic_id>/posts/", PostListView.as_view(), name="post-list"),
+    # GET-only + AllowAny, mounted straight from the package (no throttle
+    # wrapper) — same treatment as topics/recent/ above.
+    path(
+        "topics/<int:topic_id>/latest-replies/",
+        TopicLatestRepliesView.as_view(),
+        name="topic-latest-replies",
+    ),
     path(
         "topics/<int:topic_id>/summary/",
         TopicSummaryView.as_view(),

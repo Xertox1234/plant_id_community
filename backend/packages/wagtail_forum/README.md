@@ -564,6 +564,9 @@ Things worth knowing before changing this:
 | `WAGTAILFORUM_PUBLIC_READ_CACHE_SECONDS` | `60` | Shared-cache TTL for **anonymous** board list, topic list, search, recent topics, experts rails, and the event hero only, so a CDN can offload public reads. Authenticated responses are always `private, no-store`. Topic detail and post list are never shared-cached (view counting; moderated-away content must stop serving immediately). Tradeoff: a just-removed topic can linger in the anon-cached *list* for up to this TTL. |
 | `WAGTAILFORUM_RECENT_TOPICS_DEFAULT_LIMIT` | `5` | Default row count for `GET topics/recent/` (the landing "Active now" rail) when `?limit=` is omitted. |
 | `WAGTAILFORUM_RECENT_TOPICS_MAX_LIMIT` | `20` | Cap on `?limit=` for `GET topics/recent/`. Bounded because each row may resolve a thumbnail rendition. |
+| `WAGTAILFORUM_LATEST_REPLIES_LIMIT` | `3` | Items in `GET topics/<id>/latest-replies/` (the expanded home activity card). The accepted answer, when shown, counts toward it. |
+| `WAGTAILFORUM_LATEST_REPLIES_EXCERPT_CHARS` | `160` | Length of each plain-text reply excerpt in `GET topics/<id>/latest-replies/`. |
+| `WAGTAILFORUM_LATEST_REPLIES_PARTICIPANTS` | `5` | Max `participants` (most recent poster first) in `GET topics/<id>/latest-replies/`. |
 | `WAGTAILFORUM_EXPERTS_LIMIT` | `4` | Max row count for `GET users/experts/` (the "Community experts" / "Experts online" landing rail). |
 | `WAGTAILFORUM_EXPERTS_MIN_TRUST_LEVEL` | `3` | Minimum trust level to appear in `GET users/experts/`. (3 = TrustLevel.REGULAR) |
 | `WAGTAILFORUM_PRESENCE_TOUCH_THROTTLE_SECONDS` | `300` (5 min) | Max frequency of the `ForumProfile.last_seen` write on an authenticated forum request — cache-gated (`cache.add`), so a burst of requests from one user costs one write, not one per request. |
