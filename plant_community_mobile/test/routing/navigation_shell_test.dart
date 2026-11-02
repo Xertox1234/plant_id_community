@@ -12,7 +12,7 @@ import 'package:plant_community_mobile/features/blog/screens/blog_list_screen.da
 import 'package:plant_community_mobile/features/blog/screens/blog_post_screen.dart';
 import 'package:plant_community_mobile/features/blog/services/blog_api.dart';
 import 'package:plant_community_mobile/features/auth/register_screen.dart';
-import 'package:plant_community_mobile/features/camera/camera_screen.dart';
+import 'package:plant_community_mobile/features/scan/scan_screen.dart';
 import 'package:plant_community_mobile/features/collection/collection_screen.dart';
 import 'package:plant_community_mobile/features/diagnose/diagnose_screen.dart';
 import 'package:plant_community_mobile/features/forum/forum_screen.dart';
@@ -205,7 +205,7 @@ void main() {
       await tester.tap(find.byKey(MainShell.identifyFabKey));
       await settle(tester);
       expect(h.path, AppRoutes.camera);
-      expect(find.byType(CameraScreen), findsOneWidget);
+      expect(find.byType(ScanScreen), findsOneWidget);
 
       // Todo 384 finding 5: Home used `context.go`, which REPLACES the stack,
       // so canPop() was false, the bare AppBar drew no back button and
