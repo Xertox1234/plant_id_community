@@ -100,7 +100,7 @@ void main() {
     await _pump(tester, _FakeApi(_checklist(forum: true)));
 
     expect(find.text('1 of 3 done'), findsOneWidget);
-    expect(find.text('Identify your first plant'), findsOneWidget);
+    expect(find.text('Check on your first plant'), findsOneWidget);
     expect(find.text('Say hello in the forum'), findsOneWidget);
     expect(find.text('Save a topic to read later'), findsOneWidget);
   });
@@ -117,7 +117,7 @@ void main() {
     expect(done.flagsCollection.isButton, isFalse);
     expect(done.hasAction(SemanticsAction.tap), isFalse);
     final open = tester
-        .getSemantics(find.bySemanticsLabel('Identify your first plant'))
+        .getSemantics(find.bySemanticsLabel('Check on your first plant'))
         .getSemanticsData();
     expect(open.flagsCollection.isButton, isTrue);
     expect(open.hasAction(SemanticsAction.tap), isTrue);

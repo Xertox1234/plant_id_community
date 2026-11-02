@@ -62,6 +62,7 @@ NAV_VERBS = r"go|push|replace|pushReplacement|goNamed|pushNamed"
 # very bug this script exists to catch.
 ALLOWED_ORPHANS = {
     "splash": "GoRouter initialLocation; entered by the router itself, not navigated to",
+    "diagnose": "redirect to /camera?mode=diagnose (Scan 2.0); kept for old links and pushes, no UI opens it",
 }
 
 # Constants in AppRoutes that are NOT destinations. These are matched as path
