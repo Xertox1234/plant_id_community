@@ -2683,7 +2683,7 @@ TOPIC_LATEST_REPLIES_SCHEMA = {
 
 
 class TopicLatestRepliesView(
-    UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView
 ):
     """A peek at a topic for the expanded home activity card (spec
     2026-11-02 §6.4): the accepted answer, the newest replies, who took part
@@ -2693,9 +2693,10 @@ class TopicLatestRepliesView(
     viewer blocked or muted entirely (``_exclude_blocked_authors``), from the
     replies, the solution, the participants, ``started_by`` and every count,
     so a hidden reply is never even counted. A peek has no side effect: no
-    view count, no topic-read record. Anonymous responses are identical for
-    every guest, so ``PublicForumReadCacheMixin`` may share them; a member's
-    response, shaped by their own blocks, is always ``private, no-store``.
+    view count, no topic-read record. Always ``private, no-store``, even for
+    guests (``PrivateForumReadCacheMixin``, docs/rules/caching.md): it serves
+    reply text, and a reply hidden by moderation must stop being served at
+    once, with no CDN purge wired, for the same reason as ``PostListView``.
 
     The query count is flat (pinned in test_topic_latest_replies.py): every
     author comes from a ``select_related`` join, and the excerpt reads

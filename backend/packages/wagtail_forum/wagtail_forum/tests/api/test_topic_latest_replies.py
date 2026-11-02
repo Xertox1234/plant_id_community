@@ -17,7 +17,6 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 from wagtail.images import get_image_model
 from wagtail.images.tests.utils import get_test_image_file
-from wagtail_forum.conf import get_setting
 from wagtail_forum.models import Forum, ForumProfile, Post, Topic, UserBlock, UserMute
 from wagtail_forum.tests.factories import hide_forum, make_category, make_forum
 
@@ -350,11 +349,13 @@ def test_latest_replies_query_count():
 
 @pytest.mark.django_db
 def test_latest_replies_cache_headers():
+    """Never shared-cached, even for guests: it serves reply text, and a
+    reply hidden by moderation must stop being served at once (no CDN purge),
+    the same reason PostListView is private."""
     topic = _topic()
 
     anon = APIClient().get(_url(topic))
-    seconds = get_setting("PUBLIC_READ_CACHE_SECONDS")
-    assert anon["Cache-Control"] == f"public, s-maxage={seconds}, max-age=0"
+    assert anon["Cache-Control"] == "private, no-store"
     assert "Cookie" in anon["Vary"] and "Authorization" in anon["Vary"]
 
     _member_user, client = _member("viewer")
