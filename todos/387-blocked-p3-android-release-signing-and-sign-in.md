@@ -6,8 +6,8 @@ tags: [android, firebase, signing, mobile, security]
 dependencies: []
 source_review: "todos/383-firebase-hardening-carryover"
 source_finding: "AC4,AC5-android"
-blocked_on: "A physical Android device with a Google account over adb (AC4), plus a first Play Console upload that generates the Play App Signing SHA-1 (AC5)"
-unblock_when: "a physical Android device with a Google account can be connected over adb"
+blocked_on: "A first Play Console upload that generates the Play App Signing SHA-1 (AC5); the physical-device sign-in (AC4) was verified 2026-11-02"
+unblock_when: "a first Play Console upload exists"
 triage: blocked-device
 triaged: 2026-10-16
 owner_decision: "Still blocked: needs a physical Android device and a first Play Console upload (owner, 2026-10-16)"
@@ -132,12 +132,14 @@ So fixing findings 1 and 2 alone would not have produced a working sign-in.
 - [x] `google-services.json` contains an Android OAuth client
       (`client_type: 1`), so Google Sign-In is capable of working on Android
       (completed 2026-09-14)
-- [ ] Sign-in verified on a physical Android device against production,
+- [x] Sign-in verified on a physical Android device against production,
       confirmed in the server logs rather than from the UI
       — **2026-09-23: verified on a `google_apis_playstore` EMULATOR, not a
       physical device**, so this stays open by its own wording. The emulator
       run proves the whole configuration chain (see the 2026-09-23 entry); the
-      remaining gap is hardware only.
+      remaining gap is hardware only. (completed 2026-11-02: Samsung SM-A376B,
+      Android 16, release-signed build; prod log shows the token exchange 200
+      for the same uid; see the 2026-11-02 Work Log entry)
 - [ ] The Play App Signing SHA-1 is registered on the Firebase Android app
       (new 2026-09-14; blocked until a first Play upload exists to generate it)
 
@@ -308,3 +310,27 @@ again on 2026-09-24. Nothing here is sweep work.
 The two open criteria still need what an agent cannot supply: a **physical
 Android device** (AC 4) and a **first Play upload** (AC 5). Status stays
 `blocked`.
+
+### 2026-11-02 - Physical-device sign-in and push verified (owner, Samsung SM-A376B)
+
+Device: Samsung Galaxy SM-A376B, Android 16, over wireless adb. Build: `flutter build apk --release --dart-define-from-file=.env.production` from main `69c0bcc9`; `apksigner` showed the release SHA-1 `6e131b9b…8a5d`.
+
+**Sign-in (AC 4).** "Continue with Google" on the device: logcat showed `CredentialManager … CREDENTIALS_RECEIVED` at 16:39:06 UTC and `FirebaseAuth` signed in uid `QY7lYq7n…`. The owner read the prod log (`railway logs --service plant_id_community`): `[FIREBASE AUTH] Token validated for uid=QY7lYq7n…`, `Existing user authenticated: wi***@gmail.com` at 16:39:11 and `POST /api/v1/auth/firebase-token-exchange/ 200`. Railway tags these INFO lines `[ERRO]` (stderr); that is not a failure.
+
+**Push** (forum replies from the `simtest` prod account on the owner's topic 51, owner OK 2026-11-02; same account as the iPhone):
+
+| Case | Result |
+|---|---|
+| Forum reply, foreground (#307) | In-app banner; tap opened topic 51. The iPhone got the same push, so two devices on one account both receive. |
+| Forum reply, background (#308) | Delivered to the device, but Android suppressed it: `POST_NOTIFICATIONS` was never granted (see todo 685). |
+| Forum reply, background, permission granted (#309) | Tray notification; tap opened topic 51. |
+| Care reminder, background, app on the Home tab (debug build) | Tray notification; tap opened Care Schedule with the named task highlighted. The expired access token was refreshed on resume (401 → token exchange → retry 200). |
+
+Findings:
+
+- **Todo 685:** on Android 13+ the app never shows the notification-permission prompt; `firebase_messaging` 16.4.1 reports `denied`, never `notDetermined`, so the sign-in ask never fires. Reproduced on a fresh install.
+- Not reproduced, owner chose not to chase: on the release build, tapping a background care reminder while the app was already on Care Schedule showed the nav bar over a blank body. The same tap from the Home tab on the debug build worked. The owner will file a todo if it recurs.
+- A "Once, first due today" task is due at 9 am **device-local** time (`firstDueAt`), so on a phone whose time zone is ahead of the owner's (here Asia/Ho_Chi_Minh) it is not due for hours. Test with the device in the owner's time zone.
+- Samsung blocks the app's background network (`NetdEventListenerService … isBlocked=true`); FCM delivery is unaffected because Play services receives it.
+
+AC 4 is met. Status stays `blocked`: AC 5 still needs a first Play upload.
