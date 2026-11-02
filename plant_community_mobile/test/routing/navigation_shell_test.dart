@@ -14,7 +14,6 @@ import 'package:plant_community_mobile/features/blog/services/blog_api.dart';
 import 'package:plant_community_mobile/features/auth/register_screen.dart';
 import 'package:plant_community_mobile/features/scan/scan_screen.dart';
 import 'package:plant_community_mobile/features/collection/collection_screen.dart';
-import 'package:plant_community_mobile/features/diagnose/diagnose_screen.dart';
 import 'package:plant_community_mobile/features/forum/forum_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
@@ -430,15 +429,14 @@ void main() {
       await settle(tester);
     }
 
-    testWidgets('signed in, the Home card opens the screen and keeps the bar', (
+    testWidgets('signed in, the Home card opens the camera in diagnose mode', (
       tester,
     ) async {
       final h = await pumpShell(tester, loggedIn: true);
       await tapDiagnoseCard(tester);
 
-      expect(h.path, AppRoutes.diagnose);
-      expect(find.byType(DiagnoseScreen), findsOneWidget);
-      expect(find.byType(NavigationBar), findsOneWidget);
+      expect(h.path, AppRoutes.camera);
+      expect(find.byType(ScanScreen), findsOneWidget);
       expect(h.router.canPop(), isTrue);
 
       await tester.pump(const Duration(seconds: 4));
@@ -450,7 +448,7 @@ void main() {
       await tapDiagnoseCard(tester);
 
       expect(h.path, AppRoutes.login);
-      expect(find.byType(DiagnoseScreen), findsNothing);
+      expect(find.byType(ScanScreen), findsNothing);
 
       await tester.pump(const Duration(seconds: 4));
     });
