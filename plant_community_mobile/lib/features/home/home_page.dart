@@ -20,11 +20,15 @@ import 'package:plant_community_mobile/core/routing/main_shell.dart';
 ///
 /// Features:
 /// - Hero section with logo and title
-/// - 6 feature cards (Identify, Care, Community, Collection, Diagnose,
-///   Plant Journal)
+/// - Diagnosis-first hero: "Check a sick plant" plus a "Just identify a
+///   plant" link
+/// - Feature cards (Care, Community, Collection, Care Schedule, Plant Journal)
 /// - Get Started CTA button
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
+
+  static const checkPlantKey = Key('home-check-plant');
+  static const justIdentifyKey = Key('home-just-identify');
 
   @override
   Widget build(BuildContext context) {
@@ -76,7 +80,8 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  /// Hero: brand lockup, eyebrow, headline, standfirst, two CTAs.
+  /// Hero: brand lockup, eyebrow, headline, standfirst, primary CTA and an
+  /// identify-only link.
   ///
   /// Mirrors the web `HeroCard` (eyebrow -> display headline -> description ->
   /// primary + ghost actions), including the accented final word. The
@@ -95,16 +100,16 @@ class HomePage extends StatelessWidget {
         children: [
           const BrandLockup(markSize: 40, showTagline: true),
           SizedBox(height: ext.gapY * 1.5),
-          const CanopyLabel('Plant identification community'),
+          const CanopyLabel('Plant health check'),
           SizedBox(height: ext.gapY),
           // The web accents the final word in `--gt-primary`.
           Text.rich(
             TextSpan(
               style: AppTypography.h1.copyWith(color: cs.onSurface),
               children: [
-                const TextSpan(text: 'Discover the world of '),
+                const TextSpan(text: "What's wrong with your "),
                 TextSpan(
-                  text: 'plants',
+                  text: 'plant?',
                   style: TextStyle(color: cs.primary),
                 ),
               ],
@@ -112,27 +117,27 @@ class HomePage extends StatelessWidget {
           ),
           SizedBox(height: ext.gapY),
           Text(
-            'Identify plants with AI, track your collection, and learn from '
-            'other growers.',
+            "Photograph the problem. We'll name the plant, find the cause and "
+            'tell you what to do.',
             style: AppTypography.body.copyWith(color: ext.ink2),
           ),
           SizedBox(height: ext.gapY * 1.5),
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            children: [
-              ClayButton(
-                label: 'Identify a plant',
-                size: ClayButtonSize.medium,
-                onPressed: () => context.push(AppRoutes.camera),
-              ),
-              ClayButton(
-                label: 'Join the forum',
-                size: ClayButtonSize.medium,
-                variant: ClayButtonVariant.ghost,
-                onPressed: () => context.go(AppRoutes.forum),
-              ),
-            ],
+          ClayButton(
+            key: checkPlantKey,
+            label: 'Check a sick plant',
+            size: ClayButtonSize.medium,
+            fullWidth: true,
+            onPressed: () => context.push(AppRoutes.camera),
+          ),
+          // Room for the daily-allowance line (Scan 2.0 phase C).
+          SizedBox(height: ext.gapY),
+          Center(
+            child: TextButton(
+              key: justIdentifyKey,
+              onPressed: () =>
+                  context.push('${AppRoutes.camera}?mode=identify'),
+              child: const Text('Just identify a plant'),
+            ),
           ),
         ],
       ),
@@ -146,15 +151,6 @@ class HomePage extends StatelessWidget {
         GreenThumbExtension.fallback;
 
     final features = [
-      _FeatureData(
-        icon: LucideIcons.camera,
-        title: 'Instant Identification',
-        description:
-            'Snap a photo and instantly identify any plant with AI-powered recognition',
-        type: FeatureType.camera,
-        route: AppRoutes.camera,
-        isTab: false,
-      ),
       _FeatureData(
         icon: LucideIcons.bookOpen,
         title: 'Care Instructions',
@@ -181,17 +177,6 @@ class HomePage extends StatelessWidget {
         type: FeatureType.collection,
         route: AppRoutes.collection,
         isTab: true,
-      ),
-      // The Diagnose entry point (todo 444). Signed out, the router sends
-      // the tap to sign-in.
-      _FeatureData(
-        icon: LucideIcons.stethoscope,
-        title: 'Diagnose a Sick Plant',
-        description:
-            'Photograph the symptoms and get a likely cause and what to do next',
-        type: FeatureType.diagnose,
-        route: AppRoutes.diagnose,
-        isTab: false,
       ),
       // The care schedule (todo 386). Signed out, the router sends the tap
       // to sign-in.
