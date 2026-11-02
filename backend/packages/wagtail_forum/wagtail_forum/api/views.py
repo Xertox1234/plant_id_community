@@ -2500,6 +2500,9 @@ RECENT_TOPICS_SCHEMA = {
                     },
                     "is_pinned": {"type": "boolean"},
                     "thumbnail_url": {"type": "string", "nullable": True},
+                    "image_url": {"type": "string", "nullable": True},
+                    "is_solved": {"type": "boolean"},
+                    "is_unread": {"type": "boolean"},
                 },
             },
         }
@@ -2515,7 +2518,11 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
     builder (todo 273). Thumbnails resolve batched from the opening posts'
     first image block (StreamField raw_data — never iterate the StreamValue,
     which fires per-object image fetches; docs/LEARNINGS.md 2026-06-25), with
-    the topic's identification-attachment image as fallback.
+    the topic's identification-attachment image as fallback. Each row carries
+    the small `thumbnail_url` (fill-80x80, the web rail) and a wide `image_url`
+    (fill-720x400, the mobile home card), plus `is_solved` (accepted answer
+    set) and `is_unread` (per-viewer; always False for anonymous — safe
+    because authenticated responses are served private/no-store).
     """
 
     permission_classes = [AllowAny]
@@ -2555,6 +2562,7 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         # shared cache never holds a personalised page. Chained BEFORE the
         # slice — .exclude() after [:limit] raises.
         recent = _exclude_blocked_authors(recent, request.user)
+        recent = _annotate_topic_unread(recent, request.user)
         topics = list(recent.order_by("-last_post_at", "-id")[:limit])
         topic_ids = [t.pk for t in topics]
 
@@ -2593,29 +2601,36 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         # then iterates the queryset, which preserves prefetch_related.
         images = (
             get_image_model()
-            .objects.prefetch_renditions("fill-80x80")
+            .objects.prefetch_renditions("fill-80x80", "fill-720x400")
             .in_bulk(set(image_id_by_topic.values()))
         )
 
-        def thumb(topic):
+        def rendition_url(topic, spec):
             image = images.get(image_id_by_topic.get(topic.pk))
             if image is None:
                 return None
             try:
-                url = image.get_rendition("fill-80x80").url
+                url = image.get_rendition(spec).url
             except OSError:
                 # Source file missing from disk (media wiped, Image row
                 # survives — wagtail raises SourceImageIOError, an OSError
                 # subclass). Don't 500 the whole endpoint over one bad
-                # thumbnail; log once and omit it for this topic.
+                # rendition; log once and omit it for this topic.
                 logger.exception(
-                    "[ERROR] rendition failed for image %s (topic %s); "
-                    "omitting thumbnail",
+                    "[ERROR] %s rendition failed for image %s (topic %s); "
+                    "omitting it",
+                    spec,
                     image.pk,
                     topic.pk,
                 )
                 return None
             return request.build_absolute_uri(url)
+
+        def thumb(topic):
+            return rendition_url(topic, "fill-80x80")
+
+        def wide(topic):
+            return rendition_url(topic, "fill-720x400")
 
         return Response(
             {
@@ -2633,6 +2648,9 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                         "last_post_at": t.last_post_at,
                         "is_pinned": t.is_pinned,
                         "thumbnail_url": thumb(t),
+                        "image_url": wide(t),
+                        "is_solved": t.solved_post_id is not None,
+                        "is_unread": t.is_unread,
                     }
                     for t in topics
                 ]
