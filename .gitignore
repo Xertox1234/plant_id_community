@@ -241,3 +241,6 @@ backend/docs/cowork/
 
 # Python editable-install build artifacts (e.g. backend/packages/*/...egg-info)
 *.egg-info/
+
+# Local Claude Code plugins (personal tooling, not app code)
+claude-mods/
