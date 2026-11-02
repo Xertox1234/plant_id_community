@@ -119,8 +119,9 @@ the leaf shot, not the problem shot.
 - **Identify-only scans have their own, larger allowance: free 5 a day,
   premium 20.** They do not use up diagnoses. **[call: the owner left "how much a
   diagnosis affects the limits" to the author; these numbers are the author's guess]**
-- **The day resets at local midnight**, using the time zone the app sends with
-  the scan. If it sends none, use UTC. **[call]**
+- **The day resets at local midnight**, using the UTC offset the app sends with
+  the scan (`utc_offset_minutes`; the app has no IANA time-zone package). If it
+  sends none, use UTC. **[call]**
 - **What counts.** A scan counts when its job **succeeds**. A job that fails
   on our side, or is cancelled before it produced a result, does not count.
   **[call]** Reserve a slot when the job is created, so that two quick taps can't both get the last slot, and release it on failure or cancel. **[call]**
