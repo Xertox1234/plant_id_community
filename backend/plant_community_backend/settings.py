@@ -551,6 +551,26 @@ STORAGES: dict[str, dict[str, Any]] = {
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 
+# Scan 2.0 limits: daily scan allowances by mode and tier, plus the Plant.id
+# call caps they draw on. A diagnosis spends two Plant.id calls
+# (identification + health_assessment), so the reserve keeps an identify-only
+# scan from eating the second call a diagnosis still needs.
+SCAN_DIAGNOSE_DAILY_FREE = config("SCAN_DIAGNOSE_DAILY_FREE", default=1, cast=int)
+SCAN_DIAGNOSE_DAILY_PREMIUM = config("SCAN_DIAGNOSE_DAILY_PREMIUM", default=3, cast=int)
+SCAN_IDENTIFY_DAILY_FREE = config("SCAN_IDENTIFY_DAILY_FREE", default=5, cast=int)
+SCAN_IDENTIFY_DAILY_PREMIUM = config(
+    "SCAN_IDENTIFY_DAILY_PREMIUM", default=20, cast=int
+)
+PLANT_ID_DAILY_QUOTA = config("PLANT_ID_DAILY_QUOTA", default=3, cast=int)
+PLANT_ID_MONTHLY_QUOTA = config("PLANT_ID_MONTHLY_QUOTA", default=100, cast=int)
+PLANT_ID_DIAGNOSIS_RESERVE = config("PLANT_ID_DIAGNOSIS_RESERVE", default=2, cast=int)
+SCAN_PLANTNET_CONFIDENCE_FLOOR = config(
+    "SCAN_PLANTNET_CONFIDENCE_FLOOR", default=0.5, cast=float
+)
+SCAN_JOB_STALE_MINUTES = config("SCAN_JOB_STALE_MINUTES", default=10, cast=int)
+# Exposed to the app: how long a job runs before it offers Wait / Cancel.
+SCAN_SLOW_AFTER_SECONDS = config("SCAN_SLOW_AFTER_SECONDS", default=45, cast=int)
+
 USE_R2 = config("USE_R2", default=False, cast=bool)
 if USE_R2:
     STORAGES["default"] = {

@@ -16,12 +16,11 @@ import logging
 from datetime import datetime, time, timedelta
 from typing import Any, Dict, Optional, cast
 
+from django.conf import settings
 from django_redis import get_redis_connection
 from redis import Redis
 
 from ..constants import (
-    PLANT_ID_DAILY_QUOTA,
-    PLANT_ID_MONTHLY_QUOTA,
     PLANT_ID_QUOTA_WARNING_THRESHOLD,
     PLANTNET_DAILY_QUOTA,
     PLANTNET_HOURLY_QUOTA,
@@ -99,12 +98,17 @@ class QuotaManager:
     # Plant.id Quota Management
     # =========================================================================
 
-    def can_call_plant_id(self) -> bool:
+    def can_call_plant_id(self, calls: int = 1, reserve: int = 0) -> bool:
         """
-        Check if Plant.id daily quota is available.
+        Check whether `calls` more Plant.id calls fit under both caps.
+
+        Args:
+            calls: API calls about to be made (a diagnosis makes 2).
+            reserve: Daily calls to leave untouched for a later diagnosis.
 
         Returns:
-            True if quota available, False if exhausted
+            True iff daily + calls + reserve <= the daily cap and
+            monthly + calls <= the monthly cap. Fails open when Redis is down.
         """
         if not self.redis_client:
             # Redis unavailable - allow call (fail open)
@@ -114,8 +118,15 @@ class QuotaManager:
             return True
 
         try:
-            daily_count = self.get_plant_id_daily_usage()
-            return daily_count < PLANT_ID_DAILY_QUOTA
+            daily_ok = (
+                self.get_plant_id_daily_usage() + calls + reserve
+                <= settings.PLANT_ID_DAILY_QUOTA
+            )
+            monthly_ok = (
+                self.get_plant_id_monthly_usage() + calls
+                <= settings.PLANT_ID_MONTHLY_QUOTA
+            )
+            return bool(daily_ok and monthly_ok)
         except Exception as e:
             logger.error(f"[QUOTA] Error checking Plant.id quota: {e}")
             return True  # Fail open
@@ -159,9 +170,9 @@ class QuotaManager:
             logger.error(f"[QUOTA] Error getting Plant.id monthly usage: {e}")
             return 0
 
-    def increment_plant_id(self) -> None:
+    def increment_plant_id(self, calls: int = 1) -> None:
         """
-        Increment Plant.id usage counters (daily and monthly).
+        Add `calls` real API calls to the Plant.id counters (daily and monthly).
 
         Sets expiration times automatically on first increment.
         Logs warnings when approaching quota limits (80% threshold).
@@ -169,12 +180,14 @@ class QuotaManager:
         if not self.redis_client:
             return
 
+        daily_quota = settings.PLANT_ID_DAILY_QUOTA
+        monthly_quota = settings.PLANT_ID_MONTHLY_QUOTA
         try:
             # Increment daily counter
             daily_count = cast(
-                int, self.redis_client.incr(QUOTA_KEY_PREFIX_PLANT_ID_DAILY)
+                int, self.redis_client.incrby(QUOTA_KEY_PREFIX_PLANT_ID_DAILY, calls)
             )
-            if daily_count == 1:
+            if daily_count == calls:
                 # First call today - set expiration to midnight
                 ttl = self._seconds_until_midnight()
                 self.redis_client.expire(QUOTA_KEY_PREFIX_PLANT_ID_DAILY, ttl)
@@ -184,9 +197,9 @@ class QuotaManager:
 
             # Increment monthly counter
             monthly_count = cast(
-                int, self.redis_client.incr(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY)
+                int, self.redis_client.incrby(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY, calls)
             )
-            if monthly_count == 1:
+            if monthly_count == calls:
                 # First call this month - set expiration to end of month
                 ttl = self._seconds_until_month_end()
                 self.redis_client.expire(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY, ttl)
@@ -196,38 +209,33 @@ class QuotaManager:
 
             # Log current usage
             logger.info(
-                f"[QUOTA] Plant.id usage: {daily_count}/{PLANT_ID_DAILY_QUOTA} daily, "
-                f"{monthly_count}/{PLANT_ID_MONTHLY_QUOTA} monthly"
+                f"[QUOTA] Plant.id usage: {daily_count}/{daily_quota} daily, "
+                f"{monthly_count}/{monthly_quota} monthly"
             )
 
             # Warn if approaching daily quota
-            daily_threshold = PLANT_ID_DAILY_QUOTA * PLANT_ID_QUOTA_WARNING_THRESHOLD
-            if daily_count >= daily_threshold and daily_count < PLANT_ID_DAILY_QUOTA:
-                remaining = PLANT_ID_DAILY_QUOTA - daily_count
+            daily_threshold = daily_quota * PLANT_ID_QUOTA_WARNING_THRESHOLD
+            if daily_count >= daily_threshold and daily_count < daily_quota:
+                remaining = daily_quota - daily_count
                 logger.warning(
                     f"[QUOTA] WARNING: Plant.id approaching daily quota! "
-                    f"{daily_count}/{PLANT_ID_DAILY_QUOTA} used ({remaining} remaining)"
+                    f"{daily_count}/{daily_quota} used ({remaining} remaining)"
                 )
 
             # Warn if approaching monthly quota
-            monthly_threshold = (
-                PLANT_ID_MONTHLY_QUOTA * PLANT_ID_QUOTA_WARNING_THRESHOLD
-            )
-            if (
-                monthly_count >= monthly_threshold
-                and monthly_count < PLANT_ID_MONTHLY_QUOTA
-            ):
-                remaining = PLANT_ID_MONTHLY_QUOTA - monthly_count
+            monthly_threshold = monthly_quota * PLANT_ID_QUOTA_WARNING_THRESHOLD
+            if monthly_count >= monthly_threshold and monthly_count < monthly_quota:
+                remaining = monthly_quota - monthly_count
                 logger.warning(
                     f"[QUOTA] WARNING: Plant.id approaching monthly quota! "
-                    f"{monthly_count}/{PLANT_ID_MONTHLY_QUOTA} used ({remaining} remaining)"
+                    f"{monthly_count}/{monthly_quota} used ({remaining} remaining)"
                 )
 
             # Error if quota exceeded
-            if daily_count > PLANT_ID_DAILY_QUOTA:
+            if daily_count > daily_quota:
                 logger.error(
                     f"[QUOTA] ERROR: Plant.id daily quota EXCEEDED! "
-                    f"{daily_count}/{PLANT_ID_DAILY_QUOTA}"
+                    f"{daily_count}/{daily_quota}"
                 )
 
         except Exception as e:
@@ -382,17 +390,20 @@ class QuotaManager:
             "plant_id": {
                 "daily": {
                     "used": self.get_plant_id_daily_usage(),
-                    "limit": PLANT_ID_DAILY_QUOTA,
+                    "limit": settings.PLANT_ID_DAILY_QUOTA,
                     "remaining": max(
-                        0, PLANT_ID_DAILY_QUOTA - self.get_plant_id_daily_usage()
+                        0,
+                        settings.PLANT_ID_DAILY_QUOTA - self.get_plant_id_daily_usage(),
                     ),
                     "available": self.can_call_plant_id(),
                 },
                 "monthly": {
                     "used": self.get_plant_id_monthly_usage(),
-                    "limit": PLANT_ID_MONTHLY_QUOTA,
+                    "limit": settings.PLANT_ID_MONTHLY_QUOTA,
                     "remaining": max(
-                        0, PLANT_ID_MONTHLY_QUOTA - self.get_plant_id_monthly_usage()
+                        0,
+                        settings.PLANT_ID_MONTHLY_QUOTA
+                        - self.get_plant_id_monthly_usage(),
                     ),
                 },
             },
