@@ -1864,6 +1864,16 @@ def validate_environment():
             else:
                 warnings.append(message)
 
+        # The media bucket is public (custom domain, permanent URLs). Scans
+        # pointed at it would make users' plant photos public. Raises in every
+        # environment (not warn-only in DEBUG): a dev box can hold real data too.
+        scans_bucket = config("R2_SCANS_BUCKET_NAME", default="")
+        if scans_bucket and scans_bucket == config("R2_BUCKET_NAME", default=""):
+            raise ImproperlyConfigured(
+                "R2_SCANS_BUCKET_NAME must not equal R2_BUCKET_NAME: the media "
+                "bucket is public, so scan photos stored there would be public."
+            )
+
     # ========================================
     # API Key Format Validation (Issue #156)
     # ========================================

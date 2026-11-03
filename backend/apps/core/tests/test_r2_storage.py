@@ -272,6 +272,23 @@ class ValidateEnvironmentR2Tests(SimpleTestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_scans_bucket_equal_to_media_bucket_fails_fast(self):
+        result = _run_check(
+            DEBUG="True",
+            USE_R2="True",
+            R2_BUCKET_NAME="same-bucket",
+            R2_ACCESS_KEY_ID="test-key",
+            R2_SECRET_ACCESS_KEY="test-secret",  # pragma: allowlist secret
+            R2_ENDPOINT_URL="https://example.r2.cloudflarestorage.com",
+            R2_CUSTOM_DOMAIN="media.example.com",
+            R2_SCANS_BUCKET_NAME="same-bucket",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "R2_SCANS_BUCKET_NAME must not equal R2_BUCKET_NAME",
+            result.stdout + result.stderr,
+        )
+
     def test_flag_off_does_not_require_r2_vars_in_production(self):
         result = _run_check(
             DEBUG="False",

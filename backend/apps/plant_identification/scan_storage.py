@@ -101,6 +101,9 @@ def normalize_scan_photo(upload) -> ContentFile:
     except Exception as exc:
         raise ValueError("Not a decodable image") from exc
     img = img.convert("RGB")
+    # Pillow's JPEG writer re-emits info["comment"] (and keeps icc/xmp); the
+    # decoded pixels are all we keep.
+    img.info = {}
     img.thumbnail((MAX_SCAN_PHOTO_SIDE, MAX_SCAN_PHOTO_SIDE), Image.Resampling.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=SCAN_PHOTO_JPEG_QUALITY)

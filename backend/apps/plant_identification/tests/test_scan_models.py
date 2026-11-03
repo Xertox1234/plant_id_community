@@ -139,3 +139,27 @@ def test_r2_scan_storage_is_private():
     assert storage.bucket_name == "scans-bucket"
     assert storage.file_overwrite is False
     assert storage.object_parameters["CacheControl"] == "private, no-store"
+
+
+def test_jpeg_comment_is_dropped():
+    buf = io.BytesIO()
+    Image.new("RGB", (100, 80), (1, 2, 3)).save(
+        buf, "JPEG", comment=b"Shot at 12 Main St"
+    )
+    with Image.open(io.BytesIO(buf.getvalue())) as probe:
+        assert probe.info.get("comment") == b"Shot at 12 Main St"
+    out = normalize_scan_photo(ContentFile(buf.getvalue(), name="x.jpg"))
+    with Image.open(io.BytesIO(out.read())) as im:
+        assert "comment" not in im.info
+        assert b"12 Main St" not in out.open().read()
+
+
+def test_scan_job_admin_is_read_only(rf):
+    from apps.plant_identification.admin import ScanJobAdmin
+    from django.contrib import admin as dj_admin
+
+    model_admin = ScanJobAdmin(ScanJob, dj_admin.site)
+    request = rf.get("/")
+    assert model_admin.has_add_permission(request) is False
+    assert model_admin.has_change_permission(request) is False
+    assert model_admin.has_delete_permission(request) is False
