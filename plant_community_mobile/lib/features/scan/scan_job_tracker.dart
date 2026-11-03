@@ -58,8 +58,13 @@ class ScanTrackerState {
 /// The one background scan job of this device: uploads it, polls it every
 /// [scanJobPollInterval], and saves a finished plant to My Collection once.
 ///
-/// Every async continuation checks [_gen]: [submit], [cancel] and [dismiss]
-/// bump it, so a GET or save that lands after one of them is dropped.
+/// Every async continuation checks [_gen]: [submit], [cancel], [dismiss] and
+/// a change of signed-in user bump it, so a GET or save that lands after one
+/// of them is dropped.
+///
+/// A job belongs to the user signed in when it was tracked ([_ownerUid]).
+/// When that user signs out or another signs in, the job is forgotten, and
+/// a result is only ever saved to its owner's collection.
 @Riverpod(keepAlive: true)
 class ScanJobTracker extends _$ScanJobTracker {
   /// The tracked job, mirrored in storage under [scanJobPendingIdKey].
@@ -83,6 +88,13 @@ class ScanJobTracker extends _$ScanJobTracker {
   int _slowAfterSeconds = defaultSlowAfterSeconds;
   Future<void>? _restoring;
 
+  /// The user the tracked job (and the shown state) belongs to.
+  String? _ownerUid;
+
+  /// Set when a restore had no signed-in user (or was refused with 401/403):
+  /// the next sign-in runs it.
+  bool _restoreDeferred = false;
+
   FlutterSecureStorage get _storage => ref.read(scanTrackerStorageProvider);
   ScanJobApi get _api => ref.read(scanJobApiProvider);
   DateTime _now() => ref.read(scanTrackerClockProvider)();
@@ -94,6 +106,7 @@ class ScanJobTracker extends _$ScanJobTracker {
       _timer?.cancel();
       _lifecycle?.dispose();
     });
+    ref.listen<String?>(currentUserIdProvider, (_, next) => _onUser(next));
     _restoring = restore();
     unawaited(_restoring);
     return const ScanTrackerState();
@@ -119,11 +132,8 @@ class ScanJobTracker extends _$ScanJobTracker {
   }
 
   Future<void> _submit(CaptureResult r) async {
-    final gen = ++_gen;
-    _stopTimer();
-    _pendingId = null;
-    _handledId = null;
-
+    // The pre-check runs before anything changes, so a refusal leaves the
+    // current job (and its pending save) untouched.
     ScanAllowance? allowance;
     try {
       allowance = await _api.allowance();
@@ -131,7 +141,7 @@ class ScanJobTracker extends _$ScanJobTracker {
       // The server checks again on create; don't block a scan on this read.
       debugPrint('[SCAN_JOB] Allowance pre-check failed: $e');
     }
-    if (!_current(gen)) return;
+    if (!ref.mounted) return;
     if (allowance != null) {
       if (allowance.remainingFor(r.mode) <= 0) {
         throw ScanRefused(code: 'allowance_exhausted', kind: r.mode.name);
@@ -140,6 +150,13 @@ class ScanJobTracker extends _$ScanJobTracker {
         throw const ScanRefused(code: 'plant_id_busy');
       }
     }
+
+    final gen = ++_gen;
+    _stopTimer();
+    _pendingId = null;
+    _handledId = null;
+    _restoreDeferred = false;
+    _ownerUid = ref.read(currentUserIdProvider);
     _slowAfterSeconds = allowance?.slowAfterSeconds ?? defaultSlowAfterSeconds;
 
     state = ScanTrackerState(phase: TrackerPhase.uploading, lastCapture: r);
@@ -270,8 +287,17 @@ class ScanJobTracker extends _$ScanJobTracker {
   }
 
   /// Picks up the job stored before the app was killed.
+  ///
+  /// With nobody signed in yet it waits for the sign-in. A job id stored by
+  /// another user is answered 404 by the server and cleared.
   Future<void> restore() async {
     final gen = _gen;
+    final uid = ref.read(currentUserIdProvider);
+    if (uid == null || uid.isEmpty) {
+      _restoreDeferred = true;
+      return;
+    }
+    _restoreDeferred = false;
     String? id;
     try {
       id = await _storage.read(key: scanJobPendingIdKey);
@@ -280,17 +306,13 @@ class ScanJobTracker extends _$ScanJobTracker {
     }
     if (id == null || !ref.mounted || !_current(gen)) return;
     _pendingId = id;
+    _ownerUid = uid;
     _uploadFinishedAt = null;
     ScanJob job;
     try {
       job = await _api.get(id);
     } on ApiException catch (e) {
-      if (!_current(gen)) return;
-      if (e.statusCode == 404) {
-        _pendingId = null;
-        await _clearStored();
-        return;
-      }
+      if (!_current(gen) || _handledReadError(e)) return;
       debugPrint('[SCAN_JOB] Restored job read failed: $e');
       state = const ScanTrackerState(phase: TrackerPhase.waiting);
       _startTimer();
@@ -314,6 +336,59 @@ class ScanJobTracker extends _$ScanJobTracker {
   }
 
   bool _current(int gen) => ref.mounted && gen == _gen;
+
+  /// Drops the tracked job and returns to idle. The stored id is kept when
+  /// [keepStored], so a later restore can pick the job up again.
+  void _forget({required bool keepStored}) {
+    _gen++;
+    _stopTimer();
+    _pendingId = null;
+    _handledId = null;
+    _ownerUid = null;
+    state = const ScanTrackerState();
+    if (!keepStored) unawaited(_clearStored());
+  }
+
+  /// Handles a job read that will not succeed by asking again. True when
+  /// [e] was one: 404 (gone, or not this user's) forgets the job; 401/403
+  /// stops polling but keeps the stored id for a restore after sign-in.
+  bool _handledReadError(ApiException e) {
+    switch (e.statusCode) {
+      case 404:
+        _forget(keepStored: false);
+        return true;
+      case 401 || 403:
+        _forget(keepStored: true);
+        _restoreDeferred = true;
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  void _onUser(String? uid) {
+    if (_ownerUid != null && uid != _ownerUid) {
+      // Signed out, or someone else signed in: nothing of this job may
+      // show, poll or save in their session. The bump is synchronous, so no
+      // continuation acts on the job; the state write waits a microtask,
+      // because this can run inside our own `ref.read` (mid-[_apply]), where
+      // a nested state write does not stick.
+      _gen++;
+      _stopTimer();
+      _pendingId = null;
+      _handledId = null;
+      _ownerUid = null;
+      final gen = _gen;
+      scheduleMicrotask(() {
+        if (_current(gen)) _forget(keepStored: false);
+      });
+      return;
+    }
+    if (_restoreDeferred && uid != null && uid.isNotEmpty) {
+      _restoring = restore();
+      unawaited(_restoring);
+    }
+  }
 
   static bool _isActive(TrackerPhase p) =>
       p == TrackerPhase.uploading ||
@@ -369,6 +444,10 @@ class ScanJobTracker extends _$ScanJobTracker {
     try {
       final job = await _api.get(id);
       if (_current(gen)) _apply(job, gen);
+    } on ApiException catch (e) {
+      if (!_current(gen) || _handledReadError(e)) return;
+      debugPrint('[SCAN_JOB] Poll failed: $e');
+      _markSlowIfDue(state.job);
     } catch (e) {
       debugPrint('[SCAN_JOB] Poll failed: $e');
       if (_current(gen)) _markSlowIfDue(state.job);
@@ -435,7 +514,13 @@ class ScanJobTracker extends _$ScanJobTracker {
   Future<void> _saveThenClear(ScanJob job, int gen) async {
     final result = job.result;
     final uid = ref.read(currentUserIdProvider);
-    if (result != null && uid != null && uid.isNotEmpty) {
+    if (uid == null || uid.isEmpty || uid != _ownerUid) {
+      // Nobody to save for (auth not restored yet), or not the job's owner.
+      // Keep the stored id so its owner's next restore saves it.
+      debugPrint('[SCAN_JOB] Job ${job.id} not saved: not its owner.');
+      return;
+    }
+    if (result != null) {
       // The Firestore service auto-disposes; hold it for the whole write.
       final keep = ref.listen(firestoreServiceProvider, (_, _) {});
       try {
@@ -463,7 +548,7 @@ class ScanJobTracker extends _$ScanJobTracker {
         keep.close();
       }
     } else {
-      debugPrint('[SCAN_JOB] Job ${job.id} not saved: no result or user.');
+      debugPrint('[SCAN_JOB] Finished job ${job.id} has no result to save.');
     }
     // A dismiss or new scan since then owns the stored id now.
     if (!_current(gen)) return;

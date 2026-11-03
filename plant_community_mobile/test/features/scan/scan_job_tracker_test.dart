@@ -75,6 +75,8 @@ class _FakeScanJobApi extends ScanJobApi {
   ScanAllowance allowanceValue = _allowance();
   Object? createError;
   Completer<void>? createGate;
+  Completer<void>? getGate;
+  Object? getError;
   ScanJob createJob = _job(ScanJobStatus.pending);
   final gets = Queue<ScanJob>();
   ScanJob cancelJob = _job(ScanJobStatus.cancelled);
@@ -101,6 +103,8 @@ class _FakeScanJobApi extends ScanJobApi {
   @override
   Future<ScanJob> get(String id) async {
     calls.add('get:$id');
+    await getGate?.future;
+    if (getError != null) throw getError!;
     return gets.length > 1 ? gets.removeFirst() : gets.first;
   }
 
@@ -129,8 +133,20 @@ class _CountingFirestoreService extends FirestoreService {
   }
 }
 
+/// The signed-in user, switchable mid-test.
+class _Uid extends Notifier<String?> {
+  _Uid(this._initial);
+  final String? _initial;
+
+  @override
+  String? build() => _initial;
+
+  void set(String? uid) => state = uid;
+}
+
 class _Harness {
-  _Harness() {
+  _Harness({String? uid = _uid}) {
+    uidProvider = NotifierProvider<_Uid, String?>(() => _Uid(uid));
     container = ProviderContainer(
       overrides: [
         scanJobApiProvider.overrideWithValue(api),
@@ -138,7 +154,7 @@ class _Harness {
           const FlutterSecureStorage(),
         ),
         scanTrackerClockProvider.overrideWithValue(() => now),
-        currentUserIdProvider.overrideWithValue(_uid),
+        currentUserIdProvider.overrideWith((ref) => ref.watch(uidProvider)),
         firebaseFirestoreProvider.overrideWithValue(firestore),
         firestoreServiceProvider.overrideWith(() => store),
       ],
@@ -146,6 +162,7 @@ class _Harness {
     container.listen(scanJobTrackerProvider, (_, _) {});
   }
 
+  late final NotifierProvider<_Uid, String?> uidProvider;
   final api = _FakeScanJobApi();
   final firestore = FakeFirebaseFirestore();
   final store = _CountingFirestoreService();
@@ -158,10 +175,19 @@ class _Harness {
   Future<String?> storedId() =>
       const FlutterSecureStorage().read(key: scanJobPendingIdKey);
 
-  Future<int> collectionDocs() async =>
+  /// Changes the user and flushes it, as Riverpod's scheduler would: a
+  /// dependent's listeners run on the next flush, not on the write.
+  void signIn(String? uid) {
+    container.read(uidProvider.notifier).set(uid);
+    container.read(currentUserIdProvider);
+  }
+
+  int get getCount => api.calls.where((c) => c.startsWith('get:')).length;
+
+  Future<int> collectionDocs([String uid = _uid]) async =>
       (await firestore
               .collection('users')
-              .doc(_uid)
+              .doc(uid)
               .collection('identified_plants')
               .get())
           .docs
@@ -471,6 +497,194 @@ void main() {
 
     h.tracker.dismiss();
     await tester.pump();
+    expect(await h.storedId(), isNull);
+    h.container.dispose();
+  });
+
+  testWidgets('restore with nobody signed in keeps the id and saves nothing, '
+      'then restores on sign-in', (tester) async {
+    FlutterSecureStorage.setMockInitialValues({scanJobPendingIdKey: _jobId});
+    final h = _Harness(uid: null);
+    h.api.gets.add(_job(ScanJobStatus.done));
+    await h.tracker.restored;
+    await tester.pump();
+
+    expect(h.api.calls, isEmpty);
+    expect(h.state.phase, TrackerPhase.idle);
+    expect(h.store.saved, isEmpty);
+    expect(await h.storedId(), _jobId);
+
+    h.signIn(_uid);
+    await h.tracker.restored;
+    await tester.pump();
+    expect(h.state.phase, TrackerPhase.ready);
+    expect(h.store.saved, hasLength(1));
+    expect(await h.collectionDocs(), 1);
+    expect(await h.storedId(), isNull);
+    h.container.dispose();
+  });
+
+  testWidgets(
+    'sign-out while waiting goes idle, stops polling, clears the id',
+    (tester) async {
+      final h = _Harness();
+      await h.tracker.restored;
+      h.api.gets.add(_job(ScanJobStatus.processing));
+      await h.tracker.submit(_capture);
+      await h.tick(tester);
+      expect(h.state.phase, TrackerPhase.waiting);
+
+      h.signIn(null);
+      await tester.pump();
+      expect(h.state.phase, TrackerPhase.idle);
+      expect(h.state.job, isNull);
+      expect(h.state.lastCapture, isNull);
+      expect(await h.storedId(), isNull);
+
+      final gets = h.getCount;
+      await h.tick(tester);
+      await h.tick(tester);
+      expect(h.getCount, gets);
+      h.container.dispose();
+    },
+  );
+
+  testWidgets('a ready result does not survive into the next user', (
+    tester,
+  ) async {
+    final h = _Harness();
+    await h.tracker.restored;
+    h.api.gets.add(_job(ScanJobStatus.done));
+    await h.tracker.submit(_capture);
+    await h.tick(tester);
+    expect(h.state.phase, TrackerPhase.ready);
+
+    h.signIn('user-2');
+    await tester.pump();
+    expect(h.state.phase, TrackerPhase.idle);
+    expect(h.state.job, isNull);
+    h.container.dispose();
+  });
+
+  testWidgets('a GET landing after a user switch saves nothing for the new '
+      'user', (tester) async {
+    final h = _Harness();
+    await h.tracker.restored;
+    h.api.gets.add(_job(ScanJobStatus.processing));
+    await h.tracker.submit(_capture);
+    h.api.gets
+      ..clear()
+      ..add(_job(ScanJobStatus.done));
+    h.api.getGate = Completer<void>();
+
+    await tester.pump(_poll); // the GET under user-1 starts and blocks
+    // The user changes, but the tracker's listener has not run yet: only the
+    // owner check at save time stands between the result and user-2.
+    h.container.read(h.uidProvider.notifier).set('user-2');
+    h.api.getGate!.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(h.store.saved, isEmpty);
+    expect(await h.collectionDocs('user-2'), 0);
+
+    // Once the listener runs, nothing of user-1's job is left.
+    h.container.read(currentUserIdProvider);
+    await tester.pump();
+    expect(h.state.phase, TrackerPhase.idle);
+    expect(h.state.job, isNull);
+    await h.tick(tester);
+    expect(h.store.saved, isEmpty);
+    h.container.dispose();
+  });
+
+  testWidgets(
+    'restore of another user\'s job id: 404 clears it, saves nothing',
+    (tester) async {
+      FlutterSecureStorage.setMockInitialValues({scanJobPendingIdKey: _jobId});
+      final h = _Harness(uid: 'user-2');
+      h.api.getError = ApiException('Not found', statusCode: 404);
+      await h.tracker.restored;
+      await tester.pump();
+
+      expect(h.api.calls, ['get:$_jobId']);
+      expect(h.state.phase, TrackerPhase.idle);
+      expect(h.store.saved, isEmpty);
+      expect(await h.storedId(), isNull);
+      await h.tick(tester);
+      expect(h.getCount, 1);
+      h.container.dispose();
+    },
+  );
+
+  testWidgets('a 404 while polling clears the id and goes idle', (
+    tester,
+  ) async {
+    final h = _Harness();
+    await h.tracker.restored;
+    h.api.gets.add(_job(ScanJobStatus.processing));
+    await h.tracker.submit(_capture);
+    h.api.getError = ApiException('Not found', statusCode: 404);
+
+    await h.tick(tester);
+    expect(h.state.phase, TrackerPhase.idle);
+    expect(await h.storedId(), isNull);
+    final gets = h.getCount;
+    await h.tick(tester);
+    expect(h.getCount, gets);
+    h.container.dispose();
+  });
+
+  testWidgets('a 401 while polling stops polling and keeps the id', (
+    tester,
+  ) async {
+    final h = _Harness();
+    await h.tracker.restored;
+    h.api.gets.add(_job(ScanJobStatus.processing));
+    await h.tracker.submit(_capture);
+    h.api.getError = ApiException('Unauthorized', statusCode: 401);
+
+    await h.tick(tester);
+    expect(h.state.phase, TrackerPhase.idle);
+    expect(await h.storedId(), _jobId);
+    final gets = h.getCount;
+    await h.tick(tester);
+    await h.tick(tester);
+    expect(h.getCount, gets);
+
+    // Signing in again restores it.
+    h.api.getError = null;
+    h.api.gets
+      ..clear()
+      ..add(_job(ScanJobStatus.done));
+    h.signIn(null);
+    await tester.pump();
+    h.signIn(_uid);
+    await tester.pump();
+    await h.tracker.restored;
+    await tester.pump();
+    expect(h.state.phase, TrackerPhase.ready);
+    expect(h.store.saved, hasLength(1));
+    h.container.dispose();
+  });
+
+  testWidgets('a locally refused new scan from ready leaves the old save to '
+      'clear its id', (tester) async {
+    final h = _Harness();
+    await h.tracker.restored;
+    h.store.gate = Completer<void>();
+    h.api.gets.add(_job(ScanJobStatus.done));
+    await h.tracker.submit(_capture);
+    await h.tick(tester);
+    expect(h.state.phase, TrackerPhase.ready);
+    expect(await h.storedId(), _jobId);
+
+    h.api.allowanceValue = _allowance(diagnoseRemaining: 0);
+    await expectLater(h.tracker.submit(_capture), throwsA(isA<ScanRefused>()));
+    expect(h.state.phase, TrackerPhase.ready);
+
+    h.store.gate!.complete();
+    await tester.pump();
+    expect(h.store.saved, hasLength(1));
     expect(await h.storedId(), isNull);
     h.container.dispose();
   });

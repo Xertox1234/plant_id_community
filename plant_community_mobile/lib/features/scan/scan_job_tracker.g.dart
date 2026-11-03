@@ -11,8 +11,13 @@ part of 'scan_job_tracker.dart';
 /// The one background scan job of this device: uploads it, polls it every
 /// [scanJobPollInterval], and saves a finished plant to My Collection once.
 ///
-/// Every async continuation checks [_gen]: [submit], [cancel] and [dismiss]
-/// bump it, so a GET or save that lands after one of them is dropped.
+/// Every async continuation checks [_gen]: [submit], [cancel], [dismiss] and
+/// a change of signed-in user bump it, so a GET or save that lands after one
+/// of them is dropped.
+///
+/// A job belongs to the user signed in when it was tracked ([_ownerUid]).
+/// When that user signs out or another signs in, the job is forgotten, and
+/// a result is only ever saved to its owner's collection.
 
 @ProviderFor(ScanJobTracker)
 final scanJobTrackerProvider = ScanJobTrackerProvider._();
@@ -20,15 +25,25 @@ final scanJobTrackerProvider = ScanJobTrackerProvider._();
 /// The one background scan job of this device: uploads it, polls it every
 /// [scanJobPollInterval], and saves a finished plant to My Collection once.
 ///
-/// Every async continuation checks [_gen]: [submit], [cancel] and [dismiss]
-/// bump it, so a GET or save that lands after one of them is dropped.
+/// Every async continuation checks [_gen]: [submit], [cancel], [dismiss] and
+/// a change of signed-in user bump it, so a GET or save that lands after one
+/// of them is dropped.
+///
+/// A job belongs to the user signed in when it was tracked ([_ownerUid]).
+/// When that user signs out or another signs in, the job is forgotten, and
+/// a result is only ever saved to its owner's collection.
 final class ScanJobTrackerProvider
     extends $NotifierProvider<ScanJobTracker, ScanTrackerState> {
   /// The one background scan job of this device: uploads it, polls it every
   /// [scanJobPollInterval], and saves a finished plant to My Collection once.
   ///
-  /// Every async continuation checks [_gen]: [submit], [cancel] and [dismiss]
-  /// bump it, so a GET or save that lands after one of them is dropped.
+  /// Every async continuation checks [_gen]: [submit], [cancel], [dismiss] and
+  /// a change of signed-in user bump it, so a GET or save that lands after one
+  /// of them is dropped.
+  ///
+  /// A job belongs to the user signed in when it was tracked ([_ownerUid]).
+  /// When that user signs out or another signs in, the job is forgotten, and
+  /// a result is only ever saved to its owner's collection.
   ScanJobTrackerProvider._()
     : super(
         from: null,
@@ -56,13 +71,18 @@ final class ScanJobTrackerProvider
   }
 }
 
-String _$scanJobTrackerHash() => r'd346e0fa6032f7ff050fb654761b8202d77dfd2f';
+String _$scanJobTrackerHash() => r'2e08e5f3cb8662d0e8ac7de2b8f6a77619550bbf';
 
 /// The one background scan job of this device: uploads it, polls it every
 /// [scanJobPollInterval], and saves a finished plant to My Collection once.
 ///
-/// Every async continuation checks [_gen]: [submit], [cancel] and [dismiss]
-/// bump it, so a GET or save that lands after one of them is dropped.
+/// Every async continuation checks [_gen]: [submit], [cancel], [dismiss] and
+/// a change of signed-in user bump it, so a GET or save that lands after one
+/// of them is dropped.
+///
+/// A job belongs to the user signed in when it was tracked ([_ownerUid]).
+/// When that user signs out or another signs in, the job is forgotten, and
+/// a result is only ever saved to its owner's collection.
 
 abstract class _$ScanJobTracker extends $Notifier<ScanTrackerState> {
   ScanTrackerState build();
