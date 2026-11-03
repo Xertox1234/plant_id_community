@@ -142,4 +142,46 @@ void main() {
     expect(find.textContaining('50%'), findsNothing);
     expect(find.text('Looks healthy'), findsNothing);
   });
+
+  testWidgets('a degraded result with onRetry shows Try again', (tester) async {
+    var tapped = 0;
+    await tester.pumpWidget(
+      _wrap(
+        ResultsScreen(
+          plant: _mockPlant(),
+          degraded: true,
+          onRetry: () => tapped++,
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(ResultsScreen.retryKey));
+    expect(tapped, 1);
+    expect(find.text('Try again'), findsOneWidget);
+  });
+
+  testWidgets('no Try again without onRetry, or when not degraded', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(ResultsScreen(plant: _mockPlant(), degraded: true)),
+    );
+    expect(find.byKey(ResultsScreen.retryKey), findsNothing);
+    await tester.pumpWidget(
+      _wrap(ResultsScreen(plant: _mockPlant(), onRetry: () {})),
+    );
+    expect(find.byKey(ResultsScreen.retryKey), findsNothing);
+  });
+
+  testWidgets('a found diagnosis whose name is only spaces reads as '
+      'unchecked', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ResultsScreen(
+          plant: _mockPlant(),
+          diagnosis: const ScanDiagnosis(state: 'found', name: '   '),
+        ),
+      ),
+    );
+    expect(find.text(ResultsScreen.degradedCopy), findsOneWidget);
+  });
 }

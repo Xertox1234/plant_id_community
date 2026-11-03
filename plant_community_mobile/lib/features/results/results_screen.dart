@@ -38,7 +38,14 @@ class ResultsScreen extends StatelessWidget {
     this.diagnosis,
     this.confidence,
     this.degraded = false,
+    this.onRetry,
   });
+
+  /// Offered on a degraded result as "Try again": re-runs the check, which
+  /// the degraded scan did not use. Null hides it.
+  final VoidCallback? onRetry;
+
+  static const retryKey = Key('results-retry');
 
   static const degradedCopy =
       "We named your plant but couldn't check its health. "
@@ -93,7 +100,7 @@ class ResultsScreen extends StatelessWidget {
     final theme = Theme.of(context);
     final d = diagnosis;
     final Widget content;
-    final foundName = d?.state == 'found' ? d?.name : null;
+    final foundName = d?.state == 'found' ? d?.name?.trim() : null;
     final known =
         d != null &&
         (d.state == 'healthy' ||
@@ -101,7 +108,28 @@ class ResultsScreen extends StatelessWidget {
     // Only a verdict we recognise is shown; anything else (unavailable, a
     // state a newer server adds, a found with no name) reads as unchecked
     // rather than as a false health claim.
-    if (degraded || d == null || !known) {
+    final retry = onRetry;
+    if (degraded && retry != null) {
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(degradedCopy, style: theme.textTheme.bodyMedium),
+          const SizedBox(height: AppSpacing.md),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton(
+              key: retryKey,
+              // 48dp: Material's 40dp default misses the tap-target guideline.
+              style: const ButtonStyle(
+                minimumSize: WidgetStatePropertyAll(Size(64, 48)),
+              ),
+              onPressed: retry,
+              child: const Text('Try again'),
+            ),
+          ),
+        ],
+      );
+    } else if (degraded || d == null || !known) {
       content = Text(degradedCopy, style: theme.textTheme.bodyMedium);
     } else if (d.state == 'found') {
       final p = d.probability;
@@ -112,7 +140,7 @@ class ResultsScreen extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  d.name ?? '',
+                  foundName ?? '',
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),

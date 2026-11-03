@@ -74,6 +74,11 @@ class FakeScanJobTracker extends ScanJobTracker {
   }
 
   @override
+  Future<void> viewed(String jobId, {ScanJob? job}) async {
+    calls.add('viewed:$jobId');
+  }
+
+  @override
   void dismiss() {
     calls.add('dismiss');
     state = const ScanTrackerState();

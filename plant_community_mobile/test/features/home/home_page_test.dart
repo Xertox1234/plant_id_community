@@ -1,9 +1,17 @@
+import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:plant_community_mobile/features/home/home_page.dart';
+import 'package:plant_community_mobile/features/scan/capture_session.dart';
+import 'package:plant_community_mobile/features/scan/capture_steps.dart';
 import 'package:plant_community_mobile/features/scan/scan_job_api.dart';
+import 'package:plant_community_mobile/features/scan/scan_job_tracker.dart';
+import 'package:plant_community_mobile/services/api_service.dart';
+import 'package:plant_community_mobile/services/auth_service.dart';
+import 'package:plant_community_mobile/services/firestore_service.dart';
 import 'package:plant_community_mobile/shared/widgets/brand_mark.dart';
 import 'package:plant_community_mobile/shared/widgets/canopy_label.dart';
 import 'package:plant_community_mobile/shared/widgets/feature_card.dart';
@@ -35,7 +43,127 @@ Widget _wrap({ScanAllowance? allowance}) => ProviderScope(
   ),
 );
 
+/// The server side of one scan: the allowance drops when a job is created
+/// and comes back when it is cancelled.
+class _ScanServer extends ScanJobApi {
+  _ScanServer() : super(ApiService(baseUrl: 'https://api.test'));
+
+  int remaining = 1;
+  ScanJobStatus next = ScanJobStatus.processing;
+
+  ScanJob _job(ScanJobStatus status) => ScanJob(
+    id: 'job-1',
+    mode: ScanMode.diagnose,
+    status: status,
+    chargedAs: 'diagnose',
+    result: null,
+    photos: const {},
+    coverPhoto: null,
+    createdAt: DateTime.utc(2026, 11, 2, 9, 30),
+  );
+
+  @override
+  Future<ScanAllowance> allowance() async => _allowance(remaining: remaining);
+
+  @override
+  Future<ScanJob> create(
+    CaptureResult r, {
+    void Function(double)? onProgress,
+  }) async {
+    remaining = 0;
+    return _job(ScanJobStatus.pending);
+  }
+
+  @override
+  Future<ScanJob> get(String id) async => _job(next);
+
+  @override
+  Future<ScanJob> cancel(String id) async {
+    remaining = 1;
+    return _job(ScanJobStatus.cancelled);
+  }
+}
+
+const _capture = CaptureResult(
+  mode: ScanMode.diagnose,
+  shots: {CaptureRole.problem: '/tmp/p.jpg'},
+);
+
+/// HomePage over the REAL tracker, so the allowance line sees what the
+/// tracker does.
+Future<(_ScanServer, ProviderContainer)> _pumpWithTracker(
+  WidgetTester tester,
+) async {
+  FlutterSecureStorage.setMockInitialValues({});
+  final server = _ScanServer();
+  final container = ProviderContainer(
+    overrides: [
+      scanJobApiProvider.overrideWithValue(server),
+      scanTrackerStorageProvider.overrideWithValue(
+        const FlutterSecureStorage(),
+      ),
+      currentUserIdProvider.overrideWithValue('user-1'),
+      firebaseFirestoreProvider.overrideWithValue(FakeFirebaseFirestore()),
+    ],
+  );
+  addTearDown(container.dispose);
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        theme: AppTheme.build(Brightness.light, AppDensity.cozy),
+        home: const HomePage(),
+      ),
+    ),
+  );
+  await tester.pump();
+  return (server, container);
+}
+
+Future<void> _settle(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 1));
+  await tester.pump();
+}
+
 void main() {
+  group('allowance line follows the scan job', () {
+    testWidgets('the home line updates after a job finishes', (tester) async {
+      final (server, container) = await _pumpWithTracker(tester);
+      expect(find.text('1 check left today'), findsOneWidget);
+      final tracker = container.read(scanJobTrackerProvider.notifier);
+      await tracker.restored;
+
+      await tracker.submit(_capture);
+      await _settle(tester);
+      expect(find.text('No checks left today · Go premium for 3'), findsOne);
+
+      // The health check never ran: the server refunds the check.
+      server
+        ..remaining = 1
+        ..next = ScanJobStatus.degraded;
+      await tester.pump(scanJobPollInterval);
+      await _settle(tester);
+      expect(container.read(scanJobTrackerProvider).phase, TrackerPhase.ready);
+      expect(find.text('1 check left today'), findsOneWidget);
+      tracker.dismiss();
+      await _settle(tester);
+    });
+
+    testWidgets('the home line updates after a cancel', (tester) async {
+      final (_, container) = await _pumpWithTracker(tester);
+      final tracker = container.read(scanJobTrackerProvider.notifier);
+      await tracker.restored;
+      await tracker.submit(_capture);
+      await _settle(tester);
+      expect(find.text('No checks left today · Go premium for 3'), findsOne);
+
+      await tracker.cancel();
+      await _settle(tester);
+      expect(find.text('1 check left today'), findsOneWidget);
+    });
+  });
+
   testWidgets('hero is diagnosis-first: label, headline, body, one CTA', (
     tester,
   ) async {

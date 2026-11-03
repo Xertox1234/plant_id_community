@@ -198,8 +198,18 @@ class PushMessageRouterService {
     final router = routerAccessor();
     if (isColdStart) {
       router.go(AppRoutes.home);
+    } else if (_showsScanResult(router, jobId)) {
+      // Already open: pushing again would stack a second copy.
+      return;
     }
     router.push(scanResultPath(jobId));
+  }
+
+  /// Whether the top-most route is the result of [jobId].
+  static bool _showsScanResult(GoRouter router, String jobId) {
+    final current = router.routerDelegate.currentConfiguration;
+    return current.isNotEmpty &&
+        router.state.matchedLocation == scanResultPath(jobId);
   }
 
   Future<void> _routeCareReminder(

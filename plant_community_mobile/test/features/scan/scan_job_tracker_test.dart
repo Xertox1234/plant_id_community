@@ -779,4 +779,245 @@ void main() {
     expect(gets(), paused + 2);
     h.container.dispose();
   });
+
+  group('allowance freshness', () {
+    int allowanceReads(_Harness h) =>
+        h.api.calls.where((c) => c == 'allowance').length;
+
+    /// Riverpod refreshes an invalidated provider on a zero timer.
+    Future<void> settleAllowance(WidgetTester tester) async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+    }
+
+    /// Listens to the allowance the way the home line does, and reads it.
+    Future<void> watchAllowance(_Harness h, WidgetTester tester) async {
+      h.container.listen(scanAllowanceProvider, (_, _) {});
+      await h.container.read(scanAllowanceProvider.future);
+      await settleAllowance(tester);
+    }
+
+    testWidgets('a create, a finished job and a cancel each re-read the '
+        'allowance', (tester) async {
+      final h = _Harness();
+      await h.tracker.restored;
+      await watchAllowance(h, tester);
+      h.api.gets.add(_job(ScanJobStatus.processing));
+
+      final beforeSubmit = allowanceReads(h);
+      await h.tracker.submit(_capture);
+      await settleAllowance(tester);
+      // The pre-check, then the refresh after the create.
+      expect(allowanceReads(h), beforeSubmit + 2);
+
+      final beforeCancel = allowanceReads(h);
+      await h.tracker.cancel();
+      await settleAllowance(tester);
+      expect(allowanceReads(h), beforeCancel + 1);
+
+      h.api.createJob = _job(ScanJobStatus.pending, id: _otherJobId);
+      h.api.gets
+        ..clear()
+        ..add(_job(ScanJobStatus.done, id: _otherJobId));
+      await h.tracker.submit(_capture);
+      await settleAllowance(tester);
+      final beforeDone = allowanceReads(h);
+      await h.tick(tester);
+      expect(h.state.phase, TrackerPhase.ready);
+      expect(allowanceReads(h), beforeDone + 1);
+      h.container.dispose();
+    });
+
+    testWidgets('a failed job re-reads the allowance', (tester) async {
+      final h = _Harness();
+      await h.tracker.restored;
+      await watchAllowance(h, tester);
+      h.api.gets.add(_job(ScanJobStatus.processing));
+      await h.tracker.submit(_capture);
+      await settleAllowance(tester);
+
+      h.api.gets
+        ..clear()
+        ..add(_job(ScanJobStatus.failed));
+      final before = allowanceReads(h);
+      await h.tick(tester);
+      expect(h.state.phase, TrackerPhase.failed);
+      expect(allowanceReads(h), before + 1);
+      h.container.dispose();
+    });
+
+    testWidgets('resuming the app re-reads the allowance', (tester) async {
+      final h = _Harness();
+      await h.tracker.restored;
+      await watchAllowance(h, tester);
+      final before = allowanceReads(h);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await settleAllowance(tester);
+      expect(allowanceReads(h), before + 1);
+      h.container.dispose();
+    });
+  });
+
+  group('viewed (a result opened at /scans/<id>)', () {
+    testWidgets('viewed while ready forgets the job and saves the collection '
+        'once', (tester) async {
+      final h = _Harness();
+      await h.tracker.restored;
+      h.api.gets.add(_job(ScanJobStatus.done));
+      await h.tracker.submit(_capture);
+      await h.tick(tester);
+      expect(h.state.phase, TrackerPhase.ready);
+
+      await h.tracker.viewed(_jobId);
+      await tester.pump();
+
+      expect(h.state.phase, TrackerPhase.idle);
+      await h.tick(tester);
+      await h.tracker.onPush(_jobId);
+      expect(h.store.saved, hasLength(1));
+      expect(await h.collectionDocs(), 1);
+      expect(await h.storedId(), isNull);
+      h.container.dispose();
+    });
+
+    testWidgets('viewed before the tracker polled done still saves exactly '
+        'once', (tester) async {
+      final h = _Harness();
+      await h.tracker.restored;
+      h.api.gets.add(_job(ScanJobStatus.processing));
+      await h.tracker.submit(_capture);
+      expect(h.state.phase, TrackerPhase.waiting);
+
+      // The push beat the poll: the server already says done.
+      h.api.gets
+        ..clear()
+        ..add(_job(ScanJobStatus.done));
+      await h.tracker.viewed(_jobId);
+      await tester.pump();
+
+      expect(h.state.phase, TrackerPhase.idle);
+      expect(h.store.saved, hasLength(1));
+      // Neither a late poll nor the push itself saves again.
+      await h.tick(tester);
+      await h.tracker.onPush(_jobId);
+      await h.tick(tester);
+      expect(h.store.saved, hasLength(1));
+      expect(await h.collectionDocs(), 1);
+      expect(await h.storedId(), isNull);
+      h.container.dispose();
+    });
+
+    testWidgets('viewed with the screen\'s copy of the job does not read it '
+        'again', (tester) async {
+      final h = _Harness();
+      await h.tracker.restored;
+      h.api.gets.add(_job(ScanJobStatus.processing));
+      await h.tracker.submit(_capture);
+      final gets = h.getCount;
+
+      await h.tracker.viewed(_jobId, job: _job(ScanJobStatus.done));
+      await tester.pump();
+
+      expect(h.getCount, gets);
+      expect(h.state.phase, TrackerPhase.idle);
+      expect(h.store.saved, hasLength(1));
+      h.container.dispose();
+    });
+
+    testWidgets('viewed for a job restored after a kill saves it once', (
+      tester,
+    ) async {
+      FlutterSecureStorage.setMockInitialValues({scanJobPendingIdKey: _jobId});
+      final h = _Harness();
+      h.api.gets.add(_job(ScanJobStatus.done));
+
+      await h.tracker.viewed(_jobId);
+      await tester.pump();
+
+      expect(h.state.phase, TrackerPhase.idle);
+      expect(h.store.saved, hasLength(1));
+      expect(await h.storedId(), isNull);
+      h.container.dispose();
+    });
+
+    testWidgets('viewed for another job does nothing', (tester) async {
+      final h = _Harness();
+      await h.tracker.restored;
+      h.api.gets.add(_job(ScanJobStatus.processing));
+      await h.tracker.submit(_capture);
+      final calls = List.of(h.api.calls);
+
+      await h.tracker.viewed(_otherJobId);
+
+      expect(h.api.calls, calls);
+      expect(h.state.phase, TrackerPhase.waiting);
+      expect(h.state.job?.id, _jobId);
+      h.container.dispose();
+    });
+
+    testWidgets('viewed while the job is still running keeps tracking it', (
+      tester,
+    ) async {
+      final h = _Harness();
+      await h.tracker.restored;
+      h.api.gets.add(_job(ScanJobStatus.processing));
+      await h.tracker.submit(_capture);
+
+      await h.tracker.viewed(_jobId);
+
+      expect(h.state.phase, TrackerPhase.waiting);
+      expect(await h.storedId(), _jobId);
+      h.container.dispose();
+    });
+  });
+
+  group('degraded results', () {
+    testWidgets('a degraded ready job keeps its capture, even once viewed, '
+        'and retry re-submits it', (tester) async {
+      final h = _Harness();
+      await h.tracker.restored;
+      h.api.gets.add(_job(ScanJobStatus.degraded));
+      await h.tracker.submit(_capture);
+      await h.tick(tester);
+      expect(h.state.phase, TrackerPhase.ready);
+      expect(h.state.lastCapture, same(_capture));
+
+      await h.tracker.viewed(_jobId);
+      await tester.pump();
+      expect(h.state.phase, TrackerPhase.ready);
+      expect(h.state.lastCapture, same(_capture));
+      expect(h.store.saved, hasLength(1));
+
+      h.api.createJob = _job(ScanJobStatus.pending, id: _otherJobId);
+      h.api.gets
+        ..clear()
+        ..add(_job(ScanJobStatus.processing, id: _otherJobId));
+      await h.tracker.retry();
+
+      expect(h.api.calls.where((c) => c == 'create'), hasLength(2));
+      expect(h.state.phase, TrackerPhase.waiting);
+      expect(h.state.job?.id, _otherJobId);
+      expect(h.store.saved, hasLength(1));
+      h.container.dispose();
+    });
+
+    testWidgets('a done ready job cannot be retried', (tester) async {
+      final h = _Harness();
+      await h.tracker.restored;
+      h.api.gets.add(_job(ScanJobStatus.done));
+      await h.tracker.submit(_capture);
+      await h.tick(tester);
+      expect(h.state.phase, TrackerPhase.ready);
+
+      await expectLater(h.tracker.retry(), throwsStateError);
+      expect(h.api.calls.where((c) => c == 'create'), hasLength(1));
+      h.container.dispose();
+    });
+  });
 }

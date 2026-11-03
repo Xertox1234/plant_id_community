@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http_parser/http_parser.dart';
 
@@ -304,7 +305,8 @@ final scanAllowanceProvider = FutureProvider.autoDispose<ScanAllowance?>((
   if (ref.watch(currentUserIdProvider) == null) return null;
   try {
     return await ref.watch(scanJobApiProvider).allowance();
-  } catch (_) {
+  } catch (e) {
+    debugPrint('[SCAN_JOB] Allowance read failed: $e');
     return null;
   }
 });

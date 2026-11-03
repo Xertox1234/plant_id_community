@@ -367,10 +367,12 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   }
 
   /// The status view's "View": the result replaces the camera.
+  /// The result screen tells the tracker once it has loaded
+  /// (`ScanJobTracker.viewed`), which saves an unsaved result and keeps a
+  /// degraded job's capture for Try again.
   void _viewFromStatus(ScanJob job) {
     _leaving = true;
     context.pushReplacement(scanResultPath(job.id));
-    ref.read(scanJobTrackerProvider.notifier).dismiss();
   }
 
   Future<void> _toggleTorch() async {

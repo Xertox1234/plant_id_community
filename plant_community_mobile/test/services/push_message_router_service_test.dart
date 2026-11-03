@@ -23,13 +23,17 @@ import 'package:plant_community_mobile/features/garden/garden_screen.dart';
 import 'package:plant_community_mobile/features/garden/services/garden_api_service.dart';
 import 'package:plant_community_mobile/features/home/home_page.dart';
 import 'package:plant_community_mobile/features/onboarding/onboarding_checklist_service.dart';
+import 'package:plant_community_mobile/features/scan/capture_steps.dart';
 import 'package:plant_community_mobile/features/scan/scan_job_api.dart';
+import 'package:plant_community_mobile/features/scan/scan_job_tracker.dart';
 import 'package:plant_community_mobile/features/scan/scan_result_screen.dart';
+import 'package:plant_community_mobile/features/scan/widgets/scan_job_pill.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/push_message_router_service.dart';
 
 import '../features/forum/support/forum_test_support.dart';
+import '../features/scan/fake_scan_job_tracker.dart';
 import '../features/garden/support/garden_test_support.dart';
 
 /// The reply_added/mention/answer_accepted shape from the backend's
@@ -112,7 +116,11 @@ class _FakeFirebaseAuth extends Fake implements FirebaseAuth {
   Stream<User?> authStateChanges() => const Stream.empty();
 }
 
-class _FakeUser extends Fake implements User {}
+class _FakeUser extends Fake implements User {
+  // Read by the scan tracker, which the result screen now builds.
+  @override
+  String get uid => 'user-1';
+}
 
 /// Like [_careContainer], but the session is still being restored.
 ProviderContainer _restoringCareContainer({List<Override> extra = const []}) =>
@@ -143,6 +151,29 @@ class _ScanApi extends ScanJobApi {
 
   @override
   Future<ScanJob> get(String id) => Completer<ScanJob>().future;
+}
+
+/// Answers with job-9 finished, result and all.
+class _DoneScanApi extends ScanJobApi {
+  _DoneScanApi() : super(ApiService(baseUrl: 'https://a.test'));
+
+  @override
+  Future<ScanJob> get(String id) async => ScanJob(
+    id: id,
+    mode: ScanMode.diagnose,
+    status: ScanJobStatus.done,
+    chargedAs: 'diagnose',
+    result: const ScanJobResult(
+      plantName: 'Monstera',
+      scientificName: 'Monstera deliciosa',
+      confidence: 0.9,
+      description: 'A climbing aroid.',
+      diagnosis: ScanDiagnosis(state: 'healthy'),
+    ),
+    photos: const {},
+    coverPhoto: null,
+    createdAt: DateTime.utc(2026, 11, 2, 9, 30),
+  );
 }
 
 void main() {
@@ -181,6 +212,105 @@ void main() {
         'job-9',
       );
       await _drainSplashTimer(tester);
+    });
+
+    testWidgets('a warm tap on the already-open result does not stack a '
+        'duplicate', (tester) async {
+      final container = _careContainer(extra: [scanApi, noAllowance]);
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      container.listen(appRouterProvider, (_, _) {});
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pump();
+      final service = _TestablePushMessageRouterService(
+        () => router,
+        _FakeMessaging(),
+      );
+      addTearDown(service.detach);
+
+      FirebaseMessagingPlatform.onMessageOpenedApp.add(_scanPushPayload);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      FirebaseMessagingPlatform.onMessageOpenedApp.add(_scanPushPayload);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // Offstage routes count too: a stacked copy would sit underneath.
+      expect(
+        find.byType(ScanResultScreen, skipOffstage: false),
+        findsOneWidget,
+      );
+      router.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(ScanResultScreen, skipOffstage: false), findsNothing);
+      await _drainSplashTimer(tester);
+    });
+
+    testWidgets('a push-opened result over a ready tracker leaves no pill and '
+        'marks the job viewed', (tester) async {
+      final tracker = FakeScanJobTracker(
+        ScanTrackerState(
+          phase: TrackerPhase.ready,
+          job: fakeScanJob(id: 'job-9', status: ScanJobStatus.done),
+          lastCapture: fakeCapture,
+        ),
+      );
+      final container = _careContainer(
+        extra: [
+          scanJobApiProvider.overrideWithValue(_DoneScanApi()),
+          noAllowance,
+          scanJobTrackerProvider.overrideWith(() => tracker),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      container.listen(appRouterProvider, (_, _) {});
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            builder: (context, child) => Stack(
+              children: [
+                child!,
+                const Positioned(
+                  left: 16,
+                  right: 16,
+                  bottom: 16,
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: ScanJobPill(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await _drainSplashTimer(tester);
+      expect(find.text(ScanJobPill.readyCopy), findsOneWidget);
+      final service = _TestablePushMessageRouterService(
+        () => router,
+        _FakeMessaging(),
+      );
+      addTearDown(service.detach);
+
+      FirebaseMessagingPlatform.onMessageOpenedApp.add(_scanPushPayload);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+
+      expect(find.byType(ScanResultScreen), findsOneWidget);
+      expect(find.text('Monstera'), findsOneWidget);
+      expect(find.text(ScanJobPill.readyCopy), findsNothing);
+      expect(tracker.calls, ['viewed:job-9']);
     });
 
     testWidgets(

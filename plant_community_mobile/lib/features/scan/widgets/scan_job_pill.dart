@@ -48,7 +48,8 @@ String? scanRefusalMessage(
 /// Placed by `MaterialApp.router(builder:)` in main.dart, ABOVE the router's
 /// navigator: so it has no route of its own, no Overlay (no tooltips here)
 /// and reads the current path from [appRouterProvider]. It hides on
-/// `/camera`, where the scan screen's status view shows the same content.
+/// `/camera`, where the scan screen's status view shows the same content,
+/// and over the tracked job's own result (`/scans/<id>`).
 class ScanJobPill extends ConsumerWidget {
   const ScanJobPill({super.key});
 
@@ -77,11 +78,14 @@ class ScanJobPill extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final router = _routerOrNull(ref);
     if (router == null) return const ScanJobStatusCard();
+    final jobId = ref.watch(scanJobTrackerProvider.select((s) => s.job?.id));
     final delegate = router.routerDelegate;
     return ListenableBuilder(
       listenable: delegate,
       builder: (context, _) {
-        if (_topPath(delegate) == AppRoutes.camera) {
+        final top = _topPath(delegate);
+        if (top == AppRoutes.camera ||
+            (jobId != null && top == scanResultPath(jobId))) {
           return const SizedBox.shrink();
         }
         return const ScanJobStatusCard();
@@ -109,8 +113,9 @@ class ScanJobPill extends ConsumerWidget {
 /// The job's state as a card: the pill's body, and the scan screen's status
 /// view. Idle renders nothing.
 ///
-/// [onView] replaces the default "View" action (push `/scans/<id>`, then
-/// dismiss); the status view uses it to replace the camera instead.
+/// [onView] replaces the default "View" action (push `/scans/<id>`); the
+/// status view uses it to replace the camera instead. Neither dismisses:
+/// the result screen calls `ScanJobTracker.viewed` once it has loaded.
 class ScanJobStatusCard extends ConsumerStatefulWidget {
   const ScanJobStatusCard({super.key, this.onView});
 
@@ -134,7 +139,6 @@ class _ScanJobStatusCardState extends ConsumerState<ScanJobStatusCard> {
       return;
     }
     unawaited(ref.read(appRouterProvider).push(scanResultPath(job.id)));
-    _tracker.dismiss();
   }
 
   Future<void> _cancel() async {
@@ -213,7 +217,16 @@ class _ScanJobStatusCardState extends ConsumerState<ScanJobStatusCard> {
       TrackerPhase.ready => _card(
         icon: LucideIcons.circleCheck,
         copy: ScanJobPill.readyCopy,
+        dismissible: true,
         actions: [
+          // Degraded: the health check didn't run and wasn't charged.
+          if (job?.status == ScanJobStatus.degraded &&
+              state.lastCapture != null)
+            _action(
+              key: ScanJobPill.retryKey,
+              label: 'Try again',
+              onPressed: _retry,
+            ),
           if (job != null)
             _action(
               key: ScanJobPill.viewKey,

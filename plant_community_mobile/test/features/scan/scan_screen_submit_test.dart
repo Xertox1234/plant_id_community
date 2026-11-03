@@ -64,6 +64,10 @@ void main() {
             ),
           ],
         ),
+        GoRoute(
+          path: '/scans/:id',
+          builder: (_, s) => Text('scan-${s.pathParameters['id']}'),
+        ),
       ],
     );
     addTearDown(router.dispose);
@@ -396,5 +400,65 @@ void main() {
     );
     expect(find.byKey(ScanScreen.statusViewKey), findsNothing);
     expect(fake.initializeCalls, 1);
+  });
+
+  testWidgets('status view → View replaces the camera with the result', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      state: ScanTrackerState(
+        phase: TrackerPhase.waiting,
+        job: fakeScanJob(),
+        lastCapture: fakeCapture,
+      ),
+    );
+    expect(find.byKey(ScanScreen.statusViewKey), findsOneWidget);
+
+    tracker.emit(
+      ScanTrackerState(
+        phase: TrackerPhase.ready,
+        job: fakeScanJob(status: ScanJobStatus.done),
+        lastCapture: fakeCapture,
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('scan-pill-view')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('scan-job-1'), findsOneWidget);
+    expect(find.byType(ScanScreen, skipOffstage: false), findsNothing);
+    // The result screen marks it viewed once loaded; the camera does not
+    // drop the job first.
+    expect(tracker.calls, isNot(contains('dismiss')));
+    // Replaced, not pushed: back goes home, not to the camera.
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(find.text('home-page'), findsOneWidget);
+  });
+
+  testWidgets('status view → ready × dismisses and starts the camera', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      state: ScanTrackerState(
+        phase: TrackerPhase.waiting,
+        job: fakeScanJob(),
+        lastCapture: fakeCapture,
+      ),
+    );
+    tracker.emit(
+      ScanTrackerState(
+        phase: TrackerPhase.ready,
+        job: fakeScanJob(status: ScanJobStatus.done),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('scan-pill-dismiss')));
+    await tester.pumpAndSettle();
+    expect(tracker.calls, ['dismiss']);
+    expect(find.byKey(ScanScreen.statusViewKey), findsNothing);
+    expect(find.byKey(ScanScreen.shutterKey), findsOneWidget);
   });
 }

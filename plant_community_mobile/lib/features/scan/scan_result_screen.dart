@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,7 +9,10 @@ import '../../core/routing/app_router.dart';
 import '../../core/routing/error_screen.dart';
 import '../../models/plant.dart';
 import '../results/results_screen.dart';
+import 'capture_steps.dart';
 import 'scan_job_api.dart';
+import 'scan_job_tracker.dart';
+import 'widgets/scan_job_pill.dart';
 
 /// One scan job, fetched fresh by id (the tracker's copy is gone after a
 /// restart or a push tap). No automatic retry: a failure shows the error
@@ -18,6 +23,10 @@ final scanJobProvider = FutureProvider.autoDispose.family<ScanJob, String>(
 );
 
 /// The result of a background scan, opened at `/scans/<id>`.
+///
+/// Once the job has loaded with a result it tells the tracker
+/// ([ScanJobTracker.viewed]): that saves a result the tracker had not
+/// applied yet and takes down the "ready" pill.
 class ScanResultScreen extends ConsumerWidget {
   const ScanResultScreen({super.key, required this.jobId});
 
@@ -25,6 +34,24 @@ class ScanResultScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen<AsyncValue<ScanJob>>(scanJobProvider(jobId), (_, next) {
+      final job = next.asData?.value;
+      if (job == null || !job.status.hasResult || job.result == null) return;
+      unawaited(
+        ref.read(scanJobTrackerProvider.notifier).viewed(jobId, job: job),
+      );
+    });
+    // Try again needs the capture, which only the tracker holds: gone after
+    // a kill, a dismiss or a retry.
+    final canRetry = ref.watch(
+      scanJobTrackerProvider.select(
+        (s) =>
+            s.phase == TrackerPhase.ready &&
+            s.job?.id == jobId &&
+            s.job?.status == ScanJobStatus.degraded &&
+            s.lastCapture != null,
+      ),
+    );
     final job = ref.watch(scanJobProvider(jobId));
     return job.when(
       loading: () =>
@@ -38,6 +65,7 @@ class ScanResultScreen extends ConsumerWidget {
         if (!job.status.hasResult || result == null) {
           return const _NoResult();
         }
+        final degraded = job.status == ScanJobStatus.degraded;
         return ResultsScreen(
           plant: Plant(
             id: job.id,
@@ -50,26 +78,53 @@ class ScanResultScreen extends ConsumerWidget {
           ),
           diagnosis: result.diagnosis,
           confidence: result.confidence,
-          degraded: job.status == ScanJobStatus.degraded,
+          degraded: degraded,
+          onRetry: degraded && canRetry
+              ? () => unawaited(_retry(context, ref))
+              : null,
         );
       },
     );
+  }
+
+  /// Re-runs the check, then goes back at once so the user sees the pill
+  /// upload it. Not awaited before leaving: the retry awaits the upload.
+  static Future<void> _retry(BuildContext context, WidgetRef ref) async {
+    final tracker = ref.read(scanJobTrackerProvider.notifier);
+    final mode = ref.read(scanJobTrackerProvider).lastCapture?.mode;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final retrying = tracker.retry();
+    _closeResult(context);
+    try {
+      await retrying;
+    } on ScanRefused catch (e) {
+      final message = scanRefusalMessage(e, mode: mode ?? ScanMode.diagnose);
+      if (message != null) {
+        messenger?.showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (e) {
+      debugPrint('[SCAN_JOB] Retry from the result failed: $e');
+      messenger?.showSnackBar(
+        const SnackBar(content: Text("Couldn't start the check. Try again.")),
+      );
+    }
+  }
+}
+
+/// Leaves the result: back where it was opened from, else home.
+void _closeResult(BuildContext context) {
+  final router = GoRouter.maybeOf(context);
+  if (router == null) {
+    Navigator.of(context).maybePop();
+  } else if (router.canPop()) {
+    router.pop();
+  } else {
+    router.go(AppRoutes.home);
   }
 }
 
 class _NoResult extends StatelessWidget {
   const _NoResult();
-
-  void _close(BuildContext context) {
-    final router = GoRouter.maybeOf(context);
-    if (router == null) {
-      Navigator.of(context).maybePop();
-    } else if (router.canPop()) {
-      router.pop();
-    } else {
-      router.go(AppRoutes.home);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,7 +143,7 @@ class _NoResult extends StatelessWidget {
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 FilledButton(
-                  onPressed: () => _close(context),
+                  onPressed: () => _closeResult(context),
                   child: const Text('Close'),
                 ),
               ],

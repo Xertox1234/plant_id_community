@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
+import 'package:plant_community_mobile/features/scan/scan_job_api.dart';
 import 'package:plant_community_mobile/features/scan/scan_job_tracker.dart';
 import 'package:plant_community_mobile/features/scan/widgets/scan_job_pill.dart';
 
@@ -155,9 +156,86 @@ void main() {
     await tester.tap(find.byKey(const Key('scan-pill-view')));
     await tester.pumpAndSettle();
     expect(find.text('scan-job-1'), findsOneWidget);
-    expect(tracker.calls, ['dismiss']);
+    // The result screen calls viewed() once it has loaded; the pill does
+    // not drop the job (and an unsaved result) on its own.
+    expect(tracker.calls, isEmpty);
     // Pushed, not replaced: back returns to where the user was.
     expect(router.canPop(), isTrue);
+  });
+
+  testWidgets('the pill hides while the tracked job\'s result is on top', (
+    tester,
+  ) async {
+    await pump(tester, at(TrackerPhase.ready));
+    expect(find.text(ScanJobPill.readyCopy), findsOneWidget);
+
+    router.push('/scans/job-1');
+    await tester.pumpAndSettle();
+    expect(find.text('scan-job-1'), findsOneWidget);
+    expect(find.text(ScanJobPill.readyCopy), findsNothing);
+
+    // Another job's result does not hide it.
+    router.push('/scans/job-2');
+    await tester.pumpAndSettle();
+    expect(find.text(ScanJobPill.readyCopy), findsOneWidget);
+
+    router.pop();
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(find.text(ScanJobPill.readyCopy), findsOneWidget);
+  });
+
+  testWidgets('ready has a dismiss ×', (tester) async {
+    await pump(tester, at(TrackerPhase.ready));
+    await tester.tap(find.byKey(const Key('scan-pill-dismiss')));
+    await tester.pump();
+    expect(tracker.calls, ['dismiss']);
+    expect(find.text(ScanJobPill.readyCopy), findsNothing);
+  });
+
+  testWidgets('a non-degraded ready job offers no Try again', (tester) async {
+    await pump(
+      tester,
+      ScanTrackerState(
+        phase: TrackerPhase.ready,
+        job: fakeScanJob(status: ScanJobStatus.done),
+        lastCapture: fakeCapture,
+      ),
+    );
+    expect(find.byKey(const Key('scan-pill-view')), findsOneWidget);
+    expect(find.byKey(const Key('scan-pill-retry')), findsNothing);
+  });
+
+  testWidgets('a degraded ready job offers Try again next to View', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      ScanTrackerState(
+        phase: TrackerPhase.ready,
+        job: fakeScanJob(status: ScanJobStatus.degraded),
+        lastCapture: fakeCapture,
+      ),
+    );
+    expect(find.byKey(const Key('scan-pill-view')), findsOneWidget);
+    expect(find.byKey(const Key('scan-pill-retry')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('scan-pill-retry')));
+    await tester.pump();
+    expect(tracker.calls, ['retry']);
+  });
+
+  testWidgets('a degraded job without its capture hides Try again', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      ScanTrackerState(
+        phase: TrackerPhase.ready,
+        job: fakeScanJob(status: ScanJobStatus.degraded),
+      ),
+    );
+    expect(find.byKey(const Key('scan-pill-view')), findsOneWidget);
+    expect(find.byKey(const Key('scan-pill-retry')), findsNothing);
   });
 
   testWidgets('failed shows the failed copy with Try again and dismiss', (
@@ -217,6 +295,15 @@ void main() {
     await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
     await pump(tester, at(TrackerPhase.failed));
     await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+    await pump(
+      tester,
+      ScanTrackerState(
+        phase: TrackerPhase.ready,
+        job: fakeScanJob(status: ScanJobStatus.degraded),
+        lastCapture: fakeCapture,
+      ),
+    );
+    await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
     handle.dispose();
   });
 
@@ -235,5 +322,14 @@ void main() {
       await pump(tester, at(phase));
       expect(tester.takeException(), isNull, reason: '$phase');
     }
+    await pump(
+      tester,
+      ScanTrackerState(
+        phase: TrackerPhase.ready,
+        job: fakeScanJob(status: ScanJobStatus.degraded),
+        lastCapture: fakeCapture,
+      ),
+    );
+    expect(tester.takeException(), isNull, reason: 'degraded ready');
   });
 }

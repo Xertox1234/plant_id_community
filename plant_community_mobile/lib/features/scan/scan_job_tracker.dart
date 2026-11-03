@@ -51,7 +51,8 @@ class ScanTrackerState {
   final double? uploadProgress;
   final ScanJob? job;
 
-  /// The capture last submitted, kept so a failed scan can be retried.
+  /// The capture last submitted, kept so a failed or degraded scan can be
+  /// retried. Dropped by a dismiss, a retry or a viewed `done` result.
   final CaptureResult? lastCapture;
 }
 
@@ -209,6 +210,8 @@ class ScanJobTracker extends _$ScanJobTracker {
       if (_current(gen)) state = ScanTrackerState(lastCapture: r);
       rethrow;
     }
+    // The server charged (or reserved) the scan: the home line moves now.
+    _refreshAllowance();
     if (!_current(gen)) {
       // Cancelled or dismissed during the upload: the server job exists
       // now, so cancel it rather than leave it holding the scan slot.
@@ -216,7 +219,8 @@ class ScanJobTracker extends _$ScanJobTracker {
         _api
             .cancel(job.id)
             .then<void>(
-              (_) {},
+              // The refund lands with the cancel.
+              (_) => _refreshAllowance(),
               onError: (Object e) {
                 debugPrint('[SCAN_JOB] Cancel after upload failed: $e');
               },
@@ -261,6 +265,7 @@ class ScanJobTracker extends _$ScanJobTracker {
       if (_current(gen)) _startTimer();
       rethrow;
     }
+    _refreshAllowance();
     if (!_current(gen)) return;
     if (job.status.hasResult || job.status == ScanJobStatus.failed) {
       _apply(job, gen);
@@ -271,13 +276,62 @@ class ScanJobTracker extends _$ScanJobTracker {
     await _clearStored();
   }
 
-  /// Re-submits [ScanTrackerState.lastCapture]. Only valid in `failed`.
+  /// Re-submits [ScanTrackerState.lastCapture]. Valid in `failed`, and in
+  /// `ready` for a degraded job: its health check did not run and was not
+  /// charged, so the diagnose slot is still free.
   Future<void> retry() async {
     final capture = state.lastCapture;
-    if (state.phase != TrackerPhase.failed || capture == null) {
-      throw StateError('Only a failed scan with its capture can be retried.');
+    if (!_retryable(state) || capture == null) {
+      throw StateError(
+        'Only a failed or degraded scan with its capture can be retried.',
+      );
     }
     await submit(capture);
+  }
+
+  static bool _retryable(ScanTrackerState s) =>
+      s.phase == TrackerPhase.failed ||
+      (s.phase == TrackerPhase.ready &&
+          s.job?.status == ScanJobStatus.degraded);
+
+  /// The result of [jobId] was opened at `/scans/<id>` (from a push, the
+  /// pill or the scan screen's status view). Any other job: nothing.
+  ///
+  /// The tracked job's finished state is applied first, so the collection
+  /// save runs exactly once even when the push beat the poll; [job] is the
+  /// copy the screen already loaded (read again when missing or still
+  /// running). Then the job is forgotten, so no stale "ready" pill is left
+  /// on top of the result. A job still running keeps being tracked.
+  ///
+  /// A degraded job that still has its capture stays `ready`: the result
+  /// screen and the pill offer Try again until it is dismissed or retried.
+  Future<void> viewed(String jobId, {ScanJob? job}) async {
+    await restored;
+    if (!ref.mounted) return;
+    if (_pendingId != jobId && state.job?.id != jobId) return;
+    final gen = _gen;
+    if (_pendingId == jobId && _handledId != jobId) {
+      var latest = job;
+      if (latest == null || latest.id != jobId || latest.status.isActive) {
+        try {
+          latest = await _api.get(jobId);
+        } catch (e) {
+          // Polling still applies it; the route keeps the pill hidden.
+          debugPrint('[SCAN_JOB] Viewed job read failed: $e');
+          return;
+        }
+        if (!_current(gen)) return;
+      }
+      _apply(latest, gen);
+    }
+    if (_handledId != jobId || state.job?.id != jobId) return;
+    if (state.phase == TrackerPhase.ready &&
+        state.job?.status == ScanJobStatus.degraded &&
+        state.lastCapture != null) {
+      return;
+    }
+    // The save (when there is one) is already running: dismiss doesn't stop it.
+    dismiss();
   }
 
   /// Forgets the job (after its result was viewed, or a failure closed).
@@ -434,6 +488,8 @@ class ScanJobTracker extends _$ScanJobTracker {
 
   void _onResume() {
     _paused = false;
+    // A scan may have finished, or the day rolled over, while away.
+    _refreshAllowance();
     if (_restoreDeferred) {
       // A 401/403 stopped polling; the token may have been refreshed since.
       _restoring = restore();
@@ -477,6 +533,9 @@ class ScanJobTracker extends _$ScanJobTracker {
     }
     _handledId = job.id;
     _stopTimer();
+    // Every terminal state settles the charge: done or degraded keep it (as
+    // diagnose or identify), failed and cancelled refund it.
+    _refreshAllowance();
     if (job.status.hasResult) {
       state = ScanTrackerState(
         phase: TrackerPhase.ready,
@@ -498,6 +557,11 @@ class ScanJobTracker extends _$ScanJobTracker {
       state = const ScanTrackerState();
       unawaited(_clearStored());
     }
+  }
+
+  /// Re-reads today's allowance, so "N checks left today" is never stale.
+  void _refreshAllowance() {
+    if (ref.mounted) ref.invalidate(scanAllowanceProvider);
   }
 
   void _markSlowIfDue(ScanJob? job) {
