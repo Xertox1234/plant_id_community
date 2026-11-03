@@ -16,7 +16,7 @@ import logging
 import os
 import socket
 import threading
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 import requests
 from apps.core.exceptions import ExternalAPIError
@@ -125,7 +125,13 @@ class PlantIDAPIService:
             return None
 
     def identify_plant(
-        self, image_file, include_diseases: bool = True
+        self,
+        image_file,
+        include_diseases: bool = True,
+        *,
+        images: Sequence[bytes] | None = None,
+        health_images: Sequence[bytes] | None = None,
+        quota_reserve: int = 0,
     ) -> Dict[str, Any]:
         """
         Identify a plant from an image using Plant.id API with circuit breaker protection.
@@ -145,6 +151,11 @@ class PlantIDAPIService:
         Args:
             image_file: Django file object or file bytes
             include_diseases: Whether to include disease detection
+            images: Several photos of one plant; replaces `image_file` and every
+                image goes to /identification
+            health_images: Photos for /health_assessment; defaults to the
+                identification images
+            quota_reserve: Daily Plant.id calls to leave free for a later diagnosis
 
         Returns:
             Dictionary containing identification results
@@ -155,14 +166,28 @@ class PlantIDAPIService:
             requests.exceptions.RequestException: If API request fails
         """
         try:
-            # Convert image to bytes
-            if hasattr(image_file, "read"):
-                image_data = image_file.read()
+            # Convert image(s) to bytes
+            if images is not None:
+                id_images = [bytes(img) for img in images]
+            elif hasattr(image_file, "read"):
+                id_images = [image_file.read()]
             else:
-                image_data = image_file
+                id_images = [image_file]
+            hl_images = (
+                [bytes(img) for img in health_images]
+                if health_images is not None
+                else id_images
+            )
 
-            # Generate cache key from image hash (includes API version for cache invalidation)
-            image_hash = hashlib.sha256(image_data).hexdigest()
+            # Hash every byte of both lists. Each image is length-prefixed so
+            # [b"ab", b"c"] and [b"a", b"bc"] never collide.
+            hasher = hashlib.sha256()
+            for group in (id_images, hl_images):
+                hasher.update(f"#{len(group)}:".encode("ascii"))
+                for img in group:
+                    hasher.update(f"{len(img)}:".encode("ascii"))
+                    hasher.update(img)
+            image_hash = hasher.hexdigest()
             cache_key = f"plant_id:{self.API_VERSION}:{image_hash}:{include_diseases}"
 
             # Check cache first (before circuit breaker check - fastest path)
@@ -177,13 +202,16 @@ class PlantIDAPIService:
             logger.info(f"[CACHE] MISS for image {image_hash[:8]}... (checking quota)")
 
             # Check quota before acquiring lock and making API call
-            if not self.quota_manager.can_call_plant_id():
+            if not self.quota_manager.can_call_plant_id(
+                calls=2 if include_diseases else 1, reserve=quota_reserve
+            ):
                 daily_usage = self.quota_manager.get_plant_id_daily_usage()
                 logger.error(
-                    f"[QUOTA] Plant.id daily quota EXHAUSTED ({daily_usage}/3 used)"
+                    f"[QUOTA] Plant.id quota EXHAUSTED ({daily_usage}/"
+                    f"{settings.PLANT_ID_DAILY_QUOTA} daily used)"
                 )
                 raise QuotaExceeded(
-                    "Plant.id daily API quota exhausted. Please try again tomorrow or upgrade your plan."
+                    "Plant.id API quota exhausted. Please try again later or upgrade your plan."
                 )
 
             # Quota available - acquire distributed lock to prevent cache stampede
@@ -234,7 +262,8 @@ class PlantIDAPIService:
                         )
                         result: dict[str, Any] = self.circuit.call(
                             self._call_plant_id_api,
-                            image_data,
+                            id_images,
+                            hl_images,
                             cache_key,
                             image_hash,
                             include_diseases,
@@ -289,7 +318,8 @@ class PlantIDAPIService:
             )
             result = self.circuit.call(
                 self._call_plant_id_api,
-                image_data,
+                id_images,
+                hl_images,
                 cache_key,
                 image_hash,
                 include_diseases,
@@ -330,7 +360,12 @@ class PlantIDAPIService:
             raise
 
     def _call_plant_id_api(
-        self, image_data: bytes, cache_key: str, image_hash: str, include_diseases: bool
+        self,
+        id_images: Sequence[bytes],
+        health_images: Sequence[bytes],
+        cache_key: str,
+        image_hash: str,
+        include_diseases: bool,
     ) -> Dict[str, Any]:
         """
         Protected API call wrapped by circuit breaker.
@@ -339,7 +374,8 @@ class PlantIDAPIService:
         circuit state changes on success/failure.
 
         Args:
-            image_data: Image bytes
+            id_images: Photos sent to /identification
+            health_images: Photos sent to /health_assessment
             cache_key: Redis cache key
             image_hash: SHA-256 hash of image (for logging)
             include_diseases: Whether to include disease detection
@@ -350,8 +386,11 @@ class PlantIDAPIService:
         Raises:
             requests.exceptions.RequestException: On API failure (triggers circuit)
         """
-        # Encode image
-        encoded_image = base64.b64encode(image_data).decode("ascii")
+        # Encode images
+        encoded_images = [base64.b64encode(i).decode("ascii") for i in id_images]
+        encoded_health_images = [
+            base64.b64encode(i).decode("ascii") for i in health_images
+        ]
 
         # Prepare request headers
         headers = {
@@ -380,7 +419,7 @@ class PlantIDAPIService:
             f"{self.BASE_URL}/identification",
             params={"details": details},
             headers=headers,
-            json={"images": [encoded_image]},
+            json={"images": encoded_images},
             timeout=self.timeout,
         )
         response.raise_for_status()
@@ -389,13 +428,15 @@ class PlantIDAPIService:
         # Get health assessment if requested (separate endpoint in v3)
         health_result = None
         health_error = None
+        calls_made = 1
         if include_diseases:
+            calls_made = 2  # the POST below is attempted, so it counts
             try:
                 health_response = self.session.post(
                     f"{self.BASE_URL}/health_assessment",
                     params={"details": "description,treatment,classification"},
                     headers=headers,
-                    json={"images": [encoded_image]},
+                    json={"images": encoded_health_images},
                     timeout=self.timeout,
                 )
                 health_response.raise_for_status()
@@ -431,8 +472,8 @@ class PlantIDAPIService:
                 f"[PLANT_ID] Plant.id identification successful: {suggestions[0].get('name', 'Unknown')}"
             )
 
-        # Increment quota counter after successful API call
-        self.quota_manager.increment_plant_id()
+        # Count the real calls made: 1, or 2 when the health POST was attempted
+        self.quota_manager.increment_plant_id(calls_made)
 
         # Store in cache for 24 hours
         cache.set(cache_key, formatted_result, timeout=CACHE_TIMEOUT_24_HOURS)

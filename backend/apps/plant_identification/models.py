@@ -1586,3 +1586,6 @@ class PlantIdentificationVote(models.Model):
 
     def __str__(self):
         return f"{self.user.username} voted {self.vote_type} on result {self.result.id}"
+
+
+from .scan_models import ScanJob, ScanJobImage  # noqa: E402,F401

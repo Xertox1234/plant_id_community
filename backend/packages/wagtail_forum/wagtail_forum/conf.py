@@ -105,9 +105,19 @@ DEFAULTS: dict[str, Any] = {
     # because each row may resolve a thumbnail rendition.
     "RECENT_TOPICS_DEFAULT_LIMIT": 5,
     "RECENT_TOPICS_MAX_LIMIT": 20,
+    # topics/<id>/latest-replies/ (the expanded home activity card): items
+    # shown (the accepted answer counts toward it), excerpt length, and how
+    # many participant avatars the card carries.
+    "LATEST_REPLIES_LIMIT": 3,
+    "LATEST_REPLIES_EXCERPT_CHARS": 160,
+    "LATEST_REPLIES_PARTICIPANTS": 5,
     # users/experts/ ("Community experts" rail): row cap and minimum trust.
     "EXPERTS_LIMIT": 4,
     "EXPERTS_MIN_TRUST_LEVEL": 3,  # TrustLevel.REGULAR
+    # community/stats/ ("Who's online" panel): how long the site-wide counts
+    # are cached as one shared value, and how many online members it shows.
+    "COMMUNITY_STATS_CACHE_SECONDS": 60,
+    "COMMUNITY_ONLINE_SAMPLE": 5,
     # Presence (todo 301) — two distinct tunables, deliberately not shared
     # (same reasoning as VIEW_COUNT_DEDUP_SECONDS vs TOPIC_READ_DEDUP_SECONDS
     # above: they gate unrelated concerns that only happen to default close

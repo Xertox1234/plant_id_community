@@ -12,7 +12,13 @@ from rest_framework.test import APIClient
 from wagtail.images import get_image_model
 from wagtail.images.tests.utils import get_test_image_file
 from wagtail_forum.collections import get_forum_image_collection
-from wagtail_forum.models import ForumIdentificationAttachment, Post, Topic
+from wagtail_forum.models import (
+    ForumIdentificationAttachment,
+    ForumProfile,
+    Post,
+    Topic,
+    TopicRead,
+)
 from wagtail_forum.tests.factories import make_forum
 
 User = get_user_model()
@@ -495,6 +501,7 @@ def test_recent_topics_rendition_prefetch_is_flat_when_cache_cold():
             # data missing" scenario — the rendition row already exists, only
             # Wagtail's Rendition.cache_backend lookup is what's cold).
             image.get_rendition("fill-80x80")
+            image.get_rendition("fill-720x400")  # image_url's wide rendition
             Post.objects.create(
                 topic=topic,
                 author=author,
@@ -584,3 +591,157 @@ def test_recent_topics_thumbnail_reads_the_imageblock_dict_shape():
     thumb = row["thumbnail_url"]
     assert thumb is not None, "the body image should still produce a thumbnail"
     assert thumb.startswith("http://testserver")  # absolute, like the legacy path
+
+
+# ---- is_solved / is_unread / image_url (forum home redesign, task 1) ------
+
+
+def _plain_topic(board, author, slug, last_post_at, **extra):
+    return Topic.objects.create(
+        board=board,
+        title=slug,
+        slug=slug,
+        author=author,
+        live=True,
+        last_post_at=last_post_at,
+        **extra,
+    )
+
+
+def _image_topic(board, author, slug, last_post_at, collection):
+    image = get_image_model().objects.create(
+        title=f"{slug}.jpg", file=get_test_image_file(), collection=collection
+    )
+    topic = _plain_topic(board, author, slug, last_post_at)
+    Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[{"type": "image", "value": image.id}],
+    )
+    return topic
+
+
+@pytest.mark.django_db
+def test_recent_topics_is_solved_reflects_solved_post():
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    now = timezone.now()
+    solved = _plain_topic(board, author, "solved", now)
+    unsolved = _plain_topic(
+        board, author, "unsolved", now - datetime.timedelta(hours=1)
+    )
+    answer = Post.objects.create(topic=solved, author=author, live=True, body=[])
+    solved.solved_post = answer
+    solved.save(update_fields=["solved_post"])
+
+    resp = APIClient().get("/forum/topics/recent/")
+
+    by_id = {r["id"]: r["is_solved"] for r in resp.data["results"]}
+    assert by_id == {solved.id: True, unsolved.id: False}
+
+
+@pytest.mark.django_db
+def test_recent_topics_is_unread_false_for_anonymous():
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    _plain_topic(board, author, "one", timezone.now())
+    _plain_topic(board, author, "two", timezone.now() - datetime.timedelta(hours=1))
+
+    resp = APIClient().get("/forum/topics/recent/")
+
+    assert len(resp.data["results"]) == 2
+    assert all(r["is_unread"] is False for r in resp.data["results"])
+
+
+@pytest.mark.django_db
+def test_recent_topics_is_unread_for_member():
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    member = User.objects.create_user(username="reader")
+    profile = ForumProfile.for_user(member)
+    profile.read_watermark_at = timezone.now() - datetime.timedelta(days=2)
+    profile.save(update_fields=["read_watermark_at"])
+    now = timezone.now()
+    read_then_replied = _plain_topic(
+        board, author, "read-then-replied", now - datetime.timedelta(hours=1)
+    )
+    never_opened = _plain_topic(
+        board, author, "never-opened", now - datetime.timedelta(hours=2)
+    )
+    TopicRead.mark_read(
+        member, read_then_replied.id, when=now - datetime.timedelta(hours=3)
+    )
+    client = APIClient()
+    client.force_authenticate(member)
+
+    resp = client.get("/forum/topics/recent/")
+    by_id = {r["id"]: r["is_unread"] for r in resp.data["results"]}
+    assert by_id[read_then_replied.id] is True
+    assert by_id[never_opened.id] is True
+
+    TopicRead.mark_read(member, read_then_replied.id, when=now)
+    resp = client.get("/forum/topics/recent/")
+    by_id = {r["id"]: r["is_unread"] for r in resp.data["results"]}
+    assert by_id[read_then_replied.id] is False
+    assert by_id[never_opened.id] is True
+
+
+@pytest.mark.django_db
+def test_recent_topics_image_url_wide_rendition():
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    collection = get_forum_image_collection()
+    now = timezone.now()
+    with_image = _image_topic(board, author, "with-image", now, collection)
+    without = _plain_topic(board, author, "without", now - datetime.timedelta(hours=1))
+
+    resp = APIClient().get("/forum/topics/recent/")
+
+    by_id = {r["id"]: r for r in resp.data["results"]}
+    assert "fill-720x400" in by_id[with_image.id]["image_url"]
+    assert "fill-80x80" in by_id[with_image.id]["thumbnail_url"]
+    assert by_id[with_image.id]["image_url"].startswith("http://testserver")
+    assert by_id[without.id]["image_url"] is None
+
+
+@pytest.mark.django_db
+def test_recent_topics_query_count_unchanged_by_new_fields():
+    """The new fields add no per-topic queries: the count is identical for 5
+    and 10 topics (3 vs 6 with images), authenticated."""
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    member = User.objects.create_user(username="reader")
+    collection = get_forum_image_collection()
+    now = timezone.now()
+    client = APIClient()
+    client.force_authenticate(member)
+
+    def build(prefix, count, with_images):
+        for i in range(count):
+            when = now - datetime.timedelta(minutes=i)
+            if i < with_images:
+                _image_topic(board, author, f"{prefix}-{i}", when, collection)
+            else:
+                _plain_topic(board, author, f"{prefix}-{i}", when)
+
+    def measure():
+        client.get("/forum/topics/recent/")  # warm one-time lookups (content types)
+        caches["renditions"].clear()
+        with CaptureQueriesContext(connection) as ctx:
+            resp = client.get("/forum/topics/recent/", {"limit": 50})
+        assert resp.status_code == 200
+        return len(ctx), len(resp.data["results"])
+
+    build("a", 5, 3)
+    count_five, rows_five = measure()
+    build("b", 5, 3)
+    count_ten, rows_ten = measure()
+
+    assert (rows_five, rows_ten) == (5, 10)
+    # The invariant is "no per-topic queries", so compare the two sizes
+    # rather than pinning a total: the absolute count picks up one-off
+    # lookups (content types, site settings) that depend on which tests ran
+    # first, and failed CI at 6 vs a local 5 while this equality held.
+    assert count_five == count_ten
