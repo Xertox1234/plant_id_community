@@ -39,10 +39,10 @@ class ForumWhosOnline extends ConsumerWidget {
 String _plural(int n, String singular, [String? plural]) =>
     '$n ${n == 1 ? singular : (plural ?? '${singular}s')}';
 
-String _firstName(ForumAuthor a) {
-  final name = a.displayName.trim().isEmpty ? a.username : a.displayName.trim();
-  return name.split(RegExp(r'\s+')).first;
-}
+String _name(ForumAuthor a) =>
+    a.displayName.trim().isEmpty ? a.username : a.displayName.trim();
+
+String _firstName(ForumAuthor a) => _name(a).split(RegExp(r'\s+')).first;
 
 /// "Sam, Will and simtest"; past three: "Sam, Will, Iris and 2 others".
 String _namesLine(ForumCommunityStats stats) {
@@ -102,17 +102,14 @@ class _Panel extends StatelessWidget {
               ),
               Text(
                 '${stats.registeredMembers} registered',
-                style: AppTypography.mono.copyWith(
-                  fontSize: 12,
-                  color: canopy.ink3,
-                ),
+                style: AppTypography.mono.copyWith(color: canopy.ink3),
               ),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
-          if (stats.membersOnline == 0 || stats.onlineSample.isEmpty)
+          if (stats.membersOnline == 0)
             Text('No members online right now', style: muted)
-          else
+          else if (stats.onlineSample.isNotEmpty)
             // A Wrap, not a Row: at large text the names drop under the
             // cluster rather than being squeezed to nothing.
             Wrap(
@@ -134,13 +131,10 @@ class _Panel extends StatelessWidget {
               Text(
                 '${_plural(stats.topicCount, 'topic')} · '
                 '${_plural(stats.postCount, 'post')}',
-                style: AppTypography.mono.copyWith(
-                  fontSize: 12,
-                  color: canopy.ink3,
-                ),
+                style: AppTypography.mono.copyWith(color: canopy.ink3),
               ),
               if (newest != null)
-                Text('Newest: ${newest.displayName}', style: muted),
+                Text('Newest: ${_name(newest)}', style: muted),
             ],
           ),
         ],

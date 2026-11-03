@@ -111,6 +111,28 @@ void main() {
       expect(find.byType(AuthorAvatarCluster), findsNothing);
     });
 
+    testWidgets('a count with an empty sample keeps the count, no cluster', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..communityStats = const ForumCommunityStats(membersOnline: 3);
+      await _pump(tester, api);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('3 members online'), findsOneWidget);
+      expect(find.text('No members online right now'), findsNothing);
+      expect(find.byType(AuthorAvatarCluster), findsNothing);
+    });
+
+    testWidgets('newest member falls back to the username', (tester) async {
+      final api = FakeForumApi()
+        ..communityStats = ForumCommunityStats(
+          newestMember: author(username: 'fern', displayName: ' '),
+        );
+      await _pump(tester, api);
+      await tester.pumpAndSettle();
+      expect(find.text('Newest: fern'), findsOneWidget);
+    });
+
     for (final brightness in Brightness.values) {
       testWidgets('no overflow at 320x640, x2.0, ${brightness.name}', (
         tester,

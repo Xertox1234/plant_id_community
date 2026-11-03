@@ -83,10 +83,7 @@ class _BoardRow extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     counts,
-                    style: AppTypography.mono.copyWith(
-                      fontSize: 12,
-                      color: canopy.ink3,
-                    ),
+                    style: AppTypography.mono.copyWith(color: canopy.ink3),
                   ),
                 ],
               ),
