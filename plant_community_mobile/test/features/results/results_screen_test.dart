@@ -107,4 +107,39 @@ void main() {
     );
     expect(find.text('91% match'), findsOneWidget);
   });
+
+  testWidgets('results shows degraded copy for an unknown state', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        ResultsScreen(
+          plant: _mockPlant(),
+          diagnosis: const ScanDiagnosis(state: 'brand_new_state'),
+        ),
+      ),
+    );
+    expect(find.text(ResultsScreen.degradedCopy), findsOneWidget);
+    expect(find.text('Looks healthy'), findsNothing);
+  });
+
+  testWidgets('results found with no name shows no empty title', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        ResultsScreen(
+          plant: _mockPlant(),
+          diagnosis: const ScanDiagnosis(
+            state: 'found',
+            probability: 0.5,
+            description: 'x',
+          ),
+        ),
+      ),
+    );
+    expect(find.text(ResultsScreen.degradedCopy), findsOneWidget);
+    expect(find.textContaining('50%'), findsNothing);
+    expect(find.text('Looks healthy'), findsNothing);
+  });
 }

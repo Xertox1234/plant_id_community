@@ -93,7 +93,15 @@ class ResultsScreen extends StatelessWidget {
     final theme = Theme.of(context);
     final d = diagnosis;
     final Widget content;
-    if (degraded || d == null || d.state == 'unavailable') {
+    final foundName = d?.state == 'found' ? d?.name : null;
+    final known =
+        d != null &&
+        (d.state == 'healthy' ||
+            (d.state == 'found' && foundName != null && foundName.isNotEmpty));
+    // Only a verdict we recognise is shown; anything else (unavailable, a
+    // state a newer server adds, a found with no name) reads as unchecked
+    // rather than as a false health claim.
+    if (degraded || d == null || !known) {
       content = Text(degradedCopy, style: theme.textTheme.bodyMedium);
     } else if (d.state == 'found') {
       final p = d.probability;
@@ -120,6 +128,7 @@ class ResultsScreen extends StatelessWidget {
         ],
       );
     } else {
+      // Reached only for state == 'healthy'.
       content = Text(
         'Looks healthy',
         style: theme.textTheme.titleLarge?.copyWith(
