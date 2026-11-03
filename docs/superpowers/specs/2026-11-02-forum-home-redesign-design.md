@@ -158,6 +158,8 @@ Add to each row:
   list uses for `is_unread`, batched, no per-row queries.
 - `image_url`: a wide rendition for the picture card (e.g. `fill-720x400`), prefetched in
   the same batch as the existing `fill-80x80`. Keep `thumbnail_url` for the web rail.
+  With no uploaded image, it falls back to the first link card's cached preview image
+  (owner decision 2026-11-03); `thumbnail_url` stays uploads-only.
 
 Keep the offline sync mirror as is. It still feeds offline reading. The home just stops
 using it for this list; if the recent request fails, show the section error with Retry
