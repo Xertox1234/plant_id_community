@@ -19,6 +19,10 @@ from PIL import Image, ImageOps
 from plant_community_backend.r2_config import R2_REGION_NAME
 
 MAX_SCAN_PHOTO_SIDE = 1600
+# Refused from the header, before any decode: a solid-colour JPEG of ~170 MP
+# fits in 10 MB but decodes to ~0.5-1 GB. Explicit, because Pillow's global
+# decompression-bomb limit is shared and other modules change it.
+MAX_SCAN_PHOTO_PIXELS = 40_000_000
 SCAN_PHOTO_JPEG_QUALITY = 85
 
 
@@ -92,10 +96,18 @@ def normalize_scan_photo(upload) -> ContentFile:
 
     Re-encoding drops EXIF (GPS included); the orientation is applied to the
     pixels first so the photo stays upright. Raises ``ValueError`` if the
-    bytes do not decode as an image.
+    bytes do not decode as an image, or declare more than
+    ``MAX_SCAN_PHOTO_PIXELS`` pixels (checked from the header, before decoding).
     """
     try:
         with Image.open(upload) as src:
+            width, height = src.size
+            if width * height > MAX_SCAN_PHOTO_PIXELS:
+                raise ValueError("Image has too many pixels")
+            # JPEG only (a no-op otherwise): decode at a reduced scale that
+            # still covers the 1600 px target, so a large photo never decodes
+            # at full resolution.
+            src.draft("RGB", (MAX_SCAN_PHOTO_SIDE, MAX_SCAN_PHOTO_SIDE))
             img = ImageOps.exif_transpose(src)
             img.load()
     except Exception as exc:

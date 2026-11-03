@@ -17,7 +17,7 @@ from apps.core.exceptions import get_request_id
 from apps.core.ratelimit import ratelimit
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.http import FileResponse, Http404
+from django.http import FileResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from drf_spectacular.types import OpenApiTypes
@@ -30,7 +30,8 @@ from drf_spectacular.utils import (
 )
 from rest_framework import serializers, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.negotiation import BaseContentNegotiation
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -187,6 +188,22 @@ def _validated_photos(request: Request, mode: str) -> Dict[str, Any]:
         except ValueError:
             raise ValidationError({role: ["Not a readable image."]}) from None
     return photos
+
+
+class AnyAcceptNegotiation(BaseContentNegotiation):
+    """Never 406: always the first renderer (JSON).
+
+    The photo action answers with a ``FileResponse``, which DRF does not
+    render, so its Accept header only matters for an error body. Default
+    negotiation runs before the handler and would refuse ``Accept: image/*``
+    (what image loaders send) with a 406; this picks JSON for errors instead.
+    """
+
+    def select_parser(self, request, parsers):
+        return parsers[0] if parsers else None
+
+    def select_renderer(self, request, renderers, format_suffix=None):
+        return renderers[0], renderers[0].media_type
 
 
 class ScanJobViewSet(GenericViewSet):
@@ -356,13 +373,18 @@ class ScanJobViewSet(GenericViewSet):
             404: ERROR_NOT_FOUND,
         },
     )
-    @action(detail=True, methods=["get"], url_path=r"photos/(?P<role>[a-z]+)")
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"photos/(?P<role>[a-z]+)",
+        content_negotiation_class=AnyAcceptNegotiation,
+    )
     def photos(self, request: Request, uuid=None, role: str = "") -> FileResponse:
         """Stream one of the job's photos. Private: never served from storage."""
         job = self.get_object()
         image = ScanJobImage.objects.filter(job=job, role=role).first()
         if image is None or not image.image.name:
-            raise Http404("No photo for that role.")
+            raise NotFound("No photo for that role.")
         handle = scan_photo_storage().open(image.image.name, "rb")
         response = FileResponse(handle, content_type="image/jpeg")
         response["Cache-Control"] = SCAN_PHOTO_CACHE_CONTROL

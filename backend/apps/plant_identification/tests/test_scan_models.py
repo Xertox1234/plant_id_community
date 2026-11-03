@@ -163,3 +163,50 @@ def test_scan_job_admin_is_read_only(rf):
     assert model_admin.has_add_permission(request) is False
     assert model_admin.has_change_permission(request) is False
     assert model_admin.has_delete_permission(request) is False
+
+
+def _plain_jpeg(size) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, (30, 140, 60)).save(buf, "JPEG")
+    return buf.getvalue()
+
+
+def test_photo_over_pixel_cap_is_rejected_before_decoding():
+    """A small file can declare a huge canvas: refuse it from the header."""
+    from unittest.mock import patch
+
+    from PIL import ImageFile
+
+    with (
+        patch("apps.plant_identification.scan_storage.MAX_SCAN_PHOTO_PIXELS", 99),
+        patch.object(ImageFile.ImageFile, "load") as load,
+        pytest.raises(ValueError),
+    ):
+        normalize_scan_photo(ContentFile(_plain_jpeg((10, 10)), name="x.jpg"))
+    load.assert_not_called()
+
+
+def test_pixel_cap_is_forty_megapixels():
+    from apps.plant_identification import scan_storage
+
+    assert scan_storage.MAX_SCAN_PHOTO_PIXELS == 40_000_000
+
+
+def test_large_jpeg_decodes_at_reduced_scale_and_fits_1600():
+    from unittest.mock import patch
+
+    from PIL import JpegImagePlugin
+
+    real_draft = JpegImagePlugin.JpegImageFile.draft
+    calls = []
+
+    def spy(self, mode, size):
+        calls.append((mode, size))
+        return real_draft(self, mode, size)
+
+    with patch.object(JpegImagePlugin.JpegImageFile, "draft", spy):
+        out = normalize_scan_photo(ContentFile(_plain_jpeg((4000, 3000)), name="x.jpg"))
+    assert calls == [("RGB", (1600, 1600))]
+    with Image.open(io.BytesIO(out.read())) as im:
+        assert max(im.size) == 1600
+        assert im.size == (1600, 1200)

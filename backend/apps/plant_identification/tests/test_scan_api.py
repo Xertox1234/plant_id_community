@@ -462,3 +462,36 @@ def test_schema_generation_queryset_is_empty_without_a_user():
     view.swagger_fake_view = True
     assert view.get_queryset().model is ScanJob
     assert view.get_queryset().query.is_empty()
+
+
+@pytest.mark.django_db
+def test_create_rejects_photo_over_pixel_cap():
+    with patch("apps.plant_identification.scan_storage.MAX_SCAN_PHOTO_PIXELS", 100):
+        response = _create(_client(_user()), "identify")
+    assert response.status_code == 400
+    assert response.data["code"] == "invalid"
+    assert not ScanJob.objects.exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("accept", ["image/*", "image/jpeg", "image/webp,image/*"])
+def test_photo_accepts_image_accept_headers(accept):
+    client = _client(_user())
+    job_id = _create(client).data["id"]
+    response = client.get(f"{BASE}{job_id}/photos/problem/", HTTP_ACCEPT=accept)
+    assert response.status_code == 200
+    assert response["Content-Type"] == "image/jpeg"
+    assert b"".join(response.streaming_content)[:2] == b"\xff\xd8"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("accept", ["image/*", "image/jpeg"])
+def test_photo_404s_stay_404_with_image_accept(accept):
+    owner = _client(_user("owner"))
+    job_id = _create(owner).data["id"]
+    missing = owner.get(f"{BASE}{job_id}/photos/flower/", HTTP_ACCEPT=accept)
+    assert missing.status_code == 404
+    assert missing.json()["code"] == "not_found"
+    other = _client(_user("other"))
+    foreign = other.get(f"{BASE}{job_id}/photos/problem/", HTTP_ACCEPT=accept)
+    assert foreign.status_code == 404
