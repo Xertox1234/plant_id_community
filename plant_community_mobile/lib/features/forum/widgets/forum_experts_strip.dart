@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/green_thumb_extension.dart';
 import '../models/models.dart';
 import 'author_identity.dart';
 
@@ -88,8 +89,9 @@ class _ExpertTile extends StatelessWidget {
   }
 }
 
-/// The presence marker: a primary-colour disc ringed in the surface colour
-/// so it reads against any avatar. Exposed for tests via its key.
+/// The presence marker: a primary-colour disc ringed in the ground colour
+/// (the experts strip sits directly on the ground) so it reads against any
+/// avatar. Exposed for tests via its key.
 class _OnlineDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -101,7 +103,7 @@ class _OnlineDot extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.primary,
         shape: BoxShape.circle,
-        border: Border.all(color: scheme.surface, width: 2),
+        border: Border.all(color: context.canopy.ground, width: 2),
       ),
     );
   }
