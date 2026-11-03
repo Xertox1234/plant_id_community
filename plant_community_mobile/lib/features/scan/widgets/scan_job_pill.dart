@@ -133,7 +133,7 @@ class _ScanJobStatusCardState extends ConsumerState<ScanJobStatusCard> {
       onView(job);
       return;
     }
-    unawaited(ref.read(appRouterProvider).push('/scans/${job.id}'));
+    unawaited(ref.read(appRouterProvider).push(scanResultPath(job.id)));
     _tracker.dismiss();
   }
 

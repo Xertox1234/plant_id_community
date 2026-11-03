@@ -8,8 +8,8 @@ import '../../features/splash/splash_screen.dart';
 import '../../features/home/home_page.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
-import '../../features/results/results_screen.dart';
 import '../../features/scan/capture_steps.dart';
+import '../../features/scan/scan_result_screen.dart';
 import '../../features/scan/scan_screen.dart';
 import '../../features/profile/edit_profile_screen.dart';
 import '../../features/profile/profile_screen.dart';
@@ -32,19 +32,23 @@ import '../../features/forum/screens/forum_user_profile_screen.dart';
 import '../../features/collection/collection_screen.dart';
 import '../../features/garden/garden_screen.dart';
 
-import '../../models/plant.dart';
 import '../../services/auth_service.dart';
 import 'error_screen.dart';
 import 'main_shell.dart';
 
 part 'app_router.g.dart';
 
+/// The path of one scan job's result screen.
+String scanResultPath(String id) => '${AppRoutes.scanResult}/$id';
+
 /// App route paths
 abstract class AppRoutes {
   static const splash = '/';
   static const home = '/home';
   static const camera = '/camera';
-  static const results = '/results';
+  // A finished background scan, opened by job id: `/scans/<id>` (use
+  // [scanResultPath]). Auth-only: the job and its photos are the caller's own.
+  static const scanResult = '/scans';
   static const settings = '/settings';
   // Auth routes. Reachable from the Profile tab's signed-out state; the
   // redirect below bounces an already-authenticated user off both.
@@ -116,7 +120,11 @@ GoRouter appRouter(Ref ref) {
   };
   // Parameterised protected routes (`/forum/messages/:username`) can't be
   // matched by the exact-path set above; guard them by prefix.
-  const protectedPrefixes = {AppRoutes.forumMessages, AppRoutes.forumGroups};
+  const protectedPrefixes = {
+    AppRoutes.forumMessages,
+    AppRoutes.forumGroups,
+    AppRoutes.scanResult,
+  };
   // Auth routes that authenticated users should not see
   const authOnlyRoutes = {AppRoutes.login, AppRoutes.register};
 
@@ -429,25 +437,16 @@ GoRouter appRouter(Ref ref) {
           ),
         ),
       ),
+      // Top-level on the root navigator, like the camera: the result of a
+      // background scan job, opened from the status pill or a push.
       GoRoute(
-        path: AppRoutes.results,
-        name: 'results',
-        pageBuilder: (context, state) {
-          final plant = state.extra as Plant?;
-          if (plant == null) {
-            // If no plant data, show error
-            return _buildPageWithTransition(
-              context: context,
-              state: state,
-              child: ErrorScreen(error: Exception('No plant data provided')),
-            );
-          }
-          return _buildPageWithTransition(
-            context: context,
-            state: state,
-            child: ResultsScreen(plant: plant),
-          );
-        },
+        path: '${AppRoutes.scanResult}/:id',
+        name: 'scanResult',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: ScanResultScreen(jobId: state.pathParameters['id']!),
+        ),
       ),
       // Top-level (outside the shell), like settings: it is pushed from the
       // Profile tab, not from inside the forum branch.

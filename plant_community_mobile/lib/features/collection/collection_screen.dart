@@ -1,10 +1,10 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../shared/widgets/api_image.dart';
 import '../../shared/widgets/canopy_surfaces.dart';
 import '../../core/routing/app_router.dart';
 import '../../core/theme/green_thumb_extension.dart';
@@ -194,8 +194,8 @@ class _PlantCard extends StatelessWidget {
             height: 100,
             width: double.infinity,
             child: hasImage
-                ? CachedNetworkImage(
-                    imageUrl: plant.imageUrl!,
+                ? ApiImage(
+                    url: plant.imageUrl!,
                     fit: BoxFit.cover,
                     placeholder: (_, _) => _imagePlaceholder(cs),
                     errorWidget: (_, _, _) => _imagePlaceholder(cs),

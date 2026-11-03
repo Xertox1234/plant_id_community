@@ -9,6 +9,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/constants/app_spacing.dart';
+import '../../core/routing/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/app_typography.dart';
 import '../../services/api_service.dart';
@@ -368,7 +369,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// The status view's "View": the result replaces the camera.
   void _viewFromStatus(ScanJob job) {
     _leaving = true;
-    context.pushReplacement('/scans/${job.id}');
+    context.pushReplacement(scanResultPath(job.id));
     ref.read(scanJobTrackerProvider.notifier).dismiss();
   }
 
