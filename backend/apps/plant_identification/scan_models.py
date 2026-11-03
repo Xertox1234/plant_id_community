@@ -10,6 +10,7 @@ from django.db import models, transaction
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 
+from .constants import SCAN_MODE_CHOICES
 from .scan_storage import scan_photo_storage
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 class ScanJob(models.Model):
     ACTIVE_STATUSES = ("pending", "processing")
 
-    MODE_CHOICES = [("diagnose", "Diagnose"), ("identify", "Identify")]
+    MODE_CHOICES = SCAN_MODE_CHOICES
     STATUS_CHOICES = [
         ("pending", "Pending"),
         ("processing", "Processing"),
@@ -27,7 +28,7 @@ class ScanJob(models.Model):
         ("failed", "Failed"),
         ("cancelled", "Cancelled"),
     ]
-    CHARGED_AS_CHOICES = [("diagnose", "Diagnose"), ("identify", "Identify")]
+    CHARGED_AS_CHOICES = SCAN_MODE_CHOICES
 
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     user = models.ForeignKey(

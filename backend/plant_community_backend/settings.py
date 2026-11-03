@@ -758,6 +758,7 @@ SPECTACULAR_SETTINGS = {
         "DiseaseRequestStatusEnum": (
             "apps.plant_identification.constants.DISEASE_REQUEST_STATUS_CHOICES"
         ),
+        "ScanModeEnum": "apps.plant_identification.constants.SCAN_MODE_CHOICES",
     },
     "SORT_OPERATIONS": False,
     "SCHEMA_PATH_PREFIX": r"/api/v[0-9]",

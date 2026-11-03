@@ -32,6 +32,7 @@ from .constants import (
     SCAN_FAILURE_TIMEOUT,
     SCAN_JOB_COLLAPSE_KEY,
     SCAN_JOB_EVENT,
+    SCAN_JOB_MAX_ATTEMPTS,
     SCAN_JOB_RETRY_COUNTDOWN,
     SCAN_JOB_SOFT_TIME_LIMIT,
     SCAN_JOB_TIME_LIMIT,
@@ -71,7 +72,7 @@ def _enqueue_notify(job_id: int) -> None:
 
 
 def _finalize(
-    job: ScanJob,
+    job_id: int,
     status: str,
     charged_as: str = "",
     result: Optional[Dict[str, Any]] = None,
@@ -83,7 +84,7 @@ def _finalize(
     row and nothing else happens (no charge, no onboarding tick, no push).
     """
     with transaction.atomic():
-        updated = ScanJob.objects.filter(pk=job.pk, status="processing").update(
+        updated = ScanJob.objects.filter(pk=job_id, status="processing").update(
             status=status,
             charged_as=charged_as,
             result=result,
@@ -93,20 +94,20 @@ def _finalize(
         if not updated:
             logger.info(
                 "[SCAN] job=%s left processing before it finished; outcome dropped",
-                job.pk,
+                job_id,
             )
             return False
-        job_id = job.pk
         transaction.on_commit(lambda: _enqueue_notify(job_id))
     # After the commit: onboarding bookkeeping never touches the outcome's
     # transaction (a failed query inside it would poison the finalize).
     if status in ("done", "degraded"):
         from apps.users.onboarding import record_first_identification
 
+        job = ScanJob.objects.select_related("user").get(pk=job_id)
         record_first_identification(job.user)
     logger.info(
         "[SCAN] job=%s finished status=%s charged_as=%s",
-        job.pk,
+        job_id,
         status,
         charged_as or "-",
     )
@@ -132,22 +133,28 @@ def run_scan_job(self, job_id: int) -> None:
     config: ``max_retries=1`` with that one explicit ``self.retry``; provider
     errors are already converted to "no result" inside the service.
     """
+    # attempts__lt: a job whose worker keeps dying (acks_late redelivers it)
+    # stops being re-run; the stale expiry then fails it.
     claimed = ScanJob.objects.filter(
-        pk=job_id, status__in=ScanJob.ACTIVE_STATUSES
+        pk=job_id,
+        status__in=ScanJob.ACTIVE_STATUSES,
+        attempts__lt=SCAN_JOB_MAX_ATTEMPTS,
     ).update(status="processing", attempts=F("attempts") + 1)
     if not claimed:
-        logger.info("[SCAN] job=%s is no longer active; nothing to run", job_id)
+        logger.info("[SCAN] job=%s is not claimable; nothing to run", job_id)
         return
 
-    job = ScanJob.objects.select_related("user").get(pk=job_id)
     try:
+        # Inside the try: a failed read after the claim must finalize the job,
+        # not leave it processing until the stale expiry.
+        job = ScanJob.objects.get(pk=job_id)
         shots = _read_shots(job)
         results = CombinedPlantIdentificationService().scan(shots, job.mode)
         status, charged_as = classify_scan(job.mode, results)
         summary = summarize_scan_result(job.mode, results)
     except SoftTimeLimitExceeded:
         logger.error("[SCAN] job=%s hit the soft time limit", job_id)
-        _finalize(job, "failed", failure_reason=SCAN_FAILURE_TIMEOUT)
+        _finalize(job_id, "failed", failure_reason=SCAN_FAILURE_TIMEOUT)
         raise
     except Exception as exc:
         logger.error(
@@ -156,7 +163,7 @@ def run_scan_job(self, job_id: int) -> None:
             type(exc).__name__,
             exc_info=True,
         )
-        _finalize(job, "failed", failure_reason=SCAN_FAILURE_ERROR)
+        _finalize(job_id, "failed", failure_reason=SCAN_FAILURE_ERROR)
         return
 
     # Outside the try: Retry is an Exception and must not be finalized away.
@@ -165,7 +172,7 @@ def run_scan_job(self, job_id: int) -> None:
         raise self.retry(countdown=SCAN_JOB_RETRY_COUNTDOWN)
 
     _finalize(
-        job,
+        job_id,
         status,
         charged_as=charged_as,
         result=summary,

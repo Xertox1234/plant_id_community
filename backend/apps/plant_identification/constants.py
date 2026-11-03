@@ -204,6 +204,9 @@ SCAN_PROBLEM_FALLBACK_ORGAN = "leaf"
 SCAN_JOB_SOFT_TIME_LIMIT = 150
 SCAN_JOB_TIME_LIMIT = 180
 SCAN_JOB_RETRY_COUNTDOWN = 5  # seconds before the one automatic retry
+# Claims per job, retry and redeliveries included: a job whose worker keeps
+# dying is not re-run forever.
+SCAN_JOB_MAX_ATTEMPTS = 3
 
 # ScanJob.failure_reason tokens
 SCAN_FAILURE_NO_RESULT = "no_result"  # neither provider named the plant
@@ -223,3 +226,21 @@ SCAN_PUSH_FAILED = (
 SCAN_PUSH_MAX_RETRIES = 3
 SCAN_PUSH_RETRY_DELAY = 30  # seconds; doubles per retry (30, 60, 120)
 SCAN_SUMMARY_MAX_SUGGESTIONS = 5
+
+# ============================================================================
+# Scan 2.0 job API (Phase B4)
+# ============================================================================
+
+# A scan's mode, which is also what a finished scan is charged as. Named in
+# SPECTACULAR_SETTINGS ENUM_NAME_OVERRIDES as ScanModeEnum.
+SCAN_MODE_CHOICES = [("diagnose", "Diagnose"), ("identify", "Identify")]
+
+# Photo roles each mode accepts, and the one it requires.
+SCAN_MODE_ROLES = {
+    "diagnose": ("problem", "leaf", "whole", "flower"),
+    "identify": ("leaf", "whole", "flower"),
+}
+SCAN_REQUIRED_ROLE = {"diagnose": "problem", "identify": "leaf"}
+SCAN_MAX_PHOTO_BYTES = 10 * 1024 * 1024  # per photo, before re-encoding
+SCAN_CREATE_RATE = "100/h"  # per-user burst limit on POST scans/
+SCAN_PHOTO_CACHE_CONTROL = "private, max-age=86400"

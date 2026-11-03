@@ -15,6 +15,7 @@ from rest_framework.routers import DefaultRouter
 
 from . import views
 from .api import simple_views
+from .api.scan_views import ScanJobViewSet
 
 app_name = "plant_identification"
 
@@ -96,6 +97,8 @@ router.register(r"plants", views.UserPlantViewSet, basename="plants")
 router.register(
     r"disease-requests", views.PlantDiseaseRequestViewSet, basename="disease-requests"
 )
+# Scan 2.0 background scan jobs (allowance, create, status, cancel, photos).
+router.register(r"scans", ScanJobViewSet, basename="scans")
 
 urlpatterns = [
     # Simple identification endpoint (dual API integration)

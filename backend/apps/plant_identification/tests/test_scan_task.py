@@ -298,3 +298,66 @@ def test_retry_countdown_is_five_seconds(user):
     assert retry.call_args.kwargs["countdown"] == 5
     job.refresh_from_db()
     assert job.status == "processing"  # left for the retry to re-claim
+
+
+@pytest.mark.django_db
+def test_job_out_of_attempts_is_not_reclaimed(
+    user, fcm, django_capture_on_commit_callbacks
+):
+    """A job whose worker keeps dying (acks_late redelivery) is not re-run."""
+    job = _job(user)
+    ScanJob.objects.filter(pk=job.pk).update(status="processing", attempts=3)
+    with _scan(return_value=_results("ok")):
+        _run(job, django_capture_on_commit_callbacks)
+        CombinedPlantIdentificationService.scan.assert_not_called()
+    assert job.attempts == 3
+    assert job.status == "processing"  # left for the stale expiry
+    fcm.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_error_loading_job_after_claim_finalizes_failed(
+    user, fcm, django_capture_on_commit_callbacks
+):
+    """A failure between the claim and the scan must not leave it processing."""
+    job = _job(user)
+    with (
+        _scan(return_value=_results("ok")),
+        patch(
+            "apps.plant_identification.tasks._read_shots",
+            side_effect=OSError("storage down"),
+        ),
+    ):
+        _run(job, django_capture_on_commit_callbacks)
+        CombinedPlantIdentificationService.scan.assert_not_called()
+    assert job.status == "failed"
+    assert job.failure_reason == "error"
+    assert fcm.call_count == 1
+
+
+@pytest.mark.django_db
+def test_error_fetching_job_row_after_claim_finalizes_failed(
+    user, fcm, django_capture_on_commit_callbacks
+):
+    """The job load right after the claim fails once: finalized, not stuck."""
+    from django.db.models.query import QuerySet
+
+    job = _job(user)
+    real_get = QuerySet.get
+    armed = {"on": True}
+
+    def flaky_get(self, *args, **kwargs):
+        if self.model is ScanJob and armed["on"]:
+            armed["on"] = False
+            raise RuntimeError("db blip")
+        return real_get(self, *args, **kwargs)
+
+    with (
+        _scan(return_value=_results("ok")),
+        patch.object(QuerySet, "get", flaky_get),
+    ):
+        _run(job, django_capture_on_commit_callbacks)
+        CombinedPlantIdentificationService.scan.assert_not_called()
+    assert armed["on"] is False
+    assert job.status == "failed"
+    assert job.failure_reason == "error"
