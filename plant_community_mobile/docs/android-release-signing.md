@@ -25,7 +25,7 @@ first upload Google re-signs the artifact with a key it holds, and that key's
 SHA-1 must be registered too or Google Sign-In breaks for every real user while
 continuing to work perfectly on your own builds — the worst shape of bug. Find
 it under **Play Console → Release → Setup → App signing**. Tracked as an open
-acceptance criterion on todo 387.
+acceptance criterion on todo 691 (re-pointed from todo 387).
 
 ## Local setup
 

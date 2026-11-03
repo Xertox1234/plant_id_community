@@ -1,27 +1,20 @@
 ---
-status: blocked
+status: completed
 priority: p3
 issue_id: "387"
 tags: [android, firebase, signing, mobile, security]
 dependencies: []
 source_review: "todos/383-firebase-hardening-carryover"
 source_finding: "AC4,AC5-android"
-blocked_on: "A first Play Console upload that generates the Play App Signing SHA-1 (AC5); the physical-device sign-in (AC4) was verified 2026-11-02"
-unblock_when: "a first Play Console upload exists"
-triage: blocked-device
-triaged: 2026-10-16
-owner_decision: "Still blocked: needs a physical Android device and a first Play Console upload (owner, 2026-10-16)"
+completed_at: "2026-11-03"
+owner_decision: "Close: Play Store shipping is planned but not soon; the Play App Signing criterion is re-pointed to todo 691 (owner, 2026-11-03)"
 ---
 
 # Android: release signing, SHA-1 registration, and a verified sign-in
 
-> **ON HOLD since 2026-09-14.** The engineering is done and merged (#772); the
-> two remaining criteria need hardware and a Play account that do not exist yet.
->
-> `status: blocked` makes this file **invisible to every sweep skill** —
-> `todo-sweep`, `todo-next`, `todo-batch` and `completing-todos` all select on
-> `^status: pending`. Nothing will resurface it automatically. Flip the status
-> and the filename back to `pending` when a device is available.
+> **CLOSED 2026-11-03.** Every criterion met except the Play App Signing SHA-1,
+> which cannot exist before a first Play upload. That criterion is **re-pointed to
+> [todo 691](../691-blocked-p3-first-play-store-release.md)**, not checked off.
 
 ## Problem
 
@@ -141,7 +134,8 @@ So fixing findings 1 and 2 alone would not have produced a working sign-in.
       Android 16, release-signed build; prod log shows the token exchange 200
       for the same uid; see the 2026-11-02 Work Log entry)
 - [ ] The Play App Signing SHA-1 is registered on the Firebase Android app
-      (new 2026-09-14; blocked until a first Play upload exists to generate it)
+      → todo 691 (re-pointed 2026-11-03; the certificate does not exist until a
+      first Play upload, and no Play release is scheduled)
 
 ## Progress 2026-09-14
 
@@ -334,3 +328,12 @@ Findings:
 - Samsung blocks the app's background network (`NetdEventListenerService … isBlocked=true`); FCM delivery is unaffected because Play services receives it.
 
 AC 4 is met. Status stays `blocked`: AC 5 still needs a first Play upload.
+
+### 2026-11-03 - Closed; AC 5 re-pointed to todo 691
+
+Owner decision: Android will ship through Play, but launch is not close, so a
+Play developer account and upload now would be setup for a release with no
+date. AC 5 moves to todo 691 (first Play Store release), which also carries the
+step finding 5 showed is easy to miss: the Play SHA-1 has to go on the Android
+**API key** allowlist as well as the Firebase app. AC 5 stays `- [ ]` here per
+the re-pointing convention; nothing about it shipped.
