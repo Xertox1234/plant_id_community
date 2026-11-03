@@ -663,7 +663,7 @@ final class HomeRecentTopicsProvider
     : super(
         from: null,
         argument: null,
-        retry: null,
+        retry: forumRetry,
         name: r'homeRecentTopicsProvider',
         isAutoDispose: true,
         dependencies: null,
@@ -685,7 +685,7 @@ final class HomeRecentTopicsProvider
   }
 }
 
-String _$homeRecentTopicsHash() => r'eec08d5732529414109defcfe740398a58f84423';
+String _$homeRecentTopicsHash() => r'a73787f331011d02d6ebc24b693927ede272eeff';
 
 /// A topic's latest-replies peek. Kept alive so a re-expanded card does not
 /// refetch; the home screen invalidates it on pull-to-refresh.
@@ -712,7 +712,7 @@ final class LatestRepliesProvider
     required LatestRepliesFamily super.from,
     required int super.argument,
   }) : super(
-         retry: null,
+         retry: forumRetry,
          name: r'latestRepliesProvider',
          isAutoDispose: true,
          dependencies: null,
@@ -752,7 +752,7 @@ final class LatestRepliesProvider
   }
 }
 
-String _$latestRepliesHash() => r'4faa54b93c3f64a32977171f7344018c71708766';
+String _$latestRepliesHash() => r'f9018c4fa895c185f971a9e8b2914fd3dc1e8a35';
 
 /// A topic's latest-replies peek. Kept alive so a re-expanded card does not
 /// refetch; the home screen invalidates it on pull-to-refresh.
@@ -761,7 +761,7 @@ final class LatestRepliesFamily extends $Family
     with $FunctionalFamilyOverride<FutureOr<ForumLatestReplies>, int> {
   LatestRepliesFamily._()
     : super(
-        retry: null,
+        retry: forumRetry,
         name: r'latestRepliesProvider',
         dependencies: null,
         $allTransitiveDependencies: null,
@@ -800,7 +800,7 @@ final class CommunityStatsProvider
     : super(
         from: null,
         argument: null,
-        retry: null,
+        retry: forumRetry,
         name: r'communityStatsProvider',
         isAutoDispose: true,
         dependencies: null,
@@ -822,7 +822,7 @@ final class CommunityStatsProvider
   }
 }
 
-String _$communityStatsHash() => r'04b2e9fa372461e667b8b92190a4a5cded90b57d';
+String _$communityStatsHash() => r'6ebf247ba745cd1575862dcea97826fa7890c252';
 
 /// The activity card currently expanded on the forum home (one at a time).
 

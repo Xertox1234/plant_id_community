@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/providers/forum_providers.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
+import 'package:plant_community_mobile/services/api_service.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -69,5 +70,56 @@ void main() {
     final stats = await container.read(communityStatsProvider.future);
 
     expect(stats.membersOnline, 4);
+  });
+
+  // Riverpod 3 retries a failure ~10 times over ~40 s by default; a 4xx will
+  // not change on retry, so these home reads fail at once (forumRetry, the
+  // forum copy of blogRetry). A 5xx/network error keeps the default backoff.
+  group('home reads do not retry a 4xx', () {
+    Future<void> settleRetries(WidgetTester tester) async {
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(seconds: 5));
+      }
+    }
+
+    testWidgets('latestReplies: one fetch for a 404', (tester) async {
+      final api = FakeForumApi()
+        ..latestRepliesError = ApiException('gone', statusCode: 404);
+      final container = _container(api);
+      container.listen(latestRepliesProvider(7), (_, _) {});
+      await settleRetries(tester);
+      expect(api.latestRepliesCalls(7), 1);
+      expect(container.read(latestRepliesProvider(7)).hasError, isTrue);
+    });
+
+    testWidgets('latestReplies: a 503 is still retried', (tester) async {
+      final api = FakeForumApi()
+        ..latestRepliesError = ApiException('down', statusCode: 503);
+      final container = _container(api);
+      container.listen(latestRepliesProvider(7), (_, _) {});
+      await tester.pump(const Duration(seconds: 2));
+      expect(api.latestRepliesCalls(7), greaterThan(1));
+      // Let the backoff finish so no timer outlives the test.
+      api.latestRepliesError = null;
+      await settleRetries(tester);
+    });
+
+    testWidgets('homeRecentTopics: one fetch for a 403', (tester) async {
+      final api = FakeForumApi()
+        ..recentTopicsError = ApiException('no', statusCode: 403);
+      final container = _container(api);
+      container.listen(homeRecentTopicsProvider, (_, _) {});
+      await settleRetries(tester);
+      expect(api.recentTopicsLimits, hasLength(1));
+    });
+
+    testWidgets('communityStats: one fetch for a 404', (tester) async {
+      final api = FakeForumApi()
+        ..communityStatsError = ApiException('gone', statusCode: 404);
+      final container = _container(api);
+      container.listen(communityStatsProvider, (_, _) {});
+      await settleRetries(tester);
+      expect(api.communityStatsCalls, 1);
+    });
   });
 }

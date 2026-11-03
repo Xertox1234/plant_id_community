@@ -374,6 +374,7 @@ class FakeForumApi implements ForumApi {
 
   ForumCommunityStats communityStats = const ForumCommunityStats();
   Object? communityStatsError;
+  int communityStatsCalls = 0;
   ApiException? failExpertsWith;
 
   /// The server's stored notification settings (todo 620): a successful
@@ -1116,6 +1117,7 @@ class FakeForumApi implements ForumApi {
 
   @override
   Future<ForumCommunityStats> fetchCommunityStats() async {
+    communityStatsCalls++;
     final err = communityStatsError;
     if (err != null) throw err;
     return communityStats;

@@ -8,6 +8,7 @@ import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_avatar_cluster.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_activity_card.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_latest_replies_view.dart';
+import 'package:plant_community_mobile/services/api_service.dart';
 
 import '../../support/forum_test_support.dart';
 
@@ -235,8 +236,9 @@ void main() {
     });
 
     testWidgets('an error offers Retry, which refetches', (tester) async {
+      // A 4xx: forumRetry never auto-retries it, so the count stays exact.
       final api = FakeForumApi()
-        ..latestRepliesError = Exception('boom')
+        ..latestRepliesError = ApiException('gone', statusCode: 404)
         ..latestRepliesByTopic = {1: _peek()};
       final opened = <int>[];
       await _pump(tester, api, [_topic(1)], opened: opened);

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../services/api_service.dart';
 import '../models/models.dart';
 import '../services/forum_api.dart';
 import '../services/forum_sync_service.dart';
@@ -23,6 +24,18 @@ class PagedList<T> {
   final bool isLoadingMore;
 
   bool get hasMore => nextUrl != null;
+}
+
+/// Riverpod 3 retries a failed provider up to 10 times with backoff (about
+/// 40 s). A 4xx will not change on retry, so it fails at once; network and
+/// server errors keep the default backoff. The forum copy of `blogRetry`
+/// (blog_providers.dart), as `gardenRetry` is the garden's.
+Duration? forumRetry(int retryCount, Object error) {
+  if (error is ApiException) {
+    final status = error.statusCode ?? 0;
+    if (status >= 400 && status < 500) return null;
+  }
+  return ProviderContainer.defaultRetry(retryCount, error);
 }
 
 /// Forum boards (not paginated).
@@ -702,21 +715,21 @@ class RecentTopics extends _$RecentTopics {
 
 /// The home activity feed — the ten most recent topics with solved/unread
 /// state and a wide image. Distinct from [RecentTopics], the offline mirror.
-@riverpod
+@Riverpod(retry: forumRetry)
 Future<List<ForumRecentTopic>> homeRecentTopics(Ref ref) {
   return ref.watch(forumApiProvider).fetchRecentTopics(limit: 10);
 }
 
 /// A topic's latest-replies peek. Kept alive so a re-expanded card does not
 /// refetch; the home screen invalidates it on pull-to-refresh.
-@riverpod
+@Riverpod(retry: forumRetry)
 Future<ForumLatestReplies> latestReplies(Ref ref, int topicId) {
   ref.keepAlive();
   return ref.watch(forumApiProvider).fetchLatestReplies(topicId);
 }
 
 /// Community counters for the home "Who's online" card.
-@riverpod
+@Riverpod(retry: forumRetry)
 Future<ForumCommunityStats> communityStats(Ref ref) {
   return ref.watch(forumApiProvider).fetchCommunityStats();
 }
