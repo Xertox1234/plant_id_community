@@ -114,6 +114,10 @@ DEFAULTS: dict[str, Any] = {
     # users/experts/ ("Community experts" rail): row cap and minimum trust.
     "EXPERTS_LIMIT": 4,
     "EXPERTS_MIN_TRUST_LEVEL": 3,  # TrustLevel.REGULAR
+    # community/stats/ ("Who's online" panel): how long the site-wide counts
+    # are cached as one shared value, and how many online members it shows.
+    "COMMUNITY_STATS_CACHE_SECONDS": 60,
+    "COMMUNITY_ONLINE_SAMPLE": 5,
     # Presence (todo 301) — two distinct tunables, deliberately not shared
     # (same reasoning as VIEW_COUNT_DEDUP_SECONDS vs TOPIC_READ_DEDUP_SECONDS
     # above: they gate unrelated concerns that only happen to default close

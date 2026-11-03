@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from datetime import timedelta
 from typing import Any
 
 from django.contrib.auth import get_user_model
@@ -96,6 +97,7 @@ from ..conf import get_setting
 from ..link_previews import link_preview_snapshots
 from ..models import (
     Forum,
+    ForumGrant,
     ForumIdentificationAttachment,
     ForumIndex,
     ForumModerator,
@@ -2868,6 +2870,124 @@ class ExpertsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
             )
             results.append(row)
         return Response({"results": results})
+
+
+# One shared value for every viewer (spec 2026-11-02 §6.3); bump the version
+# when the counts dict's shape changes (docs/rules/caching.md).
+COMMUNITY_STATS_CACHE_KEY = "wagtail_forum:community_stats:v1"
+
+COMMUNITY_STATS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "members_online": {"type": "integer"},
+        "online_sample": {"type": "array", "items": AUTHOR_SCHEMA},
+        "registered_members": {"type": "integer"},
+        "topic_count": {"type": "integer"},
+        "post_count": {"type": "integer"},
+        "newest_member": {**AUTHOR_SCHEMA, "nullable": True},
+    },
+}
+
+
+def _fully_public_boards():
+    """Forums whose activity the community totals may count: visible to a
+    guest (``_visible_boards()`` with no user and no request, so no session
+    unlock and no member grant ever widens it; it also applies the
+    category's list gate), with no password and no permission grant of
+    their own. Filtering password and grant rows here, rather than trusting
+    the guest view alone, keeps the totals identical for every viewer and
+    never lets a private forum's activity show through."""
+    return (
+        _visible_boards()
+        .filter(password_hash="")
+        .exclude(Exists(ForumGrant.objects.filter(forum=OuterRef("pk"))))
+    )
+
+
+def _community_counts():
+    """The site-wide counts in three queries (the caller caches them)."""
+    cutoff = timezone.now() - timedelta(seconds=effective_online_window_seconds())
+    members = ForumProfile.objects.filter(user__is_active=True).aggregate(
+        registered=Count("pk"),
+        online=Count("pk", filter=Q(last_seen__gte=cutoff)),
+    )
+    boards = _fully_public_boards()
+    return {
+        "members_online": members["online"],
+        "registered_members": members["registered"],
+        "topic_count": Topic.objects.filter(live=True, board__in=boards).count(),
+        "post_count": Post.objects.filter(
+            live=True, topic__live=True, topic__board__in=boards
+        ).count(),
+    }
+
+
+class CommunityStatsView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView):
+    """The "Who's online" panel (forum home redesign; spec 2026-11-02 §6.3).
+
+    The counts are site-wide and identical for every viewer, so they are
+    cached server-side as one shared value. ``online_sample`` and
+    ``newest_member`` pass through the viewer's block/mute filter and are
+    built per request, never cached; the response is ``private, no-store``
+    so no shared cache can hold a filtered copy either.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        responses={200: COMMUNITY_STATS_SCHEMA},
+        description=(
+            "Site-wide community totals plus a few members to show. "
+            "`members_online`: active accounts with a forum profile whose "
+            "last_seen is within PRESENCE_ONLINE_WINDOW_SECONDS (clamped up to "
+            "at least PRESENCE_TOUCH_THROTTLE_SECONDS, the rule the experts "
+            "rail uses). `registered_members`: active accounts with a forum "
+            "profile. `topic_count` / `post_count`: live topics, and live posts "
+            "in live topics, in the fully public forums only (visible to a "
+            "guest, no password, no permission grant), the same numbers for "
+            "every viewer. The counts are cached for "
+            "COMMUNITY_STATS_CACHE_SECONDS. `online_sample` (up to "
+            "COMMUNITY_ONLINE_SAMPLE, most recently seen first) and "
+            "`newest_member` (null when there is none) leave out inactive "
+            "accounts and members the viewer blocked or muted."
+        ),
+    )
+    def get(self, request):
+        # `or`: get_or_set is typed Optional; a cache that hands back nothing
+        # falls back to counting directly.
+        counts = (
+            cache.get_or_set(
+                COMMUNITY_STATS_CACHE_KEY,
+                _community_counts,
+                get_setting("COMMUNITY_STATS_CACHE_SECONDS"),
+            )
+            or _community_counts()
+        )
+        profiles = _exclude_blocked_authors(
+            ForumProfile.objects.filter(user__is_active=True).select_related(
+                "user", "avatar"
+            ),
+            request.user,
+            author_field="user_id",
+        )
+        cutoff = timezone.now() - timedelta(seconds=effective_online_window_seconds())
+        # The block/mute exclude must come before the slice (a sliced
+        # queryset cannot be filtered).
+        sample = profiles.filter(last_seen__gte=cutoff).order_by("-last_seen", "-pk")[
+            : get_setting("COMMUNITY_ONLINE_SAMPLE")
+        ]
+        newest = profiles.order_by("-user__date_joined", "-user_id").first()
+        return Response(
+            {
+                **counts,
+                "online_sample": [
+                    serialize_forum_author(profile.user, request) for profile in sample
+                ],
+                "newest_member": (
+                    serialize_forum_author(newest.user, request) if newest else None
+                ),
+            }
+        )
 
 
 EVENT_HERO_SCHEMA = {

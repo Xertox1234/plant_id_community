@@ -34,6 +34,7 @@ from wagtail_forum.api.user_mutes import MyMutesView
 from wagtail_forum.api.views import (
     BoardListView,
     CategoryListView,
+    CommunityStatsView,
     EventHeroView,
     ExpertsView,
     MeStatsView,
@@ -227,6 +228,14 @@ urlpatterns = [
     # After users/search/ so the literals aren't captured as usernames (mirrors
     # the package). GET-only + AllowAny — mounted straight, no throttle wrapper.
     path("users/experts/", ExpertsView.as_view(), name="users-experts"),
+    # GET-only + AllowAny — mounted straight, no throttle wrapper (mirrors
+    # ExpertsView). The counts are one cached value; the per-viewer sample is
+    # two indexed queries.
+    path(
+        "community/stats/",
+        CommunityStatsView.as_view(),
+        name="community-stats",
+    ),
     path("users/<str:username>/", PublicProfileView.as_view(), name="user-profile"),
     path("users/<str:username>/block/", UserBlockView.as_view(), name="user-block"),
     path("users/<str:username>/mute/", UserMuteView.as_view(), name="user-mute"),

@@ -35,6 +35,7 @@ from .user_search import UserMentionSearchView
 from .views import (
     BoardListView,
     CategoryListView,
+    CommunityStatsView,
     EventHeroView,
     ExpertsView,
     MeProfileView,
@@ -160,6 +161,11 @@ urlpatterns = [
     # <str:username> so "search" and "experts" aren't captured as usernames
     # (Django resolves in order).
     path("users/experts/", ExpertsView.as_view(), name="users-experts"),
+    path(
+        "community/stats/",
+        CommunityStatsView.as_view(),
+        name="community-stats",
+    ),
     path(
         "users/<str:username>/",
         PublicProfileView.as_view(),
