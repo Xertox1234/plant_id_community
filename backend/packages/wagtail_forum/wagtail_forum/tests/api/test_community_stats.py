@@ -130,16 +130,17 @@ def test_community_stats_counts_only_public_boards():
     _topic_with_posts(locked, "club-1", replies=4)
     restricted = make_forum(name="Staff", slug="staff", is_hidden=True)
     _topic_with_posts(restricted, "staff-1", replies=4)
-    # Still visible to guests, but someone set a grant on it: not "fully
-    # public", so its activity is left out too (the explicit grant filter).
+    # A grant that leaves guests reading it keeps the forum public: counted
+    # (1 topic, 5 posts). Grants are copied onto new forums from their
+    # category, so "has any grant" would drop most public forums.
     granted = make_forum(name="Experts", slug="experts")
     set_grant(granted, ForumGrant.MEMBERS, ForumRole.FULL)
     _topic_with_posts(granted, "experts-1", replies=4)
 
     anon = APIClient().get(URL)
     assert anon.status_code == 200
-    assert anon.data["topic_count"] == 2
-    assert anon.data["post_count"] == 3
+    assert anon.data["topic_count"] == 3
+    assert anon.data["post_count"] == 8
 
     # A member who unlocked the password forum gets the same numbers, built
     # fresh rather than read back from the anonymous request's cache entry.
@@ -155,8 +156,41 @@ def test_community_stats_counts_only_public_boards():
 
     resp = client.get(URL)
     assert resp.status_code == 200
-    assert resp.data["topic_count"] == 2
-    assert resp.data["post_count"] == 3
+    assert resp.data["topic_count"] == 3
+    assert resp.data["post_count"] == 8
+
+
+def test_community_stats_excludes_forum_guests_cannot_read():
+    public = make_forum(name="Public", slug="public")
+    _topic_with_posts(public, "pub-1")
+    # Members still read it (their default role), guests do not.
+    members_only = make_forum(name="Members", slug="members")
+    set_grant(members_only, ForumGrant.ANONYMOUS, ForumRole.NO_ACCESS)
+    _topic_with_posts(members_only, "members-1", replies=3)
+    _, member = _viewer()
+    assert member.get("/forum/boards/members/topics/").status_code == 200
+
+    for client in (APIClient(), member):
+        cache.clear()
+        resp = client.get(URL)
+        assert resp.data["topic_count"] == 1
+        assert resp.data["post_count"] == 1
+
+
+def test_community_stats_online_count_never_below_sample():
+    first = _profile("first", seen_minutes_ago=1)
+    second = _profile("second")
+    # Warms the counts cache with one member online.
+    assert APIClient().get(URL).data["members_online"] == 1
+
+    ForumProfile.objects.filter(user=second).update(last_seen=timezone.now())
+
+    resp = APIClient().get(URL)
+    assert [a["username"] for a in resp.data["online_sample"]] == [
+        second.username,
+        first.username,
+    ]
+    assert resp.data["members_online"] == 2
 
 
 def test_community_stats_online_sample_limit_and_order():

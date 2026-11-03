@@ -229,8 +229,8 @@ urlpatterns = [
     # the package). GET-only + AllowAny — mounted straight, no throttle wrapper.
     path("users/experts/", ExpertsView.as_view(), name="users-experts"),
     # GET-only + AllowAny — mounted straight, no throttle wrapper (mirrors
-    # ExpertsView). The counts are one cached value; the per-viewer sample is
-    # two indexed queries.
+    # ExpertsView). The counts are one cached value; the per-viewer online
+    # sample and newest member are two small bounded queries.
     path(
         "community/stats/",
         CommunityStatsView.as_view(),

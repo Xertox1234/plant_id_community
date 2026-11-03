@@ -97,7 +97,6 @@ from ..conf import get_setting
 from ..link_previews import link_preview_snapshots
 from ..models import (
     Forum,
-    ForumGrant,
     ForumIdentificationAttachment,
     ForumIndex,
     ForumModerator,
@@ -2891,17 +2890,14 @@ COMMUNITY_STATS_SCHEMA = {
 
 def _fully_public_boards():
     """Forums whose activity the community totals may count: visible to a
-    guest (``_visible_boards()`` with no user and no request, so no session
-    unlock and no member grant ever widens it; it also applies the
-    category's list gate), with no password and no permission grant of
-    their own. Filtering password and grant rows here, rather than trusting
-    the guest view alone, keeps the totals identical for every viewer and
-    never lets a private forum's activity show through."""
-    return (
-        _visible_boards()
-        .filter(password_hash="")
-        .exclude(Exists(ForumGrant.objects.filter(forum=OuterRef("pk"))))
-    )
+    guest, exactly what ``_visible_boards()`` returns with no user and no
+    request. No session unlock and no member grant can widen it, and it
+    applies the guests' read grant and the category's list gate, so the
+    totals are identical for every viewer and never count a forum a guest
+    cannot read."""
+    # Defence in depth: the guest view already omits password forums, so
+    # this filter is deliberately not tested on its own.
+    return _visible_boards().filter(password_hash="")
 
 
 def _community_counts():
@@ -2944,17 +2940,18 @@ class CommunityStatsView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, A
             "rail uses). `registered_members`: active accounts with a forum "
             "profile. `topic_count` / `post_count`: live topics, and live posts "
             "in live topics, in the fully public forums only (visible to a "
-            "guest, no password, no permission grant), the same numbers for "
+            "guest with no session, never a password forum), the same numbers for "
             "every viewer. The counts are cached for "
-            "COMMUNITY_STATS_CACHE_SECONDS. `online_sample` (up to "
+            "COMMUNITY_STATS_CACHE_SECONDS; `members_online` is never lower "
+            "than the number of `online_sample` rows. `online_sample` (up to "
             "COMMUNITY_ONLINE_SAMPLE, most recently seen first) and "
             "`newest_member` (null when there is none) leave out inactive "
             "accounts and members the viewer blocked or muted."
         ),
     )
     def get(self, request):
-        # `or`: get_or_set is typed Optional; a cache that hands back nothing
-        # falls back to counting directly.
+        # get_or_set already computes and stores the counts on a miss; the
+        # `or` only narrows its Optional return type for mypy.
         counts = (
             cache.get_or_set(
                 COMMUNITY_STATS_CACHE_KEY,
@@ -2977,12 +2974,16 @@ class CommunityStatsView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, A
             : get_setting("COMMUNITY_ONLINE_SAMPLE")
         ]
         newest = profiles.order_by("-user__date_joined", "-user_id").first()
+        online_sample = [
+            serialize_forum_author(profile.user, request) for profile in sample
+        ]
         return Response(
             {
                 **counts,
-                "online_sample": [
-                    serialize_forum_author(profile.user, request) for profile in sample
-                ],
+                # The cached count can lag the fresh sample by up to the TTL;
+                # never show fewer online than the avatars beside it.
+                "members_online": max(counts["members_online"], len(online_sample)),
+                "online_sample": online_sample,
                 "newest_member": (
                     serialize_forum_author(newest.user, request) if newest else None
                 ),
