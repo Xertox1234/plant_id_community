@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "690"
 tags: [harness, sandbox, permissions, owner]
@@ -47,12 +47,19 @@ Three blockers recur, and only the owner can clear them, because they live in Cl
 
 ## Acceptance Criteria
 
-- [ ] `railway deployment list --service plant_id_community` succeeds sandboxed with no `allowed_domains` (date + output recorded here).
-- [ ] The `railway ssh` policy is decided and recorded with its date.
-- [ ] The merge-rule decision is recorded with its date (adopted or declined).
+- [x] `railway deployment list --service plant_id_community` succeeds sandboxed with no `allowed_domains`. 2026-11-03: it printed `Recent Deployments`. A sandboxed `curl https://api.houseplant-md.com/api/v1/forum/community/stats/` returned HTTP 200. Both hosts are in `~/.claude/settings.json` → `sandbox.network.allowedDomains`, and took effect without a session restart.
+- [x] `railway ssh` policy decided. 2026-11-03, owner: "keep the prompt" (Option 2a). No exclusion added.
+- [x] Merge-rule decision recorded. 2026-11-03, owner: "add permission". The rule in effect is `Bash(gh pr merge:*)` in the project's `.claude/settings.local.json`, the form the permissions dialog writes.
 
 ## Work Log
 
 ### 2026-11-03 - Filed
 
 - Collected from the username-leak session. The owner asked for todos so agents stop working around the same blockers.
+
+### 2026-11-03 - Owner applied the settings; closed
+
+- **Allowlist.** Added to `~/.claude/settings.json`, and the sandboxed checks pass (see Acceptance Criteria).
+  - A first attempt was pasted into the committed project `.claude/settings.json`, inside the `hooks` array, where it was inert. The owner reverted it with `git restore`.
+- **Leftover (by design).** The Railway CLI warns "failed to persist tokens: Failed to set permissions on ~/.railway" when it refreshes its OAuth token in the sandbox. The command still succeeds. `~/.railway` holds credentials, so it stays out of the sandbox write list. Unsandboxed runs such as `railway ssh` persist the refresh.
+- **Merge rule.** The rule is the broad `:*` form, which also matches `--admin`. Narrowing it to `Bash(gh pr merge * --squash)` was offered; that choice is the owner's.
