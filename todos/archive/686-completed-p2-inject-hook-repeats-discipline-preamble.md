@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "686"
 tags: [harness, hooks, context]
@@ -61,12 +61,52 @@ The PreToolUse injection hook prepends `docs/rules/_discipline.md` (4,426 bytes)
 
 ## Acceptance Criteria
 
-- [ ] An Edit/Write to a path outside the project root produces no injected context. A hook test covers it.
-- [ ] If Option 1 is chosen: the second and later repo edits in one session carry at most a one-line pointer instead of the 4.4 KB floor. A hook test covers it.
-- [ ] `bash .claude/hooks/test-inject-patterns.sh` passes.
+- [x] An Edit/Write to a path outside the project root produces no injected context. A hook test covers it.
+- [x] If Option 1 is chosen: the second and later repo edits in one session carry at most a one-line pointer instead of the 4.4 KB floor. A hook test covers it.
+- [x] `bash .claude/hooks/test-inject-patterns.sh` passes.
 
 ## Work Log
 
 ### 2026-11-03 - Filed
 
 - Found while fixing the username email leak (PR #1252). The owner asked for todos for repeated agent friction: "if every agent we call has to do some kind of run around every single time then that is something that should be fixed."
+
+### 2026-11-03 - Implemented by the todo sweep (run 2026-11-03-2214)
+
+- Owner chose Option 2: `.claude/hooks/inject-patterns.sh` now exits silently for an absolute path outside `PROJECT_ROOT` (logical or `pwd -P` spelling), including a sibling directory sharing the root as a name prefix and a path whose `..` climbs back out. Relative paths and paths under the root are unchanged.
+- The discipline floor is still never deduped inside the repo; the comment now says so and why. Option 1's criterion does not apply.
+- `.claude/hooks/test-inject-patterns.sh` gained 7 cases: two outside paths, the prefix-sibling and `..` cases (no output), an absolute in-repo path (full floor and domain routing) and a second same-session repo edit (full floor again).
+- The suite now runs inside the Bash sandbox (verifier retry): the hook keeps its markers, spill file and temp file in `INJECT_STATE_DIR` (default `/tmp`, unchanged live), and the test points it at a private `mktemp -d "$TMPDIR/..."` folder. Before, macOS `mktemp` and the `/tmp/inject-*` markers were denied, giving 24 false failures sandboxed.
+
+### 2026-11-03 - Verified by the todo sweep (run 2026-11-03-2214)
+
+- AC 1: `bash .claude/hooks/test-inject-patterns.sh` — evidence `.sweep-evidence/g2/686-ac0.txt` (not committed), last lines:
+
+  ```text
+  PASS: excerpt() never exceeds the share it is given
+  PASS: newest rule in the largest file reaches the edit
+  PASS: sentinel removed from docs/rules/testing.md
+
+  Results: 36 passed, 0 failed
+  ```
+
+- AC 2: `/usr/bin/grep -h -e ^owner_decision -e "^- \[ \] If Option 1" todos/archive/686-completed-p2-inject-hook-repeats-discipline-preamble.md` — evidence `.sweep-evidence/g2/686-ac1.txt` (not committed), last lines:
+
+  ```text
+  owner_decision: "Option 2 only: skip the discipline preamble only for paths outside the repo; every repo edit keeps the full preamble (2026-11-03)"
+  - [ ] If Option 1 is chosen: the second and later repo edits in one session carry at most a one-line pointer instead of the 4.4 KB floor. A hook test covers it.
+  ```
+
+- AC 3: `bash .claude/hooks/test-inject-patterns.sh` — evidence `.sweep-evidence/g2/686-ac2.txt` (not committed), last lines:
+
+  ```text
+  PASS: excerpt() never exceeds the share it is given
+  PASS: newest rule in the largest file reaches the edit
+  PASS: sentinel removed from docs/rules/testing.md
+
+  Results: 36 passed, 0 failed
+  ```
+
+### 2026-11-03 - Completed by the todo sweep (run 2026-11-03-2214)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.

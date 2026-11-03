@@ -5,9 +5,15 @@
 set -uo pipefail
 
 HOOK="$(cd "$(dirname "$0")" && pwd)/inject-patterns.sh"
+# The hook keeps its markers and spill file in INJECT_STATE_DIR (default /tmp).
+# Point it at a private TMPDIR folder so the suite runs inside the Bash sandbox,
+# which denies /tmp, and never sees another session's markers.
+INJECT_STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/inject-test.XXXXXX") || exit 1
+export INJECT_STATE_DIR
+trap 'rm -rf "$INJECT_STATE_DIR"' EXIT
 # inject-patterns.sh writes its spill file to a per-PID path
-# (/tmp/plant-id-injection-context.<pid>.md), so match them with a glob.
-SPILL_GLOB="/tmp/plant-id-injection-context.*.md"
+# (plant-id-injection-context.<pid>.md), so match them with a glob.
+SPILL_GLOB="$INJECT_STATE_DIR/plant-id-injection-context.*.md"
 PASS=0; FAIL=0
 
 run_hook() {
@@ -142,6 +148,46 @@ check_no_match "non-domain file → no RULES blocks" \
   '{"tool_name":"Edit","tool_input":{"file_path":"README.md"}}' \
   "RULES — "
 
+# Paths outside the project root get no injected context at all (todo 686).
+# Owner decision 2026-11-03: only outside paths skip the floor; every repo edit,
+# relative or absolute, keeps the full preamble.
+HOOK_ROOT="$(cd "$(dirname "$HOOK")/../.." && pwd)"
+check_empty "outside path (memory file) → no output" \
+  '{"tool_name":"Edit","session_id":"inject-686","tool_input":{"file_path":"/Users/x/.claude/projects/p/memory/MEMORY.md"}}'
+
+check_empty "outside path (Write to a scratch dir) → no output" \
+  '{"tool_name":"Write","tool_input":{"file_path":"/private/tmp/claude-501/scratchpad/notes.md","content":"x"}}'
+
+check_empty "sibling dir sharing the root as a name prefix → no output" \
+  "$(jq -n --arg fp "${HOOK_ROOT}-other/README.md" '{tool_name:"Edit",tool_input:{file_path:$fp}}')"
+
+check_empty "path climbing out of the root with .. → no output" \
+  "$(jq -n --arg fp "${HOOK_ROOT}/../elsewhere/notes.md" '{tool_name:"Edit",tool_input:{file_path:$fp}}')"
+
+check "absolute path inside the root → full discipline preamble" \
+  "$(jq -n --arg fp "${HOOK_ROOT}/README.md" '{tool_name:"Edit",tool_input:{file_path:$fp}}')" \
+  "DISCIPLINE — applies before any edit"
+
+check "absolute path inside the root → domain rules still route" \
+  "$(jq -n --arg fp "${HOOK_ROOT}/backend/apps/users/views.py" '{tool_name:"Edit",tool_input:{file_path:$fp}}')" \
+  "RULES — api"
+
+# A second repo edit in the same session still carries the full floor: the
+# owner chose Option 2, so the floor is never deduped inside the repo.
+FLOOR_SESSION="inject-686-floor-$$"
+rm -f "$INJECT_STATE_DIR/inject-${FLOOR_SESSION}-"* 2>/dev/null
+FLOOR_EVENT=$(jq -n --arg sid "$FLOOR_SESSION" \
+  '{tool_name:"Edit",session_id:$sid,tool_input:{file_path:"README.md"}}')
+FLOOR1=$(printf '%s' "$FLOOR_EVENT" | INJECT_FIRES_LOG=/dev/null bash "$HOOK" 2>/dev/null)
+FLOOR2=$(printf '%s' "$FLOOR_EVENT" | INJECT_FIRES_LOG=/dev/null bash "$HOOK" 2>/dev/null)
+if grep -q "DISCIPLINE — applies before any edit" <<< "$FLOOR1" \
+  && grep -q "DISCIPLINE — applies before any edit" <<< "$FLOOR2"; then
+  echo "PASS: second repo edit in a session keeps the full floor"; PASS=$((PASS + 1))
+else
+  echo "FAIL: second repo edit in a session lost the floor"; FAIL=$((FAIL + 1))
+fi
+rm -f "$INJECT_STATE_DIR/inject-${FLOOR_SESSION}-"* 2>/dev/null
+
 # Read tool → no output (not Edit/Write/MultiEdit)
 check_empty "Read tool → no output" \
   '{"tool_name":"Read","tool_input":{"file_path":"backend/apps/users/views.py"}}'
@@ -158,7 +204,7 @@ check_empty "missing file_path → no output" \
 TRIG_SESSION="inject-test-$$"
 TRIG_EVENT=$(jq -n --arg sid "$TRIG_SESSION" \
   '{tool_name:"Write",session_id:$sid,tool_input:{file_path:"web/src/InjectTest.tsx",content:"import { useNavigate } from \"react-router\";\n"}}')
-rm -f "/tmp/inject-${TRIG_SESSION}-"* 2>/dev/null
+rm -f "$INJECT_STATE_DIR/inject-${TRIG_SESSION}-"* 2>/dev/null
 OUT1=$(printf '%s' "$TRIG_EVENT" | INJECT_FIRES_LOG=/dev/null bash "$HOOK" 2>/dev/null)
 OUT2=$(printf '%s' "$TRIG_EVENT" | INJECT_FIRES_LOG=/dev/null bash "$HOOK" 2>/dev/null)
 if grep -q "systemMessage" <<< "$OUT1" && grep -q "RECENT MISTAKES" <<< "$OUT1"; then
@@ -171,7 +217,7 @@ if grep -q "RECENT MISTAKES" <<< "$OUT2"; then
 else
   echo "PASS: repeat trigger in same session → deduped"; PASS=$((PASS + 1))
 fi
-rm -f "/tmp/inject-${TRIG_SESSION}-"* 2>/dev/null
+rm -f "$INJECT_STATE_DIR/inject-${TRIG_SESSION}-"* 2>/dev/null
 
 # ---------------------------------------------------------------------------
 # Budgeted injection (todo 369). Before this, `cat` + `head -c 8800` gave the

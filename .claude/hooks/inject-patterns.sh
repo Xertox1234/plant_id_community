@@ -29,6 +29,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RULES_DIR="$PROJECT_ROOT/docs/rules"
 
+# Paths outside the project get nothing (todo 686, owner decision 2026-11-03:
+# skip only outside the repo; every repo edit keeps the full discipline floor).
+# Memory files, side-session notes and scratchpad files match no domain, so the
+# 4.4 KB floor was all they ever received, on every edit. An absolute path counts
+# as inside when it starts with PROJECT_ROOT/ in either its logical or its
+# physical (`pwd -P`, symlinks resolved) spelling; a relative path is resolved
+# against the repo, so it is always inside. A worktree session's PROJECT_ROOT is
+# the worktree itself, so its own files are inside; the main checkout's are not,
+# and guard-worktree-isolation.sh refuses those edits anyway.
+case "$FILE_PATH" in
+  /*)
+    PROJECT_ROOT_PHYS="$(cd "$PROJECT_ROOT" && pwd -P)"
+    case "$FILE_PATH" in
+      "$PROJECT_ROOT"/*|"$PROJECT_ROOT_PHYS"/*) ;;
+      *) exit 0 ;;
+    esac
+    # A ".." segment can climb back out of the root: /repo/../elsewhere/x.
+    case "/$FILE_PATH/" in
+      */../*) exit 0 ;;
+    esac
+    ;;
+esac
+
 # Normalize to a repo-relative path so the matchers below are uniform whether
 # the Edit tool sent an absolute path or a relative one. A leading "/" is
 # stripped only when the path is under PROJECT_ROOT; paths outside it are left
@@ -46,13 +69,20 @@ if command -v python3 >/dev/null 2>&1; then
     || DOMAINS=""
 fi
 
+# Session markers, the spill file and the temp file live here. Default /tmp;
+# the hook test points it at a TMPDIR folder so the suite runs inside the Bash
+# sandbox, which denies writes to /tmp and to mktemp's default /var/folders.
+INJECT_STATE_DIR="${INJECT_STATE_DIR:-/tmp}"
+
 # Build context in a temp file (avoids subshell newline stripping)
-TMPFILE=$(mktemp)
+TMPFILE=$(mktemp "$INJECT_STATE_DIR/inject-ctx.XXXXXX")
 trap 'rm -f "$TMPFILE"' EXIT
 
 printf '=== Pre-write context for %s ===\n' "$FILE_PATH" >> "$TMPFILE"
 
-# (2) Always-on discipline floor, read from an editable data file. Never deduped.
+# (2) Always-on discipline floor, read from an editable data file. Never deduped:
+# every edit inside the repo carries it in full (todo 686 kept this on purpose;
+# only paths outside the project skip it, above).
 printf '\n' >> "$TMPFILE"
 cat "$RULES_DIR/_discipline.md" >> "$TMPFILE" 2>/dev/null
 
@@ -73,7 +103,7 @@ if [ -n "$MATCH_OUT" ]; then
   if [ -n "$SESSION_ID" ]; then
     SAFE_ID=$(printf '%s' "$SESSION_ID" | tr -c 'A-Za-z0-9._-' '_')
     TRIG_HASH=$(printf '%s' "$MATCH_OUT" | cksum | cut -d' ' -f1)
-    TRIG_MARKER="/tmp/inject-${SAFE_ID}-trig-${TRIG_HASH}"
+    TRIG_MARKER="$INJECT_STATE_DIR/inject-${SAFE_ID}-trig-${TRIG_HASH}"
     if [ -f "$TRIG_MARKER" ]; then
       INJECT_TRIGGERS=0
     else
@@ -102,7 +132,7 @@ if [ -n "$DOMAINS" ]; then
     [ -f "$RULES_DIR/${DOMAIN}.md" ] || continue
     if [ -n "$SESSION_ID" ]; then
       SAFE_ID=$(printf '%s' "$SESSION_ID" | tr -c 'A-Za-z0-9._-' '_')
-      MARKER="/tmp/inject-${SAFE_ID}-${DOMAIN}"
+      MARKER="$INJECT_STATE_DIR/inject-${SAFE_ID}-${DOMAIN}"
       [ -f "$MARKER" ] && continue
     fi
     WANTED+=("$DOMAIN")
@@ -126,7 +156,7 @@ if [ -n "$DOMAINS" ]; then
       for DOMAIN in "${WANTED[@]}"; do
         if [ -n "$SESSION_ID" ]; then
           SAFE_ID=$(printf '%s' "$SESSION_ID" | tr -c 'A-Za-z0-9._-' '_')
-          : > "/tmp/inject-${SAFE_ID}-${DOMAIN}" 2>/dev/null || true
+          : > "$INJECT_STATE_DIR/inject-${SAFE_ID}-${DOMAIN}" 2>/dev/null || true
         fi
       done
     fi
@@ -138,7 +168,7 @@ fi
 # The `$$` PID suffix keeps concurrent hook invocations from clobbering each
 # other's spill file.
 THRESHOLD=9000
-SPILL_FILE="/tmp/plant-id-injection-context.$$.md"
+SPILL_FILE="$INJECT_STATE_DIR/plant-id-injection-context.$$.md"
 CONTEXT_SIZE=$(wc -c < "$TMPFILE")
 if [ "$CONTEXT_SIZE" -gt "$THRESHOLD" ]; then
   cp "$TMPFILE" "$SPILL_FILE"

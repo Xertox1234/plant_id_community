@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "689"
 tags: [harness, git, sandbox, worktrees]
@@ -60,7 +60,7 @@ The result looks like a large staged change on the wrong branch. Merges and reba
 ## Acceptance Criteria
 
 - [x] The cause of the half-applied switch is recorded with the exact error text. 2026-11-03: "could not lock config file …/.git/config: Operation not permitted", and the `--track` / `--no-track` probe in Findings.
-- [ ] A rule or trigger tells agents the safe way to branch and to sync a worktree, and includes the `symbolic-ref` repair.
+- [x] A rule or trigger tells agents the safe way to branch and to sync a worktree, and includes the `symbolic-ref` repair.
 
 ## Work Log
 
@@ -71,3 +71,26 @@ The result looks like a large staged change on the wrong branch. Merges and reba
 ### 2026-11-03 - Root cause found
 
 - Hit again while branching to close todo 690, this time with full stderr: `.git/config` lock refused while setting upstream tracking. A `--track` / `--no-track` probe confirmed it. The probe branches were deleted afterwards. Remaining work: the trigger rule (steps 2–4).
+
+### 2026-11-03 - Implemented by the todo sweep (run 2026-11-03-2214)
+
+- Owner chose (b), a hook and no CLAUDE.md entry: new `.claude/hooks/warn-git-track.sh`, registered as a Bash PreToolUse hook in `.claude/settings.json`. It warns (additionalContext + systemMessage, no permission decision, always exit 0) on `git switch -c/-C/--create/--force-create` or `git checkout -b/-B` from `origin/`, `remotes/` or `refs/remotes/`, or with `--track`, unless that same simple command has `--no-track`.
+- The warning names the safe paths: `--no-track`, `git push origin HEAD` (no `-u`), `sync_with_base_branch` for syncing a worktree, and the non-destructive `git symbolic-ref HEAD refs/heads/<new>` repair.
+- `.claude/hooks/test-warn-git-track.sh` (25 cases) covers the warn and quiet forms, compound commands and fail-open input; it is added to `.github/workflows/harness-ci.yml`.
+- Not done: step 4 (re-checking the 2026-10-09 `.claude/agents` merge failure). The warning points merges at `sync_with_base_branch` regardless.
+
+### 2026-11-03 - Verified by the todo sweep (run 2026-11-03-2214)
+
+- AC 2: `bash .claude/hooks/test-warn-git-track.sh` — evidence `.sweep-evidence/g2/689-ac1.txt` (not committed), last lines:
+
+  ```text
+  PASS: --no-track elsewhere does not excuse a tracking switch
+  PASS: exits 0 on a warning
+  PASS: warning names branch, push, sync and symbolic-ref repair
+
+  Results: 25 passed, 0 failed
+  ```
+
+### 2026-11-03 - Completed by the todo sweep (run 2026-11-03-2214)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
