@@ -563,8 +563,9 @@ class FirebaseTokenExchangeTestCase(TestCase):
         self.assertEqual(user_response.data["email"], "test@example.com")
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
-    def test_username_generation_from_email(self, mock_verify):
-        """Test that username is correctly generated from email prefix."""
+    def test_username_is_not_derived_from_email(self, mock_verify):
+        """The username is public in the forum, so it is a random handle, never
+        the email's local part."""
         # Mock Firebase token verification
         mock_verify.return_value = self.decoded_token
 
@@ -581,9 +582,8 @@ class FirebaseTokenExchangeTestCase(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Verify username was set to email prefix
         user = User.objects.get(email="test@example.com")
-        self.assertEqual(user.username, "test")
+        self.assertRegex(user.username, r"^member_[a-z2-9]{8}$")
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_unexpected_error_handling(self, mock_verify):
@@ -892,7 +892,8 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
         self.assertTrue(created)
         self.assertEqual(user.email, "newuser@example.com")
         self.assertEqual(user.first_name, "New User")
-        self.assertEqual(user.username, "newuser")
+        self.assertRegex(user.username, r"^member_[a-z2-9]{8}$")
+        self.assertNotIn("newuser", user.username)
         self.assertTrue(user.is_active)
 
     def test_new_user_gets_default_plant_collection(self):
@@ -1056,48 +1057,28 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
         self.assertEqual(user.email, "nodisplay@example.com")
         self.assertEqual(user.first_name, "")
 
-    def test_username_collision_handling(self):
-        """Test that username collisions are handled with UUID suffix."""
+    def test_same_local_part_gets_distinct_unrelated_usernames(self):
+        """Two emails sharing a local part get distinct random usernames, and
+        neither carries the local part."""
         from apps.users.firebase_auth_views import get_or_create_user_from_firebase
 
-        # Create first user with email john@gmail.com (username will be 'john')
         user1, created1 = get_or_create_user_from_firebase(
             firebase_uid="firebase-uid-001",
             firebase_email="john@gmail.com",
             display_name="John Gmail",
         )
-
-        self.assertTrue(created1)
-        self.assertEqual(user1.username, "john")
-        self.assertEqual(user1.email, "john@gmail.com")
-
-        # Create second user with email john@yahoo.com (should get UUID suffix)
         user2, created2 = get_or_create_user_from_firebase(
             firebase_uid="firebase-uid-002",
             firebase_email="john@yahoo.com",
             display_name="John Yahoo",
         )
 
+        self.assertTrue(created1)
         self.assertTrue(created2)
-        self.assertEqual(user2.email, "john@yahoo.com")
-
-        # Username should start with 'john_' and have 8-character UUID suffix
-        self.assertTrue(user2.username.startswith("john_"))
-        self.assertEqual(len(user2.username), len("john_") + 8)  # john_ + 8 hex chars
-
-        # Verify it's a valid hex UUID suffix
-        uuid_suffix = user2.username.split("_")[1]
-        self.assertEqual(len(uuid_suffix), 8)
-        # Check it's all hex characters
-        try:
-            int(uuid_suffix, 16)  # Should not raise ValueError
-        except ValueError:
-            self.fail(f"UUID suffix '{uuid_suffix}' is not valid hex")
-
-        # Verify both users exist and are different
-        self.assertNotEqual(user1.id, user2.id)
         self.assertNotEqual(user1.username, user2.username)
-        self.assertEqual(User.objects.filter(email__contains="john@").count(), 2)
+        for user in (user1, user2):
+            self.assertRegex(user.username, r"^member_[a-z2-9]{8}$")
+            self.assertNotIn("john", user.username)
 
 
 class FirebaseTokenExchangeRateLimitTestCase(TestCase):
