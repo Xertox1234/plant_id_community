@@ -35,6 +35,7 @@ from .user_search import UserMentionSearchView
 from .views import (
     BoardListView,
     CategoryListView,
+    CommunityStatsView,
     EventHeroView,
     ExpertsView,
     MeProfileView,
@@ -51,6 +52,7 @@ from .views import (
     SearchView,
     SyncView,
     TopicDetailView,
+    TopicLatestRepliesView,
     TopicListView,
 )
 
@@ -105,6 +107,11 @@ urlpatterns = [
         name="topic-solution",
     ),
     path("topics/<int:topic_id>/posts/", PostListView.as_view(), name="post-list"),
+    path(
+        "topics/<int:topic_id>/latest-replies/",
+        TopicLatestRepliesView.as_view(),
+        name="topic-latest-replies",
+    ),
     # "mine" before <int:image_id>/ for the same literal-over-capture
     # reason as topics/recent/ above — harmless here since the int
     # converter already refuses "mine", but kept consistent with that rule.
@@ -154,6 +161,11 @@ urlpatterns = [
     # <str:username> so "search" and "experts" aren't captured as usernames
     # (Django resolves in order).
     path("users/experts/", ExpertsView.as_view(), name="users-experts"),
+    path(
+        "community/stats/",
+        CommunityStatsView.as_view(),
+        name="community-stats",
+    ),
     path(
         "users/<str:username>/",
         PublicProfileView.as_view(),

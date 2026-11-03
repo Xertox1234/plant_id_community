@@ -34,6 +34,7 @@ from wagtail_forum.api.user_mutes import MyMutesView
 from wagtail_forum.api.views import (
     BoardListView,
     CategoryListView,
+    CommunityStatsView,
     EventHeroView,
     ExpertsView,
     MeStatsView,
@@ -41,6 +42,7 @@ from wagtail_forum.api.views import (
     PostRevisionListView,
     PublicProfileView,
     RecentTopicsView,
+    TopicLatestRepliesView,
 )
 
 from .api import (
@@ -158,6 +160,13 @@ urlpatterns = [
         name="topic-solution",
     ),
     path("topics/<int:topic_id>/posts/", PostListView.as_view(), name="post-list"),
+    # GET-only + AllowAny, mounted straight from the package (no throttle
+    # wrapper) — same treatment as topics/recent/ above.
+    path(
+        "topics/<int:topic_id>/latest-replies/",
+        TopicLatestRepliesView.as_view(),
+        name="topic-latest-replies",
+    ),
     path(
         "topics/<int:topic_id>/summary/",
         TopicSummaryView.as_view(),
@@ -219,6 +228,14 @@ urlpatterns = [
     # After users/search/ so the literals aren't captured as usernames (mirrors
     # the package). GET-only + AllowAny — mounted straight, no throttle wrapper.
     path("users/experts/", ExpertsView.as_view(), name="users-experts"),
+    # GET-only + AllowAny — mounted straight, no throttle wrapper (mirrors
+    # ExpertsView). The counts are one cached value; the per-viewer online
+    # sample and newest member are two small bounded queries.
+    path(
+        "community/stats/",
+        CommunityStatsView.as_view(),
+        name="community-stats",
+    ),
     path("users/<str:username>/", PublicProfileView.as_view(), name="user-profile"),
     path("users/<str:username>/block/", UserBlockView.as_view(), name="user-block"),
     path("users/<str:username>/mute/", UserMuteView.as_view(), name="user-mute"),

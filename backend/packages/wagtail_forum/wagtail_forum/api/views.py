@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from datetime import timedelta
 from typing import Any
 
 from django.contrib.auth import get_user_model
@@ -10,12 +11,14 @@ from django.db.models import (
     BooleanField,
     Case,
     CharField,
+    Count,
     DateTimeField,
     Exists,
     ExpressionWrapper,
     F,
     Func,
     IntegerField,
+    Max,
     OuterRef,
     Prefetch,
     Q,
@@ -2500,6 +2503,9 @@ RECENT_TOPICS_SCHEMA = {
                     },
                     "is_pinned": {"type": "boolean"},
                     "thumbnail_url": {"type": "string", "nullable": True},
+                    "image_url": {"type": "string", "nullable": True},
+                    "is_solved": {"type": "boolean"},
+                    "is_unread": {"type": "boolean"},
                 },
             },
         }
@@ -2515,7 +2521,11 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
     builder (todo 273). Thumbnails resolve batched from the opening posts'
     first image block (StreamField raw_data — never iterate the StreamValue,
     which fires per-object image fetches; docs/LEARNINGS.md 2026-06-25), with
-    the topic's identification-attachment image as fallback.
+    the topic's identification-attachment image as fallback. Each row carries
+    the small `thumbnail_url` (fill-80x80, the web rail) and a wide `image_url`
+    (fill-720x400, the mobile home card), plus `is_solved` (accepted answer
+    set) and `is_unread` (per-viewer; always False for anonymous — safe
+    because authenticated responses are served private/no-store).
     """
 
     permission_classes = [AllowAny]
@@ -2555,6 +2565,7 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         # shared cache never holds a personalised page. Chained BEFORE the
         # slice — .exclude() after [:limit] raises.
         recent = _exclude_blocked_authors(recent, request.user)
+        recent = _annotate_topic_unread(recent, request.user)
         topics = list(recent.order_by("-last_post_at", "-id")[:limit])
         topic_ids = [t.pk for t in topics]
 
@@ -2593,29 +2604,36 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         # then iterates the queryset, which preserves prefetch_related.
         images = (
             get_image_model()
-            .objects.prefetch_renditions("fill-80x80")
+            .objects.prefetch_renditions("fill-80x80", "fill-720x400")
             .in_bulk(set(image_id_by_topic.values()))
         )
 
-        def thumb(topic):
+        def rendition_url(topic, spec):
             image = images.get(image_id_by_topic.get(topic.pk))
             if image is None:
                 return None
             try:
-                url = image.get_rendition("fill-80x80").url
+                url = image.get_rendition(spec).url
             except OSError:
                 # Source file missing from disk (media wiped, Image row
                 # survives — wagtail raises SourceImageIOError, an OSError
                 # subclass). Don't 500 the whole endpoint over one bad
-                # thumbnail; log once and omit it for this topic.
+                # rendition; log once and omit it for this topic.
                 logger.exception(
-                    "[ERROR] rendition failed for image %s (topic %s); "
-                    "omitting thumbnail",
+                    "[ERROR] %s rendition failed for image %s (topic %s); "
+                    "omitting it",
+                    spec,
                     image.pk,
                     topic.pk,
                 )
                 return None
             return request.build_absolute_uri(url)
+
+        def thumb(topic):
+            return rendition_url(topic, "fill-80x80")
+
+        def wide(topic):
+            return rendition_url(topic, "fill-720x400")
 
         return Response(
             {
@@ -2633,9 +2651,151 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                         "last_post_at": t.last_post_at,
                         "is_pinned": t.is_pinned,
                         "thumbnail_url": thumb(t),
+                        "image_url": wide(t),
+                        "is_solved": t.solved_post_id is not None,
+                        "is_unread": t.is_unread,
                     }
                     for t in topics
                 ]
+            }
+        )
+
+
+LATEST_REPLY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "integer"},
+        "author": AUTHOR_SCHEMA,
+        "created_at": {"type": "string", "format": "date-time"},
+        "excerpt": {"type": "string"},
+    },
+}
+TOPIC_LATEST_REPLIES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "replies": {"type": "array", "items": LATEST_REPLY_SCHEMA},
+        "solution": {**LATEST_REPLY_SCHEMA, "nullable": True},
+        "more_count": {"type": "integer"},
+        "participant_count": {"type": "integer"},
+        "participants": {"type": "array", "items": AUTHOR_SCHEMA},
+        "started_by": {**AUTHOR_SCHEMA, "nullable": True},
+    },
+}
+
+
+class TopicLatestRepliesView(
+    UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView
+):
+    """A peek at a topic for the expanded home activity card (spec
+    2026-11-02 §6.4): the accepted answer, the newest replies, who took part
+    and who started it.
+
+    HIDE, not COLLAPSE: unlike the post list, a summary drops members the
+    viewer blocked or muted entirely (``_exclude_blocked_authors``), from the
+    replies, the solution, the participants, ``started_by`` and every count,
+    so a hidden reply is never even counted. A peek has no side effect: no
+    view count, no topic-read record. Always ``private, no-store``, even for
+    guests (``PrivateForumReadCacheMixin``, docs/rules/caching.md): it serves
+    reply text, and a reply hidden by moderation must stop being served at
+    once, with no CDN purge wired, for the same reason as ``PostListView``.
+
+    The query count is flat (pinned in test_topic_latest_replies.py): every
+    author comes from a ``select_related`` join, and the excerpt reads
+    ``raw_data`` (``plain_text_excerpt``), never the resolved StreamValue.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        responses={200: TOPIC_LATEST_REPLIES_SCHEMA, 404: dict},
+        description=(
+            "Up to LATEST_REPLIES_LIMIT items: the accepted answer (`solution`, "
+            "counted toward the limit) and the newest live replies, newest "
+            "first, each with a plain-text excerpt. Members the viewer blocked "
+            "or muted are left out of every field and count. `more_count` is "
+            "the visible replies not shown. 404 when the viewer cannot see the "
+            "topic. Does not mark the topic read."
+        ),
+    )
+    def get(self, request, topic_id):
+        topic = get_object_or_404(
+            visible_topics(request=request).only("id", "solved_post_id"),
+            id=topic_id,
+        )
+        author_join = "author__wagtail_forum_profile__avatar"
+        live_posts = _exclude_blocked_authors(
+            Post.objects.filter(topic_id=topic.pk, live=True), request.user
+        )
+        visible_replies = live_posts.filter(is_opening_post=False)
+        limit = get_setting("LATEST_REPLIES_LIMIT")
+        excerpt_chars = get_setting("LATEST_REPLIES_EXCERPT_CHARS")
+
+        solution = None
+        if topic.solved_post_id is not None:
+            # Only when it survives the same filter: a hidden author's answer
+            # is left out, and the card shows just the newest visible replies.
+            solution = (
+                visible_replies.filter(pk=topic.solved_post_id)
+                .select_related(author_join)
+                .first()
+            )
+        newest = visible_replies.select_related(author_join).order_by(
+            "-created_at", "-id"
+        )
+        if solution is not None:
+            newest = newest.exclude(pk=solution.pk)
+        replies = list(newest[: max(0, limit - (1 if solution is not None else 0))])
+        shown = len(replies) + (1 if solution is not None else 0)
+        more_count = max(0, visible_replies.count() - shown)
+
+        # Participants include the opening post's author. Deleted accounts
+        # (NULL author, kept by _exclude_blocked_authors) are not people to
+        # show an avatar for, so they are left out here.
+        authored = live_posts.filter(author_id__isnull=False)
+        participant_count = authored.aggregate(n=Count("author_id", distinct=True))["n"]
+        participant_ids = list(
+            authored.values("author_id")
+            .annotate(last_post=Max("created_at"))
+            .order_by("-last_post", "-author_id")
+            .values_list("author_id", flat=True)[
+                : get_setting("LATEST_REPLIES_PARTICIPANTS")
+            ]
+        )
+        users = (
+            get_user_model()
+            .objects.select_related("wagtail_forum_profile__avatar")
+            .in_bulk(participant_ids)
+            if participant_ids
+            else {}
+        )
+
+        opening = live_posts.filter(is_opening_post=True).select_related(author_join)
+        opening_post = opening.first()
+
+        def reply_row(post):
+            return {
+                "id": post.pk,
+                "author": serialize_forum_author(post.author, request),
+                "created_at": post.created_at,
+                "excerpt": plain_text_excerpt(post.body, excerpt_chars),
+            }
+
+        return Response(
+            {
+                "replies": [reply_row(p) for p in replies],
+                "solution": reply_row(solution) if solution is not None else None,
+                "more_count": more_count,
+                "participant_count": participant_count,
+                "participants": [
+                    serialize_forum_author(users[pk], request)
+                    for pk in participant_ids
+                    if pk in users
+                ],
+                "started_by": (
+                    serialize_forum_author(opening_post.author, request)
+                    if opening_post is not None
+                    else None
+                ),
             }
         )
 
@@ -2709,6 +2869,126 @@ class ExpertsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
             )
             results.append(row)
         return Response({"results": results})
+
+
+# One shared value for every viewer (spec 2026-11-02 §6.3); bump the version
+# when the counts dict's shape changes (docs/rules/caching.md).
+COMMUNITY_STATS_CACHE_KEY = "wagtail_forum:community_stats:v1"
+
+COMMUNITY_STATS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "members_online": {"type": "integer"},
+        "online_sample": {"type": "array", "items": AUTHOR_SCHEMA},
+        "registered_members": {"type": "integer"},
+        "topic_count": {"type": "integer"},
+        "post_count": {"type": "integer"},
+        "newest_member": {**AUTHOR_SCHEMA, "nullable": True},
+    },
+}
+
+
+def _fully_public_boards():
+    """Forums whose activity the community totals may count: visible to a
+    guest, exactly what ``_visible_boards()`` returns with no user and no
+    request. No session unlock and no member grant can widen it, and it
+    applies the guests' read grant and the category's list gate, so the
+    totals are identical for every viewer and never count a forum a guest
+    cannot read."""
+    # Defence in depth: the guest view already omits password forums, so
+    # this filter is deliberately not tested on its own.
+    return _visible_boards().filter(password_hash="")
+
+
+def _community_counts():
+    """The site-wide counts in three queries (the caller caches them)."""
+    cutoff = timezone.now() - timedelta(seconds=effective_online_window_seconds())
+    members = ForumProfile.objects.filter(user__is_active=True).aggregate(
+        registered=Count("pk"),
+        online=Count("pk", filter=Q(last_seen__gte=cutoff)),
+    )
+    boards = _fully_public_boards()
+    return {
+        "members_online": members["online"],
+        "registered_members": members["registered"],
+        "topic_count": Topic.objects.filter(live=True, board__in=boards).count(),
+        "post_count": Post.objects.filter(
+            live=True, topic__live=True, topic__board__in=boards
+        ).count(),
+    }
+
+
+class CommunityStatsView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView):
+    """The "Who's online" panel (forum home redesign; spec 2026-11-02 §6.3).
+
+    The counts are site-wide and identical for every viewer, so they are
+    cached server-side as one shared value. ``online_sample`` and
+    ``newest_member`` pass through the viewer's block/mute filter and are
+    built per request, never cached; the response is ``private, no-store``
+    so no shared cache can hold a filtered copy either.
+    """
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        responses={200: COMMUNITY_STATS_SCHEMA},
+        description=(
+            "Site-wide community totals plus a few members to show. "
+            "`members_online`: active accounts with a forum profile whose "
+            "last_seen is within PRESENCE_ONLINE_WINDOW_SECONDS (clamped up to "
+            "at least PRESENCE_TOUCH_THROTTLE_SECONDS, the rule the experts "
+            "rail uses). `registered_members`: active accounts with a forum "
+            "profile. `topic_count` / `post_count`: live topics, and live posts "
+            "in live topics, in the fully public forums only (visible to a "
+            "guest with no session, never a password forum), the same numbers for "
+            "every viewer. The counts are cached for "
+            "COMMUNITY_STATS_CACHE_SECONDS; `members_online` is never lower "
+            "than the number of `online_sample` rows. `online_sample` (up to "
+            "COMMUNITY_ONLINE_SAMPLE, most recently seen first) and "
+            "`newest_member` (null when there is none) leave out inactive "
+            "accounts and members the viewer blocked or muted."
+        ),
+    )
+    def get(self, request):
+        # get_or_set already computes and stores the counts on a miss; the
+        # `or` only narrows its Optional return type for mypy.
+        counts = (
+            cache.get_or_set(
+                COMMUNITY_STATS_CACHE_KEY,
+                _community_counts,
+                get_setting("COMMUNITY_STATS_CACHE_SECONDS"),
+            )
+            or _community_counts()
+        )
+        profiles = _exclude_blocked_authors(
+            ForumProfile.objects.filter(user__is_active=True).select_related(
+                "user", "avatar"
+            ),
+            request.user,
+            author_field="user_id",
+        )
+        cutoff = timezone.now() - timedelta(seconds=effective_online_window_seconds())
+        # The block/mute exclude must come before the slice (a sliced
+        # queryset cannot be filtered).
+        sample = profiles.filter(last_seen__gte=cutoff).order_by("-last_seen", "-pk")[
+            : get_setting("COMMUNITY_ONLINE_SAMPLE")
+        ]
+        newest = profiles.order_by("-user__date_joined", "-user_id").first()
+        online_sample = [
+            serialize_forum_author(profile.user, request) for profile in sample
+        ]
+        return Response(
+            {
+                **counts,
+                # The cached count can lag the fresh sample by up to the TTL;
+                # never show fewer online than the avatars beside it.
+                "members_online": max(counts["members_online"], len(online_sample)),
+                "online_sample": online_sample,
+                "newest_member": (
+                    serialize_forum_author(newest.user, request) if newest else None
+                ),
+            }
+        )
 
 
 EVENT_HERO_SCHEMA = {
