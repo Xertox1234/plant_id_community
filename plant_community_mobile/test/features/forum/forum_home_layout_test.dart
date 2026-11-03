@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +13,7 @@ import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/providers/forum_providers.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
+import 'package:plant_community_mobile/features/forum/widgets/forum_experts_strip.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_activity_card.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_home_footer.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_latest_replies_view.dart';
@@ -45,6 +48,42 @@ ForumRecentTopic _topic(
   isSolved: isSolved,
   imageUrl: imageUrl,
 );
+
+/// After the first fetch, experts and community stats wait on a gate: a
+/// refresh whose refetch is still in flight.
+class _SlowRefreshApi extends FakeForumApi {
+  final expertsGate = Completer<void>();
+  final statsGate = Completer<void>();
+
+  /// Every call, counted on entry (the base counters tick after the gate).
+  int expertsAttempts = 0;
+  int statsAttempts = 0;
+
+  @override
+  Future<List<ForumExpert>> fetchExperts() async {
+    if (expertsAttempts++ > 0) await expertsGate.future;
+    return super.fetchExperts();
+  }
+
+  @override
+  Future<ForumCommunityStats> fetchCommunityStats() async {
+    if (statsAttempts++ > 0) await statsGate.future;
+    return super.fetchCommunityStats();
+  }
+}
+
+/// Copies the [_fullApi] fixtures onto [api].
+T _withFixtures<T extends FakeForumApi>(T api) {
+  final full = _fullApi();
+  return api
+    ..boards = full.boards
+    ..recentTopics = [_topic(1)]
+    ..experts = full.experts
+    ..communityStats = const ForumCommunityStats(
+      membersOnline: 1,
+      registeredMembers: 2,
+    );
+}
 
 /// Everything the home reads, with the long strings that break layouts.
 FakeForumApi _fullApi() => FakeForumApi()
@@ -192,8 +231,8 @@ ScrollableState _homeScroll(WidgetTester tester) {
 }
 
 Future<void> _scrollToEnd(WidgetTester tester) async {
-  // The list builds lazily, so its max extent is an estimate that moves as
-  // sections are built: jump until we sit at the real end, footer built.
+  // Jump until we sit at the real end with the footer laid out; the extent
+  // can still move after the first jump as late layout settles.
   final scroll = _homeScroll(tester);
   for (var i = 0; i < 30; i++) {
     scroll.position.jumpTo(scroll.position.maxScrollExtent);
@@ -254,33 +293,36 @@ void main() {
           testWidgets('fits, clears the FAB and meets a11y: $label', (
             tester,
           ) async {
+            // Not addTearDown: flutter_test checks for live handles BEFORE
+            // tear-downs run, so the handle is disposed in a finally.
             final handle = tester.ensureSemantics();
-            await _pumpInShell(
-              tester,
-              _fullApi(),
-              size: size,
-              textScale: scale,
-              brightness: brightness,
-            );
-            expect(tester.takeException(), isNull);
-            expect(find.byType(ForumSeasonCard), findsOneWidget);
-            await _expectGuidelines(tester);
+            try {
+              await _pumpInShell(
+                tester,
+                _fullApi(),
+                size: size,
+                textScale: scale,
+                brightness: brightness,
+              );
+              expect(tester.takeException(), isNull);
+              expect(find.byType(ForumSeasonCard), findsOneWidget);
+              await _expectGuidelines(tester);
 
-            await _scrollToEnd(tester);
-            expect(tester.takeException(), isNull);
-            final footer = tester.getRect(find.byType(ForumHomeFooter));
-            final fab = tester.getRect(find.byKey(MainShell.identifyFabKey));
-            expect(
-              footer.bottom,
-              lessThanOrEqualTo(fab.top),
-              reason:
-                  'the footer ends at ${footer.bottom}, under the FAB '
-                  'at ${fab.top}',
-            );
-            await _expectGuidelines(tester);
-            handle.dispose();
-            // Let the CachedNetworkImage's timers run out.
-            await tester.pump(const Duration(seconds: 4));
+              await _scrollToEnd(tester);
+              expect(tester.takeException(), isNull);
+              final footer = tester.getRect(find.byType(ForumHomeFooter));
+              final fab = tester.getRect(find.byKey(MainShell.identifyFabKey));
+              expect(
+                footer.bottom,
+                lessThanOrEqualTo(fab.top),
+                reason:
+                    'the footer ends at ${footer.bottom}, under the FAB '
+                    'at ${fab.top}',
+              );
+              await _expectGuidelines(tester);
+            } finally {
+              handle.dispose();
+            }
           });
         }
       }
@@ -477,5 +519,114 @@ void main() {
         },
       );
     }
+  });
+
+  testWidgets('a section keeps its State when the entrance finishes', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(375, 812);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          forumApiProvider.overrideWithValue(_withFixtures(FakeForumApi())),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: false),
+          ),
+        ],
+        child: const MaterialApp(home: ForumScreen()),
+      ),
+    );
+    // Mid-entrance: the experts strip is built and still fading in.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+    final strip = find.descendant(
+      of: find.byType(ForumExpertsStrip),
+      matching: find.byType(Scrollable),
+    );
+    final before = tester.state<ScrollableState>(strip);
+
+    await tester.pumpAndSettle();
+    expect(tester.state<ScrollableState>(strip), same(before));
+  });
+
+  testWidgets('a refresh keeps Experts and Who\'s online on screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(375, 812);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = _withFixtures(_SlowRefreshApi());
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          forumApiProvider.overrideWithValue(api),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: false),
+          ),
+        ],
+        child: const MaterialApp(home: ForumScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Experts'), findsOneWidget);
+    expect(find.text("Who's online"), findsOneWidget);
+
+    await tester.fling(find.text('Boards'), const Offset(0, 400), 1000);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    // Both refetches are in flight.
+    expect(api.expertsAttempts, 2);
+    expect(api.statsAttempts, 2);
+    expect(find.textContaining('Experts'), findsOneWidget);
+    expect(find.byType(ForumExpertsStrip), findsOneWidget);
+    expect(find.text("Who's online"), findsOneWidget);
+
+    api.expertsGate.complete();
+    api.statsGate.complete();
+    await tester.pumpAndSettle();
+    expect(find.text("Who's online"), findsOneWidget);
+  });
+
+  // Riverpod 3 keeps a refetch-in-flight as AsyncData(isLoading), but a
+  // FAILED refetch is an AsyncError carrying the old value: `asData` is null
+  // there, `.value` is not. The panels keep their last data.
+  testWidgets('a failed refresh keeps the last Experts and Who\'s online', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(375, 812);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = _withFixtures(FakeForumApi());
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          forumApiProvider.overrideWithValue(api),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: false),
+          ),
+        ],
+        child: const MaterialApp(home: ForumScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text("Who's online"), findsOneWidget);
+
+    api
+      ..failExpertsWith = ApiException('gone', statusCode: 404)
+      ..communityStatsError = ApiException('gone', statusCode: 404);
+    await tester.fling(find.text('Boards'), const Offset(0, 400), 1000);
+    await tester.pumpAndSettle();
+
+    expect(api.communityStatsCalls, 2);
+    expect(find.byType(ForumExpertsStrip), findsOneWidget);
+    expect(find.text("Who's online"), findsOneWidget);
   });
 }

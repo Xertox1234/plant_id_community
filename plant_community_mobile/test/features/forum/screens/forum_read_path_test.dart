@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/forum_screen.dart';
+import 'package:plant_community_mobile/features/forum/widgets/home/forum_boards_section.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_composer_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_thread_screen.dart';
@@ -70,7 +71,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('General'), findsWidgets);
+    // Scoped: the activity card's board chip also says "General".
+    expect(
+      find.descendant(
+        of: find.byType(ForumBoardsSection),
+        matching: find.text('General'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Recent one'), findsOneWidget);
     // Opening the forum still runs the delta sync that feeds offline reading.
     expect(api.syncCalls, isNotEmpty);

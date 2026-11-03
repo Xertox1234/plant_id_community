@@ -75,8 +75,10 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
     final isAuthenticated = ref.watch(
       authServiceProvider.select((s) => s.isAuthenticated),
     );
+    // `.value`: keeps the panel (and its gap) through a refresh; still
+    // absent before the first data and on a first-load error.
     final showOnline = ref.watch(
-      communityStatsProvider.select((a) => a.asData != null),
+      communityStatsProvider.select((a) => a.value != null),
     );
 
     Widget slot(int index, Widget child) =>
@@ -189,22 +191,22 @@ class _Arrive extends StatelessWidget {
     final end = (_stagger * index + _sectionFade).inMicroseconds / total;
     final interval = Interval(start, end, curve: Easing.emphasizedDecelerate);
     final rise = !MediaQuery.disableAnimationsOf(context);
+    // The same Opacity > Transform structure in every frame, finished or
+    // not: swapping the root widget once the entrance ends would remount the
+    // whole section and drop its State (an open card, a scroll position).
     return AnimatedBuilder(
       animation: entrance,
       child: child,
       builder: (context, child) {
-        if (entrance.isCompleted) return child!;
         final t = interval.transform(entrance.value);
         return Opacity(
           opacity: t,
           // A screen reader must not lose the sections while they fade in.
           alwaysIncludeSemantics: true,
-          child: rise
-              ? Transform.translate(
-                  offset: Offset(0, _rise * (1 - t)),
-                  child: child,
-                )
-              : child,
+          child: Transform.translate(
+            offset: Offset(0, rise ? _rise * (1 - t) : 0),
+            child: child,
+          ),
         );
       },
     );
@@ -241,7 +243,9 @@ class _ExpertsSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final experts = ref.watch(expertsProvider).asData?.value ?? const [];
+    // `.value`, not `asData`: a pull-to-refresh keeps the last list on screen
+    // instead of collapsing the strip while it refetches.
+    final experts = ref.watch(expertsProvider).value ?? const [];
     if (experts.isEmpty) return const SizedBox.shrink();
     final online = experts.where((e) => e.online).length;
     return Padding(

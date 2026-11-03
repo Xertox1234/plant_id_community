@@ -12,14 +12,16 @@ import '../../providers/forum_providers.dart';
 import '../forum_avatar_cluster.dart';
 
 /// The forum home's "Who's online" panel (`communityStatsProvider`). Public
-/// read; hides entirely while loading or on error, like the experts section,
-/// since a missing presence card costs nothing.
+/// read; hidden before its first data and on a first-load error, like the
+/// experts section, since a missing presence card costs nothing. A refresh
+/// keeps the last counts showing.
 class ForumWhosOnline extends ConsumerWidget {
   const ForumWhosOnline({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final stats = ref.watch(communityStatsProvider).asData?.value;
+    // `.value`, not `asData`: a refresh keeps the last counts on screen.
+    final stats = ref.watch(communityStatsProvider).value;
     if (stats == null) return const SizedBox.shrink();
     final theme = Theme.of(context);
     return Column(
