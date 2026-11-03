@@ -81,9 +81,12 @@ class _FakeScanJobApi extends ScanJobApi {
   final gets = Queue<ScanJob>();
   ScanJob cancelJob = _job(ScanJobStatus.cancelled);
 
+  Completer<void>? allowanceGate;
+
   @override
   Future<ScanAllowance> allowance() async {
     calls.add('allowance');
+    await allowanceGate?.future;
     return allowanceValue;
   }
 
@@ -686,6 +689,67 @@ void main() {
     await tester.pump();
     expect(h.store.saved, hasLength(1));
     expect(await h.storedId(), isNull);
+    h.container.dispose();
+  });
+
+  testWidgets('cancel during the allowance check starts nothing', (
+    tester,
+  ) async {
+    final h = _Harness();
+    await h.tracker.restored;
+    h.api.allowanceGate = Completer<void>();
+    final submitting = h.tracker.submit(_capture);
+    await tester.pump();
+
+    await h.tracker.cancel();
+    h.api.allowanceGate!.complete();
+    await submitting;
+
+    expect(h.api.calls, isNot(contains('create')));
+    expect(h.state.phase, TrackerPhase.idle);
+    h.container.dispose();
+  });
+
+  testWidgets('a user change during the allowance check starts nothing', (
+    tester,
+  ) async {
+    final h = _Harness();
+    await h.tracker.restored;
+    h.api.allowanceGate = Completer<void>();
+    final submitting = h.tracker.submit(_capture);
+    await tester.pump();
+
+    h.signIn('user-2');
+    h.api.allowanceGate!.complete();
+    await submitting;
+
+    expect(h.api.calls, isNot(contains('create')));
+    h.container.dispose();
+  });
+
+  testWidgets('after a 401, resuming the app restores the job', (tester) async {
+    final h = _Harness();
+    await h.tracker.restored;
+    h.api.gets.add(_job(ScanJobStatus.processing));
+    await h.tracker.submit(_capture);
+    h.api.getError = ApiException('Unauthorized', statusCode: 401);
+    await h.tick(tester);
+    expect(h.state.phase, TrackerPhase.idle);
+
+    h.api.getError = null;
+    h.api.gets
+      ..clear()
+      ..add(_job(ScanJobStatus.done));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await h.tracker.restored;
+    await tester.pump();
+    expect(h.state.phase, TrackerPhase.ready);
+    expect(h.store.saved, hasLength(1));
     h.container.dispose();
   });
 

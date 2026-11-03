@@ -133,7 +133,10 @@ class ScanJobTracker extends _$ScanJobTracker {
 
   Future<void> _submit(CaptureResult r) async {
     // The pre-check runs before anything changes, so a refusal leaves the
-    // current job (and its pending save) untouched.
+    // current job (and its pending save) untouched. A cancel, dismiss or user
+    // change during it bumps [_gen] or changes the user: then nothing starts.
+    final before = _gen;
+    final uid = ref.read(currentUserIdProvider);
     ScanAllowance? allowance;
     try {
       allowance = await _api.allowance();
@@ -141,7 +144,7 @@ class ScanJobTracker extends _$ScanJobTracker {
       // The server checks again on create; don't block a scan on this read.
       debugPrint('[SCAN_JOB] Allowance pre-check failed: $e');
     }
-    if (!ref.mounted) return;
+    if (!_current(before) || ref.read(currentUserIdProvider) != uid) return;
     if (allowance != null) {
       if (allowance.remainingFor(r.mode) <= 0) {
         throw ScanRefused(code: 'allowance_exhausted', kind: r.mode.name);
@@ -156,7 +159,7 @@ class ScanJobTracker extends _$ScanJobTracker {
     _pendingId = null;
     _handledId = null;
     _restoreDeferred = false;
-    _ownerUid = ref.read(currentUserIdProvider);
+    _ownerUid = uid;
     _slowAfterSeconds = allowance?.slowAfterSeconds ?? defaultSlowAfterSeconds;
 
     state = ScanTrackerState(phase: TrackerPhase.uploading, lastCapture: r);
@@ -431,6 +434,12 @@ class ScanJobTracker extends _$ScanJobTracker {
 
   void _onResume() {
     _paused = false;
+    if (_restoreDeferred) {
+      // A 401/403 stopped polling; the token may have been refreshed since.
+      _restoring = restore();
+      unawaited(_restoring);
+      return;
+    }
     if (_pendingId == null || !_isActive(state.phase)) return;
     _startTimer();
     unawaited(_poll());
