@@ -978,7 +978,7 @@ final class NotificationsFeedProvider
   NotificationsFeed create() => NotificationsFeed();
 }
 
-String _$notificationsFeedHash() => r'a5d19458edf41647f2c59a1851c4251a141e9160';
+String _$notificationsFeedHash() => r'b0c0e73f3cd0cb8f32e0541f95ba6643acf32b19';
 
 /// The user's notifications (cursor-paginated, newest first).
 
