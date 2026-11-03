@@ -43,7 +43,7 @@ records those as not collected. Re-pointed from todo 638 on 2026-11-03.
 ## Acceptance Criteria
 
 - [ ] `RESEND_WEBHOOK_SECRET` is set on Railway and declared in `.railway/railway.ts`; the webhook receives a signed event and records an `EmailProviderEvent`
-- [ ] Resend's own open/click tracking is off for `houseplant-md.com`
+- [x] Resend's own open/click tracking is off for `houseplant-md.com` (completed 2026-11-03: never set up; no tracking subdomain exists)
 - [ ] A provider event is linked to its `EmailNotification` via our Message-ID (or the gap is recorded if Resend rewrites it)
 - [ ] The baseline doc records delivered/bounced/complained counts and sent→delivered latency over a stated window (re-pointed from todo 638)
 
@@ -53,6 +53,20 @@ records those as not collected. Re-pointed from todo 638 on 2026-11-03.
 
 Prod read (owner-approved, aggregate-only): 9 forum emails sent in 30 days, all
 with our Message-ID, none with a provider email id, 0 provider events.
+
+### 2026-11-03 - Webhook connected; sender-domain filter
+
+- Owner created the Resend webhook (All Events; the dashboard's event picker
+  would not narrow) and set `RESEND_WEBHOOK_SECRET` on `plant_id_community`
+  (piped from the clipboard). From 20:52:57 UTC an unsigned POST answers 401,
+  not 503. `railway.ts` declaration: PR #1259.
+- Resend's own tracking: the domain has no tracking subdomain, so Resend open
+  and click tracking was never set up. Nothing to turn off (owner's Domains
+  screenshot, 2026-11-03).
+- The Resend account also sends for ocrecipes.com and lumatuner.com, and its
+  webhooks are account-wide. Without a filter another product's complaint
+  would have suppressed the address here. Fixed: events are acted on only for
+  mail from `DEFAULT_FROM_EMAIL`'s domain; others are ignored and not recorded.
 
 ## Notes
 
