@@ -34,12 +34,14 @@ class ForumHomeFooter extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 2),
-          const CanopyLabel('The plant clinic'),
+          // ink2, not the default ink3: the footer sits on the bare ground,
+          // where light-mode ink3 is 3.3:1 (spec §5.1).
+          CanopyLabel('The plant clinic', color: canopy.ink2),
           const SizedBox(height: AppSpacing.sm),
           Text(
             '© $year ${AppBrand.name}',
             textAlign: TextAlign.center,
-            style: AppTypography.meta.copyWith(color: canopy.ink3),
+            style: AppTypography.meta.copyWith(color: canopy.ink2),
           ),
         ],
       ),

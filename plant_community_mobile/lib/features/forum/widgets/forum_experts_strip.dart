@@ -79,7 +79,11 @@ class _ExpertTile extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
-                style: theme.textTheme.labelSmall,
+                // ink2, not labelSmall's ink3: the strip sits on the bare
+                // ground, where light-mode ink3 is 3.3:1 (spec §5.1).
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: context.canopy.ink2,
+                ),
               ),
             ],
           ),
