@@ -53,3 +53,12 @@ OAUTH_PROVIDER_TIMEOUT_SECONDS = 10
 # The push service answers these when a subscription is gone for good. 413
 # (payload too large) and 429 (rate limited) say nothing about the subscription.
 WEB_PUSH_GONE_STATUSES = (404, 410)
+# Usernames for accounts the user did not name (OAuth, social and Firebase
+# signup): prefix + random suffix, never the email (signup.generate_username).
+GENERATED_USERNAME_PREFIX = "member_"
+# No 0/o, 1/l/i: the handle is shown publicly and may be read aloud or retyped.
+GENERATED_USERNAME_ALPHABET = (
+    "abcdefghjkmnpqrstuvwxyz23456789"  # pragma: allowlist secret
+)
+GENERATED_USERNAME_SUFFIX_LENGTH = 8
+GENERATED_USERNAME_ATTEMPTS = 10

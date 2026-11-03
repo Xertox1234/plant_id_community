@@ -176,6 +176,16 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
         for local signup only. Social signup stays as it was."""
         return True
 
+    def populate_user(
+        self, request: HttpRequest, sociallogin: SocialLogin, data: dict[str, Any]
+    ) -> User:
+        """Drop the provider's username (GitHub sends the login) so the
+        account adapter's ``populate_username`` gives a random one: the forum
+        serves ``username`` publicly."""
+        user: User = super().populate_user(request, sociallogin, data)
+        user.username = ""
+        return user
+
     @staticmethod
     def _provider_email_verified(sociallogin: SocialLogin, email: str) -> bool:
         """Return True only if the provider has verified `email`.
@@ -252,6 +262,17 @@ class CustomAccountAdapter(DefaultAccountAdapter):
         allauth's ``/accounts/signup/`` skipped its checks, rate limit and
         side effects (todo 447)."""
         return False
+
+    def populate_username(self, request: HttpRequest, user: Any) -> None:
+        """Give a social signup a random username.
+
+        allauth's default builds it from the first name, last name or email
+        local part, and the forum serves ``username`` publicly.
+        """
+        from apps.users.signup import generate_username
+
+        if not user.username:
+            user.username = generate_username()
 
     def get_login_redirect_url(self, request: HttpRequest) -> str:
         """

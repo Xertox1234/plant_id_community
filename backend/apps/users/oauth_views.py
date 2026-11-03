@@ -477,6 +477,7 @@ def _find_or_create_user(provider, user_data):
     """
     from apps.users.signup import (
         create_default_plant_collection,
+        generate_username,
         join_forum_members_group,
     )
     from django.contrib.auth import get_user_model
@@ -534,28 +535,20 @@ def _find_or_create_user(provider, user_data):
             )
             return None
 
-        # Create new user
+        # Create new user. The username is public in the forum, so it is
+        # random, never the email's local part or the provider login.
+        username = generate_username()
         if provider == "google":
-            username = user_data.get("email").split("@")[0]
             first_name = user_data.get("given_name", "")[:30]
             last_name = user_data.get("family_name", "")[:150]
         elif provider == "github":
-            username = user_data.get("login", user_data.get("email").split("@")[0])
             name = user_data.get("name", "")
             name_parts = name.split(" ", 1) if name else ["", ""]
             first_name = name_parts[0][:30]
             last_name = name_parts[1][:150] if len(name_parts) > 1 else ""
         else:
-            username = email.split("@")[0]
             first_name = ""
             last_name = ""
-
-        # Ensure username is unique
-        original_username = username
-        counter = 1
-        while User.objects.filter(username=username).exists():
-            username = f"{original_username}{counter}"
-            counter += 1
 
         # One transaction, so a refused identity link leaves no account behind.
         with transaction.atomic():
