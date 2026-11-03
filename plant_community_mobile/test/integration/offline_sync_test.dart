@@ -209,6 +209,8 @@ class OfflineApiService extends ApiService {
     dynamic data,
     Map<String, dynamic>? queryParameters,
     Options? options,
+    void Function(int sent, int total)? onSendProgress,
+    Duration? receiveTimeout,
   }) async {
     await Future.delayed(const Duration(milliseconds: 100));
     throw ApiException('No internet connection');
@@ -311,6 +313,8 @@ class OnlineApiService extends ApiService {
     dynamic data,
     Map<String, dynamic>? queryParameters,
     Options? options,
+    void Function(int sent, int total)? onSendProgress,
+    Duration? receiveTimeout,
   }) async {
     await Future.delayed(const Duration(milliseconds: 200));
 

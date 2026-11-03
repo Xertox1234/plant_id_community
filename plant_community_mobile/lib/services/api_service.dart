@@ -598,13 +598,18 @@ class ApiService {
     dynamic data,
     Map<String, dynamic>? queryParameters,
     Options? options,
+    void Function(int sent, int total)? onSendProgress,
+    Duration? receiveTimeout,
   }) async {
     try {
       return await _dio.post(
         path,
         data: data,
         queryParameters: queryParameters,
-        options: options,
+        onSendProgress: onSendProgress,
+        options: receiveTimeout == null
+            ? options
+            : (options ?? Options()).copyWith(receiveTimeout: receiveTimeout),
       );
     } on DioException catch (e) {
       throw handleDioException(e);
@@ -783,10 +788,20 @@ class ApiService {
           );
         }
 
+        // The generic copy stays for 429 and 5xx, but a JSON envelope's
+        // `code` and body ride along so a caller can act on them (the scan
+        // job API's allowance_exhausted / plant_id_busy).
+        final envelope = e.response?.data is Map<String, dynamic>
+            ? e.response!.data as Map<String, dynamic>
+            : null;
+        final envelopeCode = envelope?['code'];
+
         if (statusCode == 429) {
           return ApiException(
             'Too many requests. Please wait a moment and try again.',
             statusCode: statusCode,
+            code: envelopeCode is String ? envelopeCode : null,
+            body: envelope,
           );
         }
 
@@ -794,6 +809,8 @@ class ApiService {
           return ApiException(
             'The server is temporarily unavailable. Please try again shortly.',
             statusCode: statusCode,
+            code: envelopeCode is String ? envelopeCode : null,
+            body: envelope,
           );
         }
 
@@ -828,6 +845,7 @@ class ApiService {
           statusCode: statusCode,
           code: code is String ? code : null,
           unstructured: unstructured,
+          body: envelope,
         );
 
       case DioExceptionType.cancel:
@@ -878,11 +896,16 @@ class ApiException implements Exception {
   /// token refresh never treats such a 401/403 as a refusal (todo 500).
   final bool unstructured;
 
+  /// The error response's JSON body, when it was an object: the envelope's
+  /// extra fields (`job_id`, `kind`, `limit`, `resets_at`).
+  final Map<String, dynamic>? body;
+
   ApiException(
     this.message, {
     this.statusCode,
     this.code,
     this.unstructured = false,
+    this.body,
   });
 
   @override

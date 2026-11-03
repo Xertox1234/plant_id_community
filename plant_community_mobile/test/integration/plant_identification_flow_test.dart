@@ -293,6 +293,8 @@ class MockApiService extends ApiService {
     dynamic data,
     Map<String, dynamic>? queryParameters,
     Options? options,
+    void Function(int sent, int total)? onSendProgress,
+    Duration? receiveTimeout,
   }) {
     throw UnimplementedError();
   }
@@ -367,6 +369,8 @@ class FailingApiService extends ApiService {
     dynamic data,
     Map<String, dynamic>? queryParameters,
     Options? options,
+    void Function(int sent, int total)? onSendProgress,
+    Duration? receiveTimeout,
   }) {
     throw UnimplementedError();
   }
@@ -448,6 +452,8 @@ class EmptyResponseApiService extends ApiService {
     dynamic data,
     Map<String, dynamic>? queryParameters,
     Options? options,
+    void Function(int sent, int total)? onSendProgress,
+    Duration? receiveTimeout,
   }) {
     throw UnimplementedError();
   }
