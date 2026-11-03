@@ -571,15 +571,25 @@ SCAN_JOB_STALE_MINUTES = config("SCAN_JOB_STALE_MINUTES", default=10, cast=int)
 # Exposed to the app: how long a job runs before it offers Wait / Cancel.
 SCAN_SLOW_AFTER_SECONDS = config("SCAN_SLOW_AFTER_SECONDS", default=45, cast=int)
 
+# Private scan photos (Scan 2.0). Never the default storage: in prod that one
+# serves public permanent URLs. Outside MEDIA_ROOT so the dev media URL can
+# never serve these files. With USE_R2 they go to a private bucket instead.
+SCAN_PHOTO_LOCAL_ROOT = BASE_DIR / "private_scans"
+R2_SCANS_BUCKET_NAME = config("R2_SCANS_BUCKET_NAME", default="")
+# Shared with the STORAGES block below; the scan storage reads them from here.
+R2_ACCESS_KEY_ID = config("R2_ACCESS_KEY_ID", default="")
+R2_SECRET_ACCESS_KEY = config("R2_SECRET_ACCESS_KEY", default="")
+R2_ENDPOINT_URL = config("R2_ENDPOINT_URL", default="")
+
 USE_R2 = config("USE_R2", default=False, cast=bool)
 if USE_R2:
     STORAGES["default"] = {
         "BACKEND": "storages.backends.s3.S3Storage",
         "OPTIONS": {
             "bucket_name": config("R2_BUCKET_NAME", default=""),
-            "access_key": config("R2_ACCESS_KEY_ID", default=""),
-            "secret_key": config("R2_SECRET_ACCESS_KEY", default=""),
-            "endpoint_url": config("R2_ENDPOINT_URL", default=""),
+            "access_key": R2_ACCESS_KEY_ID,
+            "secret_key": R2_SECRET_ACCESS_KEY,
+            "endpoint_url": R2_ENDPOINT_URL,
             "region_name": R2_REGION_NAME,
             "custom_domain": config("R2_CUSTOM_DOMAIN", default=""),
             # querystring_auth defaults True upstream, which signs every URL

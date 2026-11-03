@@ -9,6 +9,8 @@ from .models import (
     PlantIdentificationRequest,
     PlantIdentificationResult,
     PlantSpecies,
+    ScanJob,
+    ScanJobImage,
     UserPlant,
 )
 
@@ -312,3 +314,40 @@ class UserPlantAdmin(admin.ModelAdmin):
                 obj.image_thumbnail.url,
             )
         return "No image"
+
+
+class ScanJobImageInline(admin.TabularInline):
+    """Roles only: the photos are private and are never rendered in the admin."""
+
+    model = ScanJobImage
+    extra = 0
+    fields = ("role",)
+    readonly_fields = ("role",)
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ScanJob)
+class ScanJobAdmin(admin.ModelAdmin):
+    """Read-only: jobs are created and advanced by the scan API and task."""
+
+    list_display = (
+        "uuid",
+        "user",
+        "mode",
+        "status",
+        "charged_as",
+        "local_date",
+        "created_at",
+    )
+    list_filter = ("status", "mode")
+    search_fields = ("uuid", "user__username", "user__email")
+    inlines = [ScanJobImageInline]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

@@ -173,10 +173,13 @@ class StoragesSharedConfigTests(SimpleTestCase):
         "R2_ENDPOINT_URL": "endpoint_url",
         "R2_CUSTOM_DOMAIN": "custom_domain",
     }
+    # Feeds the private scan-photo storage, not STORAGES["default"]; its own
+    # mapping is asserted in test_scan_models.py.
+    SCANS_ONLY_VARS = ("R2_SCANS_BUCKET_NAME",)
 
     def test_storages_consumes_the_shared_definitions(self):
         self.assertEqual(
-            tuple(self.VAR_TO_OPTION),
+            (*self.VAR_TO_OPTION, *self.SCANS_ONLY_VARS),
             R2_REQUIRED_VARS,
             "a var was added to r2_config without saying which STORAGES option "
             "it feeds — add it to VAR_TO_OPTION",
@@ -222,6 +225,7 @@ class ValidateEnvironmentR2Tests(SimpleTestCase):
         # file derives its expectations from that same tuple, so all of them
         # would shrink with it and stay green.
         self.assertIn("R2_CUSTOM_DOMAIN is required", result.stderr)
+        self.assertIn("R2_SCANS_BUCKET_NAME is required", result.stderr)
 
     def test_sqlite_database_url_fails_fast_in_production(self):
         result = _run_check(
@@ -264,6 +268,7 @@ class ValidateEnvironmentR2Tests(SimpleTestCase):
             R2_SECRET_ACCESS_KEY="test-secret",  # pragma: allowlist secret
             R2_ENDPOINT_URL="https://example.r2.cloudflarestorage.com",
             R2_CUSTOM_DOMAIN="media.example.com",
+            R2_SCANS_BUCKET_NAME="test-scans-bucket",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
