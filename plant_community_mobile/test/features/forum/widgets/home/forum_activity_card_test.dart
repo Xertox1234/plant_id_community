@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
@@ -145,6 +146,39 @@ void main() {
       expect(_bodyOf(1), findsNothing);
       expect(api.latestRepliesCalls(1), 0);
     });
+
+    for (final size in const [Size(320, 640), Size(375, 812)]) {
+      for (final scale in const [1.0, 2.0]) {
+        testWidgets('text-card chevron is at the right content edge, '
+            '${size.width.toInt()}pt x$scale', (tester) async {
+          final api = FakeForumApi();
+          await _pump(
+            tester,
+            api,
+            [_topic(1), _topic(2, imageUrl: 'https://x.test/a.jpg')],
+            size: size,
+            textScale: scale,
+          );
+          final textRight = tester
+              .getTopRight(
+                find.descendant(
+                  of: _card(1),
+                  matching: find.byIcon(LucideIcons.chevronDown),
+                ),
+              )
+              .dx;
+          final pictureRight = tester
+              .getTopRight(
+                find.descendant(
+                  of: _card(2),
+                  matching: find.byIcon(LucideIcons.chevronRight),
+                ),
+              )
+              .dx;
+          expect((textRight - pictureRight).abs(), lessThanOrEqualTo(1));
+        });
+      }
+    }
 
     testWidgets('text card expands to the solution plus the 2 newest', (
       tester,

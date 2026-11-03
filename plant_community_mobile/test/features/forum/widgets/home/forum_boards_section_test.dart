@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
+import 'package:plant_community_mobile/core/theme/app_typography.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_boards_section.dart';
 import 'package:plant_community_mobile/shared/widgets/canopy_accents.dart';
@@ -65,6 +66,10 @@ void main() {
       expect(find.text('Care Problems'), findsOneWidget);
       expect(find.text('1 topic · 1 post'), findsOneWidget);
       expect(find.text('12 topics · 340 posts'), findsOneWidget);
+      final style = tester
+          .widget<Text>(find.text('12 topics · 340 posts'))
+          .style!;
+      expect(style.fontSize, AppTypography.label.fontSize);
     });
 
     testWidgets('description is one line; rows are at least 48pt', (

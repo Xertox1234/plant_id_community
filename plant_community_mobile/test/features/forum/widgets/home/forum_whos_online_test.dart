@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
+import 'package:plant_community_mobile/core/theme/app_typography.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_avatar_cluster.dart';
@@ -108,7 +109,23 @@ void main() {
       await _pump(tester, api);
       await tester.pumpAndSettle();
       expect(find.text('No members online right now'), findsOneWidget);
+      expect(find.text('0 members online'), findsNothing);
       expect(find.byType(AuthorAvatarCluster), findsNothing);
+    });
+
+    testWidgets('counts use the label role, not mono', (tester) async {
+      final api = FakeForumApi()
+        ..communityStats = const ForumCommunityStats(
+          registeredMembers: 9,
+          topicCount: 4,
+          postCount: 7,
+        );
+      await _pump(tester, api);
+      await tester.pumpAndSettle();
+      for (final t in ['9 registered', '4 topics · 7 posts']) {
+        final style = tester.widget<Text>(find.text(t)).style!;
+        expect(style.fontSize, AppTypography.label.fontSize);
+      }
     });
 
     testWidgets('a count with an empty sample keeps the count, no cluster', (

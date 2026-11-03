@@ -94,7 +94,9 @@ class _Panel extends StatelessWidget {
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(
-                      '${_plural(stats.membersOnline, 'member')} online',
+                      stats.membersOnline == 0
+                          ? 'No members online right now'
+                          : '${_plural(stats.membersOnline, 'member')} online',
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -104,14 +106,12 @@ class _Panel extends StatelessWidget {
               ),
               Text(
                 '${stats.registeredMembers} registered',
-                style: AppTypography.mono.copyWith(color: canopy.ink3),
+                style: AppTypography.label.copyWith(color: canopy.ink3),
               ),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
-          if (stats.membersOnline == 0)
-            Text('No members online right now', style: muted)
-          else if (stats.onlineSample.isNotEmpty)
+          if (stats.membersOnline != 0 && stats.onlineSample.isNotEmpty)
             // A Wrap, not a Row: at large text the names drop under the
             // cluster rather than being squeezed to nothing.
             Wrap(
@@ -133,7 +133,7 @@ class _Panel extends StatelessWidget {
               Text(
                 '${_plural(stats.topicCount, 'topic')} · '
                 '${_plural(stats.postCount, 'post')}',
-                style: AppTypography.mono.copyWith(color: canopy.ink3),
+                style: AppTypography.label.copyWith(color: canopy.ink3),
               ),
               if (newest != null)
                 Text('Newest: ${_name(newest)}', style: muted),

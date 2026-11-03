@@ -33,12 +33,12 @@ class ForumSeasonCard extends StatelessWidget {
       child: Stack(
         children: [
           Positioned(
-            right: -12,
-            top: -8,
+            right: -22,
+            top: -26,
             child: ExcludeSemantics(
               child: Icon(
                 LucideIcons.leaf,
-                size: 96,
+                size: 80,
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
               ),
             ),

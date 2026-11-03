@@ -234,43 +234,49 @@ class _TextCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Flexible(child: _BoardChip(topic: topic)),
-              const SizedBox(width: AppSpacing.sm),
-              if (topic.isSolved)
-                Flexible(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        LucideIcons.circleCheck,
-                        size: 13,
-                        color: canopy.leaf,
-                      ),
-                      const SizedBox(width: 4),
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(child: _BoardChip(topic: topic)),
+                    const SizedBox(width: AppSpacing.sm),
+                    if (topic.isSolved)
                       Flexible(
-                        child: Text(
-                          'Solved',
-                          style: AppTypography.micro.copyWith(
-                            color: canopy.leaf,
-                            fontWeight: FontWeight.w600,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              LucideIcons.circleCheck,
+                              size: 13,
+                              color: canopy.leaf,
+                            ),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                'Solved',
+                                style: AppTypography.micro.copyWith(
+                                  color: canopy.leaf,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else if (topic.isUnread)
+                      SizedBox.square(
+                        dimension: 8,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: canopy.clay,
+                            shape: BoxShape.circle,
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                )
-              else if (topic.isUnread)
-                SizedBox.square(
-                  dimension: 8,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: canopy.clay,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
+                  ],
                 ),
-              const Spacer(),
+              ),
               AnimatedRotation(
                 turns: expanded ? 0.5 : 0,
                 duration: reduce
