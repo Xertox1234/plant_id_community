@@ -66,12 +66,39 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
     if (isAuthenticated) ref.invalidate(meStatsProvider);
   }
 
+  /// A block or a new viewer (sign-in, sign-out, account switch) changes
+  /// what the home may show: who is online, unread dots, the open peek
+  /// (spec §4). Drop the per-viewer data; boards and the offline mirror are
+  /// the same for everyone and stay.
+  void _resetForViewer() {
+    ref.read(expandedActivityTopicProvider.notifier).collapse();
+    ref.invalidate(homeRecentTopicsProvider);
+    ref.invalidate(latestRepliesProvider);
+    ref.invalidate(communityStatsProvider);
+    ref.invalidate(expertsProvider);
+    if (ref.read(authServiceProvider).isAuthenticated) {
+      ref.invalidate(meStatsProvider);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // The offline mirror (delta sync) is no longer shown here, but opening
     // the forum is still what syncs it: keep it alive without rendering it
     // (spec §6.2, "keep the offline sync mirror as is"). It never throws.
     ref.listen(recentTopicsProvider, (_, _) {});
+    // The open peeks live as long as this screen (spec §6.4).
+    ref.watch(forumHomeScopeProvider);
+    ref.listen(authorBlockChangesProvider, (_, _) => _resetForViewer());
+    // The signed-in member, by uid: a token refresh is not a new viewer, and
+    // a Firebase user still waiting on its JWT is not signed in yet.
+    ref.listen(
+      authServiceProvider.select(
+        (s) =>
+            (s.isAuthenticated, s.isAuthenticated ? s.firebaseUser?.uid : null),
+      ),
+      (_, _) => _resetForViewer(),
+    );
     final isAuthenticated = ref.watch(
       authServiceProvider.select((s) => s.isAuthenticated),
     );
@@ -170,6 +197,23 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
   }
 }
 
+/// A section's body for [async]. Riverpod 3 retries a failed build on its
+/// own (about 40 s for a network or server error), reporting
+/// AsyncLoading(error) meanwhile, and `when` would show [loading] through
+/// every retry. Instead: a value wins (a refresh keeps the last data), then
+/// the error with its Retry from the first failure (spec §8.4), then the
+/// skeleton. As in ForumLatestRepliesView.
+Widget _sectionState<T>(
+  AsyncValue<T> async, {
+  required Widget loading,
+  required Widget error,
+  required Widget Function(T value) data,
+}) {
+  if (async.hasValue) return data(async.requireValue);
+  if (async.hasError) return error;
+  return loading;
+}
+
 /// One section's share of the first-visit entrance: a fade plus an 8pt rise
 /// on emphasized-decelerate, starting [index] staggers in. Under reduced
 /// motion it only fades.
@@ -223,9 +267,10 @@ class _YourSeasonSection extends ConsumerWidget {
     final statsAsync = ref.watch(meStatsProvider);
     return Padding(
       padding: const EdgeInsets.only(bottom: _sectionGap),
-      child: statsAsync.when(
-        loading: () => const _SeasonSkeleton(),
-        error: (error, _) => _SectionError(
+      child: _sectionState(
+        statsAsync,
+        loading: const _SeasonSkeleton(),
+        error: _SectionError(
           message: 'Could not load your stats.',
           onRetry: () => ref.invalidate(meStatsProvider),
         ),
@@ -277,9 +322,10 @@ class _BoardsSection extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const _SectionHeader('Boards'),
-        boardsAsync.when(
-          loading: () => const _BoardsSkeleton(),
-          error: (error, _) => _SectionError(
+        _sectionState(
+          boardsAsync,
+          loading: const _BoardsSkeleton(),
+          error: _SectionError(
             message: 'Could not load boards.',
             onRetry: () => ref.invalidate(boardsProvider),
           ),
@@ -314,9 +360,10 @@ class _RecentActivitySection extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const _SectionHeader('Recent activity'),
-        recentAsync.when(
-          loading: () => const _ActivitySkeleton(),
-          error: (error, _) => _SectionError(
+        _sectionState(
+          recentAsync,
+          loading: const _ActivitySkeleton(),
+          error: _SectionError(
             message: 'Could not load recent topics.',
             onRetry: () => ref.invalidate(homeRecentTopicsProvider),
           ),

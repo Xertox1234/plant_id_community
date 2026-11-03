@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
+import 'package:plant_community_mobile/features/forum/providers/forum_providers.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_avatar_cluster.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_activity_card.dart';
@@ -88,20 +89,27 @@ Future<void> _pump(
             textScaler: TextScaler.linear(textScale),
             disableAnimations: disableAnimations,
           ),
-          child: Scaffold(
-            body: SingleChildScrollView(
-              child: Column(
-                children: [
-                  for (final t in topics)
-                    Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: ForumActivityCard(
-                        key: ValueKey('card-${t.id}'),
-                        topic: t,
-                        onOpen: () => opened?.add(t.id),
+          // The forum home holds the peeks' lifetime; stand in for it.
+          child: Consumer(
+            builder: (context, ref, child) {
+              ref.watch(forumHomeScopeProvider);
+              return child!;
+            },
+            child: Scaffold(
+              body: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    for (final t in topics)
+                      Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: ForumActivityCard(
+                          key: ValueKey('card-${t.id}'),
+                          topic: t,
+                          onOpen: () => opened?.add(t.id),
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -253,7 +261,7 @@ void main() {
       await _tapCard(tester, 2);
       await tester.pumpAndSettle();
       expect(_bodyOf(2), findsNothing);
-      // Fetched once, on first open; keepAlive serves every reopen.
+      // Fetched once, on first open; the home scope serves every reopen.
       expect(api.latestRepliesCalls(2), 1);
     });
 

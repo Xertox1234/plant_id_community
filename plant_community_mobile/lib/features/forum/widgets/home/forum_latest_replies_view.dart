@@ -20,8 +20,9 @@ const int kLatestRepliesMax = 3;
 /// (at most [kLatestRepliesMax] items), "+N more replies", who is in the
 /// thread, and an "Open topic" button that works in every state.
 ///
-/// Fetched on first build (first expand) through the keepAlive
-/// [latestRepliesProvider], so collapsing and reopening does not refetch.
+/// Fetched on first build (first expand) through [latestRepliesProvider],
+/// kept alive while the forum home is mounted, so collapsing and reopening
+/// does not refetch.
 class ForumLatestRepliesView extends ConsumerWidget {
   const ForumLatestRepliesView({
     super.key,

@@ -394,8 +394,16 @@ class FakeForumApi implements ForumApi {
   final List<Map<String, Object?>> notificationSettingsUpdates = [];
   ApiException? failNotificationSettingsUpdateWith;
 
+  Object? boardsError;
+  int fetchBoardsCalls = 0;
+
   @override
-  Future<List<ForumBoard>> fetchBoards() async => boards;
+  Future<List<ForumBoard>> fetchBoards() async {
+    fetchBoardsCalls++;
+    final err = boardsError;
+    if (err != null) throw err;
+    return boards;
+  }
 
   int fetchTopicDetailCalls = 0;
 
@@ -1388,8 +1396,11 @@ ForumDirectMessage directMessage({
 /// A test [AuthService] that returns a fixed [AuthState] without touching
 /// Firebase. Use via `authServiceProvider.overrideWith(...)`.
 class FakeAuthService extends AuthService {
-  FakeAuthService({required this.loggedIn});
+  FakeAuthService({required this.loggedIn, this.initial});
   final bool loggedIn;
+
+  /// When set, the starting state in place of [loggedIn]'s.
+  final AuthState? initial;
 
   /// Taps on "Continue with Google", recorded rather than performed.
   ///
@@ -1412,7 +1423,12 @@ class FakeAuthService extends AuthService {
 
   @override
   AuthState build() =>
-      loggedIn ? const AuthState(jwtToken: 'test-jwt') : const AuthState();
+      initial ??
+      (loggedIn ? const AuthState(jwtToken: 'test-jwt') : const AuthState());
+
+  /// Puts the auth state in [next] — a sign-in, sign-out or account switch
+  /// without touching Firebase (the inherited flows need its plugin).
+  void setAuth(AuthState next) => state = next;
 }
 
 /// Build a [ForumAuthor] fixture.

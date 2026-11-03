@@ -41,14 +41,21 @@ void main() {
     });
   });
 
-  test('latestReplies is kept alive: two reads, one fetch', () async {
+  test('latestReplies lives as long as the home scope', () async {
     final api = FakeForumApi();
     final container = _container(api);
+    // What the mounted forum home does.
+    final scope = container.listen(forumHomeScopeProvider, (_, _) {});
 
     await container.read(latestRepliesProvider(5).future);
     await container.read(latestRepliesProvider(5).future);
 
     expect(api.latestRepliesCalls(5), 1);
+
+    // The home goes away: the peek is released with it.
+    scope.close();
+    await container.pump();
+    expect(container.exists(latestRepliesProvider(5)), isFalse);
   });
 
   test('homeRecentTopics asks for ten', () async {

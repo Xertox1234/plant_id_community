@@ -687,14 +687,16 @@ final class HomeRecentTopicsProvider
 
 String _$homeRecentTopicsHash() => r'a73787f331011d02d6ebc24b693927ede272eeff';
 
-/// A topic's latest-replies peek. Kept alive so a re-expanded card does not
-/// refetch; the home screen invalidates it on pull-to-refresh.
+/// A topic's latest-replies peek. Kept alive while the forum home is mounted
+/// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the
+/// home invalidates it on pull-to-refresh and when the viewer changes.
 
 @ProviderFor(latestReplies)
 final latestRepliesProvider = LatestRepliesFamily._();
 
-/// A topic's latest-replies peek. Kept alive so a re-expanded card does not
-/// refetch; the home screen invalidates it on pull-to-refresh.
+/// A topic's latest-replies peek. Kept alive while the forum home is mounted
+/// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the
+/// home invalidates it on pull-to-refresh and when the viewer changes.
 
 final class LatestRepliesProvider
     extends
@@ -706,8 +708,9 @@ final class LatestRepliesProvider
     with
         $FutureModifier<ForumLatestReplies>,
         $FutureProvider<ForumLatestReplies> {
-  /// A topic's latest-replies peek. Kept alive so a re-expanded card does not
-  /// refetch; the home screen invalidates it on pull-to-refresh.
+  /// A topic's latest-replies peek. Kept alive while the forum home is mounted
+  /// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the
+  /// home invalidates it on pull-to-refresh and when the viewer changes.
   LatestRepliesProvider._({
     required LatestRepliesFamily super.from,
     required int super.argument,
@@ -752,10 +755,11 @@ final class LatestRepliesProvider
   }
 }
 
-String _$latestRepliesHash() => r'f9018c4fa895c185f971a9e8b2914fd3dc1e8a35';
+String _$latestRepliesHash() => r'daa94c9dce11233d1792f525c00fd27217c9f0f3';
 
-/// A topic's latest-replies peek. Kept alive so a re-expanded card does not
-/// refetch; the home screen invalidates it on pull-to-refresh.
+/// A topic's latest-replies peek. Kept alive while the forum home is mounted
+/// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the
+/// home invalidates it on pull-to-refresh and when the viewer changes.
 
 final class LatestRepliesFamily extends $Family
     with $FunctionalFamilyOverride<FutureOr<ForumLatestReplies>, int> {
@@ -768,8 +772,9 @@ final class LatestRepliesFamily extends $Family
         isAutoDispose: true,
       );
 
-  /// A topic's latest-replies peek. Kept alive so a re-expanded card does not
-  /// refetch; the home screen invalidates it on pull-to-refresh.
+  /// A topic's latest-replies peek. Kept alive while the forum home is mounted
+  /// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the
+  /// home invalidates it on pull-to-refresh and when the viewer changes.
 
   LatestRepliesProvider call(int topicId) =>
       LatestRepliesProvider._(argument: topicId, from: this);
@@ -777,6 +782,64 @@ final class LatestRepliesFamily extends $Family
   @override
   String toString() => r'latestRepliesProvider';
 }
+
+/// The forum home's lifetime, for the data that should outlive a widget on
+/// the home but not the home itself (spec §6.4: a peek lives "while the
+/// screen is alive"). `ForumScreen` watches it; when the screen goes, it is
+/// disposed and releases every peek it held. Read with no home mounted, it
+/// is disposed at once and a peek is an ordinary autoDispose read.
+
+@ProviderFor(forumHomeScope)
+final forumHomeScopeProvider = ForumHomeScopeProvider._();
+
+/// The forum home's lifetime, for the data that should outlive a widget on
+/// the home but not the home itself (spec §6.4: a peek lives "while the
+/// screen is alive"). `ForumScreen` watches it; when the screen goes, it is
+/// disposed and releases every peek it held. Read with no home mounted, it
+/// is disposed at once and a peek is an ordinary autoDispose read.
+
+final class ForumHomeScopeProvider
+    extends $FunctionalProvider<ForumHomeScope, ForumHomeScope, ForumHomeScope>
+    with $Provider<ForumHomeScope> {
+  /// The forum home's lifetime, for the data that should outlive a widget on
+  /// the home but not the home itself (spec §6.4: a peek lives "while the
+  /// screen is alive"). `ForumScreen` watches it; when the screen goes, it is
+  /// disposed and releases every peek it held. Read with no home mounted, it
+  /// is disposed at once and a peek is an ordinary autoDispose read.
+  ForumHomeScopeProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'forumHomeScopeProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$forumHomeScopeHash();
+
+  @$internal
+  @override
+  $ProviderElement<ForumHomeScope> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  ForumHomeScope create(Ref ref) {
+    return forumHomeScope(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(ForumHomeScope value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<ForumHomeScope>(value),
+    );
+  }
+}
+
+String _$forumHomeScopeHash() => r'39365d0df5f918f71a59f94428f4d564ac638d14';
 
 /// Community counters for the home "Who's online" card.
 

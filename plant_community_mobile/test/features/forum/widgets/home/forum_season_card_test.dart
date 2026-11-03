@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
@@ -122,5 +123,42 @@ void main() {
         });
       }
     }
+
+    // A narrow stat column may put one word per line; it must never split a
+    // word across lines ("Solutio|ns").
+    testWidgets('stat labels never break mid-word at 320x640 x2.0', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        ForumSeasonCard(
+          stats: myStats(
+            posts: 12345,
+            solutionsAccepted: 678,
+            identificationsShared: 9012,
+            streakDays: 345,
+          ),
+        ),
+        size: const Size(320, 640),
+        textScale: 2.0,
+      );
+      for (final label in ['IDs', 'Posts', 'Solutions', 'Day streak']) {
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.text(label),
+        );
+        var start = 0;
+        for (final word in label.split(' ')) {
+          final from = label.indexOf(word, start);
+          start = from + word.length;
+          final lines = paragraph
+              .getBoxesForSelection(
+                TextSelection(baseOffset: from, extentOffset: start),
+              )
+              .map((box) => box.top)
+              .toSet();
+          expect(lines, hasLength(1), reason: '"$word" in "$label" splits');
+        }
+      }
+    });
   });
 }

@@ -135,10 +135,16 @@ class _Stat extends StatelessWidget {
                   ),
                 ),
               ),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style: AppTypography.meta.copyWith(color: canopy.ink3),
+              // A quarter of a 320pt card at 2.0x is narrower than
+              // "Solutions": wrapped, the word would split mid-word. Scale
+              // the label down instead, as the number above does.
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: AppTypography.meta.copyWith(color: canopy.ink3),
+                ),
               ),
             ],
           ),

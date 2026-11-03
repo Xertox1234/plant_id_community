@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter_riverpod/misc.dart' show KeepAliveLink;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
@@ -720,12 +721,40 @@ Future<List<ForumRecentTopic>> homeRecentTopics(Ref ref) {
   return ref.watch(forumApiProvider).fetchRecentTopics(limit: 10);
 }
 
-/// A topic's latest-replies peek. Kept alive so a re-expanded card does not
-/// refetch; the home screen invalidates it on pull-to-refresh.
+/// A topic's latest-replies peek. Kept alive while the forum home is mounted
+/// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the
+/// home invalidates it on pull-to-refresh and when the viewer changes.
 @Riverpod(retry: forumRetry)
 Future<ForumLatestReplies> latestReplies(Ref ref, int topicId) {
-  ref.keepAlive();
+  // `read`, not `watch`: the peek must not keep the scope itself alive.
+  ref.read(forumHomeScopeProvider).hold(ref.keepAlive());
   return ref.watch(forumApiProvider).fetchLatestReplies(topicId);
+}
+
+/// The forum home's lifetime, for the data that should outlive a widget on
+/// the home but not the home itself (spec §6.4: a peek lives "while the
+/// screen is alive"). `ForumScreen` watches it; when the screen goes, it is
+/// disposed and releases every peek it held. Read with no home mounted, it
+/// is disposed at once and a peek is an ordinary autoDispose read.
+@riverpod
+ForumHomeScope forumHomeScope(Ref ref) {
+  final scope = ForumHomeScope();
+  ref.onDispose(scope.close);
+  return scope;
+}
+
+/// Holds [KeepAliveLink]s until [close].
+class ForumHomeScope {
+  final List<KeepAliveLink> _links = [];
+
+  void hold(KeepAliveLink link) => _links.add(link);
+
+  void close() {
+    for (final link in _links) {
+      link.close();
+    }
+    _links.clear();
+  }
 }
 
 /// Community counters for the home "Who's online" card.
