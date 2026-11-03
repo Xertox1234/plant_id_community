@@ -163,6 +163,58 @@ check"). Test sends were not approved.
   `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` are set. **Open:** only presence was
   checked. Whether the values are valid is not proven.
 
+## Initial baseline (2026-11-03)
+
+Todo 638. Window **2026-10-04T19:57Z → 2026-11-03T19:57Z (30 days)**, read on
+production with the owner's approval. The read was aggregate-only (counts, no
+addresses or bodies), run by the owner over `railway ssh … manage.py shell`.
+Production is tiny (13 active accounts), so these are a starting point, not rates
+to set thresholds on.
+
+**Controlled sends (evidence reused):**
+
+- Email: all 10 families sent from prod with `send_inbox_samples` to the owner's
+  own inbox at 2026-10-27 23:27 UTC; all 10 arrived (Gmail, Outlook for iOS;
+  todo 626). Arrival time was not recorded.
+- Push: forum-reply push foreground/background on iPhone (TestFlight build 16)
+  and a Samsung SM-A376B (Android 16, release build), and a care-task push on
+  both, all received on 2026-11-02 (todos 547, 648, 387). The Android background
+  case first showed nothing because the notification permission was never asked
+  for (todo 685).
+
+**Configuration at read time:** `RESEND_WEBHOOK_SECRET` **unset**, `API_PUBLIC_URL`
+set, `EMAIL_CLICK_TRACKING_ENABLED` at its default (on).
+
+| Measure | Value |
+|---|---|
+| Active accounts (denominator) | 13 |
+| Opted out of email / forum / care-reminder notifications | 0 / 0 / 0 (all 13 on) |
+| Accounts with a push device | 2 (4 devices: 3 iOS, 1 Android) |
+| Forum emails sent (`EmailNotification`) | 9 (8 reply, 1 mention); all carry our Message-ID, none a provider id |
+| Delivered / bounced / complained | **not collected**: no provider events (webhook unset) |
+| Suppressed addresses | 0 |
+| Email link clicks | 0 of 9 emails |
+| Delivery queue, rows kept 14 days (`DELIVERY_RETENTION_DAYS`) | forum email 7 sent; mobile push 6 sent, 1 suppressed (`no_destination`); web push 7 suppressed (`no_destination`) |
+| Care tasks due in window | 5, of which 4 marked sent |
+
+What the numbers can't show:
+
+- **Delivery latency.** `EmailNotification` is written at send time, so
+  created→sent reads as 0 and measures nothing. Send→delivered needs the
+  webhook's `delivered_at`. Both are re-pointed to todo 692.
+- **Reminder lateness.** A care task stores only `notification_sent`, not when
+  it was sent. The beat sweep runs every 15 minutes, which bounds the lateness;
+  nothing records it.
+- **Unsubscribe and complaint rates.** 0 opt-outs and 0 complaints out of 13
+  accounts says nothing yet; complaints are not collected anyway without the
+  webhook.
+- **Clicks.** 0 of 9 is a real zero only if a click reaches our redirect.
+  Whether Resend's own click tracking is on (item 2 below) was not checked; if
+  it is, it wraps our tracked link rather than replacing it, so a click should
+  still be counted. Not observed either way.
+- **Web push.** No member has a browser push subscription, so every forum
+  web-push intent is suppressed `no_destination`. That is expected, not a fault.
+
 ## Still open
 
 These need the owner. None of them can be settled from the repository.
@@ -179,8 +231,9 @@ These need the owner. None of them can be settled from the repository.
    but not yet observed for this sender. The first real event confirms it
    (`EmailProviderEvent.notification` set). Address-level suppression works
    either way.
-4. The controlled delivery test and the initial aggregate baseline are
-   [todo 638](../../todos/638-pending-p3-notification-delivery-baseline.md).
+4. The initial baseline is recorded above (todo 638, archived). Items 1–3 and the
+   delivered/bounced/complained counts and delivery latency it could not measure
+   are [todo 692](../../todos/692-pending-p3-resend-webhook-and-delivery-outcomes.md).
 5. **Sentry alert rules** (todo 623). The code sends Cron Monitor check-ins for
    every beat entry and ERROR events for broker, retry-exhaustion, outbox-lag
    and missing-push-config failures (`backend/docs/patterns/domain/celery.md`,
