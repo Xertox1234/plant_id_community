@@ -208,6 +208,10 @@ What the numbers can't show:
 - **Unsubscribe and complaint rates.** 0 opt-outs and 0 complaints out of 13
   accounts says nothing yet; complaints are not collected anyway without the
   webhook.
+- **Clicks.** 0 of 9 is a real zero only if a click reaches our redirect.
+  Whether Resend's own click tracking is on (item 2 below) was not checked; if
+  it is, it wraps our tracked link rather than replacing it, so a click should
+  still be counted. Not observed either way.
 - **Web push.** No member has a browser push subscription, so every forum
   web-push intent is suppressed `no_destination`. That is expected, not a fault.
 
