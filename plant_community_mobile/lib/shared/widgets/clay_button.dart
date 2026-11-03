@@ -159,6 +159,14 @@ class ClayButton extends StatelessWidget {
     if (fullWidth) {
       button = SizedBox(width: double.infinity, child: button);
     }
-    return Semantics(button: true, enabled: !isDisabled, child: button);
+    // Its own node: without `container`, a button inside a larger semantics
+    // container (an expandable card's body) merged into it, so the
+    // surrounding text became the button's label and its tap the container's.
+    return Semantics(
+      container: true,
+      button: true,
+      enabled: !isDisabled,
+      child: button,
+    );
   }
 }

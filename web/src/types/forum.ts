@@ -727,6 +727,10 @@ export interface RecentTopic {
   last_post_at: string | null;
   is_pinned: boolean;
   thumbnail_url: string | null;
+  // Returned for the mobile forum home (spec 2026-11-02 §6.2); the web rail ignores them.
+  is_solved?: boolean;
+  is_unread?: boolean;
+  image_url?: string | null;
 }
 
 /** GET users/experts/ row — serialize_forum_author + title + online (todo 301). */

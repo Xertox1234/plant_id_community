@@ -1,8 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter_riverpod/misc.dart' show KeepAliveLink;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../services/api_service.dart';
 import '../models/models.dart';
 import '../services/forum_api.dart';
 import '../services/forum_sync_service.dart';
@@ -23,6 +25,18 @@ class PagedList<T> {
   final bool isLoadingMore;
 
   bool get hasMore => nextUrl != null;
+}
+
+/// Riverpod 3 retries a failed provider up to 10 times with backoff (about
+/// 40 s). A 4xx will not change on retry, so it fails at once; network and
+/// server errors keep the default backoff. The forum copy of `blogRetry`
+/// (blog_providers.dart), as `gardenRetry` is the garden's.
+Duration? forumRetry(int retryCount, Object error) {
+  if (error is ApiException) {
+    final status = error.statusCode ?? 0;
+    if (status >= 400 && status < 500) return null;
+  }
+  return ProviderContainer.defaultRetry(retryCount, error);
 }
 
 /// Forum boards (not paginated).
@@ -698,6 +712,67 @@ class RecentTopics extends _$RecentTopics {
       () => ref.read(forumSyncServiceProvider).sync(),
     );
   }
+}
+
+/// The home activity feed — the ten most recent topics with solved/unread
+/// state and a wide image. Distinct from [RecentTopics], the offline mirror.
+@Riverpod(retry: forumRetry)
+Future<List<ForumRecentTopic>> homeRecentTopics(Ref ref) {
+  return ref.watch(forumApiProvider).fetchRecentTopics(limit: 10);
+}
+
+/// A topic's latest-replies peek. Kept alive while the forum home is mounted
+/// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the
+/// home invalidates it on pull-to-refresh and when the viewer changes.
+@Riverpod(retry: forumRetry)
+Future<ForumLatestReplies> latestReplies(Ref ref, int topicId) {
+  // `read`, not `watch`: the peek must not keep the scope itself alive.
+  ref.read(forumHomeScopeProvider).hold(ref.keepAlive());
+  return ref.watch(forumApiProvider).fetchLatestReplies(topicId);
+}
+
+/// The forum home's lifetime, for the data that should outlive a widget on
+/// the home but not the home itself (spec §6.4: a peek lives "while the
+/// screen is alive"). `ForumScreen` watches it; when the screen goes, it is
+/// disposed and releases every peek it held. Read with no home mounted, it
+/// is disposed at once and a peek is an ordinary autoDispose read.
+@riverpod
+ForumHomeScope forumHomeScope(Ref ref) {
+  final scope = ForumHomeScope();
+  ref.onDispose(scope.close);
+  return scope;
+}
+
+/// Holds [KeepAliveLink]s until [close].
+class ForumHomeScope {
+  final List<KeepAliveLink> _links = [];
+
+  void hold(KeepAliveLink link) => _links.add(link);
+
+  void close() {
+    for (final link in _links) {
+      link.close();
+    }
+    _links.clear();
+  }
+}
+
+/// Community counters for the home "Who's online" card.
+@Riverpod(retry: forumRetry)
+Future<ForumCommunityStats> communityStats(Ref ref) {
+  return ref.watch(forumApiProvider).fetchCommunityStats();
+}
+
+/// The activity card currently expanded on the forum home (one at a time).
+@riverpod
+class ExpandedActivityTopic extends _$ExpandedActivityTopic {
+  @override
+  int? build() => null;
+
+  /// Opens [topicId], or closes it when it is already the open one.
+  void toggle(int topicId) => state = state == topicId ? null : topicId;
+
+  void collapse() => state = null;
 }
 
 /// The user's notifications (cursor-paginated, newest first).
