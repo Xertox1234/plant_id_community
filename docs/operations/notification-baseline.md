@@ -26,6 +26,13 @@ delivery outcomes through a webhook signed with Svix.
 - **Malformed events.** Non-JSON, a non-object body, a missing `type`, `created_at`
   or `data`, a `data.to` that is not a list of strings, or a handled event with no
   recipient: 400. An overlong `svix-id` is 400. A body over 256 KB is 413.
+- **Other products' mail.** The Resend account also sends for other products
+  (ocrecipes.com, lumatuner.com) and its webhooks are account-wide. An event is
+  acted on only when its `data.from` is on `DEFAULT_FROM_EMAIL`'s domain or a
+  subdomain of it; anything else answers 200 `ignored` and is **not recorded**,
+  so another product's complaint never suppresses an address here. A handled
+  event with no `from` is ignored too (fail closed). Account-level events with
+  no sender (contact, domain) are recorded and ignored as before.
 - **Out-of-order events.** Each event sets its own timestamp once (the earliest
   wins) and the status only moves up `sent < delivered < bounced < complained`, so
   the result does not depend on arrival order.
