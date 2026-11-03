@@ -24,6 +24,7 @@ import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
+import 'package:plant_community_mobile/shared/widgets/canopy_surfaces.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../features/forum/support/forum_test_support.dart';
@@ -1092,7 +1093,7 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
 
-        await tester.tap(find.byType(ListTile));
+        await tester.tap(find.byType(CanopyCard));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
 
@@ -1132,7 +1133,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
-      await tester.tap(find.byType(ListTile));
+      await tester.tap(find.byType(CanopyCard));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
@@ -1177,7 +1178,7 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
 
-        await tester.tap(find.byType(ListTile));
+        await tester.tap(find.byType(CanopyCard));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
 

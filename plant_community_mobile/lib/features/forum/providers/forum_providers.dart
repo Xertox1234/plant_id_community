@@ -812,19 +812,17 @@ class NotificationsFeed extends _$NotificationsFeed {
     }
   }
 
-  /// Mark one notification read (splice locally + call the API), or every
-  /// unread notification when [id] is omitted. Refreshes the unread badge
-  /// via invalidation rather than a local decrement, so the badge stays
-  /// accurate even if another client already read some of them.
-  Future<void> markRead({int? id}) async {
-    await ref
-        .read(forumApiProvider)
-        .markNotificationsRead(ids: id == null ? null : [id]);
+  /// Mark the notifications in [ids] read (splice locally + call the API),
+  /// or every unread notification when [ids] is omitted. Refreshes the
+  /// unread badge via invalidation rather than a local decrement, so the
+  /// badge stays accurate even if another client already read some of them.
+  Future<void> markRead({List<int>? ids}) async {
+    await ref.read(forumApiProvider).markNotificationsRead(ids: ids);
     final latest = state.asData?.value;
     if (latest != null) {
       final now = DateTime.now();
       final updated = latest.items.map((n) {
-        if (id != null && n.id != id) return n;
+        if (ids != null && !ids.contains(n.id)) return n;
         return n.readAt == null ? n.asRead(now) : n;
       }).toList();
       state = AsyncData(
