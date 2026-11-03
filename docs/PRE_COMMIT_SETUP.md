@@ -439,6 +439,8 @@ git commit -m "message"
 | end-of-file-fixer | Git | 🔧 Fixes | Add final newline |
 | detect-private-key | Security | ✅ Yes | Detect private keys |
 
+**Backend interpreter in a git worktree.** `mypy-staged` and `pytest-staged` use this checkout's `backend/venv/bin/python`, or, in a worktree (which has no venv: it is gitignored), the main checkout's, found through `git rev-parse --git-common-dir` (todo 687). Do not symlink the venv into a worktree. `pytest-staged` also puts the worktree's own `backend/packages/wagtail_forum` first on `PYTHONPATH`, because the main venv's editable install points at the main checkout's copy. With no venv in either place, both hooks fail closed and name `SKIP=<hook-id>` as the one-commit bypass.
+
 ### Configuration Files
 
 - `.pre-commit-config.yaml` - Hook configuration
