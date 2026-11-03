@@ -9,18 +9,20 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/constants/app_spacing.dart';
-import '../../core/routing/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/app_typography.dart';
+import '../../services/api_service.dart';
 import 'capture_session.dart';
 import 'capture_steps.dart';
 import 'frame_quality.dart';
 import 'hint_stabilizer.dart';
 import 'scan_camera.dart';
-import 'scan_submitter.dart';
+import 'scan_job_api.dart';
+import 'scan_job_tracker.dart';
 import 'widgets/camera_permission_view.dart';
 import 'widgets/capture_controls.dart';
 import 'widgets/hint_chip.dart';
+import 'widgets/scan_job_pill.dart';
 import 'widgets/shot_tray.dart';
 import 'widgets/submit_overlay.dart';
 import 'widgets/step_chips.dart';
@@ -31,6 +33,11 @@ import 'widgets/viewfinder_frame.dart';
 ///
 /// Session state lives in [captureSessionProvider], so the camera can be torn
 /// down and rebuilt on app lifecycle changes without losing shots.
+///
+/// Done hands the capture to [scanJobTrackerProvider] and closes: the scan
+/// runs as a background job, followed by the app-wide [ScanJobPill]. Opened
+/// while a job is still running (or failed), the screen shows that job's
+/// status instead of starting the camera.
 class ScanScreen extends ConsumerStatefulWidget {
   const ScanScreen({
     super.key,
@@ -42,7 +49,7 @@ class ScanScreen extends ConsumerStatefulWidget {
   /// "Just identify a plant" link opens identify.
   final ScanMode initialMode;
 
-  /// Receives the finished capture. Null means the default submitter.
+  /// Receives the finished capture. Null submits it as a background job.
   final ValueChanged<CaptureResult>? onDone;
 
   static const shutterKey = Key('scan-shutter');
@@ -52,6 +59,7 @@ class ScanScreen extends ConsumerStatefulWidget {
   static const torchKey = Key('scan-torch');
   static const closeKey = Key('scan-close');
   static const modeChipKey = Key('scan-mode-chip');
+  static const statusViewKey = Key('scan-status-view');
 
   @override
   ConsumerState<ScanScreen> createState() => _ScanScreenState();
@@ -73,6 +81,12 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   bool _capturing = false;
   bool _torchOn = false;
   bool _submitting = false;
+
+  /// A job is running (or failed): show its status, never the camera.
+  bool _statusView = false;
+
+  /// Set once the screen is closing for good, so nothing restarts the camera.
+  bool _leaving = false;
   double _zoom = 1;
   double _zoomAtStart = 1;
 
@@ -94,17 +108,27 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     );
     WidgetsBinding.instance.addObserver(this);
     _resetAnalysis();
-    if (widget.initialMode != ScanMode.diagnose) {
-      // Riverpod forbids modifying a provider during the build phase, so
-      // apply the requested mode right after the first frame.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _session.setMode(widget.initialMode);
-      });
-    }
     ref.listenManual(
-      captureSessionProvider.select((s) => (s.mode, s.stepIndex)),
+      _sessionProvider.select((s) => (s.mode, s.stepIndex)),
       (_, _) => setState(_resetAnalysis),
     );
+    // Loaded while the user shoots, so a refusal can name the limits.
+    ref.listenManual(scanAllowanceProvider, (_, _) {});
+    ref.listenManual(
+      scanJobTrackerProvider.select((s) => s.phase),
+      _onTrackerPhase,
+    );
+    final phase = ref.read(scanJobTrackerProvider).phase;
+    _statusView = phase != TrackerPhase.idle && phase != TrackerPhase.ready;
+    if (!_statusView) unawaited(_startCamera());
+  }
+
+  /// The status view's job ended without a result to view (cancelled or
+  /// dismissed): nothing is running any more, so the camera can start.
+  void _onTrackerPhase(TrackerPhase? previous, TrackerPhase next) {
+    if (!_statusView || _leaving || next != TrackerPhase.idle) return;
+    if (previous == null || previous == TrackerPhase.idle) return;
+    setState(() => _statusView = false);
     unawaited(_startCamera());
   }
 
@@ -125,7 +149,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         _teardownCamera();
       case AppLifecycleState.resumed:
         // Mid-submit the camera stays off; the error path restarts it.
-        if (_camera == null && !_starting && !_submitting) {
+        if (_camera == null &&
+            !_starting &&
+            !_submitting &&
+            !_statusView &&
+            !_leaving) {
           setState(() {});
           unawaited(_startCamera());
         }
@@ -213,7 +241,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 
   void _onSample(ScanCamera from, FrameSample sample) {
     if (!mounted || !identical(from, _camera)) return;
-    final role = ref.read(captureSessionProvider).currentRole;
+    final role = ref.read(_sessionProvider).currentRole;
     final raw = assessFrame(sample, _previous, role);
     _previous = sample;
     final shown = _stabilizer.push(raw);
@@ -223,7 +251,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 
   // ── actions ──────────────────────────────────────────────────────────────
 
-  CaptureSession get _session => ref.read(captureSessionProvider.notifier);
+  CaptureSessionProvider get _sessionProvider =>
+      captureSessionProvider(widget.initialMode);
+
+  CaptureSession get _session => ref.read(_sessionProvider.notifier);
 
   Future<void> _shoot() async {
     final camera = _camera;
@@ -263,7 +294,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     if (!mounted || file == null) return;
     _session.addShot(file.path);
     // With no camera there is nothing more to guide: one photo and go.
-    if (finishWhenReady && ref.read(captureSessionProvider).canFinish) {
+    if (finishWhenReady && ref.read(_sessionProvider).canFinish) {
       _finish();
     }
   }
@@ -285,23 +316,60 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     final hadCamera = _camera != null || _starting;
     _teardownCamera();
     try {
-      final plant = await ref
-          .read(scanSubmitterProvider.notifier)
-          .submit(result);
+      await ref.read(scanJobTrackerProvider.notifier).submit(result);
       if (!mounted) return;
-      context.pushReplacement(AppRoutes.results, extra: plant);
-    } catch (e) {
+      // The job runs on; the app-wide pill follows it from here.
+      _leaving = true;
+      context.pop();
+    } on ScanRefused catch (e) {
       if (!mounted) return;
-      // The session is untouched, so the shots are still in the tray.
-      setState(() => _submitting = false);
-      if (hadCamera) unawaited(_startCamera());
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text(scanErrorMessage(e)),
-          backgroundColor: Theme.of(context).colorScheme.error,
+      if (e.code == 'scan_in_progress') {
+        _showStatusView();
+        return;
+      }
+      _submitFailed(
+        hadCamera,
+        scanRefusalMessage(
+          e,
+          mode: result.mode,
+          allowance: ref.read(scanAllowanceProvider).value,
         ),
       );
+    } on StateError {
+      // The tracker already has a scan running: show that one.
+      if (mounted) _showStatusView();
+    } catch (e) {
+      if (!mounted) return;
+      _submitFailed(
+        hadCamera,
+        e is ApiException ? e.message : "Couldn't start the check. Try again.",
+      );
     }
+  }
+
+  void _showStatusView() => setState(() {
+    _submitting = false;
+    _statusView = true;
+  });
+
+  /// The session is untouched, so the shots are still in the tray.
+  void _submitFailed(bool hadCamera, String? message) {
+    setState(() => _submitting = false);
+    if (hadCamera) unawaited(_startCamera());
+    if (message == null) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ),
+    );
+  }
+
+  /// The status view's "View": the result replaces the camera.
+  void _viewFromStatus(ScanJob job) {
+    _leaving = true;
+    context.pushReplacement('/scans/${job.id}');
+    ref.read(scanJobTrackerProvider.notifier).dismiss();
   }
 
   Future<void> _toggleTorch() async {
@@ -339,9 +407,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 
   @override
   Widget build(BuildContext context) {
-    final session = ref.watch(captureSessionProvider);
-    // Watched always, so the auto-dispose submitter outlives a submit.
-    final upload = ref.watch(scanSubmitterProvider);
+    final session = ref.watch(_sessionProvider);
+    final upload = ref.watch(
+      scanJobTrackerProvider.select((s) => s.uploadProgress),
+    );
     final theme = Theme.of(context);
     // The chrome sits on a camera image, which is always dark: resolve the
     // Canopy tokens in dark mode so ink stays legible in light mode too.
@@ -358,19 +427,20 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         canPop: !_submitting,
         child: Scaffold(
           backgroundColor: chromeTheme.colorScheme.scrim,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (_error == null) _buildPreview(),
-              SafeArea(
-                child: _error == null
-                    ? _buildGuide(session)
-                    : _buildError(_error!),
-              ),
-              if (_submitting)
-                SubmitOverlay(progress: upload.hasValue ? upload.value : null),
-            ],
-          ),
+          body: _statusView
+              ? SafeArea(child: _buildStatus())
+              : Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (_error == null) _buildPreview(),
+                    SafeArea(
+                      child: _error == null
+                          ? _buildGuide(session)
+                          : _buildError(_error!),
+                    ),
+                    if (_submitting) SubmitOverlay(progress: upload),
+                  ],
+                ),
         ),
       ),
     );
@@ -570,6 +640,35 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           doneKey: ScanScreen.doneKey,
         ),
         const SizedBox(height: AppSpacing.sm),
+      ],
+    );
+  }
+
+  /// The running job instead of the camera: the pill's content, centred.
+  Widget _buildStatus() {
+    final phase = ref.watch(scanJobTrackerProvider.select((s) => s.phase));
+    return Column(
+      key: ScanScreen.statusViewKey,
+      children: [
+        _buildTopBar(showTorch: false),
+        Expanded(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              // Idle here means the server reported a scan we are not
+              // tracking (409 without its id): it is still being checked.
+              child: phase == TrackerPhase.idle
+                  ? Text(
+                      ScanJobPill.waitingCopy,
+                      textAlign: TextAlign.center,
+                      style: AppTypography.h3.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    )
+                  : ScanJobStatusCard(onView: _viewFromStatus),
+            ),
+          ),
+        ),
       ],
     );
   }

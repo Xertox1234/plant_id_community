@@ -63,6 +63,12 @@ NAV_VERBS = r"go|push|replace|pushReplacement|goNamed|pushNamed"
 ALLOWED_ORPHANS = {
     "splash": "GoRouter initialLocation; entered by the router itself, not navigated to",
     "diagnose": "redirect to /camera?mode=diagnose (Scan 2.0); kept for old links and pushes, no UI opens it",
+    "results": (
+        "Scan 2.0 Part 2 (task C3): the scan screen submits a background job "
+        "and no longer pushes /results; scan results open at /scans/<id> "
+        "(task C4), which renders ResultsScreen directly. Route kept for the "
+        "Plant-in-extra contract until it is retired"
+    ),
 }
 
 # Constants in AppRoutes that are NOT destinations. These are matched as path

@@ -9,6 +9,7 @@ import 'config/theme_provider.dart';
 import 'core/constants/app_brand.dart';
 import 'core/routing/app_router.dart';
 import 'features/auth/password_reset_link.dart';
+import 'features/scan/widgets/scan_job_pill.dart';
 import 'features/forum/services/forum_link_launcher.dart';
 import 'services/auth_service.dart';
 import 'services/push_foreground_presenter.dart';
@@ -132,6 +133,23 @@ class MyApp extends ConsumerWidget {
       darkTheme: AppTheme.build(Brightness.dark, density),
       themeMode: themeMode,
       routerConfig: router,
+      // Above every route: the background scan job's progress follows the
+      // user around the app (hidden on /camera, which shows it itself).
+      builder: (context, child) => Stack(
+        fit: StackFit.expand,
+        children: [
+          child!,
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: ScanJobPill.bottomOffset(context),
+            child: const Material(
+              type: MaterialType.transparency,
+              child: ScanJobPill(),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

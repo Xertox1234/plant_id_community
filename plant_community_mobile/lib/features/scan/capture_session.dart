@@ -43,10 +43,13 @@ class CaptureResult {
   final Map<CaptureRole, String> shots;
 }
 
+/// Keyed by the mode the camera opens in, so that mode is the very first
+/// state: no frame ever shows the other mode's steps.
 @riverpod
 class CaptureSession extends _$CaptureSession {
   @override
-  CaptureSessionState build() => const CaptureSessionState();
+  CaptureSessionState build(ScanMode initialMode) =>
+      CaptureSessionState(mode: initialMode);
 
   /// Stores [path] for the current role, then moves to the next later step
   /// with no shot. Stays put when there is none; never wraps.
