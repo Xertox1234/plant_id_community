@@ -257,6 +257,9 @@ def send_scan_push_to_device(
     title, body = content
     try:
         send_fcm_message(fcm, token, data, (title, body), SCAN_JOB_COLLAPSE_KEY)
+    except SoftTimeLimitExceeded:
+        # Celery's time limit is not a delivery failure: never retry it.
+        raise
     except Exception as exc:
         if is_permanent_fcm_error(exc):
             if is_dead_fcm_token_error(exc):

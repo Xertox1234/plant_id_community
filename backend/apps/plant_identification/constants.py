@@ -213,6 +213,7 @@ SCAN_FAILURE_NO_RESULT = "no_result"  # neither provider named the plant
 SCAN_FAILURE_ERROR = "error"  # unexpected exception in the task
 SCAN_FAILURE_TIMEOUT = "timeout"  # the soft time limit fired
 SCAN_FAILURE_STALE = "stale"  # still active past SCAN_JOB_STALE_MINUTES
+SCAN_FAILURE_ENQUEUE = "enqueue"  # the broker refused the job after commit
 
 # Push for a finished job. The event key is "event" (not "type"); the collapse
 # key is per EVENT TYPE, never per job (docs/rules/celery.md).

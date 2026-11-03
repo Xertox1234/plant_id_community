@@ -353,5 +353,14 @@ class ScanJobAdmin(admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request, obj=None):
-        # Deleting a job deletes the user's private photos.
-        return False
+        # Must be the normal permission: Django's admin checks it on every
+        # registered related model when a user is deleted, so False here
+        # would block deleting any user who has a scan (the manual account
+        # erasure path; the photos go with the account). The changelist
+        # stays view-only because get_actions drops the bulk delete.
+        return super().has_delete_permission(request, obj)
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions

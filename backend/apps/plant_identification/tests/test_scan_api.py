@@ -273,10 +273,77 @@ def test_other_users_job_and_photo_404():
     owner = _client(_user("owner"))
     job_id = _create(owner).data["id"]
     other = _client(_user("other"))
-    assert other.get(f"{BASE}{job_id}/").status_code == 404
-    assert other.get(f"{BASE}{job_id}/photos/problem/").status_code == 404
-    assert other.post(f"{BASE}{job_id}/cancel/").status_code == 404
+    responses = [
+        other.get(f"{BASE}{job_id}/"),
+        other.get(f"{BASE}{job_id}/photos/problem/"),
+        other.post(f"{BASE}{job_id}/cancel/"),
+    ]
+    for response in responses:
+        assert response.status_code == 404
+        assert response.json()["code"] == "not_found"
     assert ScanJob.objects.get(uuid=job_id).status == "pending"
+
+
+@pytest.mark.django_db
+def test_foreign_and_missing_job_404_bodies_match():
+    """No existence leak: another user's job reads exactly like a missing one."""
+    owner = _client(_user("owner"))
+    job_id = _create(owner).data["id"]
+    other = _client(_user("other"))
+    missing_id = "00000000-0000-4000-8000-000000000000"
+
+    def body(path):
+        data = path.json()
+        data.pop("request_id", None)
+        return data
+
+    foreign = other.get(f"{BASE}{job_id}/")
+    missing = other.get(f"{BASE}{missing_id}/")
+    assert foreign.status_code == missing.status_code == 404
+    assert body(foreign) == body(missing)
+    assert body(foreign)["code"] == "not_found"
+
+
+@pytest.mark.django_db
+def test_refused_enqueue_fails_the_job_and_frees_the_slot(
+    django_capture_on_commit_callbacks,
+):
+    """A broker refusal after commit never 500s and never locks the user out."""
+    client = _client(_user())
+    with patch(
+        "apps.plant_identification.api.scan_views.run_scan_job.delay",
+        side_effect=ConnectionError("broker down"),
+    ):
+        with django_capture_on_commit_callbacks(execute=True):
+            first = _create(client)
+    assert first.status_code == 201
+    job = ScanJob.objects.get(uuid=first.data["id"])
+    assert job.status == "failed"
+    assert job.failure_reason == "enqueue"
+    assert job.finished_at is not None
+    assert job.charged_as == ""
+
+    with patch("apps.plant_identification.api.scan_views.run_scan_job.delay"):
+        retry = _create(client)
+    assert retry.status_code == 201
+    assert retry.data["id"] != first.data["id"]
+
+
+@pytest.mark.django_db
+def test_enqueue_failure_never_overwrites_a_job_that_moved_on():
+    from apps.plant_identification.api.scan_views import _enqueue_scan_job
+
+    client = _client(_user())
+    job = ScanJob.objects.get(uuid=_create(client).data["id"])
+    ScanJob.objects.filter(pk=job.pk).update(status="processing")
+    with patch(
+        "apps.plant_identification.api.scan_views.run_scan_job.delay",
+        side_effect=ConnectionError("broker down"),
+    ):
+        _enqueue_scan_job(job.pk)
+    job.refresh_from_db()
+    assert job.status == "processing"
+    assert job.failure_reason == ""
 
 
 @pytest.mark.django_db
@@ -495,3 +562,4 @@ def test_photo_404s_stay_404_with_image_accept(accept):
     other = _client(_user("other"))
     foreign = other.get(f"{BASE}{job_id}/photos/problem/", HTTP_ACCEPT=accept)
     assert foreign.status_code == 404
+    assert foreign.json()["code"] == "not_found"

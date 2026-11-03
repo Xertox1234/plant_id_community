@@ -59,9 +59,9 @@ plant_id.db-journal
 /staticfiles/
 # STATIC_ROOT = BASE_DIR / "staticfiles" resolves to backend/staticfiles/, which
 # the root-anchored pattern above does NOT match -- same reason backend/media/
-backend/private_scans/
 # is listed separately below.
 backend/staticfiles/
+backend/private_scans/
 /mediafiles/
 /media/
 backend/media/

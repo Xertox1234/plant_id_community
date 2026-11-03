@@ -17,7 +17,7 @@ from apps.core.exceptions import get_request_id
 from apps.core.ratelimit import ratelimit
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.http import FileResponse
+from django.http import FileResponse, Http404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from drf_spectacular.types import OpenApiTypes
@@ -39,6 +39,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from ..constants import (
     SCAN_CREATE_RATE,
+    SCAN_FAILURE_ENQUEUE,
     SCAN_MAX_PHOTO_BYTES,
     SCAN_MODE_CHOICES,
     SCAN_MODE_ROLES,
@@ -190,6 +191,32 @@ def _validated_photos(request: Request, mode: str) -> Dict[str, Any]:
     return photos
 
 
+def _enqueue_scan_job(job_id: int) -> None:
+    """on_commit callback: start the job, or fail it if the broker refuses.
+
+    Never raises. A refused enqueue would otherwise leave a committed
+    ``pending`` job that nothing runs, and every retry would 409 against it
+    until the stale expiry. Failing it frees the slot at once, free of charge.
+    """
+    try:
+        run_scan_job.delay(job_id)
+    except Exception as exc:
+        logger.error(
+            "[SCAN] Could not enqueue job=%s, failing it: %s",
+            job_id,
+            type(exc).__name__,
+        )
+        try:
+            ScanJob.objects.filter(pk=job_id, status="pending").update(
+                status="failed",
+                failure_reason=SCAN_FAILURE_ENQUEUE,
+                finished_at=timezone.now(),
+            )
+        except Exception:
+            # The stale expiry frees the slot later.
+            logger.exception("[SCAN] Could not fail unenqueued job=%s", job_id)
+
+
 class AnyAcceptNegotiation(BaseContentNegotiation):
     """Never 406: always the first renderer (JSON).
 
@@ -227,6 +254,15 @@ class ScanJobViewSet(GenericViewSet):
         if getattr(self, "swagger_fake_view", False):
             return ScanJob.objects.none()
         return ScanJob.objects.filter(user=self.request.user).prefetch_related("images")
+
+    def get_object(self) -> ScanJob:
+        # A missing job and another user's job raise the same DRF NotFound,
+        # so both answer the documented ``code: "not_found"`` with one body.
+        try:
+            job: ScanJob = super().get_object()
+        except Http404:
+            raise NotFound("Scan not found.") from None
+        return job
 
     def _job_response(self, job: ScanJob, status_code: int = 200) -> Response:
         job = self.get_queryset().get(pk=job.pk)
@@ -330,7 +366,7 @@ class ScanJobViewSet(GenericViewSet):
             for role, photo in photos.items():
                 ScanJobImage.objects.create(job=job, role=role, image=photo)
             job_id = job.pk
-            transaction.on_commit(lambda: run_scan_job.delay(job_id))
+            transaction.on_commit(lambda: _enqueue_scan_job(job_id))
 
         logger.info("[SCAN] job=%s created mode=%s user=%s", job.pk, mode, user.pk)
         return self._job_response(job, status.HTTP_201_CREATED)

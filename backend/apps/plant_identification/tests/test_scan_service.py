@@ -243,3 +243,29 @@ def test_scan_returns_same_keys_as_identify_plant(mode):
     )
     shots = {"problem": PROBLEM} if mode == "diagnose" else {"leaf": LEAF}
     assert set(svc.scan(shots, mode)) == set(svc.identify_plant(b"image"))
+
+
+def test_gather_reraises_celery_soft_time_limit():
+    """Inside the scan task, the soft limit must reach the task's handler."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    service = CombinedPlantIdentificationService.__new__(
+        CombinedPlantIdentificationService
+    )
+    future = Mock()
+    future.result.side_effect = SoftTimeLimitExceeded()
+    with pytest.raises(SoftTimeLimitExceeded):
+        service._gather(future, "PlantNet", 5)
+
+
+def test_gather_still_names_other_thread_errors():
+    from apps.plant_identification.provider_failures import classify_provider_failure
+
+    service = CombinedPlantIdentificationService.__new__(
+        CombinedPlantIdentificationService
+    )
+    future = Mock()
+    future.result.side_effect = RuntimeError("boom")
+    outcome = service._gather(future, "PlantNet", 5)
+    assert outcome.result is None
+    assert outcome.reason == classify_provider_failure(RuntimeError("boom"))

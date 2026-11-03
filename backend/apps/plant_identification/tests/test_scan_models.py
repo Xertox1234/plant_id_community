@@ -160,9 +160,43 @@ def test_scan_job_admin_is_read_only(rf):
 
     model_admin = ScanJobAdmin(ScanJob, dj_admin.site)
     request = rf.get("/")
+    request.user = get_user_model()(is_superuser=True, is_staff=True, is_active=True)
     assert model_admin.has_add_permission(request) is False
     assert model_admin.has_change_permission(request) is False
-    assert model_admin.has_delete_permission(request) is False
+    # Delete keeps the normal permission (a user delete cascades through
+    # it), but the changelist offers no bulk delete.
+    assert model_admin.has_delete_permission(request) is True
+    assert "delete_selected" not in model_admin.get_actions(request)
+
+
+@pytest.mark.django_db
+def test_admin_can_delete_a_user_who_has_scans(
+    roots, job, user, client, django_capture_on_commit_callbacks
+):
+    """The admin user delete is the manual erasure path: scans must not block it."""
+    from django.urls import reverse
+
+    _, private = roots
+    row = _add_photo(job)
+    path = private / row.image.name
+    assert path.is_file()
+    admin_user = get_user_model().objects.create_superuser(
+        username="root", email="root@example.com", password="x" * 16
+    )
+    client.force_login(admin_user)
+    url = reverse("admin:users_user_delete", args=[user.pk])
+
+    confirm = client.get(url)
+    assert confirm.status_code == 200
+    assert not confirm.context["perms_lacking"]
+
+    with django_capture_on_commit_callbacks(execute=True):
+        response = client.post(url, {"post": "yes"})
+    assert response.status_code == 302
+    assert not get_user_model().objects.filter(pk=user.pk).exists()
+    assert not ScanJob.objects.filter(pk=job.pk).exists()
+    assert not ScanJobImage.objects.filter(pk=row.pk).exists()
+    assert not path.exists()
 
 
 def _plain_jpeg(size) -> bytes:

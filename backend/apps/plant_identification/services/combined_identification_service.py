@@ -33,6 +33,7 @@ from typing import (
     Union,
 )
 
+from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 
@@ -541,6 +542,10 @@ class CombinedPlantIdentificationService:
                 exc_info=settings.DEBUG,
             )
             return ProviderOutcome(None, "executor-timeout")
+        except SoftTimeLimitExceeded:
+            # The Celery task's soft limit (scan jobs run this in a worker):
+            # the task classifies it as a timeout, so never swallow it here.
+            raise
         except Exception as e:
             # Thread execution errors (should be caught inside the call).
             reason = classify_provider_failure(e)

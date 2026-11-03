@@ -17,7 +17,12 @@ from apps.plant_identification.scan_storage import normalize_scan_photo
 from apps.plant_identification.services.combined_identification_service import (
     CombinedPlantIdentificationService,
 )
-from apps.plant_identification.tasks import notify_scan_job_finished, run_scan_job
+from apps.plant_identification.tasks import (
+    notify_scan_job_finished,
+    run_scan_job,
+    send_scan_push_to_device,
+)
+from celery.exceptions import SoftTimeLimitExceeded
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.test import override_settings
@@ -361,3 +366,18 @@ def test_error_fetching_job_row_after_claim_finalizes_failed(
     assert armed["on"] is False
     assert job.status == "failed"
     assert job.failure_reason == "error"
+
+
+@pytest.mark.django_db
+def test_device_push_soft_time_limit_is_raised_not_retried(user, fcm):
+    """Celery's soft limit is not an FCM failure: it propagates, no retry."""
+    fcm.side_effect = SoftTimeLimitExceeded()
+    with (
+        patch.object(send_scan_push_to_device, "retry") as retry,
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        send_scan_push_to_device.run(
+            user.pk, TOKEN, {"event": "scan_job_finished"}, ["Title", "Body"]
+        )
+    fcm.assert_called_once()
+    retry.assert_not_called()
