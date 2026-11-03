@@ -551,15 +551,45 @@ STORAGES: dict[str, dict[str, Any]] = {
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 
+# Scan 2.0 limits: daily scan allowances by mode and tier, plus the Plant.id
+# call caps they draw on. A diagnosis spends two Plant.id calls
+# (identification + health_assessment), so the reserve keeps an identify-only
+# scan from eating the second call a diagnosis still needs.
+SCAN_DIAGNOSE_DAILY_FREE = config("SCAN_DIAGNOSE_DAILY_FREE", default=1, cast=int)
+SCAN_DIAGNOSE_DAILY_PREMIUM = config("SCAN_DIAGNOSE_DAILY_PREMIUM", default=3, cast=int)
+SCAN_IDENTIFY_DAILY_FREE = config("SCAN_IDENTIFY_DAILY_FREE", default=5, cast=int)
+SCAN_IDENTIFY_DAILY_PREMIUM = config(
+    "SCAN_IDENTIFY_DAILY_PREMIUM", default=20, cast=int
+)
+PLANT_ID_DAILY_QUOTA = config("PLANT_ID_DAILY_QUOTA", default=3, cast=int)
+PLANT_ID_MONTHLY_QUOTA = config("PLANT_ID_MONTHLY_QUOTA", default=100, cast=int)
+PLANT_ID_DIAGNOSIS_RESERVE = config("PLANT_ID_DIAGNOSIS_RESERVE", default=2, cast=int)
+SCAN_PLANTNET_CONFIDENCE_FLOOR = config(
+    "SCAN_PLANTNET_CONFIDENCE_FLOOR", default=0.5, cast=float
+)
+SCAN_JOB_STALE_MINUTES = config("SCAN_JOB_STALE_MINUTES", default=10, cast=int)
+# Exposed to the app: how long a job runs before it offers Wait / Cancel.
+SCAN_SLOW_AFTER_SECONDS = config("SCAN_SLOW_AFTER_SECONDS", default=45, cast=int)
+
+# Private scan photos (Scan 2.0). Never the default storage: in prod that one
+# serves public permanent URLs. Outside MEDIA_ROOT so the dev media URL can
+# never serve these files. With USE_R2 they go to a private bucket instead.
+SCAN_PHOTO_LOCAL_ROOT = BASE_DIR / "private_scans"
+R2_SCANS_BUCKET_NAME = config("R2_SCANS_BUCKET_NAME", default="")
+# Shared with the STORAGES block below; the scan storage reads them from here.
+R2_ACCESS_KEY_ID = config("R2_ACCESS_KEY_ID", default="")
+R2_SECRET_ACCESS_KEY = config("R2_SECRET_ACCESS_KEY", default="")
+R2_ENDPOINT_URL = config("R2_ENDPOINT_URL", default="")
+
 USE_R2 = config("USE_R2", default=False, cast=bool)
 if USE_R2:
     STORAGES["default"] = {
         "BACKEND": "storages.backends.s3.S3Storage",
         "OPTIONS": {
             "bucket_name": config("R2_BUCKET_NAME", default=""),
-            "access_key": config("R2_ACCESS_KEY_ID", default=""),
-            "secret_key": config("R2_SECRET_ACCESS_KEY", default=""),
-            "endpoint_url": config("R2_ENDPOINT_URL", default=""),
+            "access_key": R2_ACCESS_KEY_ID,
+            "secret_key": R2_SECRET_ACCESS_KEY,
+            "endpoint_url": R2_ENDPOINT_URL,
             "region_name": R2_REGION_NAME,
             "custom_domain": config("R2_CUSTOM_DOMAIN", default=""),
             # querystring_auth defaults True upstream, which signs every URL
@@ -728,6 +758,7 @@ SPECTACULAR_SETTINGS = {
         "DiseaseRequestStatusEnum": (
             "apps.plant_identification.constants.DISEASE_REQUEST_STATUS_CHOICES"
         ),
+        "ScanModeEnum": "apps.plant_identification.constants.SCAN_MODE_CHOICES",
     },
     "SORT_OPERATIONS": False,
     "SCHEMA_PATH_PREFIX": r"/api/v[0-9]",
@@ -1833,6 +1864,16 @@ def validate_environment():
                 critical_errors.append(message)
             else:
                 warnings.append(message)
+
+        # The media bucket is public (custom domain, permanent URLs). Scans
+        # pointed at it would make users' plant photos public. Raises in every
+        # environment (not warn-only in DEBUG): a dev box can hold real data too.
+        scans_bucket = config("R2_SCANS_BUCKET_NAME", default="")
+        if scans_bucket and scans_bucket == config("R2_BUCKET_NAME", default=""):
+            raise ImproperlyConfigured(
+                "R2_SCANS_BUCKET_NAME must not equal R2_BUCKET_NAME: the media "
+                "bucket is public, so scan photos stored there would be public."
+            )
 
     # ========================================
     # API Key Format Validation (Issue #156)
