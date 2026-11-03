@@ -50,8 +50,15 @@ assert_quiet "switch -c from a local branch" "$(event "git switch -c chore/x mai
 assert_quiet "plain switch to an existing branch" "$(event "git switch main")"
 assert_quiet "checkout of a file path" "$(event "git checkout -- origin/notes.md")"
 assert_quiet "git branch is out of scope" "$(event "git branch probe origin/main")"
-assert_quiet "--no-track in its own segment does not cover another" \
+assert_quiet "--no-track switch followed by an unrelated segment stays quiet" \
   "$(event "git switch -c a --no-track origin/main; echo done")"
+# Each line of a multi-line command is its own command (review round 1).
+assert_warn "tracking switch on the second line of a script" \
+  $'git fetch origin\ngit switch -c chore/x origin/main'
+assert_warn "--no-track on line 1 does not cover a tracking switch on line 2" \
+  $'git switch -c a --no-track origin/main\ngit switch -c b origin/main'
+assert_warn "backslash-newline continuation is one command" \
+  $'git switch -c chore/x \\\norigin/main'
 assert_quiet "non-git command mentioning origin/" "$(event "echo switch -c x origin/main")"
 assert_quiet "non-Bash tool" '{"tool_name":"Edit","tool_input":{"file_path":"x"}}'
 assert_quiet "unparseable JSON" 'not json'

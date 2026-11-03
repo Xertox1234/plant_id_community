@@ -110,3 +110,11 @@ The PreToolUse injection hook prepends `docs/rules/_discipline.md` (4,426 bytes)
 ### 2026-11-03 - Completed by the todo sweep (run 2026-11-03-2214)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-03 - Review round 1: non-blocking findings (PR #1263)
+
+- FIXED (regression this PR introduced, two low findings, lines 48/49): an inside path spelled with `..` (`<root>/backend/apps/../apps/users/views.py`) exited silently. The hook now collapses `.`/`..` with `os.path.normpath` before the inside/outside check, and still skips when python3 is missing. New test "inside path spelled with .. → domain rules still route"; mutation check: with the normalized path replaced by `exit 0` that test fails (37 passed, 1 failed); restored, 38 passed.
+- FIXED (low, line 57): a path spelled with the physical root (`pwd -P`) now has that root stripped from `REL` too, so domains route. New test "inside path spelled with the physical root → domain rules still route".
+- FIXED (low, test line 13): the later sentinel `trap … EXIT INT TERM` replaced the state-dir cleanup trap, so every run left an `inject-test.*` dir in TMPDIR. The sentinel trap now also removes `$INJECT_STATE_DIR`; a full run leaves the dir count unchanged.
+- DECLINED (low, line 41): outside paths also skip the trigger tier. This is the owner's Option 2 as decided on 2026-11-03 (skip outside the repo); a repo file reached by another spelling is now covered by the normalization and physical-root fixes above.
+- DECLINED (low, test line 151): the physical-root and inside-`..` behaviours are now tested (the two new cases above), so nothing further is needed.

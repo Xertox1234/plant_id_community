@@ -37,19 +37,23 @@ command = (event.get("tool_input") or {}).get("command")
 if not isinstance(command, str) or "git" not in command:
     sys.exit(0)
 
+# A backslash-newline is a line continuation, not a separator.
+command = command.replace("\\\n", " ")
+SEPARATORS = ";&|()<>\n"
 try:
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>")
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=SEPARATORS)
     lexer.whitespace_split = True
+    lexer.whitespace = " \t\r"
     lexer.commenters = ""
     tokens = list(lexer)
 except ValueError:
     sys.exit(0)
 
-# Split into simple commands on shell operators (&&, ||, ;, |, newlines are
-# whitespace to shlex, so a newline-separated script is caught by the git scan).
+# Split into simple commands on shell operators (&&, ||, ;, |) and on unquoted
+# newlines, so each line of a multi-line script is checked on its own.
 segments, current = [], []
 for tok in tokens:
-    if tok and all(ch in ";&|()<>" for ch in tok):
+    if tok and all(ch in SEPARATORS for ch in tok):
         segments.append(current)
         current = []
     else:

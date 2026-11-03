@@ -94,3 +94,11 @@ The result looks like a large staged change on the wrong branch. Merges and reba
 ### 2026-11-03 - Completed by the todo sweep (run 2026-11-03-2214)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-03 - Review round 1: non-blocking findings (PR #1263)
+
+- FIXED (medium, line 49): newline-separated commands landed in one segment, so `git fetch origin` + newline + `git switch -c x origin/main` stayed quiet, and a `--no-track` on line 1 silenced a tracking switch on line 2. Unquoted newlines are now separators (a backslash-newline continuation stays one command). Three new tests; mutation check: with `\n` removed from the separators the two newline tests fail (26 passed, 2 failed); restored, 28 passed.
+- FIXED (low, test line 51): the misnamed test is now "--no-track switch followed by an unrelated segment stays quiet".
+- DECLINED (low, line 42): a trailing `# --no-track` comment, or `-- origin/<path>` after a bare `--`, can mis-read. The hook is warn-only, so the worst case is one missing or one extra warning; not worth extra parsing.
+- DECLINED (low, line 79): `git switch <name>` DWIM, `checkout --track` without `-b` and `worktree add -b … origin/x` are not detected. The owner scoped the rule to `switch -c`/`checkout -b` (decision 2026-11-03); the sweep runbook already uses `worktree add --no-track`.
+- DECLINED (low, settings.json line 59): adding a `warn-git-track.sh` bullet to CLAUDE.md. The owner chose "hook only … no CLAUDE.md entry" (2026-11-03).

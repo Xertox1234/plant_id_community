@@ -164,6 +164,15 @@ check_empty "sibling dir sharing the root as a name prefix → no output" \
 check_empty "path climbing out of the root with .. → no output" \
   "$(jq -n --arg fp "${HOOK_ROOT}/../elsewhere/notes.md" '{tool_name:"Edit",tool_input:{file_path:$fp}}')"
 
+check "inside path spelled with .. → domain rules still route" \
+  "$(jq -n --arg fp "${HOOK_ROOT}/backend/apps/../apps/users/views.py" '{tool_name:"Edit",tool_input:{file_path:$fp}}')" \
+  "RULES — api"
+
+HOOK_ROOT_PHYS="$(cd "$HOOK_ROOT" && pwd -P)"
+check "inside path spelled with the physical root → domain rules still route" \
+  "$(jq -n --arg fp "${HOOK_ROOT_PHYS}/backend/apps/users/views.py" '{tool_name:"Edit",tool_input:{file_path:$fp}}')" \
+  "RULES — api"
+
 check "absolute path inside the root → full discipline preamble" \
   "$(jq -n --arg fp "${HOOK_ROOT}/README.md" '{tool_name:"Edit",tool_input:{file_path:$fp}}')" \
   "DISCIPLINE — applies before any edit"
@@ -319,7 +328,8 @@ cp "$SENTINEL_FILE" "$SENTINEL_FILE.injecttest.bak"
 trap 'if [ -f "$SENTINEL_FILE.injecttest.bak" ]; then
         cp "$SENTINEL_FILE.injecttest.bak" "$SENTINEL_FILE"
         rm -f "$SENTINEL_FILE.injecttest.bak"
-      fi' EXIT INT TERM
+      fi
+      rm -rf "$INJECT_STATE_DIR"' EXIT INT TERM
 printf '\n- **SENTINEL_TAIL_369** proves an appended rule still injects.\n' >> "$SENTINEL_FILE"
 TAIL_CTX=$(budget_ctx "backend/apps/core/tests/test_budget_probe.py")
 cp "$SENTINEL_FILE.injecttest.bak" "$SENTINEL_FILE"

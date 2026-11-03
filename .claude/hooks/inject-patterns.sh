@@ -38,25 +38,35 @@ RULES_DIR="$PROJECT_ROOT/docs/rules"
 # against the repo, so it is always inside. A worktree session's PROJECT_ROOT is
 # the worktree itself, so its own files are inside; the main checkout's are not,
 # and guard-worktree-isolation.sh refuses those edits anyway.
+PROJECT_ROOT_PHYS=""
 case "$FILE_PATH" in
   /*)
     PROJECT_ROOT_PHYS="$(cd "$PROJECT_ROOT" && pwd -P)"
+    # Collapse "." and ".." segments first, lexically, so /repo/a/../b counts as
+    # inside and /repo/../elsewhere/x as outside (todo 686 review round 1).
+    # Without python3 a path with a ".." segment is skipped, the safe side.
+    case "/$FILE_PATH/" in
+      */../*|*/./*)
+        NORM=$(python3 -c 'import os,sys; print(os.path.normpath(sys.argv[1]))' "$FILE_PATH" 2>/dev/null) \
+          || exit 0
+        FILE_PATH="$NORM"
+        ;;
+    esac
     case "$FILE_PATH" in
       "$PROJECT_ROOT"/*|"$PROJECT_ROOT_PHYS"/*) ;;
       *) exit 0 ;;
-    esac
-    # A ".." segment can climb back out of the root: /repo/../elsewhere/x.
-    case "/$FILE_PATH/" in
-      */../*) exit 0 ;;
     esac
     ;;
 esac
 
 # Normalize to a repo-relative path so the matchers below are uniform whether
 # the Edit tool sent an absolute path or a relative one. A leading "/" is
-# stripped only when the path is under PROJECT_ROOT; paths outside it are left
-# as-is and simply fall through to no domain match.
+# stripped only when the path is under PROJECT_ROOT (in its logical or physical
+# spelling); a relative path is left as-is.
 REL="${FILE_PATH#"$PROJECT_ROOT"/}"
+if [ -n "$PROJECT_ROOT_PHYS" ]; then
+  REL="${REL#"$PROJECT_ROOT_PHYS"/}"
+fi
 
 # Map file path to docs/rules/ domains via the shared matcher. Single source of
 # truth: docs/rules/routing.json (also consumed by kimi-review.sh and the codify
