@@ -26,6 +26,7 @@ than passing by emptiness. Bypass one commit with SKIP=mypy-staged.
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import subprocess
@@ -100,11 +101,18 @@ def main(argv: list[str]) -> int:
         print("mypy-staged: [tool.mypy] files is empty in backend/pyproject.toml; nothing is gated", file=sys.stderr)
         return 1
 
+    # As in test-staged.sh: this checkout's forum package goes first, so a
+    # worktree using the main checkout's venv is not typed against main's
+    # editable wagtail_forum install.
+    env = dict(os.environ)
+    forum = str(BACKEND / "packages" / "wagtail_forum")
+    env["PYTHONPATH"] = forum + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     proc = subprocess.run(
         [str(python), "-m", "mypy", "--no-error-summary", "--no-pretty", *staged],
         cwd=BACKEND,
         capture_output=True,
         text=True,
+        env=env,
     )
     if proc.returncode not in (0, 1):
         # 2 = mypy itself failed (bad config, crash): never pass by emptiness.

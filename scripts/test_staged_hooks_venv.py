@@ -117,7 +117,7 @@ class StagedHookVenvTests(unittest.TestCase):
         self.assertEqual(mypy_run.returncode, 0, mypy_run.stderr)
         calls = self.stub_calls()
         self.assertEqual(len(calls), 2, calls)
-        (py1, args1, path1), (py2, args2, _) = calls
+        (py1, args1, path1), (py2, args2, path2) = calls
         self.assertEqual(py1, str(main_py))
         self.assertEqual(py2, str(main_py))
         self.assertIn("-m pytest", args1)
@@ -125,7 +125,9 @@ class StagedHookVenvTests(unittest.TestCase):
         self.assertIn("-m mypy", args2)
         self.assertIn("apps/core/models.py", args2)
         # The worktree's own forum package comes first, not the main checkout's.
-        self.assertEqual(path1.split(":")[0], str(self.wt / "backend" / "packages" / "wagtail_forum"))
+        forum = str(self.wt / "backend" / "packages" / "wagtail_forum")
+        self.assertEqual(path1.split(":")[0], forum)
+        self.assertEqual(path2.split(":")[0], forum)
         self.assertFalse((self.wt / "backend" / "venv").exists(), "no symlink was left behind")
 
     def test_fallback_works_under_a_commit_hook_git_dir(self) -> None:
@@ -144,7 +146,10 @@ class StagedHookVenvTests(unittest.TestCase):
 
         self.assertEqual(self.run_pytest_hook(self.wt).returncode, 0)
         self.assertEqual(self.run_mypy_hook(self.wt).returncode, 0)
-        self.assertEqual([c[0] for c in self.stub_calls()], [str(own_py), str(own_py)])
+        calls = self.stub_calls()
+        self.assertEqual([c[0] for c in calls], [str(own_py), str(own_py)])
+        forum = str(self.wt / "backend" / "packages" / "wagtail_forum")
+        self.assertEqual([c[2].split(":")[0] for c in calls], [forum, forum])
 
     def test_main_checkout_uses_its_own_venv(self) -> None:
         main_py = make_venv(self.main)

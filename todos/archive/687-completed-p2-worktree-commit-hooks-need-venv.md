@@ -90,3 +90,9 @@ A git worktree has no `backend/venv`, because it is gitignored and lives only in
 ### 2026-11-03 - Completed by the todo sweep (run 2026-11-03-2214)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-03 - Review round 1: non-blocking findings (PR #1264)
+
+- FIXED (low, two reports at `scripts/mypy_staged.py:104`): mypy-staged ran the main checkout's venv without this checkout's `backend/packages/wagtail_forum` first on `PYTHONPATH`, so worktree forum edits could be typed against main's editable install. It now passes that prefix to the mypy subprocess, as `test-staged.sh` does.
+- FIXED (low, `scripts/test_staged_hooks_venv.py:143`): the tests now assert the forum package heads `PYTHONPATH` for both hooks, in the main-venv fallback case and the own-venv case. Mutation check: with `env=env` dropped from the mypy call, 2 tests fail; restored, 6 pass.
+- DECLINED (low, `scripts/test-staged.sh:31`): `rev-parse --path-format=absolute` needs git 2.31 or newer. Every machine and CI runner here has a newer git, and on an older one the hook still fails closed with a `SKIP=` hint, so the worst case is a misleading message, not a bypass.
