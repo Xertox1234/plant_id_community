@@ -415,6 +415,9 @@ class PushRegistrationService {
     AuthorizationStatus.authorized => PushPermission.granted,
     AuthorizationStatus.provisional => PushPermission.granted,
     AuthorizationStatus.denied => PushPermission.denied,
+    // firebase_messaging 16.7 added this; like `denied`, only the OS
+    // settings can turn it back on.
+    AuthorizationStatus.deniedPermanently => PushPermission.denied,
     AuthorizationStatus.notDetermined => PushPermission.notDetermined,
   };
 
