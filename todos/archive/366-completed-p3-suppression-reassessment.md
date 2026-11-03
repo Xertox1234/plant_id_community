@@ -1,13 +1,12 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "366"
 tags: [security, dependencies, suppressions, backend]
 dependencies: []
-triage: blocked-owner
+triage: ready
 triaged: 2026-09-28
-blocked_on: "Timed for the 2026-11-16 expiry. The owner decides whether the re-assessment runs now or in that window."
-owner_decision: "Owner: wait for the window before the 2026-11-16 expiry (2026-09-28)"
+owner_decision: "Owner: wait for the window before the 2026-11-16 expiry (2026-09-28); owner: do it now (2026-11-03)"
 ---
 
 # Re-assess the two dormant pip-audit suppressions at their 2026-11-16 expiry
@@ -114,13 +113,13 @@ On or before **2026-11-16**, for each of the two entries:
 
 ## Acceptance Criteria
 
-- [ ] Each of `PYSEC-2026-89` and `PYSEC-2025-183` is bumped, renewed with a
+- [x] Each of `PYSEC-2026-89` and `PYSEC-2025-183` is bumped, renewed with a
       fresh dated rationale, or deleted — with the command output that justified
       the choice recorded in the Work Log
-- [ ] `python3 scripts/check_suppressions.py --validate` passes
-- [ ] `python3 scripts/test_check_suppressions.py` passes, including the
+- [x] `python3 scripts/check_suppressions.py --validate` passes
+- [x] `python3 scripts/test_check_suppressions.py` passes, including the
       `tracked_by`-is-open guard
-- [ ] If both entries are removed, this todo is archived in the same commit and
+- [x] If both entries are removed, this todo is archived in the same commit and
       `Harness CI` is green on the PR
 
 ## Work Log
@@ -134,6 +133,28 @@ On or before **2026-11-16**, for each of the two entries:
 - Keeping rather than deleting follows 355's 2026-09-06 *Decisions locked* block:
   "left in place and re-assessed at their `expires: 2026-11-16` … that is one
   day's data, not grounds for deletion."
+
+### 2026-11-03 - Re-assessed in the window; both entries DELETED
+
+Owner said "do it now" (13 days before expiry). Fresh data, not the 2026-10-18 pre-check:
+
+- **OSV `/v1/query`** (with `Content-Type: application/json`):
+  - `Markdown 3.8.1` → `[]`. Positive control `Markdown 3.8` → returns `PYSEC-2026-89` / `GHSA-5wmx-573v-2qwq`.
+  - `PyJWT 2.15.0` → `[]`. Positive control `PyJWT 2.10.1` → returns `PYSEC-2025-183` (and 30 others).
+- **OSV `/v1/vulns/<id>`**: `PYSEC-2026-89` range `introduced 0, last_affected 3.8`;
+  `PYSEC-2025-183` range `introduced 0, last_affected 2.10.1`. Neither withdrawn.
+  The pins (3.8.1, 2.15.0) are past `last_affected` for both, and a query at the pin
+  returns nothing, so neither pin is affected.
+- **Unsuppressed pip-audit** (scratch venv, `pip-audit -r requirements.txt --format json`,
+  no `--emit-flags`): 211 packages, including `markdown 3.8.1` and `pyjwt 2.15.0`;
+  "No known vulnerabilities found"; `{'PYSEC-2026-89': False, 'PYSEC-2025-183': False}`.
+- **Outcome for both: "a fix shipped" → delete.** The pins were already past the
+  affected range (PyJWT had been bumped 2.13.0 → 2.15.0 since the entry was written),
+  so no pin bump was needed. `pip_audit:` is now `[]`.
+- `check_suppressions.py --validate` → `OK (0 entries)`; `--emit-flags` → empty (an
+  unquoted empty `$IGNORE_FLAGS` in `security-scan.yml` passes no args);
+  `--recheck --report <unsuppressed>` → `OK (0 entries)`.
+- With both entries gone this todo has no job left, so it is archived in the same commit.
 
 ## Notes
 
