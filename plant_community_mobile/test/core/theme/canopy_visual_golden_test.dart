@@ -8,6 +8,7 @@ import 'package:plant_community_mobile/core/constants/app_spacing.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 import 'package:plant_community_mobile/shared/widgets/brand_mark.dart';
+import 'package:plant_community_mobile/shared/widgets/canopy_accents.dart';
 import 'package:plant_community_mobile/shared/widgets/canopy_label.dart';
 import 'package:plant_community_mobile/shared/widgets/canopy_notice.dart';
 import 'package:plant_community_mobile/shared/widgets/canopy_surfaces.dart';
@@ -201,6 +202,87 @@ void main() {
         matchesGoldenFile(
           'goldens/canopy_${brightness.name}_${density.name}.png',
         ),
+      );
+    }, skip: !_goldensEnabled);
+  }
+
+  // The forum-home accent pieces: tiles, chips and a grouped card, at phone
+  // width (375), in both modes.
+  Widget accentsPage(Brightness brightness) {
+    return MaterialApp(
+      theme: AppTheme.build(brightness, AppDensity.cozy),
+      debugShowCheckedModeBanner: false,
+      home: Builder(
+        builder: (context) {
+          final ext = context.canopy;
+          final tones = [ext.leaf, ext.clay, ext.berry, ext.sky];
+          final icons = [
+            LucideIcons.leaf,
+            LucideIcons.droplet,
+            LucideIcons.bug,
+            LucideIcons.layoutDashboard,
+          ];
+          final labels = ['Identification', 'Care', 'Pests', 'Design'];
+          return Scaffold(
+            body: CanopyGround(
+              child: Padding(
+                padding: EdgeInsets.all(ext.padScreen),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CanopyLabel('${brightness.name} · accents'),
+                    SizedBox(height: ext.gapY),
+                    CanopyGroupedCard(
+                      rows: [
+                        for (var i = 0; i < 4; i++)
+                          CanopyPressable(
+                            onTap: () {},
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Row(
+                                children: [
+                                  CanopyAccentTile(
+                                    icon: icons[i],
+                                    tone: tones[i],
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      '${labels[i]} board',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.titleMedium,
+                                    ),
+                                  ),
+                                  CanopyChip(label: labels[i], tone: tones[i]),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  for (final brightness in Brightness.values) {
+    testWidgets('canopy accents ${brightness.name}', (tester) async {
+      tester.view.physicalSize = const Size(375 * 2, 480 * 2);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(accentsPage(brightness));
+      await tester.pumpAndSettle();
+
+      await expectLater(
+        find.byType(MaterialApp),
+        matchesGoldenFile('goldens/canopy_accents_${brightness.name}.png'),
       );
     }, skip: !_goldensEnabled);
   }
