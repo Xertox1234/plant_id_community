@@ -14,7 +14,6 @@ import 'package:plant_community_mobile/features/blog/services/blog_api.dart';
 import 'package:plant_community_mobile/features/auth/register_screen.dart';
 import 'package:plant_community_mobile/features/scan/scan_screen.dart';
 import 'package:plant_community_mobile/features/collection/collection_screen.dart';
-import 'package:plant_community_mobile/features/diagnose/diagnose_screen.dart';
 import 'package:plant_community_mobile/features/forum/forum_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
@@ -421,39 +420,54 @@ void main() {
     });
   });
 
-  group('Diagnose is reachable from Home (todo 444)', () {
+  group('The health check is reachable from Home (todo 444)', () {
     Future<void> tapDiagnoseCard(WidgetTester tester) async {
-      final card = find.text('Diagnose a Sick Plant');
+      final card = find.byKey(HomePage.checkPlantKey);
       await tester.ensureVisible(card);
       await tester.pump();
       await tester.tap(card);
       await settle(tester);
     }
 
-    testWidgets('signed in, the Home card opens the screen and keeps the bar', (
-      tester,
-    ) async {
-      final h = await pumpShell(tester, loggedIn: true);
-      await tapDiagnoseCard(tester);
+    testWidgets(
+      'signed in, the Home button opens the camera in diagnose mode',
+      (tester) async {
+        final h = await pumpShell(tester, loggedIn: true);
+        await tapDiagnoseCard(tester);
 
-      expect(h.path, AppRoutes.diagnose);
-      expect(find.byType(DiagnoseScreen), findsOneWidget);
-      expect(find.byType(NavigationBar), findsOneWidget);
-      expect(h.router.canPop(), isTrue);
+        expect(h.path, AppRoutes.camera);
+        expect(find.byType(ScanScreen), findsOneWidget);
+        expect(h.router.canPop(), isTrue);
 
-      await tester.pump(const Duration(seconds: 4));
-    });
+        await tester.pump(const Duration(seconds: 4));
+      },
+    );
 
-    testWidgets('signed out, the Home card goes to sign-in (the API is '
+    testWidgets('signed out, the Home button goes to sign-in (the API is '
         'IsAuthenticated)', (tester) async {
       final h = await pumpShell(tester, loggedIn: false);
       await tapDiagnoseCard(tester);
 
       expect(h.path, AppRoutes.login);
-      expect(find.byType(DiagnoseScreen), findsNothing);
+      expect(find.byType(ScanScreen), findsNothing);
 
       await tester.pump(const Duration(seconds: 4));
     });
+  });
+
+  testWidgets('the centre button reads Check a plant with a stethoscope', (
+    tester,
+  ) async {
+    // Signed out: no onboarding fetch retrying behind the Home tab.
+    await pumpShell(tester, loggedIn: false);
+
+    final fab = tester.widget<FloatingActionButton>(
+      find.byKey(MainShell.identifyFabKey),
+    );
+    expect(fab.tooltip, 'Check a plant');
+    expect((fab.child! as Icon).icon, LucideIcons.stethoscope);
+
+    await tester.pump(const Duration(seconds: 4));
   });
 
   group('the Identify FAB does not sit on the nav bar', () {

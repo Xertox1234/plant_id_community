@@ -93,7 +93,7 @@ void main() {
                     CanopyLabel('${brightness.name} · ${density.name}'),
                     SizedBox(height: ext.gapY),
                     Text(
-                      'Discover the world of plants',
+                      "What's wrong with your plant?",
                       style: Theme.of(context).textTheme.headlineLarge,
                     ),
                     SizedBox(height: ext.gapY),

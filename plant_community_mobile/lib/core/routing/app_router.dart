@@ -9,12 +9,12 @@ import '../../features/home/home_page.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
 import '../../features/results/results_screen.dart';
+import '../../features/scan/capture_steps.dart';
 import '../../features/scan/scan_screen.dart';
 import '../../features/profile/edit_profile_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/care/care_screen.dart';
-import '../../features/diagnose/diagnose_screen.dart';
 import '../../features/blog/screens/blog_list_screen.dart';
 import '../../features/blog/screens/blog_post_screen.dart';
 import '../../features/forum/forum_screen.dart';
@@ -193,11 +193,8 @@ GoRouter appRouter(Ref ref) {
               GoRoute(
                 path: AppRoutes.diagnose,
                 name: 'diagnose',
-                pageBuilder: (context, state) => _buildPageWithTransition(
-                  context: context,
-                  state: state,
-                  child: const DiagnoseScreen(),
-                ),
+                // The scan opens in diagnose mode; the old screen is gone.
+                redirect: (_, _) => '${AppRoutes.camera}?mode=diagnose',
               ),
               // Auth-only (protectedRoutes): the plants and tasks are the
               // caller's own. Opened from the Home feature grid and from a
@@ -425,7 +422,11 @@ GoRouter appRouter(Ref ref) {
         pageBuilder: (context, state) => _buildPageWithTransition(
           context: context,
           state: state,
-          child: const ScanScreen(),
+          child: ScanScreen(
+            initialMode: state.uri.queryParameters['mode'] == 'identify'
+                ? ScanMode.identify
+                : ScanMode.diagnose,
+          ),
         ),
       ),
       GoRoute(

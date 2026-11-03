@@ -63,6 +63,7 @@ void main() {
   Future<void> pumpScreen(
     WidgetTester tester, {
     Brightness brightness = Brightness.light,
+    ScanMode initialMode = ScanMode.diagnose,
   }) async {
     await tester.pumpWidget(
       ProviderScope(
@@ -78,7 +79,7 @@ void main() {
         ],
         child: MaterialApp(
           theme: AppTheme.build(brightness, AppDensity.cozy),
-          home: ScanScreen(onDone: (r) => done = r),
+          home: ScanScreen(onDone: (r) => done = r, initialMode: initialMode),
         ),
       ),
     );
@@ -118,6 +119,13 @@ void main() {
     expectDoneEnabled(tester, false);
     expect(fake.isStreaming, isTrue);
     handle.dispose();
+  });
+
+  testWidgets('initialMode identify starts on the leaf step', (tester) async {
+    await pumpScreen(tester, initialMode: ScanMode.identify);
+
+    expect(find.text('Point at a leaf'), findsOneWidget);
+    expect(find.text("Show me what's wrong"), findsNothing);
   });
 
   testWidgets('shutter fills the problem slot; Leaf shows Skip and Done', (

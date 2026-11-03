@@ -46,6 +46,11 @@ R2_BOTO3_REQUIRED_VARS = (
 # requires the boto3 set above and not this one.
 R2_URL_ONLY_VARS = ("R2_CUSTOM_DOMAIN",)
 
+# The PRIVATE bucket for user scan photos (Scan 2.0). No public domain, so it
+# feeds neither the default STORAGES block nor the sync command; only
+# apps/plant_identification/scan_storage.py reads it.
+R2_SCANS_VARS = ("R2_SCANS_BUCKET_NAME",)
+
 # Everything validate_environment() demands when USE_R2 is on. Composed from the
 # two sets above rather than sliced out of one flat tuple: a slice like
 # SHARED[:4] is index-dependent, so inserting a var in the wrong position later
@@ -54,7 +59,7 @@ R2_URL_ONLY_VARS = ("R2_CUSTOM_DOMAIN",)
 # joins. Order is cosmetic, not load-bearing — it only sets the sequence missing
 # vars are reported in (validate_environment() emits one message per missing var
 # regardless of position).
-R2_REQUIRED_VARS = R2_BOTO3_REQUIRED_VARS + R2_URL_ONLY_VARS
+R2_REQUIRED_VARS = R2_BOTO3_REQUIRED_VARS + R2_URL_ONLY_VARS + R2_SCANS_VARS
 
 # Cache-Control stamped on every object, whether written by S3Storage (new
 # uploads) or copied up by sync_media_to_r2. Paired with file_overwrite=False in

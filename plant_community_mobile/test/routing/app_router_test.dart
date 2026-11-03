@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:plant_community_mobile/features/onboarding/onboarding_checklist_service.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
@@ -17,6 +18,8 @@ import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
 import 'package:plant_community_mobile/features/garden/services/garden_api_service.dart';
 import 'package:plant_community_mobile/features/profile/edit_profile_screen.dart';
+import 'package:plant_community_mobile/features/scan/scan_camera.dart';
+import 'package:plant_community_mobile/features/scan/scan_screen.dart';
 import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
@@ -25,6 +28,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../features/forum/support/forum_test_support.dart';
 import '../features/garden/support/garden_test_support.dart';
+import '../features/scan/fake_scan_camera.dart';
 
 // TODO: Add Firebase mocking to enable widget tests
 // See test/routing/TEST_STATUS.md for details
@@ -395,6 +399,55 @@ void main() {
       );
 
       // Drain remaining splash timers
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    Future<GoRouter> pumpSignedInCamera(
+      WidgetTester tester,
+      String location,
+    ) async {
+      final container = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(_MockAuthenticatedAuthNotifier.new),
+          scanCameraFactoryProvider.overrideWithValue(() => FakeScanCamera()),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      router.go(location);
+      // Navigation, then the post-frame mode switch, then its rebuild.
+      for (var i = 0; i < 4; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      return router;
+    }
+
+    testWidgets('/camera?mode=identify opens identify mode', (tester) async {
+      await pumpSignedInCamera(tester, '${AppRoutes.camera}?mode=identify');
+
+      expect(find.byType(ScanScreen), findsOneWidget);
+      expect(find.text('Point at a leaf'), findsOneWidget);
+      expect(find.text("Show me what's wrong"), findsNothing);
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('/diagnose redirects to the camera in diagnose mode', (
+      tester,
+    ) async {
+      final router = await pumpSignedInCamera(tester, AppRoutes.diagnose);
+
+      expect(
+        router.routerDelegate.currentConfiguration.uri.path,
+        AppRoutes.camera,
+      );
+      expect(find.byType(ScanScreen), findsOneWidget);
+      expect(find.text("Show me what's wrong"), findsOneWidget);
       await tester.pump(const Duration(seconds: 4));
     });
 

@@ -24,6 +24,7 @@ BODILESS_WRITES = {
     ("post", "/auth/unsubscribe/one-click/"),  # RFC 8058: token in the query
     ("post", "/blog/comments/{id}/flag/"),
     ("post", "/blog/newsletter/unsubscribe/one-click/"),
+    ("post", "/plant-identification/scans/{uuid}/cancel/"),
 }
 
 # Keys whose example value would be a secret if it were real.

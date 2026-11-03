@@ -32,7 +32,15 @@ import 'widgets/viewfinder_frame.dart';
 /// Session state lives in [captureSessionProvider], so the camera can be torn
 /// down and rebuilt on app lifecycle changes without losing shots.
 class ScanScreen extends ConsumerStatefulWidget {
-  const ScanScreen({super.key, this.onDone});
+  const ScanScreen({
+    super.key,
+    this.onDone,
+    this.initialMode = ScanMode.diagnose,
+  });
+
+  /// The mode the camera opens in. Diagnose is the default; the Home
+  /// "Just identify a plant" link opens identify.
+  final ScanMode initialMode;
 
   /// Receives the finished capture. Null means the default submitter.
   final ValueChanged<CaptureResult>? onDone;
@@ -86,6 +94,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     );
     WidgetsBinding.instance.addObserver(this);
     _resetAnalysis();
+    if (widget.initialMode != ScanMode.diagnose) {
+      // Riverpod forbids modifying a provider during the build phase, so
+      // apply the requested mode right after the first frame.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _session.setMode(widget.initialMode);
+      });
+    }
     ref.listenManual(
       captureSessionProvider.select((s) => (s.mode, s.stepIndex)),
       (_, _) => setState(_resetAnalysis),

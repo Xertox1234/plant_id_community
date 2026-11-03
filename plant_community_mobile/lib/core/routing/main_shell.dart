@@ -170,9 +170,9 @@ class MainShell extends StatelessWidget {
               // 2026-10-21), because the shell FAB is now hidden where a screen
               // has its own; keep it for the kept-alive branch case.
               heroTag: 'shellIdentifyFab',
-              tooltip: 'Identify a plant',
+              tooltip: 'Check a plant',
               onPressed: () => context.push(AppRoutes.camera),
-              child: const Icon(LucideIcons.camera),
+              child: const Icon(LucideIcons.stethoscope),
             )
           : null,
       // endFloat: the corner a screen's own FAB uses, so the two can never

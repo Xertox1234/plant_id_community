@@ -61,6 +61,7 @@ plant_id.db-journal
 # the root-anchored pattern above does NOT match -- same reason backend/media/
 # is listed separately below.
 backend/staticfiles/
+backend/private_scans/
 /mediafiles/
 /media/
 backend/media/

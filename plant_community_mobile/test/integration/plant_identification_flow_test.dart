@@ -55,7 +55,7 @@ void main() {
 
       // Verify we're on the home screen
       expect(find.text('Houseplant MD'), findsOneWidget);
-      expect(find.textContaining('Identify plants with AI'), findsOneWidget);
+      expect(find.textContaining('Photograph the problem'), findsOneWidget);
 
       // Open the guided scan
       final identifyButton = find.text('Get Started');

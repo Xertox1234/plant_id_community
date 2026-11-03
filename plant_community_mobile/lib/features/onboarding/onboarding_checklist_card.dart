@@ -17,7 +17,7 @@ import 'onboarding_checklist_service.dart';
 /// app does not know (a newer server) is skipped.
 const Map<String, ({String label, String route, bool push})> onboardingSteps = {
   'identify_plant': (
-    label: 'Identify your first plant',
+    label: 'Check on your first plant',
     route: AppRoutes.camera,
     push: true,
   ),

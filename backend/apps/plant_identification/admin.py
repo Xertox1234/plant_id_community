@@ -9,6 +9,8 @@ from .models import (
     PlantIdentificationRequest,
     PlantIdentificationResult,
     PlantSpecies,
+    ScanJob,
+    ScanJobImage,
     UserPlant,
 )
 
@@ -312,3 +314,53 @@ class UserPlantAdmin(admin.ModelAdmin):
                 obj.image_thumbnail.url,
             )
         return "No image"
+
+
+class ScanJobImageInline(admin.TabularInline):
+    """Roles only: the photos are private and are never rendered in the admin."""
+
+    model = ScanJobImage
+    extra = 0
+    fields = ("role",)
+    readonly_fields = ("role",)
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ScanJob)
+class ScanJobAdmin(admin.ModelAdmin):
+    """Read-only: jobs are created and advanced by the scan API and task."""
+
+    list_display = (
+        "uuid",
+        "user",
+        "mode",
+        "status",
+        "charged_as",
+        "local_date",
+        "created_at",
+    )
+    list_filter = ("status", "mode")
+    search_fields = ("uuid", "user__username", "user__email")
+    inlines = [ScanJobImageInline]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        # Must be the normal permission: Django's admin checks it on every
+        # registered related model when a user is deleted, so False here
+        # would block deleting any user who has a scan (the manual account
+        # erasure path; the photos go with the account). The changelist
+        # stays view-only because get_actions drops the bulk delete.
+        return super().has_delete_permission(request, obj)
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions
