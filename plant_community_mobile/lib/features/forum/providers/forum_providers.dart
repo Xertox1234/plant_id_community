@@ -700,6 +700,39 @@ class RecentTopics extends _$RecentTopics {
   }
 }
 
+/// The home activity feed — the ten most recent topics with solved/unread
+/// state and a wide image. Distinct from [RecentTopics], the offline mirror.
+@riverpod
+Future<List<ForumRecentTopic>> homeRecentTopics(Ref ref) {
+  return ref.watch(forumApiProvider).fetchRecentTopics(limit: 10);
+}
+
+/// A topic's latest-replies peek. Kept alive so a re-expanded card does not
+/// refetch; the home screen invalidates it on pull-to-refresh.
+@riverpod
+Future<ForumLatestReplies> latestReplies(Ref ref, int topicId) {
+  ref.keepAlive();
+  return ref.watch(forumApiProvider).fetchLatestReplies(topicId);
+}
+
+/// Community counters for the home "Who's online" card.
+@riverpod
+Future<ForumCommunityStats> communityStats(Ref ref) {
+  return ref.watch(forumApiProvider).fetchCommunityStats();
+}
+
+/// The activity card currently expanded on the forum home (one at a time).
+@riverpod
+class ExpandedActivityTopic extends _$ExpandedActivityTopic {
+  @override
+  int? build() => null;
+
+  /// Opens [topicId], or closes it when it is already the open one.
+  void toggle(int topicId) => state = state == topicId ? null : topicId;
+
+  void collapse() => state = null;
+}
+
 /// The user's notifications (cursor-paginated, newest first).
 @riverpod
 class NotificationsFeed extends _$NotificationsFeed {

@@ -638,6 +638,251 @@ abstract class _$RecentTopics extends $AsyncNotifier<List<ForumTopicStub>> {
   }
 }
 
+/// The home activity feed — the ten most recent topics with solved/unread
+/// state and a wide image. Distinct from [RecentTopics], the offline mirror.
+
+@ProviderFor(homeRecentTopics)
+final homeRecentTopicsProvider = HomeRecentTopicsProvider._();
+
+/// The home activity feed — the ten most recent topics with solved/unread
+/// state and a wide image. Distinct from [RecentTopics], the offline mirror.
+
+final class HomeRecentTopicsProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<List<ForumRecentTopic>>,
+          List<ForumRecentTopic>,
+          FutureOr<List<ForumRecentTopic>>
+        >
+    with
+        $FutureModifier<List<ForumRecentTopic>>,
+        $FutureProvider<List<ForumRecentTopic>> {
+  /// The home activity feed — the ten most recent topics with solved/unread
+  /// state and a wide image. Distinct from [RecentTopics], the offline mirror.
+  HomeRecentTopicsProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'homeRecentTopicsProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$homeRecentTopicsHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<List<ForumRecentTopic>> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<List<ForumRecentTopic>> create(Ref ref) {
+    return homeRecentTopics(ref);
+  }
+}
+
+String _$homeRecentTopicsHash() => r'eec08d5732529414109defcfe740398a58f84423';
+
+/// A topic's latest-replies peek. Kept alive so a re-expanded card does not
+/// refetch; the home screen invalidates it on pull-to-refresh.
+
+@ProviderFor(latestReplies)
+final latestRepliesProvider = LatestRepliesFamily._();
+
+/// A topic's latest-replies peek. Kept alive so a re-expanded card does not
+/// refetch; the home screen invalidates it on pull-to-refresh.
+
+final class LatestRepliesProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<ForumLatestReplies>,
+          ForumLatestReplies,
+          FutureOr<ForumLatestReplies>
+        >
+    with
+        $FutureModifier<ForumLatestReplies>,
+        $FutureProvider<ForumLatestReplies> {
+  /// A topic's latest-replies peek. Kept alive so a re-expanded card does not
+  /// refetch; the home screen invalidates it on pull-to-refresh.
+  LatestRepliesProvider._({
+    required LatestRepliesFamily super.from,
+    required int super.argument,
+  }) : super(
+         retry: null,
+         name: r'latestRepliesProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$latestRepliesHash();
+
+  @override
+  String toString() {
+    return r'latestRepliesProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<ForumLatestReplies> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<ForumLatestReplies> create(Ref ref) {
+    final argument = this.argument as int;
+    return latestReplies(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is LatestRepliesProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$latestRepliesHash() => r'4faa54b93c3f64a32977171f7344018c71708766';
+
+/// A topic's latest-replies peek. Kept alive so a re-expanded card does not
+/// refetch; the home screen invalidates it on pull-to-refresh.
+
+final class LatestRepliesFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<ForumLatestReplies>, int> {
+  LatestRepliesFamily._()
+    : super(
+        retry: null,
+        name: r'latestRepliesProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// A topic's latest-replies peek. Kept alive so a re-expanded card does not
+  /// refetch; the home screen invalidates it on pull-to-refresh.
+
+  LatestRepliesProvider call(int topicId) =>
+      LatestRepliesProvider._(argument: topicId, from: this);
+
+  @override
+  String toString() => r'latestRepliesProvider';
+}
+
+/// Community counters for the home "Who's online" card.
+
+@ProviderFor(communityStats)
+final communityStatsProvider = CommunityStatsProvider._();
+
+/// Community counters for the home "Who's online" card.
+
+final class CommunityStatsProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<ForumCommunityStats>,
+          ForumCommunityStats,
+          FutureOr<ForumCommunityStats>
+        >
+    with
+        $FutureModifier<ForumCommunityStats>,
+        $FutureProvider<ForumCommunityStats> {
+  /// Community counters for the home "Who's online" card.
+  CommunityStatsProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'communityStatsProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$communityStatsHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<ForumCommunityStats> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<ForumCommunityStats> create(Ref ref) {
+    return communityStats(ref);
+  }
+}
+
+String _$communityStatsHash() => r'04b2e9fa372461e667b8b92190a4a5cded90b57d';
+
+/// The activity card currently expanded on the forum home (one at a time).
+
+@ProviderFor(ExpandedActivityTopic)
+final expandedActivityTopicProvider = ExpandedActivityTopicProvider._();
+
+/// The activity card currently expanded on the forum home (one at a time).
+final class ExpandedActivityTopicProvider
+    extends $NotifierProvider<ExpandedActivityTopic, int?> {
+  /// The activity card currently expanded on the forum home (one at a time).
+  ExpandedActivityTopicProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'expandedActivityTopicProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$expandedActivityTopicHash();
+
+  @$internal
+  @override
+  ExpandedActivityTopic create() => ExpandedActivityTopic();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(int? value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<int?>(value),
+    );
+  }
+}
+
+String _$expandedActivityTopicHash() =>
+    r'018c0b87a148325e87b8eddbc556da9093405f01';
+
+/// The activity card currently expanded on the forum home (one at a time).
+
+abstract class _$ExpandedActivityTopic extends $Notifier<int?> {
+  int? build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<int?, int?>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<int?, int?>,
+              int?,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
 /// The user's notifications (cursor-paginated, newest first).
 
 @ProviderFor(NotificationsFeed)
