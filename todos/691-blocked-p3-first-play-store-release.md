@@ -3,7 +3,7 @@ status: blocked
 priority: p3
 issue_id: "691"
 tags: [android, firebase, signing, mobile, release, owner]
-dependencies: []
+dependencies: ["693"]
 source_review: "todos/archive/387-completed-p3-android-release-signing-and-sign-in.md"
 source_finding: "AC5"
 blocked_on: "The owner's first .aab upload to the Play Console internal testing track, which creates the app signing SHA-1"
