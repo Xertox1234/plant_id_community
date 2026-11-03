@@ -4,6 +4,9 @@ priority: p2
 issue_id: "686"
 tags: [harness, hooks, context]
 dependencies: []
+triage: ready
+triaged: 2026-11-03
+owner_decision: "Option 2 only: skip the discipline preamble only for paths outside the repo; every repo edit keeps the full preamble (2026-11-03)"
 ---
 
 # inject-patterns.sh repeats the 4.4 KB discipline preamble on every edit, even outside the repo

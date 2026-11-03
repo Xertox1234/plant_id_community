@@ -4,6 +4,9 @@ priority: p3
 issue_id: "683"
 tags: [forum, forum-categories, wagtail, admin, owner-check]
 dependencies: ["668"]
+triage: blocked-owner
+triaged: 2026-11-03
+blocked_on: "The owner opens /cms/forum/forums/ as staff, does the drag, reload and keyboard check, and records the date."
 ---
 
 # Owner browser check: forum structure drag-and-drop tree (todo 668)

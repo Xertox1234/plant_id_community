@@ -4,6 +4,9 @@ priority: p3
 issue_id: "653"
 tags: [ai, evals, rag, forum, openrouter, research]
 dependencies: []
+triage: ready
+triaged: 2026-11-03
+owner_decision: "Unblocked: start design. Write the eval design spec now; judge model, spend cap, run location and key storage stay open owner questions in the spec (2026-11-03)"
 ---
 
 # Explore an LLM eval system for the backend's AI features

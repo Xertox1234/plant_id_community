@@ -4,6 +4,9 @@ priority: p3
 issue_id: "689"
 tags: [harness, git, sandbox, worktrees]
 dependencies: []
+triage: ready
+triaged: 2026-11-03
+owner_decision: "(b) Hook only: a warn-only Bash PreToolUse hook on git switch -c / checkout -b from origin/ without --no-track; no CLAUDE.md entry (2026-11-03)"
 ---
 
 # A sandboxed `git switch -c` in a worktree half-applies (cause: `.git/config` is write-protected)

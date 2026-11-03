@@ -4,6 +4,8 @@ priority: p2
 issue_id: "687"
 tags: [harness, pre-commit, worktrees]
 dependencies: []
+triage: ready
+triaged: 2026-11-03
 ---
 
 # mypy-staged and pytest-staged fail in every worktree: no backend/venv

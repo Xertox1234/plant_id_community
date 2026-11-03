@@ -4,6 +4,9 @@ priority: p3
 issue_id: "664"
 tags: [email, templates, testing, owner]
 dependencies: []
+triage: ready
+triaged: 2026-11-03
+owner_decision: "Owner checked Apple Mail: All looked right (light, dark and narrow all rendered correctly on iOS and macOS) (2026-11-03); criterion 0 confirmed by the owner (2026-11-03): All looked right: light, dark and narrow all rendered correctly on iOS and macOS"
 ---
 
 # Check the redesigned emails in Apple Mail

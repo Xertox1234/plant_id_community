@@ -4,6 +4,9 @@ priority: p2
 issue_id: "685"
 tags: [mobile, flutter, android, notifications, fcm]
 dependencies: []
+triage: ready
+triaged: 2026-11-03
+owner_decision: "Bump now, device later: the worker does the firebase_messaging bump and tests now; the Samsung SM-A376B device check moves to a new follow-up todo for the owner (2026-11-03)"
 ---
 
 # Android 13+ never shows the notification-permission prompt

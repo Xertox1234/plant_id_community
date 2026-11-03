@@ -4,6 +4,8 @@ priority: p2
 issue_id: "688"
 tags: [harness, testing, worktrees, wagtail_forum]
 dependencies: []
+triage: ready
+triaged: 2026-11-03
 ---
 
 # Backend tests in a worktree import the MAIN checkout's wagtail_forum
