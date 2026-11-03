@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/forum/providers/forum_providers.dart';
 import '../features/garden/providers/garden_provider.dart';
+import '../features/scan/scan_job_api.dart';
+import '../features/scan/scan_job_tracker.dart';
 import '../shared/root_scaffold_messenger.dart';
 import 'auth_service.dart';
 import 'push_message_router_service.dart';
@@ -198,7 +200,7 @@ final pushForegroundPresenterProvider = Provider<PushForegroundPresenter>((
       rootScaffoldMessengerKey.currentState,
       banner,
     ),
-    refresh: (event, data) => refreshForPush(ref, event),
+    refresh: (event, data) => refreshForPush(ref, event, data),
     isSignedIn: () => ref.read(authServiceProvider).isAuthenticated,
     open: (message) =>
         ref.read(pushMessageRouterServiceProvider).routeTap(message),
@@ -214,9 +216,18 @@ final pushForegroundPresenterProvider = Provider<PushForegroundPresenter>((
   return presenter;
 });
 
-/// Refreshes what a push is about: the garden for a care reminder, the
+/// Refreshes what a push is about: the scan tracker and allowance for a
+/// finished scan job, the garden for a care reminder, the
 /// notification bell and feed for a forum event.
-void refreshForPush(Ref ref, String? event) {
+void refreshForPush(Ref ref, String? event, Map<String, dynamic> data) {
+  if (event == scanJobFinishedEvent) {
+    final jobId = data['job_id'];
+    if (jobId is String && jobId.isNotEmpty) {
+      unawaited(ref.read(scanJobTrackerProvider.notifier).onPush(jobId));
+    }
+    ref.invalidate(scanAllowanceProvider);
+    return;
+  }
   if (event == careTaskDueEvent) {
     ref.invalidate(gardenProvider);
     return;

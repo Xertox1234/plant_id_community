@@ -139,6 +139,15 @@ class PushMessageRouterService {
   void routeTap(RemoteMessage message) => _route(message, isColdStart: false);
 
   void _route(RemoteMessage message, {required bool isColdStart}) {
+    // A finished scan job carries `job_id` and no `topic_id`.
+    if (message.data['event'] == scanJobFinishedEvent) {
+      final jobId = message.data['job_id'];
+      if (jobId is String && jobId.isNotEmpty) {
+        unawaited(_routeScanResult(jobId, isColdStart: isColdStart));
+      }
+      return;
+    }
+
     // A care reminder carries `care_task_uuid`/`plant_uuid`/`count` and no
     // `topic_id`, so it must be recognised before the forum parse below
     // discards it as unroutable.
@@ -166,6 +175,31 @@ class PushMessageRouterService {
       pathParameters: {'id': '$topicId'},
       queryParameters: postId == null ? {} : {'postId': '$postId'},
     );
+  }
+
+  Future<void> _routeScanResult(
+    String jobId, {
+    required bool isColdStart,
+  }) async {
+    // Cold start: the result is auth-only, so wait for the launch session
+    // restore or the router's redirect would send a signed-in user to login.
+    final wait = awaitAuthRestore;
+    if (isColdStart && wait != null) {
+      final epoch = _epoch;
+      try {
+        await wait();
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[PUSH] Waiting for auth restore failed: $e');
+        }
+      }
+      if (epoch != _epoch) return;
+    }
+    final router = routerAccessor();
+    if (isColdStart) {
+      router.go(AppRoutes.home);
+    }
+    router.push(scanResultPath(jobId));
   }
 
   Future<void> _routeCareReminder(
@@ -221,6 +255,10 @@ class PushMessageRouterService {
 /// The `event` of a care-reminder push (`CARE_REMINDER_EVENT` in
 /// `backend/apps/garden_calendar/constants.py`).
 const String careTaskDueEvent = 'care_task_due';
+
+/// The `event` of a finished scan job push (`SCAN_JOB_FINISHED_EVENT` in the
+/// backend scans app); its data also carries `job_id` and `status`.
+const String scanJobFinishedEvent = 'scan_job_finished';
 
 /// The garden target of a care-reminder payload (todo 621): the due list
 /// when it covers several tasks, the task when it names one well-formed

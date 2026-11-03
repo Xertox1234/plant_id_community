@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:plant_community_mobile/features/home/home_page.dart';
+import 'package:plant_community_mobile/features/scan/scan_job_api.dart';
 import 'package:plant_community_mobile/shared/widgets/brand_mark.dart';
 import 'package:plant_community_mobile/shared/widgets/canopy_label.dart';
 import 'package:plant_community_mobile/shared/widgets/feature_card.dart';
@@ -10,7 +11,24 @@ import 'package:plant_community_mobile/shared/widgets/canopy_surfaces.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 
-Widget _wrap() => ProviderScope(
+ScanAllowance _allowance({
+  bool isPremium = false,
+  int remaining = 1,
+  int premiumLimit = 3,
+}) => ScanAllowance(
+  isPremium: isPremium,
+  diagnoseRemaining: remaining,
+  diagnoseLimit: isPremium ? premiumLimit : 1,
+  identifyRemaining: 5,
+  identifyLimit: 5,
+  resetsAt: DateTime.utc(2026, 11, 3),
+  plantIdAvailable: true,
+  slowAfterSeconds: 45,
+  premiumDiagnoseLimit: premiumLimit,
+);
+
+Widget _wrap({ScanAllowance? allowance}) => ProviderScope(
+  overrides: [scanAllowanceProvider.overrideWith((ref) async => allowance)],
   child: MaterialApp(
     theme: AppTheme.build(Brightness.light, AppDensity.cozy),
     home: const HomePage(),
@@ -62,6 +80,52 @@ void main() {
     );
   });
 
+  group('allowance line', () {
+    testWidgets('allowance line shows 1 check left today', (tester) async {
+      await tester.pumpWidget(_wrap(allowance: _allowance()));
+      await tester.pump();
+      expect(find.text('1 check left today'), findsOneWidget);
+    });
+
+    testWidgets('plural when several are left', (tester) async {
+      await tester.pumpWidget(
+        _wrap(allowance: _allowance(isPremium: true, remaining: 2)),
+      );
+      await tester.pump();
+      expect(find.text('2 checks left today'), findsOneWidget);
+    });
+
+    testWidgets('free with none shows go-premium copy', (tester) async {
+      await tester.pumpWidget(
+        _wrap(allowance: _allowance(remaining: 0, premiumLimit: 4)),
+      );
+      await tester.pump();
+      expect(
+        find.text('No checks left today · Go premium for 4'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('premium with none says more checks at midnight', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(allowance: _allowance(isPremium: true, remaining: 0)),
+      );
+      await tester.pump();
+      expect(find.text('More checks at midnight'), findsOneWidget);
+    });
+
+    testWidgets('hidden when allowance is null', (tester) async {
+      await tester.pumpWidget(_wrap());
+      await tester.pump();
+      expect(find.textContaining('left today'), findsNothing);
+      expect(find.textContaining('Go premium'), findsNothing);
+      expect(find.textContaining('midnight'), findsNothing);
+      expect(find.byKey(HomePage.justIdentifyKey), findsOneWidget);
+    });
+  });
+
   group('hero actions open the camera', () {
     Future<List<String>> pumpRouted(WidgetTester tester) async {
       final pushed = <String>[];
@@ -80,6 +144,7 @@ void main() {
       addTearDown(router.dispose);
       await tester.pumpWidget(
         ProviderScope(
+          overrides: [scanAllowanceProvider.overrideWith((ref) async => null)],
           child: MaterialApp.router(
             theme: AppTheme.build(Brightness.light, AppDensity.cozy),
             routerConfig: router,
