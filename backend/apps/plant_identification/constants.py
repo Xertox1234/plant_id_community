@@ -186,3 +186,40 @@ DISEASE_REQUEST_STATUS_CHOICES = [
 # PlantDiseaseDatabase.disease_name (todo 613). The diagnosis service matches
 # an IntegrityError against it to tell a name collision from any other.
 DISEASE_NAME_LOWER_UNIQUE = "plant_disease_name_lower_unique"
+
+
+# ============================================================================
+# Scan 2.0 background scan jobs (Phase B3)
+# ============================================================================
+
+# PlantNet organ for each scan photo role, in the fixed order photos are sent.
+# The "problem" close-up goes to PlantNet only when it is the sole photo, as a
+# leaf (PlantNet has no organ for a symptom close-up).
+SCAN_PLANTNET_ORGANS = {"leaf": "leaf", "whole": "habit", "flower": "flower"}
+SCAN_PROBLEM_ROLE = "problem"
+SCAN_PROBLEM_FALLBACK_ORGAN = "leaf"
+
+# run_scan_job: a scan makes at most two provider round trips (PlantNet then
+# Plant.id identify + health), each bounded by its executor timeout.
+SCAN_JOB_SOFT_TIME_LIMIT = 150
+SCAN_JOB_TIME_LIMIT = 180
+SCAN_JOB_RETRY_COUNTDOWN = 5  # seconds before the one automatic retry
+
+# ScanJob.failure_reason tokens
+SCAN_FAILURE_NO_RESULT = "no_result"  # neither provider named the plant
+SCAN_FAILURE_ERROR = "error"  # unexpected exception in the task
+SCAN_FAILURE_TIMEOUT = "timeout"  # the soft time limit fired
+SCAN_FAILURE_STALE = "stale"  # still active past SCAN_JOB_STALE_MINUTES
+
+# Push for a finished job. The event key is "event" (not "type"); the collapse
+# key is per EVENT TYPE, never per job (docs/rules/celery.md).
+SCAN_JOB_EVENT = "scan_job_finished"
+SCAN_JOB_COLLAPSE_KEY = "scan-job-finished"
+SCAN_PUSH_READY = ("Your plant check is ready", "Tap to see what we found.")
+SCAN_PUSH_FAILED = (
+    "We couldn't check your plant",
+    "Tap to try again. Your check wasn't used.",
+)
+SCAN_PUSH_MAX_RETRIES = 3
+SCAN_PUSH_RETRY_DELAY = 30  # seconds; doubles per retry (30, 60, 120)
+SCAN_SUMMARY_MAX_SUGGESTIONS = 5
