@@ -361,6 +361,19 @@ class FakeForumApi implements ForumApi {
 
   List<ForumExpert> experts = const [];
   int fetchExpertsCalls = 0;
+
+  List<ForumRecentTopic> recentTopics = const [];
+  final List<int> recentTopicsLimits = [];
+  Object? recentTopicsError;
+
+  /// Per-topic latest-replies fixtures; a topic with none gets an empty peek.
+  Map<int, ForumLatestReplies> latestRepliesByTopic = {};
+  final Map<int, int> _latestRepliesCalls = {};
+  Object? latestRepliesError;
+  int latestRepliesCalls(int topicId) => _latestRepliesCalls[topicId] ?? 0;
+
+  ForumCommunityStats communityStats = const ForumCommunityStats();
+  Object? communityStatsError;
   ApiException? failExpertsWith;
 
   /// The server's stored notification settings (todo 620): a successful
@@ -1083,6 +1096,29 @@ class FakeForumApi implements ForumApi {
     final fail = failExpertsWith;
     if (fail != null) throw fail;
     return experts;
+  }
+
+  @override
+  Future<List<ForumRecentTopic>> fetchRecentTopics({int limit = 10}) async {
+    recentTopicsLimits.add(limit);
+    final err = recentTopicsError;
+    if (err != null) throw err;
+    return recentTopics;
+  }
+
+  @override
+  Future<ForumLatestReplies> fetchLatestReplies(int topicId) async {
+    _latestRepliesCalls[topicId] = latestRepliesCalls(topicId) + 1;
+    final err = latestRepliesError;
+    if (err != null) throw err;
+    return latestRepliesByTopic[topicId] ?? const ForumLatestReplies();
+  }
+
+  @override
+  Future<ForumCommunityStats> fetchCommunityStats() async {
+    final err = communityStatsError;
+    if (err != null) throw err;
+    return communityStats;
   }
 }
 

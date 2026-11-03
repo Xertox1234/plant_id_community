@@ -354,6 +354,15 @@ abstract class ForumApi {
   /// (`GET /forum/users/experts/`, public).
   Future<List<ForumExpert>> fetchExperts();
 
+  /// The home activity feed (`GET /forum/topics/recent/?limit=`, public).
+  Future<List<ForumRecentTopic>> fetchRecentTopics({int limit = 10});
+
+  /// A topic's latest-replies peek (`GET /forum/topics/<id>/latest-replies/`).
+  Future<ForumLatestReplies> fetchLatestReplies(int topicId);
+
+  /// Community counters for "Who's online" (`GET /forum/community/stats/`).
+  Future<ForumCommunityStats> fetchCommunityStats();
+
   /// The viewer's digest cadence and per-event push/email matrix
   /// (`GET /forum/me/profile/`, auth required; todo 620). The same fields
   /// web Settings edits.
@@ -951,6 +960,31 @@ class HttpForumApi implements ForumApi {
         .whereType<Map<String, dynamic>>()
         .map(ForumExpert.fromJson)
         .toList(growable: false);
+  }
+
+  @override
+  Future<List<ForumRecentTopic>> fetchRecentTopics({int limit = 10}) async {
+    final resp = await _api.get(
+      '/forum/topics/recent/',
+      queryParameters: {'limit': limit},
+    );
+    final data = resp.data as Map<String, dynamic>;
+    return (data['results'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(ForumRecentTopic.fromJson)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<ForumLatestReplies> fetchLatestReplies(int topicId) async {
+    final resp = await _api.get('/forum/topics/$topicId/latest-replies/');
+    return ForumLatestReplies.fromJson(resp.data as Map<String, dynamic>);
+  }
+
+  @override
+  Future<ForumCommunityStats> fetchCommunityStats() async {
+    final resp = await _api.get('/forum/community/stats/');
+    return ForumCommunityStats.fromJson(resp.data as Map<String, dynamic>);
   }
 
   @override
