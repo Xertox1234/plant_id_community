@@ -235,3 +235,10 @@ eval runs neither write rows nor spend the live budget.
 - FIXED (low, spec line 98): the covered assertion uses the merged passages (what the prompt would see, after `RAG_MAX_PASSAGES` and `RAG_MAX_CONTEXT_CHARS`).
 - NOTED (low, this file line 193): the criterion-1 evidence quotes spec line 56 as it read before the owner-answers follow-up commit, which changed "an open decision (§7)" to "capped per run (§7)". The evidence is left as captured.
 - FIXED (kimi gate WARNINGs on the round-1 commit): the retrieval-only return now comes after the passage merge and carries the merged passages, so the covered assertion has what it reads; todo 694's no-completion test counts calls on the completion client itself, since a patched default could pass vacuously.
+
+### 2026-11-03 - Review round 2: non-blocking findings (PR #1267)
+
+- FIXED (medium, two reports at `todos/694-…md` step 1; regression of the round-1 fix): step 1 still said the view keeps the budget peek; it now matches spec §4 (the peek moves inside `answer_question()` after the guardrail, skipped when `charge=False`).
+- FIXED (medium, spec line 82): with the peek inside the function, an exhausted budget had no status of its own and could surface as the 503 of `unavailable`. `RagOutcome` gains `budget_exhausted`, which the view maps to today's 429 with `Retry-After`, pinned by a test.
+- FIXED (low, two reports at spec lines 78/84): the retrieval-only return now has its own status, `retrieved` (non-empty merged list) or `no_information` (empty); `passages_only` keeps its meaning.
+- FIXED (low, `todos/694-…md:299`): the test runner forces `DEBUG=False`, so todo 694's criterion now says the happy-path command tests use `@override_settings(DEBUG=True)` and one separate test asserts the DEBUG refusal.

@@ -32,7 +32,9 @@ judge-free check run locally against a dev DB with the corpus.
 Follow the spec's §9 steps 1–4:
 
 1. Extract `answer_question()` from `PlantCareAskView.post` (spec §4). The view keeps the flag check, body
-   validation, the budget peek and HTTP mapping; its responses do not change.
+   validation and HTTP mapping; the budget peek moves inside `answer_question()` after
+   `classify_blocked_question`, skipped when `charge=False`, and `budget_exhausted` maps to today's 429 with
+   `Retry-After`. The view's responses do not change.
 2. Add `backend/evals/datasets/rag-cases.json` from spec §8, and a pytest test that validates it (schema,
    `care_topics.py` slugs, the blocked class of every case).
 3. Add `manage.py rag_eval` (spec §5): `--cases`, `--floor`, `--json`; refuse when `BlogChunks` is empty;
@@ -58,7 +60,8 @@ Follow the spec's §9 steps 1–4:
 - [ ] `backend/evals/datasets/rag-cases.json` holds at least 20 cases and a pytest test validates it.
 - [ ] `manage.py rag_eval` runs against a dev DB with the corpus and prints a pass count per class;
       it refuses to run when `BlogChunks` is empty, when `FORUM_VECTOR_SEARCH_ENABLED` is off, and when
-      `DEBUG` is False or a Railway environment is detected (a test covers each refusal); an `unavailable`
+      `DEBUG` is False or a Railway environment is detected (a test covers each refusal; the test runner forces `DEBUG=False`, so the happy-path tests use
+      `@override_settings(DEBUG=True)` and one separate test asserts the DEBUG refusal); an `unavailable`
       retrieval aborts the run; `backend/evals/results/` is in `.gitignore`.
 - [ ] The dev-DB corpus recipe is written down.
 

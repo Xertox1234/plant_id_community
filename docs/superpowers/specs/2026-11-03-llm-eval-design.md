@@ -74,15 +74,18 @@ answer_question(question, *, user=None, generate=generate_ai_text, persist=True,
 ```
 
 `RagOutcome` carries `status` (`referral` / `no_information` / `passages_only` / `answered` /
-`unavailable`), the blocked reason, the passages with their scores, the per-index top scores, and the
+`unavailable` / `budget_exhausted` / `retrieved`), the blocked reason, the passages with their scores, the per-index top scores, and the
 answer and citations. `generate=None` makes it a retrieval-only call: it returns after retrieval, the floor and
 the passage merge (`RAG_MAX_PASSAGES`, `RAG_MAX_CONTEXT_CHARS`), with the merged passages in `RagOutcome`,
-and never calls a completion model. That is how phase 1 calls it.
+and never calls a completion model. That return has status `retrieved` when the merged list is
+non-empty and `no_information` when it is empty; `passages_only` keeps its meaning (the model declined or
+cited nothing). That is how phase 1 calls it.
 `floor=None` means `RAG_SIMILARITY_FLOOR`; phase 1's `--floor` passes a value.
 
 The budget peek moves inside the function, after `classify_blocked_question` and before retrieval, as it
 runs on main today, and is skipped when `charge=False`. So a blocked question still gets its referral when
-the budget is exhausted; a test pins that. The view keeps the flag check, body validation and HTTP mapping,
+the budget is exhausted; a test pins that. An exhausted budget returns `budget_exhausted`, which the view
+maps to today's 429 with `Retry-After`, never to the 503 of `unavailable`; a test pins the 429. The view keeps the flag check, body validation and HTTP mapping,
 and its responses do not change (the existing `apps/forum_host/tests -k "rag or care"` suite must pass
 unchanged). The eval calls it with `persist=False, charge=False`, so a run writes no rows and spends none
 of the live budget. Question embeddings still go through `EMBED_BUDGET` (the single embedding entry
