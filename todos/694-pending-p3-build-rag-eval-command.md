@@ -4,6 +4,8 @@ priority: p3
 issue_id: "694"
 tags: [ai, evals, rag, forum, backend]
 dependencies: []
+triage: ready
+triaged: 2026-11-03
 ---
 
 # Build the RAG eval command (phase 1, judge-free)
