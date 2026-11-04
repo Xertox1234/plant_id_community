@@ -7552,3 +7552,22 @@ incomplete`, and `ingest_execute(worker_ac=…)` is the code backstop for a retr
 **Related.** `flip-acs` quotes the evidence file's last lines, and a full pytest run can end in
 shutdown tracebacks. `land._tail` now puts the last pytest summary line first in the quote when
 it falls outside the tail.
+
+## 2026-11-03 — pytest in a worktree no longer needs the `PYTHONPATH` prefix for wagtail_forum (todo 688)
+
+**What broke.** The venv installs `wagtail_forum` editable from the main checkout. A pytest run in a
+worktree imported the main checkout's copy: on PR #1252, 37 `apps/users` tests failed with
+`ImportError: cannot import name 'CommunityStatsView'` because main's copy was older, and collecting a
+package test raised `ImportPathMismatchError` on `wagtail_forum/tests/conftest.py` even when the two
+copies were byte-identical (the check compares paths, not content). Each agent had to rediscover the
+`PYTHONPATH=<worktree>/backend/packages/wagtail_forum` prefix.
+
+**Fix.** `backend/pytest.ini` now reads `pythonpath = . packages/wagtail_forum`. pytest puts those
+entries on `sys.path`, and `PathFinder` runs before the editable meta-path finder, so the copy beside
+the tests wins in the main checkout, any worktree and CI alike.
+`wagtail_forum/tests/test_import_location.py` fails when the imported package is not the one beside it.
+
+**What it does not cover.** `pytest.ini` is read by pytest only. `manage.py`, `mypy` and `python -c`
+in a worktree still import the main checkout's copy, so the prefix (and `scripts/todos/slot_env.py`,
+which sets it) still has a job there. The entries above from 2026-07-11 and 2026-07-17 stay true for
+those tools.
