@@ -21,12 +21,12 @@ Owner decision 2026-11-03 ("Move to new todo") moved that check here.
 
 1. Open the `backend-tests` job of todo 688's PR (or the first `main` run after it merges).
 2. Compare its pytest summary with main's last run before the merge: the passed count
-   should be that number plus 3, with the same skips and no new failures or errors.
+   should be that number plus the tests in `test_import_location.py`, with the same skips and no new failures or errors.
 3. Record the job URL and both summary lines in the Work Log.
 
 ## Acceptance Criteria
 
-- [ ] Backend CI (`backend-tests`) passes with the same test count.
+- [ ] Backend CI (`backend-tests`) passes with main's pre-merge passed count plus the tests todo 688's `test_import_location.py` adds (count them in the job's collection), the same skips, and no new failures or errors.
 
 ## Work Log
 

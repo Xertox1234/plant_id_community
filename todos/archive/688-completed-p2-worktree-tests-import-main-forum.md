@@ -75,3 +75,8 @@ triaged: 2026-11-03
 ### 2026-11-03 - Completed by the todo sweep (run 2026-11-03-2214)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-03 - Review round 1: non-blocking findings (PR #1266)
+
+- FIXED (low, two reports at `test_import_location.py:15-16`): the guard only told the two copies apart in a worktree; in the main checkout and CI both are the same path, so dropping the `pytest.ini` entry would not turn CI red. Added `test_package_root_is_on_pytest_pythonpath`, which asserts `backend/packages/wagtail_forum` is on `sys.path` (the editable install uses a meta-path finder, not a `sys.path` entry), and a docstring note. Both tests pass in the worktree. Mutation check in the worktree: with `pythonpath = .` the run fails at collection (`ImportPathMismatchError`). That the new test fails in the main checkout without the entry is reasoned from how the editable finder works, not observed.
+- FIXED (low, `todos/695-…md:29`): the criterion said "same test count" while its steps said "plus 3". Both now say main's pre-merge count plus the tests in `test_import_location.py`, with no hard-coded number.
