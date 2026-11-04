@@ -3,6 +3,7 @@
 **Status:** design, 2026-11-03 (todo 653). The build is todo 694.
 **Owner decision (2026-11-03, verbatim):** "Unblocked: start design. Write the eval design spec now; judge
 model, spend cap, run location and key storage stay open owner questions in the spec (2026-11-03)".
+**Owner decision (2026-11-03):** "Accept recommendations" for all four §7 questions.
 
 ## 1. Problem
 
@@ -53,7 +54,7 @@ That framework is TypeScript; this backend is Django. The **design** carries ove
 | Nightly / `workflow_dispatch` GitHub workflow | **Not reused** | The suite needs the real corpus and its embeddings, which CI does not have, and a nightly run costs money with nothing changing |
 | `--candidate` model flag as a separate feature | **Folded into phase 2** | The paired comparison is the candidate run |
 | Multi-suite `SuiteConfig` core | **Not reused** | One suite. Generalise when a second suite exists |
-| About $0.30 a run | **Reference only** | Phase 1 is embeddings only (cents). Phase 2's cost is an open decision (§7) |
+| About $0.30 a run | **Reference only** | Phase 1 is embeddings only (cents). Phase 2's cost is capped per run (§7) |
 
 **Replay-eval contamination check (OCRecipes 2026-08-09 lesson).** A replay eval is invalid when the
 feature under test writes to its own corpus. Checked here: the corpus is the `BlogChunks` and
@@ -132,34 +133,33 @@ The judge call goes through OpenRouter (`https://openrouter.ai/api/v1`, OpenAI-c
 from `EVAL_JUDGE_MODEL`. The command stops before the first call when the projected cost of the run exceeds
 the spend cap (§7), and after any call that pushes the running cost past it.
 
-## 7. Open owner decisions
+## 7. Owner decisions
 
-None of these is decided. Each line is left for the owner's verbatim answer and date. The recommended
-default is the agent's suggestion only.
+All four were decided on 2026-11-03: the owner accepted the recommended defaults.
 
 1. **Where it runs.**
    Options: local dev DB with a corpus snapshot / a CI workflow / on demand only.
    Recommended: local, on demand. CI has no corpus or embeddings, and nothing changes often enough for a
    schedule. Never against production data.
-   Owner answer and date: not yet given.
+   Owner answer and date: "Accept recommendations" (2026-11-03): local, on demand, never against production data.
 2. **Judge model (phase 2).**
    Options: `anthropic/claude-sonnet-4.6` (OCRecipes' pinned judge, different vendor from the
    `gpt-4o-mini` it judges) / a cheaper model / another.
    Recommended: the OCRecipes judge, pinned in the command's settings, so the two projects' scores mean the
    same thing.
-   Owner answer and date: not yet given.
+   Owner answer and date: "Accept recommendations" (2026-11-03): `anthropic/claude-sonnet-4.6`, pinned in the command's settings.
 3. **Spend cap per run (phase 2; phase 1 is embeddings only).**
    Options: a dollar cap per run enforced by the command / no cap.
    Recommended: a small fixed cap per run (OCRecipes runs cost about $0.30), refused before the first call
    when the projection exceeds it.
-   Owner answer and date: not yet given.
+   Owner answer and date: "Accept recommendations" (2026-11-03): a small fixed cap per run, refused before the first call when the projection exceeds it. The dollar figure is not set yet; todo 694 picks it.
 4. **Key storage (`OPENROUTER_API_KEY`).**
    Options: local `backend/.env` only / a GitHub repository secret.
    Note: `kimi-review.yml` already reads a repository secret of that name and self-skips while it is unset,
    so adding the repository secret also turns that workflow on.
    Recommended: local `backend/.env` only, while the suite runs locally. Never committed;
    `.secrets.baseline` is hand-maintained.
-   Owner answer and date: not yet given.
+   Owner answer and date: "Accept recommendations" (2026-11-03): local `backend/.env` only, never committed.
 
 ## 8. Draft cases (24)
 
@@ -210,4 +210,4 @@ Filed as todo 694 (`todos/694-pending-p3-build-rag-eval-command.md`):
 2. Dataset `backend/evals/datasets/rag-cases.json` (§8) and its pytest validation.
 3. `manage.py rag_eval` (§5), with `--floor`, the empty-corpus refusal and the table output.
 4. A documented recipe for loading the corpus into a dev DB.
-5. Phase 2 (§6) only after the owner answers §7 items 2–4.
+5. Phase 2 (§6), under the decisions in §7 (answered 2026-11-03).

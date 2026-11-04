@@ -24,8 +24,8 @@ judge-free check run locally against a dev DB with the corpus.
   (`EMBED_BUDGET`, about 25 of 1000 per run).
 - The spec's §8 lists 24 draft cases. All 24 were checked against `classify_blocked_question` on
   2026-11-03 and match their class.
-- Phase 2 (judged paired comparison) waits on the owner's answers in the spec's §7: judge model, spend
-  cap and key storage. It is not part of this todo.
+- Phase 2 (judged paired comparison) is not part of this todo. The owner settled its judge model, spend
+  cap and key storage on 2026-11-03 (spec §7); only the cap's dollar figure is still to pick.
 
 ## Recommended Action
 
@@ -62,5 +62,5 @@ Follow the spec's §9 steps 1–4:
 
 ### 2026-11-03 - Filed
 
-Filed by the todo sweep (run 2026-11-03-2214) from todo 653's design, as its build. Phase 2 stays with
-the owner's open decisions in the spec's §7.
+Filed by the todo sweep (run 2026-11-03-2214) from todo 653's design, as its build. Phase 2 is out of
+scope here; the owner settled its decisions on 2026-11-03 (spec §7).

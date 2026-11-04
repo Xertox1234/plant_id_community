@@ -218,3 +218,7 @@ eval runs neither write rows nor spend the live budget.
 ### 2026-11-03 - Completed by the todo sweep (run 2026-11-03-2214)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-03 - Spec updated with the owner's answers (PR follow-up commit)
+
+- Spec §7 now records the owner's "Accept recommendations" answer, dated, against each of the four questions, and todo 694's wording says the decisions are made. The cap's dollar figure is not set; todo 694 picks it.
