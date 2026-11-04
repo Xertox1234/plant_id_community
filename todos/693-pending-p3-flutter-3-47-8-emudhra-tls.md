@@ -42,13 +42,39 @@ Firebase iOS SDK 12.19.3.
 ## Acceptance Criteria
 
 - [ ] `flutter --version` and both workflow pins report >= 3.47.8
-- [ ] `flutter analyze` clean and `flutter test` green on the new SDK
-- [ ] `flutter build apk` and `flutter build ios` succeed
-- [ ] Todo 691's first Play upload is built with this SDK
+- [x] `flutter analyze` clean and `flutter test` green on the new SDK
+- [x] `flutter build apk` and `flutter build ios` succeed
+- [ ] Todo 691's first Play upload is built with this SDK → todo 691 (re-pointed 2026-11-04; owner: "Move it to todo 691")
 
 ## Work Log
 
 - 2026-11-03: Filed while fixing the Firestore iOS SDK (Firebase eMudhra notice).
+- 2026-11-04: Upgrade on Flutter 3.47.9 (Dart 3.13.7), newest stable on 2026-10-29.
+  - Owner chose side-by-side: 3.47.9 installed on the external drive for this work;
+    the shared `/opt/homebrew/share/flutter` stays 3.41.9 until this PR merges, because
+    two peer worktrees have uncommitted Flutter work. AC 1 is ticked when it moves
+    (owner 2026-11-04: "we will upgrade the SDK after merge").
+  - CI pins `mobile-ci.yml` and `security-scan.yml`: 3.41.9 -> 3.47.9.
+  - 3.47.9 refuses Gradle < 8.14.0 and AGP < 8.11.1 (`DependencyVersionChecker.kt`):
+    wrapper 8.12 -> 8.14.6, AGP 8.9.1 -> 8.11.2. Kotlin 2.2.21 has no floor. Flutter now
+    WARNS for Gradle < 9.1.0, AGP < 9.0.1, Kotlin < 2.3.20 (new apps get Gradle 9.3.1 /
+    AGP 9.1.0): a major move, deferred to its own change. The Flutter migrator added
+    `android.builtInKotlin=false` / `android.newDsl=false` to `gradle.properties` (it
+    re-applies them per build). minSdk stays 24 (`flutter.minSdkVersion`).
+  - `SizeTransition.axisAlignment` is deprecated on 3.47 but its replacement does not exist
+    on 3.41.9, so both uses keep it under `// ignore: deprecated_member_use`.
+  - `flutter analyze` added the build/android/ios excludes to `analysis_options.yaml` itself.
+  - iOS: 3.47 migrates plugins to Swift Package Manager, which failed on a fresh checkout
+    ("Xcode workspace not found") and, after `pod install`, moved Firebase out of the tracked
+    `Podfile.lock` into a gitignored `Package.resolved`. Turned off in `pubspec.yaml`
+    (`enable-swift-package-manager: false`) to keep this a minimal upgrade; Firebase iOS SDK
+    stays 12.19.3 (#1262's eMudhra fix). Flutter warns the switch goes away later.
+  - `flutter pub get` (not upgrade): only SDK-pinned packages moved in `pubspec.lock`
+    (`meta` 1.17.0 -> 1.19.0 etc.); codegen regenerated with no diff.
+  - Results: `flutter analyze` no issues; `flutter test` 1581 passed, 11 skipped;
+    `flutter build apk` -> app-release.apk 69.7 MB; `flutter build ios --no-codesign` from a
+    fresh state (generated iOS dirs moved aside, no manual `pod install`) -> Runner.app 62.5 MB.
+  - AC 4 re-pointed to todo 691 (owner: "Move it to todo 691").
 
 ## Notes
 

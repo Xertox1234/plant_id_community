@@ -1593,7 +1593,7 @@ SPEC CHECKSUMS:
   FirebaseMessaging: c15f48126adbe8b4d3238a5e1fa24bab3ad3e472
   FirebaseSharedSwift: c91f36aeaa566e12b682caacc40d34c8303c3124
   FirebaseStorage: 357354fbde2ba62983c0fe5d9cf10155046b5404
-  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
   flutter_local_notifications: 643a3eda1ce1c0599413ca31672536d423dee214
   flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23
   flutter_timezone: 7c838e17ffd4645d261e87037e5bebf6d38fe544

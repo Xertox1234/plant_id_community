@@ -441,6 +441,9 @@ class _ExpandingBodyState extends State<_ExpandingBody>
     return ClipRect(
       child: SizeTransition(
         sizeFactor: _size,
+        // `alignment: Alignment.topLeft` is the replacement, but Flutter
+        // 3.41.x has no `alignment` here; migrate once no local SDK is < 3.47.
+        // ignore: deprecated_member_use
         axisAlignment: -1,
         child: FadeTransition(opacity: _fade, child: widget.child),
       ),

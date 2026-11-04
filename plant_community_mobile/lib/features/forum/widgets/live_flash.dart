@@ -95,6 +95,13 @@ class _LiveFlashState extends State<LiveFlash> with TickerProviderStateMixin {
       child: widget.child,
     );
     if (reduceMotion || !widget.slide) return flashed;
-    return SizeTransition(sizeFactor: _size, axisAlignment: -1, child: flashed);
+    return SizeTransition(
+      sizeFactor: _size,
+      // `alignment: Alignment.topLeft` is the replacement, but Flutter
+      // 3.41.x has no `alignment` here; migrate once no local SDK is < 3.47.
+      // ignore: deprecated_member_use
+      axisAlignment: -1,
+      child: flashed,
+    );
   }
 }

@@ -63,10 +63,15 @@ in advance. Re-pointed from todo 387 AC 5 on 2026-11-03.
       (re-pointed from todo 387 AC 5)
 - [ ] The same SHA-1 is on the Android API key's allowlist, and
       `scripts/check_firebase_key_restrictions.py` asserts it and passes
+- [ ] The first Play upload is built with Flutter >= 3.47.8 (eMudhra CA
+      revocation, GHSA-frr6-h895-5pxp; re-pointed from todo 693 AC 4)
 - [ ] A Play-installed build signs in against production, confirmed in the
       server logs, and receives a push
 
 ## Work Log
+
+- 2026-11-04: Added the Flutter >= 3.47.8 criterion, re-pointed from todo 693 AC 4
+  (owner: "Move it to todo 691"). Todo 693 moved CI and the pins to 3.47.9.
 
 ### 2026-11-03 - Filed
 

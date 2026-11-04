@@ -94,7 +94,7 @@ jobs:
           # (`mobile-ci-gate` is a required check on main). Bump this
           # deliberately (with a matching Gradle/AGP review) rather than
           # letting it float again.
-          flutter-version: '3.41.9'
+          flutter-version: '3.47.9'
           cache: true
 
       - name: Install dependencies
