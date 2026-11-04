@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "688"
 tags: [harness, testing, worktrees, wagtail_forum]
@@ -44,11 +44,34 @@ triaged: 2026-11-03
 
 ## Acceptance Criteria
 
-- [ ] In a worktree whose `packages/wagtail_forum` differs from the main checkout, `venv/bin/python -m pytest apps/users -q` passes with no `PYTHONPATH` set.
-- [ ] Backend CI (`backend-tests`) passes with the same test count.
+- [x] In a worktree whose `packages/wagtail_forum` differs from the main checkout, `venv/bin/python -m pytest apps/users -q` passes with no `PYTHONPATH` set.
+- [ ] Backend CI (`backend-tests`) passes with the same test count. → todo 695 (re-pointed 2026-11-03)
 
 ## Work Log
 
 ### 2026-11-03 - Filed
 
 - Hit on PR #1252. The owner asked for todos for repeated agent friction.
+
+### 2026-11-03 - Implemented by the todo sweep (run 2026-11-03-2214)
+
+- `backend/pytest.ini` now reads `pythonpath = . packages/wagtail_forum`. pytest puts these entries on `sys.path`, which `PathFinder` searches before the editable meta-path finder, so a worktree run imports its own `wagtail_forum`. Before the change, collecting a package test from this worktree with no `PYTHONPATH` raised `ImportPathMismatchError` on `wagtail_forum/tests/conftest.py`. With the change it collects cleanly.
+- New guard `backend/packages/wagtail_forum/wagtail_forum/tests/test_import_location.py`: it asserts that the imported package is the copy beside the test. With the old `pythonpath = .` it fails from a worktree (mismatch error) and with the fix it passes.
+- Full suite in this worktree with no `PYTHONPATH`: 6358 passed, 8 skipped (6366). Main checkout collects 6363. The 3 extra are the new test plus the 2 parametrizations `apps/core/tests/test_requests_exception_drift.py` adds for the new file. No test was double-collected or lost.
+- Docs: `docs/rules/testing.md` and spec §7.4 now say pytest needs no prefix. The prefix still applies to `manage.py`, `mypy` and `python -c`, which do not read `pytest.ini`, so `scripts/todos/slot_env.py` keeps setting it. `docs/LEARNINGS.md` gained a 2026-11-03 entry. `mypy_path` is unchanged: no mypy drift was observed.
+
+### 2026-11-03 - Verified by the todo sweep (run 2026-11-03-2214)
+
+- AC 1: `bash -c 'cd backend && diff -rq -x __pycache__ backend/packages/wagtail_forum/wagtail_forum backend/packages/wagtail_forum/wagtail_forum; python3 scripts/todos/slot_env.py --main-root . 4 -- env -u PYTHONPATH backend/venv/bin/python -m pytest apps/users packages/wagtail_forum/wagtail_forum/tests/test_import_location.py packages/wagtail_forum/wagtail_forum/tests/test_posts.py -q --create-db'` — evidence `.sweep-evidence/g4/688-ac0.txt` (not committed), last lines:
+
+  ```text
+    backend/packages/wagtail_forum/wagtail_forum/api/image_management.py:32: RemovedInWagtail90Warning: wagtail.images.permissions.permission_policy is deprecated. Use wagtail.permissions.policy_registry.get_by_type(get_image_model()) instead.
+      from wagtail.images import permissions as image_permissions
+
+  -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  ================== 528 passed, 3 warnings in 97.06s (0:01:37) ==================
+  ```
+
+### 2026-11-03 - Completed by the todo sweep (run 2026-11-03-2214)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
