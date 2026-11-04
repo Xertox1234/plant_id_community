@@ -46,7 +46,7 @@ That framework is TypeScript; this backend is Django. The **design** carries ove
 | Evals are a separate tier: never pre-commit, never in the pytest run, run by hand | **Reused** | Evals are slow, non-deterministic and cost money. A pytest gate on them would be flaky and would spend on every commit |
 | Cases as a JSON dataset, validated by an ordinary unit test | **Reused** | A malformed case is caught for free in CI instead of after a paid run. Here: a pytest test loads the dataset and checks every case against the schema and against `care_topics.py` slugs |
 | Hard assertions where one failure fails the case | **Reused**, as the whole of phase 1 | RAG's guardrails are deterministic product rules (`rag_guardrails.py`): referral, no_information, citations. They are asserted exactly, not scored |
-| LLM-as-judge rubric (1–10 with anchors and a one-line reason) from a stronger, different-vendor model through OpenRouter (`EVAL_JUDGE_MODEL`, OpenRouter id form) | **Reused for phase 2 only** | A judge is the only way to score groundedness of free text, but it costs money and adds variance, and phase 1 does not need it |
+| LLM-as-judge rubric (1–10 with anchors and a one-line reason) from a stronger, different-vendor model called directly through the Anthropic API (`EVAL_JUDGE_MODEL`, Anthropic model id; §7 decision 2) | **Reused for phase 2 only** | A judge is the only way to score groundedness of free text, but it costs money and adds variance, and phase 1 does not need it |
 | Field-forwarding rule: every dataset field is passed to the code under test or marked metadata | **Reused** | A case field the command never forwards tests nothing and fails silently |
 | The judge reads the feature's real prompt inputs, not a hand-copied type | **Reused** | OCRecipes found a duplicated context type hid new prompt fields from the judge. Phase 2 feeds the judge the exact passages `_build_prompt` used |
 | Assert the property, not a label (e.g. assert the expected source slug, not "some citation") | **Reused** | A `passages_only` result also carries sources; only the expected slug proves the right article was found |
@@ -145,13 +145,14 @@ the per-dimension mean of old and new, the paired difference per case, and every
 lower by 2 or more. One run is one sample; read a difference only across 3 runs (OCRecipes measured about
 ±0.5 run-to-run variance).
 
-The judge call goes through OpenRouter (`https://openrouter.ai/api/v1`, OpenAI-compatible), with the model
-from `EVAL_JUDGE_MODEL`. The command stops before the first call when the projected cost of the run exceeds
+The judge call goes directly to the Anthropic API through the official `anthropic` Python SDK (revised
+2026-11-04; the 2026-11-03 draft routed it through OpenRouter), with the model from `EVAL_JUDGE_MODEL`.
+The SDK is a new backend dependency, needed only by the eval command. The command stops before the first call when the projected cost of the run exceeds
 the spend cap (§7), and after any call that pushes the running cost past it.
 
 ## 7. Owner decisions
 
-All four were decided on 2026-11-03: the owner accepted the recommended defaults. On 2026-11-04 the owner revised the judge model (2) and set the spend cap's dollar figure (3).
+All four were decided on 2026-11-03: the owner accepted the recommended defaults. On 2026-11-04 the owner revised the judge model and moved the judge call to the Anthropic API (2), set the spend cap's dollar figure (3), and moved the key to `ANTHROPIC_API_KEY` (4).
 
 1. **Where it runs.**
    Options: local dev DB with a corpus snapshot / a CI workflow / on demand only.
@@ -164,20 +165,21 @@ All four were decided on 2026-11-03: the owner accepted the recommended defaults
    Recommended: the OCRecipes judge, pinned in the command's settings, so the two projects' scores mean the
    same thing.
    Owner answer and date: "Accept recommendations" (2026-11-03): `anthropic/claude-sonnet-4.6`, pinned in the command's settings.
-   Revised 2026-11-04, owner: "Use 5.5". The judge is Claude Sonnet 5.5, pinned in the command's settings. It is newer than Sonnet 4.6 and cheaper ($2 / $10 per million input / output tokens, against $3 / $15). The trade-off: scores no longer use the same judge as OCRecipes, so the two projects' numbers are not directly comparable. Check the exact OpenRouter id (expected `anthropic/claude-sonnet-5.5`) against OpenRouter's model list when phase 2 is built.
+   Revised 2026-11-04, owner: "Use 5.5". The judge is Claude Sonnet 5.5, pinned in the command's settings. It is newer than Sonnet 4.6 and cheaper ($2 / $10 per million input / output tokens, against $3 / $15). The trade-off: scores no longer use the same judge as OCRecipes, so the two projects' numbers are not directly comparable. Revised again 2026-11-04, owner: use the owner's Anthropic API credits rather than OpenRouter. The judge is called directly through the Anthropic API with model id `claude-sonnet-5-5`, so there is no OpenRouter id to check and no OpenRouter fee.
 3. **Spend cap per run (phase 2; phase 1 is embeddings only).**
    Options: a dollar cap per run enforced by the command / no cap.
    Recommended: a small fixed cap per run (OCRecipes runs cost about $0.30), refused before the first call
    when the projection exceeds it.
    Owner answer and date: "Accept recommendations" (2026-11-03): a small fixed cap per run, refused before the first call when the projection exceeds it. The dollar figure is not set yet: the owner sets it before phase 2 is built (phase 2 is outside todo 694).
    Dollar figure set 2026-11-04, owner: "record 3 dollar per run". The cap is **$3.00 per run**. The estimate for one 24-case judged run is under $0.40 (about 3,000 input and 400 output tokens per case at Sonnet 5.5 prices), so the cap only stops a runaway loop or a much larger dataset. Measure the real per-case cost on the first run.
-4. **Key storage (`OPENROUTER_API_KEY`).**
+4. **Key storage (`ANTHROPIC_API_KEY`; `OPENROUTER_API_KEY` in the 2026-11-03 draft).**
    Options: local `backend/.env` only / a GitHub repository secret.
    Note: `kimi-review.yml` already reads a repository secret of that name and self-skips while it is unset,
    so adding the repository secret also turns that workflow on.
    Recommended: local `backend/.env` only, while the suite runs locally. Never committed;
    `.secrets.baseline` is hand-maintained.
    Owner answer and date: "Accept recommendations" (2026-11-03): local `backend/.env` only, never committed.
+   Revised 2026-11-04 with the move to the Anthropic API: the key is `ANTHROPIC_API_KEY`, kept the same way (local `backend/.env` only, never committed, never a repository secret). `OPENROUTER_API_KEY` is no longer needed for the eval. The note about `kimi-review.yml` above no longer applies to the eval key.
 
 ## 8. Draft cases (24)
 
