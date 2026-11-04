@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "689"
 tags: [harness, git, sandbox, worktrees]
@@ -60,7 +60,7 @@ The result looks like a large staged change on the wrong branch. Merges and reba
 ## Acceptance Criteria
 
 - [x] The cause of the half-applied switch is recorded with the exact error text. 2026-11-03: "could not lock config file …/.git/config: Operation not permitted", and the `--track` / `--no-track` probe in Findings.
-- [ ] A rule or trigger tells agents the safe way to branch and to sync a worktree, and includes the `symbolic-ref` repair.
+- [x] A rule or trigger tells agents the safe way to branch and to sync a worktree, and includes the `symbolic-ref` repair.
 
 ## Work Log
 
@@ -71,3 +71,40 @@ The result looks like a large staged change on the wrong branch. Merges and reba
 ### 2026-11-03 - Root cause found
 
 - Hit again while branching to close todo 690, this time with full stderr: `.git/config` lock refused while setting upstream tracking. A `--track` / `--no-track` probe confirmed it. The probe branches were deleted afterwards. Remaining work: the trigger rule (steps 2–4).
+
+### 2026-11-03 - Implemented by the todo sweep (run 2026-11-03-2214)
+
+- Owner chose (b), a hook and no CLAUDE.md entry: new `.claude/hooks/warn-git-track.sh`, registered as a Bash PreToolUse hook in `.claude/settings.json`. It warns (additionalContext + systemMessage, no permission decision, always exit 0) on `git switch -c/-C/--create/--force-create` or `git checkout -b/-B` from `origin/`, `remotes/` or `refs/remotes/`, or with `--track`, unless that same simple command has `--no-track`.
+- The warning names the safe paths: `--no-track`, `git push origin HEAD` (no `-u`), `sync_with_base_branch` for syncing a worktree, and the non-destructive `git symbolic-ref HEAD refs/heads/<new>` repair.
+- `.claude/hooks/test-warn-git-track.sh` (25 cases) covers the warn and quiet forms, compound commands and fail-open input; it is added to `.github/workflows/harness-ci.yml`.
+- Not done: step 4 (re-checking the 2026-10-09 `.claude/agents` merge failure). The warning points merges at `sync_with_base_branch` regardless.
+
+### 2026-11-03 - Verified by the todo sweep (run 2026-11-03-2214)
+
+- AC 2: `bash .claude/hooks/test-warn-git-track.sh` — evidence `.sweep-evidence/g2/689-ac1.txt` (not committed), last lines:
+
+  ```text
+  PASS: --no-track elsewhere does not excuse a tracking switch
+  PASS: exits 0 on a warning
+  PASS: warning names branch, push, sync and symbolic-ref repair
+
+  Results: 25 passed, 0 failed
+  ```
+
+### 2026-11-03 - Completed by the todo sweep (run 2026-11-03-2214)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-03 - Review round 1: non-blocking findings (PR #1263)
+
+- FIXED (medium, line 49): newline-separated commands landed in one segment, so `git fetch origin` + newline + `git switch -c x origin/main` stayed quiet, and a `--no-track` on line 1 silenced a tracking switch on line 2. Unquoted newlines are now separators (a backslash-newline continuation stays one command). Three new tests; mutation check: with `\n` removed from the separators the two newline tests fail (26 passed, 2 failed); restored, 28 passed.
+- FIXED (low, test line 51): the misnamed test is now "--no-track switch followed by an unrelated segment stays quiet".
+- DECLINED (low, line 42): a trailing `# --no-track` comment, or `-- origin/<path>` after a bare `--`, can mis-read. The hook is warn-only, so the worst case is one missing or one extra warning; not worth extra parsing.
+- DECLINED (low, line 79): `git switch <name>` DWIM, `checkout --track` without `-b` and `worktree add -b … origin/x` are not detected. The owner scoped the rule to `switch -c`/`checkout -b` (decision 2026-11-03); the sweep runbook already uses `worktree add --no-track`.
+- DECLINED (low, settings.json line 59): adding a `warn-git-track.sh` bullet to CLAUDE.md. The owner chose "hook only … no CLAUDE.md entry" (2026-11-03).
+
+### 2026-11-03 - Review round 2: non-blocking findings (PR #1263)
+
+- DECLINED (low, `warn-git-track.sh:73`): `echo git switch -c …`, `git switch -c origin/foo main` and `git checkout -b x -- origin/main` warn. These are false positives only, and the hook only warns.
+- DECLINED (low, `warn-git-track.sh:66`): `git worktree add -b … origin/main` and remotes other than `origin` stay quiet. The owner scoped the rule to `switch -c`/`checkout -b` (2026-11-03), and the sweep runbook already uses `worktree add --no-track`.
+- DECLINED (low, `test-warn-git-track.sh:40`): no test pins `git -c k=v`, `-t` or `--track=direct`. Those parser branches only add warnings, so a regression there means a missing warning, never a block.
