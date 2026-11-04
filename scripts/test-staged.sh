@@ -11,6 +11,12 @@
 # Needs bash >= 4 (mapfile): pre-commit resolves the shebang on PATH, where
 # Homebrew bash lives; macOS /bin/bash is 3.2. Same precedent as bin/test-start.sh.
 #
+# Backend: the interpreter is this checkout's backend/venv, or, in a git
+# worktree (no venv: it is gitignored), the main checkout's backend/venv
+# (todo 687; scripts/mypy_staged.py resolves it the same way). Either way this
+# checkout's backend/packages/wagtail_forum goes first on PYTHONPATH, because
+# the main venv's editable install points at the MAIN checkout's copy.
+#
 # Fail-closed: a missing toolchain fails the commit with a message rather than
 # passing by emptiness. Bypass one commit with SKIP=<hook-id> (for example when
 # another pytest run already holds the test database).
@@ -18,6 +24,17 @@ set -uo pipefail
 platform="${1:-}"; shift || true
 root="$(cd "$(dirname "$0")/.." && pwd)"
 [ "$#" -gt 0 ] || exit 0
+
+backend_python() { # prints the venv python to use; non-zero when there is none
+  local own="$root/backend/venv/bin/python" common
+  if [ -x "$own" ]; then printf '%s\n' "$own"; return 0; fi
+  common="$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+  [ -n "$common" ] || return 1
+  local shared
+  shared="$(dirname "$common")/backend/venv/bin/python"
+  [ -x "$shared" ] || return 1
+  printf '%s\n' "$shared"
+}
 
 strip_prefix() { # $1=prefix, rest=paths → prints each path without the prefix
   local prefix="$1"; shift
@@ -27,12 +44,13 @@ strip_prefix() { # $1=prefix, rest=paths → prints each path without the prefix
 case "$platform" in
   backend)
     cd "$root/backend" || exit 2
-    if [ ! -x venv/bin/python ]; then
-      echo "test-staged: backend/venv/bin/python is missing; create the venv or commit with SKIP=pytest-staged" >&2
+    if ! python="$(backend_python)"; then
+      echo "test-staged: backend/venv/bin/python is missing here and in the main checkout; create the venv or commit with SKIP=pytest-staged" >&2
       exit 1
     fi
+    export PYTHONPATH="$root/backend/packages/wagtail_forum${PYTHONPATH:+:$PYTHONPATH}"
     mapfile -t files < <(strip_prefix "backend/" "$@")
-    venv/bin/python -m pytest -q -p no:cacheprovider "${files[@]}"; rc=$?
+    "$python" -m pytest -q -p no:cacheprovider "${files[@]}"; rc=$?
     # 5 = nothing collected: a staged conftest.py, tests/__init__.py or one of
     # the two files pytest.ini --ignore's. Not a failure.
     [ "$rc" -eq 5 ] && rc=0

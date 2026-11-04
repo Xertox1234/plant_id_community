@@ -16,12 +16,17 @@ Tests are excluded from the gate (owner decision 2026-10-19): the
 named on the command line too, so a staged test file reports nothing here;
 the hook's `exclude` in .pre-commit-config.yaml just skips the run for them.
 
-Fail-closed: a missing backend/venv fails the commit with a message rather
+The interpreter is this checkout's backend/venv, or, in a git worktree (which
+has no venv: it is gitignored), the main checkout's backend/venv (todo 687).
+scripts/test-staged.sh resolves it the same way.
+
+Fail-closed: no venv in either place fails the commit with a message rather
 than passing by emptiness. Bypass one commit with SKIP=mypy-staged.
 """
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import subprocess
@@ -30,8 +35,40 @@ import tomllib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BACKEND = ROOT / "backend"
-PYTHON = BACKEND / "venv" / "bin" / "python"
+VENV_PYTHON = pathlib.Path("backend") / "venv" / "bin" / "python"
 ERROR_LINE = re.compile(r"^(?P<path>[^:\n]+\.py):\d+:(?:\d+:)? error: ")
+
+
+def main_checkout() -> pathlib.Path | None:
+    """The main worktree of this repo: the parent of `git rev-parse --git-common-dir`."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    return pathlib.Path(proc.stdout.strip()).parent
+
+
+def resolve_backend_python() -> pathlib.Path | None:
+    """This checkout's backend/venv python, else the main checkout's, else None.
+
+    Never resolve() the result: a venv's bin/python is a symlink, and the venv
+    is found from the path it is invoked by.
+    """
+    own = ROOT / VENV_PYTHON
+    if own.is_file():
+        return own
+    main = main_checkout()
+    if main is not None:
+        shared = main / VENV_PYTHON
+        if shared.is_file():
+            return shared
+    return None
 
 
 def gated_prefixes() -> list[str]:
@@ -51,10 +88,11 @@ def main(argv: list[str]) -> int:
     staged = [a[len("backend/") :] for a in argv if a.startswith("backend/") and a.endswith(".py")]
     if not staged:
         return 0
-    if not PYTHON.is_file():
+    python = resolve_backend_python()
+    if python is None:
         print(
-            "mypy-staged: backend/venv/bin/python is missing; create the venv "
-            "(see backend/CLAUDE.md) or commit with SKIP=mypy-staged",
+            "mypy-staged: backend/venv/bin/python is missing here and in the main checkout; "
+            "create the venv (see backend/CLAUDE.md) or commit with SKIP=mypy-staged",
             file=sys.stderr,
         )
         return 1
@@ -63,11 +101,18 @@ def main(argv: list[str]) -> int:
         print("mypy-staged: [tool.mypy] files is empty in backend/pyproject.toml; nothing is gated", file=sys.stderr)
         return 1
 
+    # As in test-staged.sh: this checkout's forum package goes first, so a
+    # worktree using the main checkout's venv is not typed against main's
+    # editable wagtail_forum install.
+    env = dict(os.environ)
+    forum = str(BACKEND / "packages" / "wagtail_forum")
+    env["PYTHONPATH"] = forum + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     proc = subprocess.run(
-        [str(PYTHON), "-m", "mypy", "--no-error-summary", "--no-pretty", *staged],
+        [str(python), "-m", "mypy", "--no-error-summary", "--no-pretty", *staged],
         cwd=BACKEND,
         capture_output=True,
         text=True,
+        env=env,
     )
     if proc.returncode not in (0, 1):
         # 2 = mypy itself failed (bad config, crash): never pass by emptiness.
