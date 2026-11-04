@@ -353,6 +353,26 @@ def test_one_index_searching_is_enough_for_a_list():
 
 
 @pytest.mark.django_db
+def test_floor_argument_and_top_scores_out_parameter():
+    """``floor=`` overrides the constant; ``top_scores`` gets the raw best
+    score per index that searched (``None`` when it found nothing) and no
+    key for an index that could not search (todo 694)."""
+    from .test_similar import _topic
+
+    topic = _topic("Tomato blight", "tomato blight", suffix="tsc")
+    docs = [_topic_doc(topic, 0.5)]
+    scores: dict = {}
+    with patch(CORE, side_effect=_core_returning(topic_docs=docs)):
+        assert _retrieve(floor=0.6, top_scores=scores) == []
+        assert scores == {"SimilarTopics": 0.5}
+        assert [p.pk for p in _retrieve(floor=0.4)] == [topic.pk]
+    scores = {}
+    with patch(CORE, side_effect=_core_returning(topic_docs=docs, blog_docs=[])):
+        _retrieve(top_scores=scores)
+    assert scores == {"SimilarTopics": 0.5, "BlogChunks": None}
+
+
+@pytest.mark.django_db
 def test_unpublished_topic_is_dropped_by_the_refetch():
     """The index may still hold a topic that was unpublished/moderated away
     after indexing; `live=True` in the refetch is what keeps it out (pinned on
