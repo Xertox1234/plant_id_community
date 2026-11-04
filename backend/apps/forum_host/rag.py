@@ -129,8 +129,9 @@ class RagOutcome:
     ``passages`` are the merged passages the prompt sees (or would see), in
     citation order, each with its ``score`` and (blog) ``slug``.
     ``top_scores`` is the best raw score per index before the floor, keyed by
-    index class name; empty when retrieval never ran (a referral, an
-    exhausted budget).
+    index class name: ``None`` when an index searched and found nothing, no
+    key when it could not search; empty when retrieval never ran (a referral,
+    an exhausted budget).
     """
 
     status: str

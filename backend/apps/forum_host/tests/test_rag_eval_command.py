@@ -185,6 +185,7 @@ def test_floor_flag_is_passed_to_retrieval_and_reported(tmp_path):
 
     def fake(question, *, user=None, floor=None, top_scores=None):
         seen.append(floor)
+        top_scores["BlogChunks"] = None
         return []
 
     with patch(RETRIEVE, side_effect=fake):
@@ -345,3 +346,55 @@ def test_eval_results_directory_is_gitignored():
         check=False,
     )
     assert proc.returncode == 0, "backend/evals/results/ must be in .gitignore"
+
+
+@override_settings(**DEV)
+@pytest.mark.django_db
+def test_blog_chunks_not_searching_aborts_the_run(tmp_path):
+    """SimilarTopics alone searched: the off-corpus case must not read as a
+    pass against a blog corpus that was never checked (review round 1)."""
+    _seed_blog_chunks()
+    retrieval = dict(SMALL_RETRIEVAL)
+    retrieval["When do I aerate a lawn?"] = ([], {"SimilarTopics": 0.38})
+    with patch(RETRIEVE, side_effect=_fake_retrieval(retrieval)), pytest.raises(
+        CommandError, match="BlogChunks could not search for case off"
+    ):
+        _run("--cases", str(_cases_file(tmp_path, SMALL_CASES)))
+
+
+@override_settings(**DEV)
+@pytest.mark.django_db
+def test_a_topic_passage_gives_a_non_covered_case_no_expected_rank():
+    topic = Passage(
+        n=1,
+        kind="topic",
+        pk=7,
+        score=0.66,
+        title="Air plants",
+        date="2026-05-01",
+        text="Soak them weekly.",
+        snippet="Soak",
+    )
+    case = {"id": "adj", "class": "adjacent", "question": "How do I water air plants?"}
+    fake = _fake_retrieval({case["question"]: ([topic], {"BlogChunks": None})})
+    with patch(RETRIEVE, side_effect=fake):
+        row = rag_eval.evaluate_case(case, 0.45)
+    assert row["expected_rank"] is None
+    assert row["expected_score"] is None
+
+
+@pytest.mark.parametrize("slug", [["pothos-care-guide"], {"a": 1}, 3])
+def test_a_non_string_expected_slug_is_a_value_error(slug):
+    data = {
+        "cases": [
+            {"id": "c", "class": "covered", "question": "q", "expected_slug": slug}
+        ]
+    }
+    with pytest.raises(ValueError, match="care_topics"):
+        rag_eval.validate_cases(data)
+
+
+def test_a_question_with_surrounding_whitespace_is_refused():
+    data = {"cases": [{"id": "n", "class": "not-blocked", "question": " water? "}]}
+    with pytest.raises(ValueError, match="whitespace"):
+        rag_eval.validate_cases(data)

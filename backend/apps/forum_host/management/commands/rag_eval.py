@@ -104,6 +104,9 @@ def validate_cases(data: Any) -> list[dict]:
         for key in ("id", "question"):
             if not isinstance(case[key], str) or not case[key].strip():
                 raise ValueError(f"case {label}: '{key}' must be a non-empty string")
+        # The ask view strips the question before answer_question sees it.
+        if case["question"] != case["question"].strip():
+            raise ValueError(f"case {label}: question has surrounding whitespace")
         if len(case["question"]) > constants.RAG_QUESTION_MAX_CHARS:
             raise ValueError(f"case {label}: question is over the ask view's cap")
         if case["id"] in seen:
@@ -112,7 +115,8 @@ def validate_cases(data: Any) -> list[dict]:
         if case["class"] not in CASE_CLASSES:
             raise ValueError(f"case {label}: unknown class {case['class']!r}")
         if case["class"] == COVERED:
-            if case.get("expected_slug") not in slugs:
+            expected = case.get("expected_slug")
+            if not isinstance(expected, str) or expected not in slugs:
                 raise ValueError(
                     f"case {label}: expected_slug must be a care_topics.py slug"
                 )
@@ -149,10 +153,23 @@ def evaluate_case(case: dict, floor: float) -> dict:
             "exhausted or provider down). Aborting: this is an environment "
             "error, not a case result."
         )
+    if outcome.status != STATUS_REFERRAL and "BlogChunks" not in outcome.top_scores:
+        # SimilarTopics alone searched: an off-corpus case would read as a
+        # pass and a covered one as a miss, against a corpus never checked.
+        raise CommandError(
+            f"BlogChunks could not search for case {case['id']} (embedding "
+            "budget exhausted or provider down). Aborting: this is an "
+            "environment error, not a case result."
+        )
     cls = case["class"]
     slugs = [p.slug if p.kind == "blog" else None for p in outcome.passages]
     expected = case.get("expected_slug")
-    rank = slugs.index(expected) + 1 if expected in slugs else None
+    # Topic passages carry slug None, so match only a real expected slug.
+    rank = (
+        slugs.index(expected) + 1
+        if expected is not None and expected in slugs
+        else None
+    )
     expected_score = outcome.passages[rank - 1].score if rank else None
     referral = outcome.status == STATUS_REFERRAL
 

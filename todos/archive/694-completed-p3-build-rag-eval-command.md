@@ -142,3 +142,24 @@ scope here; the owner settled its decisions on 2026-11-03 (spec §7).
 ### 2026-11-04 - Completed by the todo sweep (run 2026-11-04-0327)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-04 - Review round 1 (PR #1270): no blocking findings; non-blocking ones fixed or declined
+
+Fixed by hand, each with a test that was mutation-checked (fails with the fix reverted):
+
+- **Medium: partial retrieval read as a result.** When SimilarTopics searched but BlogChunks could not, `answer_question` did not report `unavailable`, so an off-corpus case read as a pass and a covered case as a miss. Fixed:
+  - `retrieve_grounding_passages` now writes a `top_scores` key only for an index that searched (`None` = searched, found nothing).
+  - `rag_eval` aborts any non-referral case that has no `BlogChunks` key.
+  - Tests: `test_blog_chunks_not_searching_aborts_the_run` and `test_floor_argument_and_top_scores_out_parameter`. The second also covers the low finding that the new `floor=`/`top_scores` had no direct retrieval test.
+- **Medium/low (three reviewers): bogus expected rank.** Topic passages carry slug `None`, so `None in slugs` gave non-covered rows a bogus `expected_rank` and `expected_score`. Fixed by matching only a real expected slug. Test: `test_a_topic_passage_gives_a_non_covered_case_no_expected_rank`.
+- **Low (two reviewers): unhashable `expected_slug`.** A list or object raised `TypeError`, a traceback instead of a `CommandError`. Fixed with an `isinstance(str)` check first. Test: `test_a_non_string_expected_slug_is_a_value_error`.
+- **Low: question whitespace.** A question with surrounding whitespace broke `answer_question`'s stripped-input precondition. It is now refused by `validate_cases`. Test: `test_a_question_with_surrounding_whitespace_is_refused`.
+
+Declined:
+
+- **Low: `--json ../..` can write outside `evals/results/`.** Declined: this is a local dev command run by the person who types the path. A path they choose is not an attack surface, and the default lands in the gitignored directory.
+- **Low: the command imports the private `vector_indexes._index_name`.** Declined: it is the same app (`forum_host`), and the eval's own tests import it too. Making it public is a rename with no behaviour change, outside this todo.
+
+Verification: `pytest apps/forum_host/tests -k "rag or care"` gave 197 passed (190 before plus 7 new).
+
+Land-time hand fix: `test_eval_results_directory_is_gitignored` failed under the pytest-staged pre-commit hook. Git exports `GIT_DIR` to hooks, so a `git check-ignore` run from `backend/` treats `backend/` as the repo top and misses the root `.gitignore` (reproduced). The test now removes `GIT_*` from the subprocess environment. Mutation-checked.
