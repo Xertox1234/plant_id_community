@@ -59,7 +59,7 @@ A git worktree has no `backend/venv`, because it is gitignored and lives only in
 ### 2026-11-03 - Implemented by the todo sweep (run 2026-11-03-2214)
 
 - `scripts/mypy_staged.py` (`resolve_backend_python()`) and `scripts/test-staged.sh` (`backend_python()`) now use this checkout's `backend/venv/bin/python`, else the main checkout's, found as the parent of `git rev-parse --path-format=absolute --git-common-dir`; with neither, both still fail closed and name the `SKIP=` bypass.
-- `pytest-staged` prepends the worktree's own `backend/packages/wagtail_forum` to `PYTHONPATH`, so the main venv's editable install does not shadow the worktree's package. Harmless once todo 688 lands. `mypy-staged` is left as it is: package drift there is todo 688's scope.
+- `pytest-staged` prepends the worktree's own `backend/packages/wagtail_forum` to `PYTHONPATH`, so the main venv's editable install does not shadow the worktree's package. Harmless once todo 688 lands. `mypy-staged` was first left as it is (package drift there is todo 688's scope); review round 1 gave it the same prefix.
 - New `scripts/test_staged_hooks_venv.py` (6 cases: worktree fallback, fallback under a hook's `GIT_DIR`, own venv wins, main checkout, no venv anywhere, no git repo), wired into `.github/workflows/harness-ci.yml`. With the old scripts restored, all 6 fail.
 - `docs/PRE_COMMIT_SETUP.md` documents the lookup. No repo doc taught the venv symlink step; it lived only in agent memory notes.
 
@@ -96,3 +96,11 @@ A git worktree has no `backend/venv`, because it is gitignored and lives only in
 - FIXED (low, two reports at `scripts/mypy_staged.py:104`): mypy-staged ran the main checkout's venv without this checkout's `backend/packages/wagtail_forum` first on `PYTHONPATH`, so worktree forum edits could be typed against main's editable install. It now passes that prefix to the mypy subprocess, as `test-staged.sh` does.
 - FIXED (low, `scripts/test_staged_hooks_venv.py:143`): the tests now assert the forum package heads `PYTHONPATH` for both hooks, in the main-venv fallback case and the own-venv case. Mutation check: with `env=env` dropped from the mypy call, 2 tests fail; restored, 6 pass.
 - DECLINED (low, `scripts/test-staged.sh:31`): `rev-parse --path-format=absolute` needs git 2.31 or newer. Every machine and CI runner here has a newer git, and on an older one the hook still fails closed with a `SKIP=` hint, so the worst case is a misleading message, not a bypass.
+
+### 2026-11-03 - Review round 2: non-blocking findings (PR #1264)
+
+- FIXED (low, `docs/PRE_COMMIT_SETUP.md:442`): the doc said only `pytest-staged` puts the worktree's `wagtail_forum` first on `PYTHONPATH`; since round 1 both hooks do, and it now says so.
+- FIXED (low, this file): the Implemented note "mypy-staged is left as it is" was superseded by the round-1 fix above, which gives mypy-staged the same `PYTHONPATH` prefix.
+- DECLINED (low, `scripts/mypy_staged.py:54`): the parent of `--git-common-dir` is assumed to be the main checkout. This repo uses neither a bare repo nor `--separate-git-dir`, and the reviewer notes the same user and trust domain.
+- DECLINED (low, `scripts/mypy_staged.py:64`): `is_file()` vs `[ -x ]` differ only for a non-executable venv python, which a real venv never has; mypy-staged then fails loudly rather than passing.
+- DECLINED (low, `scripts/test_staged_hooks_venv.py:150`): keeping a pre-existing `PYTHONPATH` after the prefix is a one-line append in each hook; not worth another test case.
