@@ -75,8 +75,9 @@ answer_question(question, *, user=None, generate=generate_ai_text, persist=True,
 
 `RagOutcome` carries `status` (`referral` / `no_information` / `passages_only` / `answered` /
 `unavailable`), the blocked reason, the passages with their scores, the per-index top scores, and the
-answer and citations. `generate=None` makes it a retrieval-only call: it returns right after retrieval and
-the floor, with the passages, and never calls a completion model. That is how phase 1 calls it.
+answer and citations. `generate=None` makes it a retrieval-only call: it returns after retrieval, the floor and
+the passage merge (`RAG_MAX_PASSAGES`, `RAG_MAX_CONTEXT_CHARS`), with the merged passages in `RagOutcome`,
+and never calls a completion model. That is how phase 1 calls it.
 `floor=None` means `RAG_SIMILARITY_FLOOR`; phase 1's `--floor` passes a value.
 
 The budget peek moves inside the function, after `classify_blocked_question` and before retrieval, as it

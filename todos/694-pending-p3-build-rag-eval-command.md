@@ -53,8 +53,8 @@ Follow the spec's §9 steps 1–4:
 - [ ] `answer_question()` is extracted; the existing `apps/forum_host/tests -k "rag or care"` tests pass
       unchanged, and a new test shows that with `persist=False, charge=False` it writes no `RagAnswer` row
       and does not charge `RAG_BUDGET_LIMIT`.
-- [ ] With `generate=None`, `answer_question()` returns after retrieval and never calls `generate_ai_text`
-      (a test asserts it), and with the RAG budget exhausted a blocked question still returns its referral.
+- [ ] With `generate=None`, `answer_question()` returns after retrieval and the passage merge and makes no
+      completion call (a test asserts zero calls on the completion client itself, not on a patched default), and with the RAG budget exhausted a blocked question still returns its referral.
 - [ ] `backend/evals/datasets/rag-cases.json` holds at least 20 cases and a pytest test validates it.
 - [ ] `manage.py rag_eval` runs against a dev DB with the corpus and prints a pass count per class;
       it refuses to run when `BlogChunks` is empty, when `FORUM_VECTOR_SEARCH_ENABLED` is off, and when

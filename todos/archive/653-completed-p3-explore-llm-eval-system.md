@@ -234,3 +234,4 @@ eval runs neither write rows nor spend the live budget.
 - FIXED (low, spec line 131): `answer_question()` takes `floor=None`; a prompt change is a different `generate`, and a floor change is measured with phase 1's `--floor`, not phase 2.
 - FIXED (low, spec line 98): the covered assertion uses the merged passages (what the prompt would see, after `RAG_MAX_PASSAGES` and `RAG_MAX_CONTEXT_CHARS`).
 - NOTED (low, this file line 193): the criterion-1 evidence quotes spec line 56 as it read before the owner-answers follow-up commit, which changed "an open decision (§7)" to "capped per run (§7)". The evidence is left as captured.
+- FIXED (kimi gate WARNINGs on the round-1 commit): the retrieval-only return now comes after the passage merge and carries the merged passages, so the covered assertion has what it reads; todo 694's no-completion test counts calls on the completion client itself, since a patched default could pass vacuously.
