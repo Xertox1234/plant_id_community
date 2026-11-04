@@ -7,13 +7,13 @@ puts packages/wagtail_forum on pytest's pythonpath so the copy beside these
 tests wins.
 
 The first test only tells the two copies apart in a worktree; in the main
-checkout and in CI they are the same path. The second fails everywhere if the
-pytest.ini entry is dropped.
+checkout and in CI they are the same path. The second reads backend/pytest.ini's
+pythonpath setting, so it fails wherever that entry is dropped.
 """
 
-import sys
 from pathlib import Path
 
+import pytest
 import wagtail_forum
 
 
@@ -22,7 +22,9 @@ def test_wagtail_forum_is_imported_from_this_checkout() -> None:
     assert package_dir == Path(__file__).resolve().parent.parent
 
 
-def test_package_root_is_on_pytest_pythonpath() -> None:
+def test_package_root_is_on_pytest_pythonpath(pytestconfig: pytest.Config) -> None:
+    # Read the ini entry itself: pytest's default "prepend" import mode puts the
+    # package root on sys.path anyway, so a sys.path check would pass without it.
     package_root = Path(__file__).resolve().parents[2]
-    entries = {Path(entry).resolve() for entry in sys.path if entry}
-    assert package_root in entries
+    configured = {Path(entry).resolve() for entry in pytestconfig.getini("pythonpath")}
+    assert package_root in configured
