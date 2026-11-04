@@ -271,7 +271,7 @@ jobs:
           channel: stable
           # Pinned to match mobile-ci.yml / local dev — see that file's
           # comment (2026-08-17 Gradle-drift fix).
-          flutter-version: '3.41.9'
+          flutter-version: '3.47.9'
           cache: true
 
       - name: Set up Python

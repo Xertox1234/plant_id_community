@@ -58,7 +58,7 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // NOTE: the flutter tool re-applies this migration on every build (a
         // pinned literal gets rewritten back), so the floor follows the
-        // toolchain: Flutter 3.41.9 ⇒ minSdk 24 (was a pinned 23 before todo
+        // toolchain: Flutter 3.47.9 ⇒ minSdk 24 (was a pinned 23 before todo
         // 253 slice 6). Android 6 support ended as a toolchain side effect —
         // revisit deliberately if API-23 devices still matter.
         minSdk = flutter.minSdkVersion
