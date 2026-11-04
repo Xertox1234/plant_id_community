@@ -66,7 +66,9 @@ def _fake_retrieval(by_question):
     """``question -> (passages | None, top_scores)``; anything else -> []."""
 
     def fake(question, *, user=None, floor=None, top_scores=None):
-        passages, scores = by_question.get(question, ([], {"BlogChunks": 0.30}))
+        passages, scores = by_question.get(
+            question, ([], {"BlogChunks": 0.30, "SimilarTopics": None})
+        )
         if top_scores is not None:
             top_scores.update(scores)
         return passages
@@ -185,7 +187,7 @@ def test_floor_flag_is_passed_to_retrieval_and_reported(tmp_path):
 
     def fake(question, *, user=None, floor=None, top_scores=None):
         seen.append(floor)
-        top_scores["BlogChunks"] = None
+        top_scores.update({"BlogChunks": None, "SimilarTopics": None})
         return []
 
     with patch(RETRIEVE, side_effect=fake):
@@ -240,7 +242,10 @@ def test_the_shipped_dataset_runs_end_to_end():
     _seed_blog_chunks()
     data = json.loads(rag_eval.DEFAULT_CASES_PATH.read_text(encoding="utf-8"))
     retrieval = {
-        case["question"]: ([_blog(case["expected_slug"], 0.7)], {"BlogChunks": 0.7})
+        case["question"]: (
+            [_blog(case["expected_slug"], 0.7)],
+            {"BlogChunks": 0.7, "SimilarTopics": None},
+        )
         for case in data["cases"]
         if case["class"] in ("covered", "adjacent") and case.get("expected_slug")
     }
@@ -376,7 +381,9 @@ def test_a_topic_passage_gives_a_non_covered_case_no_expected_rank():
         snippet="Soak",
     )
     case = {"id": "adj", "class": "adjacent", "question": "How do I water air plants?"}
-    fake = _fake_retrieval({case["question"]: ([topic], {"BlogChunks": None})})
+    fake = _fake_retrieval(
+        {case["question"]: ([topic], {"BlogChunks": None, "SimilarTopics": 0.66})}
+    )
     with patch(RETRIEVE, side_effect=fake):
         row = rag_eval.evaluate_case(case, 0.45)
     assert row["expected_rank"] is None
@@ -398,3 +405,17 @@ def test_a_question_with_surrounding_whitespace_is_refused():
     data = {"cases": [{"id": "n", "class": "not-blocked", "question": " water? "}]}
     with pytest.raises(ValueError, match="whitespace"):
         rag_eval.validate_cases(data)
+
+
+@override_settings(**DEV)
+@pytest.mark.django_db
+def test_similar_topics_not_searching_aborts_the_run(tmp_path):
+    """The mirror of the BlogChunks case (review round 2): an unchecked topic
+    corpus must not let an off-corpus case pass."""
+    _seed_blog_chunks()
+    retrieval = dict(SMALL_RETRIEVAL)
+    retrieval["When do I aerate a lawn?"] = ([], {"BlogChunks": 0.41})
+    with patch(RETRIEVE, side_effect=_fake_retrieval(retrieval)), pytest.raises(
+        CommandError, match="SimilarTopics could not search for case off"
+    ):
+        _run("--cases", str(_cases_file(tmp_path, SMALL_CASES)))

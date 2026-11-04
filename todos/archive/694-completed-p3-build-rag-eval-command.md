@@ -163,3 +163,20 @@ Declined:
 Verification: `pytest apps/forum_host/tests -k "rag or care"` gave 197 passed (190 before plus 7 new).
 
 Land-time hand fix: `test_eval_results_directory_is_gitignored` failed under the pytest-staged pre-commit hook. Git exports `GIT_DIR` to hooks, so a `git check-ignore` run from `backend/` treats `backend/` as the repo top and misses the root `.gitignore` (reproduced). The test now removes `GIT_*` from the subprocess environment. Mutation-checked.
+
+### 2026-11-04 - Review round 2 (PR #1270): no blocking findings
+
+Fixed by hand:
+
+- **Low: SimilarTopics not searching.** This is the mirror of the round-1 fix. If SimilarTopics could not search while BlogChunks did, the topic corpus went unchecked. `rag_eval` now requires every index in `SEARCHED_INDEXES` to have searched before it scores a non-referral case. Test: `test_similar_topics_not_searching_aborts_the_run`. Mutation-checked: it fails with only BlogChunks required.
+
+Declined:
+
+- **Rows from cases already run are lost when a later case aborts.** Declined: an abort means the environment is broken (budget or provider), so a partial table would be compared against a full run. Re-run once the environment is fixed. That costs about 2 embedding units per case.
+- **`--json` path escape and overwrite (three reviewers).** Declined for the same reason as round 1: it is an operator-chosen path on a DEBUG-only local command.
+- **The happy-path `assert_not_called` on the LLM service is vacuous.** Declined: it is harmless. The real zero-completion guard is `test_rag_answer_question.py`, which acceptance criterion 2 pins.
+- **The calibration log no longer lists an index that could not search (two reviewers).** Accepted as intended: a missing key now means "could not search", and the docstrings say so.
+- **Private `_index_name` import.** Declined for the same reason as round 1.
+- **Direct `answer_question` tests for provider error, empty reply and zero citations.** Declined: those branches moved unchanged, and the view tests in `test_rag.py` still pin them (190 passing, unedited).
+
+Verification: `pytest apps/forum_host/tests -k "rag or care"` gave 198 passed.

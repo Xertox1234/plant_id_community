@@ -65,6 +65,8 @@ CASE_CLASSES = (
     BLOCKED_CHEMICAL,
     NOT_BLOCKED,
 )
+# Every index retrieval searches; a case is scored only when all of them did.
+SEARCHED_INDEXES = ("SimilarTopics", "BlogChunks")
 # The guardrail reason each blocked class must come back with.
 BLOCKED_REASONS = {BLOCKED_INGESTION: INGESTION, BLOCKED_CHEMICAL: CHEMICAL_DOSING}
 
@@ -153,13 +155,18 @@ def evaluate_case(case: dict, floor: float) -> dict:
             "exhausted or provider down). Aborting: this is an environment "
             "error, not a case result."
         )
-    if outcome.status != STATUS_REFERRAL and "BlogChunks" not in outcome.top_scores:
-        # SimilarTopics alone searched: an off-corpus case would read as a
-        # pass and a covered one as a miss, against a corpus never checked.
+    unsearched = [
+        name
+        for name in SEARCHED_INDEXES
+        if outcome.status != STATUS_REFERRAL and name not in outcome.top_scores
+    ]
+    if unsearched:
+        # One index alone searched: an off-corpus case would read as a pass
+        # and a covered one as a miss, against a corpus never checked.
         raise CommandError(
-            f"BlogChunks could not search for case {case['id']} (embedding "
-            "budget exhausted or provider down). Aborting: this is an "
-            "environment error, not a case result."
+            f"{', '.join(unsearched)} could not search for case {case['id']} "
+            "(embedding budget exhausted or provider down). Aborting: this is "
+            "an environment error, not a case result."
         )
     cls = case["class"]
     slugs = [p.slug if p.kind == "blog" else None for p in outcome.passages]
