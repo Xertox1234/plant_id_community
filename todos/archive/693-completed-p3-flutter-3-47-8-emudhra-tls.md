@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "693"
 tags: [android, flutter, security, tls, mobile, release]
@@ -41,7 +41,7 @@ Firebase iOS SDK 12.19.3.
 
 ## Acceptance Criteria
 
-- [ ] `flutter --version` and both workflow pins report >= 3.47.8
+- [x] `flutter --version` and both workflow pins report >= 3.47.8
 - [x] `flutter analyze` clean and `flutter test` green on the new SDK
 - [x] `flutter build apk` and `flutter build ios` succeed
 - [ ] Todo 691's first Play upload is built with this SDK → todo 691 (re-pointed 2026-11-04; owner: "Move it to todo 691")
@@ -75,6 +75,10 @@ Firebase iOS SDK 12.19.3.
     `flutter build apk` -> app-release.apk 69.7 MB; `flutter build ios --no-codesign` from a
     fresh state (generated iOS dirs moved aside, no manual `pod install`) -> Runner.app 62.5 MB.
   - AC 4 re-pointed to todo 691 (owner: "Move it to todo 691").
+- 2026-11-04: #1274 merged (all checks green, incl. CI's Flutter analyze/test/debug build
+  on 3.47.9). Shared SDK `/opt/homebrew/share/flutter` upgraded with `flutter upgrade`:
+  `Flutter 3.47.9 • channel stable`, `Dart 3.13.7`. Rollback point was 3.41.9 at
+  00b0c91f06209d9e4a41f71b7a512d6eb3b9c694. AC 1 met; AC 4 lives on todo 691.
 
 ## Notes
 
