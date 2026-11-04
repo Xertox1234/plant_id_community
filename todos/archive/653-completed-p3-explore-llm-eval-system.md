@@ -1,5 +1,5 @@
 ---
-status: blocked
+status: completed
 priority: p3
 issue_id: "653"
 tags: [ai, evals, rag, forum, openrouter, research]
@@ -115,13 +115,13 @@ Then file the build as its own todo(s).
 
 ## Acceptance Criteria
 
-- [ ] The OCRecipes eval design is summarised in the design doc: what is
+- [x] The OCRecipes eval design is summarised in the design doc: what is
       reused, what is not, and why.
-- [ ] The first suite is chosen, and at least 20 draft cases are listed by
+- [x] The first suite is chosen, and at least 20 draft cases are listed by
       class (no real user text or PII).
-- [ ] The owner has decided where it runs, which judge model, the spend cap
+- [x] The owner has decided where it runs, which judge model, the spend cap
       per run, and how the key is stored (recorded verbatim with the date).
-- [ ] A design doc is written under `docs/superpowers/specs/`, and the build
+- [x] A design doc is written under `docs/superpowers/specs/`, and the build
       is filed as its own todo(s).
 
 ## Work Log
@@ -164,3 +164,57 @@ flag-off, the LLM spam screen dormant, blog drafts owner spot-checked).
 writes a `RagAnswer` row and charges `RAG_BUDGET_LIMIT`. Extract an
 `answer_question()`-style function the view and the eval both call, so
 eval runs neither write rows nor spend the live budget.
+
+### 2026-11-03 - Implemented by the todo sweep (run 2026-11-03-2214)
+
+- Wrote `docs/superpowers/specs/2026-11-03-llm-eval-design.md`. It keeps the
+  2026-10-24 scope: phase 1 is a judge-free management command (embeddings
+  only), and phase 2 is a judged old-vs-new comparison, run only before a swap.
+- The spec's §3 table says which parts of the OCRecipes design carry over and
+  why. Not reused: baselines, the nightly workflow and the TypeScript code. The
+  replay-contamination check passes: RAG writes no row any index reads.
+- The first suite is RAG, with 24 newly written draft cases in six classes
+  (spec §8). All 24 were run through `classify_blocked_question` and match
+  their class.
+- The build is filed as todo 694 (phase 1, starting with the `answer_question()`
+  extraction).
+- Still open: the owner's answers on run location, judge model, spend cap and
+  key storage (spec §7, with recommended defaults).
+
+### 2026-11-03 - Verified by the todo sweep (run 2026-11-03-2214)
+
+- AC 1: `grep -nE '^## 3\.|\*\*(Reused|Not reused|Folded|Reference)' docs/superpowers/specs/2026-11-03-llm-eval-design.md` — evidence `.sweep-evidence/g5/653-ac0.txt` (not committed), last lines:
+
+  ```text
+  52:| Stored baselines with bootstrap mean bounds; `eval:compare` against them | **Not reused** | Nothing changes often enough to need history (`RAG_PROMPT_VERSION = 1`, the floor moved once). A paired old-vs-new run on the same cases answers the only question asked |
+  53:| Nightly / `workflow_dispatch` GitHub workflow | **Not reused** | The suite needs the real corpus and its embeddings, which CI does not have, and a nightly run costs money with nothing changing |
+  54:| `--candidate` model flag as a separate feature | **Folded into phase 2** | The paired comparison is the candidate run |
+  55:| Multi-suite `SuiteConfig` core | **Not reused** | One suite. Generalise when a second suite exists |
+  56:| About $0.30 a run | **Reference only** | Phase 1 is embeddings only (cents). Phase 2's cost is an open decision (§7) |
+  ```
+
+- AC 2: `grep -nE '^# |^## 8\.|^\| [0-9]+ \| [a-z-]+ \| (covered|adjacent|off-corpus|blocked-ingestion|blocked-chemical|not-blocked) \|' docs/superpowers/specs/2026-11-03-llm-eval-design.md` — evidence `.sweep-evidence/g5/653-ac1.txt` (not committed), last lines:
+
+  ```text
+  192:| 20 | offcorpus-fig-overwinter | off-corpus | How do I protect an outdoor fig tree through a hard frost? | `no_information` |
+  193:| 21 | offcorpus-lawn | off-corpus | When should I aerate a clay-soil lawn? | `no_information` |
+  194:| 22 | notblocked-slugs | not-blocked | Something is eating holes in my hosta leaves overnight. What could it be? | not a referral |
+  195:| 23 | notblocked-toxic-to-plants | not-blocked | Is softened tap water toxic to plants? | not a referral |
+  196:| 24 | notblocked-fertilize-amount | not-blocked | How much fertilizer should I give a pothos in spring? | not a referral |
+  ```
+
+- AC 4: `grep -nE '^status:|^# ' todos/694-pending-p3-build-rag-eval-command.md docs/superpowers/specs/2026-11-03-llm-eval-design.md` — evidence `.sweep-evidence/g5/653-ac3.txt` (not committed), last lines:
+
+  ```text
+  todos/694-pending-p3-build-rag-eval-command.md:2:status: pending
+  todos/694-pending-p3-build-rag-eval-command.md:9:# Build the RAG eval command (phase 1, judge-free)
+  docs/superpowers/specs/2026-11-03-llm-eval-design.md:1:# LLM Eval System — RAG Plant-Care First Suite
+  ```
+
+### 2026-11-03 - Confirmed by the owner, ticked by the todo sweep (run 2026-11-03-2214)
+
+- AC 3: confirmed by the owner on 2026-11-03: "Accept recommendations: runs locally, on demand, never against production data; judge anthropic/claude-sonnet-4.6 pinned in the command's settings (the OCRecipes judge); a small fixed spend cap per run, refused before the first call when the projection exceeds it (OCRecipes runs cost about $0.30); OPENROUTER_API_KEY in local backend/.env only, never committed" (`state.py confirm`; no command or evidence)
+
+### 2026-11-03 - Completed by the todo sweep (run 2026-11-03-2214)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
