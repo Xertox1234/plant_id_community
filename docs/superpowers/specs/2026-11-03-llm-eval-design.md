@@ -151,7 +151,7 @@ the spend cap (§7), and after any call that pushes the running cost past it.
 
 ## 7. Owner decisions
 
-All four were decided on 2026-11-03: the owner accepted the recommended defaults.
+All four were decided on 2026-11-03: the owner accepted the recommended defaults. On 2026-11-04 the owner revised the judge model (2) and set the spend cap's dollar figure (3).
 
 1. **Where it runs.**
    Options: local dev DB with a corpus snapshot / a CI workflow / on demand only.
@@ -164,11 +164,13 @@ All four were decided on 2026-11-03: the owner accepted the recommended defaults
    Recommended: the OCRecipes judge, pinned in the command's settings, so the two projects' scores mean the
    same thing.
    Owner answer and date: "Accept recommendations" (2026-11-03): `anthropic/claude-sonnet-4.6`, pinned in the command's settings.
+   Revised 2026-11-04, owner: "Use 5.5". The judge is Claude Sonnet 5.5, pinned in the command's settings. It is newer than Sonnet 4.6 and cheaper ($2 / $10 per million input / output tokens, against $3 / $15). The trade-off: scores no longer use the same judge as OCRecipes, so the two projects' numbers are not directly comparable. Check the exact OpenRouter id (expected `anthropic/claude-sonnet-5.5`) against OpenRouter's model list when phase 2 is built.
 3. **Spend cap per run (phase 2; phase 1 is embeddings only).**
    Options: a dollar cap per run enforced by the command / no cap.
    Recommended: a small fixed cap per run (OCRecipes runs cost about $0.30), refused before the first call
    when the projection exceeds it.
    Owner answer and date: "Accept recommendations" (2026-11-03): a small fixed cap per run, refused before the first call when the projection exceeds it. The dollar figure is not set yet: the owner sets it before phase 2 is built (phase 2 is outside todo 694).
+   Dollar figure set 2026-11-04, owner: "record 3 dollar per run". The cap is **$3.00 per run**. The estimate for one 24-case judged run is under $0.40 (about 3,000 input and 400 output tokens per case at Sonnet 5.5 prices), so the cap only stops a runaway loop or a much larger dataset. Measure the real per-case cost on the first run.
 4. **Key storage (`OPENROUTER_API_KEY`).**
    Options: local `backend/.env` only / a GitHub repository secret.
    Note: `kimi-review.yml` already reads a repository secret of that name and self-skips while it is unset,
