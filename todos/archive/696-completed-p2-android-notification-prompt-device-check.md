@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "696"
 tags: [mobile, flutter, android, notifications, fcm, owner]
@@ -29,8 +29,9 @@ Only the owner can run and record this check.
 
 ## Acceptance Criteria
 
-- [ ] On a fresh Android 13+ install, signing in shows the notification-permission prompt (device check, owner).
+- [x] On a fresh Android 13+ install, signing in shows the notification-permission prompt (device check, owner).
 
 ## Work Log
 
 - 2026-11-03: Created from todo 685 criterion 1 (re-pointed by owner decision "Close 685 as done by #1262").
+- 2026-11-04: Done on the owner's Samsung SM-A376B (Android 16, wireless adb). Build: `flutter build apk --release --dart-define-from-file=.env.production` from main `fcd4607a` (Flutter 3.47.9, `firebase_messaging` 16.7.1 locked). Uninstalled the old app, installed this APK: `dumpsys package` showed `POST_NOTIFICATIONS` requested with no grant state. After the owner signed in, logcat showed `GrantPermissionsActivity` start at 16:03:17 and `dumpsys` then read `POST_NOTIFICATIONS: granted=true, flags=[ USER_SET|...]`, so the prompt appeared and the owner allowed it. Step 4's tray check was not shown: the owner replied to their own post, and the backend does not notify a user about their own reply (owner: "it really shouldn't if it's my own post"). The tray path had already worked on this phone once permission was granted (todo 685: FCM registered and delivered; only the tray was suppressed).
