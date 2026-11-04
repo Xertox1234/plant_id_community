@@ -221,4 +221,4 @@ eval runs neither write rows nor spend the live budget.
 
 ### 2026-11-03 - Spec updated with the owner's answers (PR follow-up commit)
 
-- Spec §7 now records the owner's "Accept recommendations" answer, dated, against each of the four questions, and todo 694's wording says the decisions are made. The cap's dollar figure is not set; todo 694 picks it.
+- Spec §7 now records the owner's "Accept recommendations" answer, dated, against each of the four questions, and todo 694's wording says the decisions are made. The cap's dollar figure is not set: the owner sets it before phase 2 is built, which is outside todo 694.

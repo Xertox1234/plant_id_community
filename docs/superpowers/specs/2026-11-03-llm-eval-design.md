@@ -152,7 +152,7 @@ All four were decided on 2026-11-03: the owner accepted the recommended defaults
    Options: a dollar cap per run enforced by the command / no cap.
    Recommended: a small fixed cap per run (OCRecipes runs cost about $0.30), refused before the first call
    when the projection exceeds it.
-   Owner answer and date: "Accept recommendations" (2026-11-03): a small fixed cap per run, refused before the first call when the projection exceeds it. The dollar figure is not set yet; todo 694 picks it.
+   Owner answer and date: "Accept recommendations" (2026-11-03): a small fixed cap per run, refused before the first call when the projection exceeds it. The dollar figure is not set yet: the owner sets it before phase 2 is built (phase 2 is outside todo 694).
 4. **Key storage (`OPENROUTER_API_KEY`).**
    Options: local `backend/.env` only / a GitHub repository secret.
    Note: `kimi-review.yml` already reads a repository secret of that name and self-skips while it is unset,

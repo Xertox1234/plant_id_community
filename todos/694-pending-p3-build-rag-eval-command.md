@@ -25,7 +25,7 @@ judge-free check run locally against a dev DB with the corpus.
 - The spec's §8 lists 24 draft cases. All 24 were checked against `classify_blocked_question` on
   2026-11-03 and match their class.
 - Phase 2 (judged paired comparison) is not part of this todo. The owner settled its judge model, spend
-  cap and key storage on 2026-11-03 (spec §7); only the cap's dollar figure is still to pick.
+  cap and key storage on 2026-11-03 (spec §7); only the cap's dollar figure is still the owner's to set, before phase 2 is built.
 
 ## Recommended Action
 
