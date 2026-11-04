@@ -69,16 +69,24 @@ writes a `RagAnswer` row and charges `RAG_BUDGET_LIMIT`. The build first extract
 validation into one function that both the view and the eval call:
 
 ```python
-answer_question(question, *, user=None, generate=generate_ai_text, persist=True, charge=True) -> RagOutcome
+answer_question(question, *, user=None, generate=generate_ai_text, persist=True, charge=True,
+                floor=None) -> RagOutcome
 ```
 
 `RagOutcome` carries `status` (`referral` / `no_information` / `passages_only` / `answered` /
 `unavailable`), the blocked reason, the passages with their scores, the per-index top scores, and the
-answer and citations. The view keeps the flag check, body validation, the budget peek and HTTP mapping, and
-its responses do not change (the existing `apps/forum_host/tests -k "rag or care"` suite must pass
+answer and citations. `generate=None` makes it a retrieval-only call: it returns right after retrieval and
+the floor, with the passages, and never calls a completion model. That is how phase 1 calls it.
+`floor=None` means `RAG_SIMILARITY_FLOOR`; phase 1's `--floor` passes a value.
+
+The budget peek moves inside the function, after `classify_blocked_question` and before retrieval, as it
+runs on main today, and is skipped when `charge=False`. So a blocked question still gets its referral when
+the budget is exhausted; a test pins that. The view keeps the flag check, body validation and HTTP mapping,
+and its responses do not change (the existing `apps/forum_host/tests -k "rag or care"` suite must pass
 unchanged). The eval calls it with `persist=False, charge=False`, so a run writes no rows and spends none
 of the live budget. Question embeddings still go through `EMBED_BUDGET` (the single embedding entry
-point); a full run is about 25 of its 1000.
+point), which charges once per index searched: about 2 units per non-blocked case, so about 38 of its 1000
+for the 24 drafts.
 
 Retrieval also needs to expose what phase 1 asserts on: each passage's source slug and score, and the top
 score per index (today only logged as `[RAG] retrieval top scores`).
@@ -86,29 +94,32 @@ score per index (today only logged as `[RAG] retrieval top scores`).
 ## 5. Phase 1 — judge-free check
 
 **Run:** `python manage.py rag_eval [--cases PATH] [--floor F] [--json OUT]`, from `backend/`, against a
-dev DB. Never on a production shell. `--floor` overrides `RAG_SIMILARITY_FLOOR` for the run, so a floor
+dev DB, never on a production shell: the command refuses to run when `DEBUG` is False or a Railway
+environment is detected, and a test covers the refusal. `--floor` overrides `RAG_SIMILARITY_FLOOR` for the run, so a floor
 change is measured before it is made.
 
 **Corpus in the dev DB** (a build task, not solved here): either a fixture of the 59 live care pages, or
 re-running `manage.py generate_care_drafts` and publishing locally, then
 `manage.py rebuild_indexes SimilarTopics BlogChunks`. The command refuses to run when `BlogChunks` is
-empty, because every covered case would then fail for a reason that is not the code.
+empty or `FORUM_VECTOR_SEARCH_ENABLED` is off, because every covered case would then fail for a reason that
+is not the code. A case whose retrieval comes back `unavailable` (embedding budget exhausted, provider
+down) aborts the run as an environment error; it is never counted as a pass or a case failure.
 
 **Per-class assertions (one failure fails the case):**
 
 | Class | Assertion | LLM call |
 |---|---|---|
-| `covered` | not blocked; `expected_slug` is among the passages above the floor, ideally rank 1 | none (embedding only) |
+| `covered` | not blocked; `expected_slug` is among the merged passages (what the prompt would see, after `RAG_MAX_PASSAGES` and `RAG_MAX_CONTEXT_CHARS`), ideally rank 1 | none (embedding only) |
 | `adjacent` | not blocked; reported, not asserted: top score and whether anything clears the floor. This is the class the floor is tuned on | none |
 | `off-corpus` | nothing above the floor → `no_information` | none |
 | `blocked-ingestion` | `referral`, reason `ingestion`, before any retrieval | none, no embedding |
 | `blocked-chemical` | `referral`, reason `chemical_dosing` | none, no embedding |
-| `not-blocked` | **not** a referral (the guardrail must not over-fire on ordinary care questions) | none |
+| `not-blocked` | **not** a referral (the guardrail must not over-fire on ordinary care questions); `unavailable` aborts the run as above | none |
 
 **Output:** a table per case (id, class, outcome, top BlogChunks score, top SimilarTopics score, expected
 slug's rank, pass), a pass count per class, the margin between the weakest covered case and the floor, and
 the strongest off-corpus score and its margin under the floor. `--json` writes the same to a file under
-`backend/evals/results/` (gitignored).
+`backend/evals/results/`, which the build adds to `.gitignore`.
 
 **Dataset:** `backend/evals/datasets/rag-cases.json`, one object per case: `id`, `class`, `question`,
 `expected_slug` (covered only, must be a `care_topics.py` slug), `notes` (metadata, never forwarded). A
@@ -117,8 +128,9 @@ pytest test validates it.
 ## 6. Phase 2 — judged paired comparison (only before a swap)
 
 Same cases, `covered` and `adjacent` only (blocked and off-corpus never reach the model). Each case runs
-`answer_question(..., generate=old)` and `generate=new`, where old and new differ by model id, prompt
-version or floor. A judge model scores each answer 1–10, with a one-line reason, on:
+`answer_question(..., generate=old)` and `generate=new`, where old and new differ by model id or prompt
+version (a different prompt is a different `generate`). A floor change is measured with phase 1's
+`--floor`, not here. A judge model scores each answer 1–10, with a one-line reason, on:
 
 - **groundedness:** every claim is supported by a cited passage (the judge sees the exact passages),
 - **relevance:** it answers the question asked,

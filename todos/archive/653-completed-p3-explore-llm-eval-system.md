@@ -222,3 +222,15 @@ eval runs neither write rows nor spend the live budget.
 ### 2026-11-03 - Spec updated with the owner's answers (PR follow-up commit)
 
 - Spec §7 now records the owner's "Accept recommendations" answer, dated, against each of the four questions, and todo 694's wording says the decisions are made. The cap's dollar figure is not set: the owner sets it before phase 2 is built, which is outside todo 694.
+
+### 2026-11-03 - Review round 1: non-blocking findings (PR #1267)
+
+- FIXED (medium, two reports at spec lines 75/79): phase 1 called `answer_question()` with the default `generate`, so every covered case would make a paid completion call, contradicting "LLM call: none". §4 now defines `generate=None` as a retrieval-only call that returns after retrieval and the floor; phase 1 uses it, and todo 694 has a criterion that asserts `generate_ai_text` is never called.
+- FIXED (medium, spec line 77): the budget peek moves inside `answer_question()`, after `classify_blocked_question` and before retrieval, as on main, and is skipped when `charge=False`, so a blocked question still gets its referral when the budget is exhausted. Todo 694's criterion pins it with a test.
+- FIXED (low, spec line 106 and line 92): an `unavailable` retrieval now aborts the run as an environment error instead of passing a not-blocked case, and the command also refuses when `FORUM_VECTOR_SEARCH_ENABLED` is off.
+- FIXED (low, spec line 82): "never on a production shell" is now a refusal (DEBUG False or a Railway environment) with a test, in the spec and todo 694's criteria.
+- FIXED (low, spec line 110): `backend/evals/results/` is added to `.gitignore` by the build; todo 694's criterion says so.
+- FIXED (low, spec line 84): the embedding cost is about 2 units per non-blocked case (one per index), about 38 of 1000 for the 24 drafts, in the spec and todo 694.
+- FIXED (low, spec line 131): `answer_question()` takes `floor=None`; a prompt change is a different `generate`, and a floor change is measured with phase 1's `--floor`, not phase 2.
+- FIXED (low, spec line 98): the covered assertion uses the merged passages (what the prompt would see, after `RAG_MAX_PASSAGES` and `RAG_MAX_CONTEXT_CHARS`).
+- NOTED (low, this file line 193): the criterion-1 evidence quotes spec line 56 as it read before the owner-answers follow-up commit, which changed "an open decision (§7)" to "capped per run (§7)". The evidence is left as captured.

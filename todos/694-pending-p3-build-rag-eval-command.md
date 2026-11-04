@@ -21,7 +21,7 @@ judge-free check run locally against a dev DB with the corpus.
   writes a `RagAnswer` row and charges `RAG_BUDGET_LIMIT`, so the eval cannot call the view.
 - Phase 1 needs no LLM completion: blocked questions are classified before retrieval, and covered and
   off-corpus questions are settled by retrieval scores. The only spend is question embeddings
-  (`EMBED_BUDGET`, about 25 of 1000 per run).
+  (`EMBED_BUDGET`, about 2 units per non-blocked case, about 38 of 1000 per run).
 - The spec's §8 lists 24 draft cases. All 24 were checked against `classify_blocked_question` on
   2026-11-03 and match their class.
 - Phase 2 (judged paired comparison) is not part of this todo. The owner settled its judge model, spend
@@ -53,9 +53,13 @@ Follow the spec's §9 steps 1–4:
 - [ ] `answer_question()` is extracted; the existing `apps/forum_host/tests -k "rag or care"` tests pass
       unchanged, and a new test shows that with `persist=False, charge=False` it writes no `RagAnswer` row
       and does not charge `RAG_BUDGET_LIMIT`.
+- [ ] With `generate=None`, `answer_question()` returns after retrieval and never calls `generate_ai_text`
+      (a test asserts it), and with the RAG budget exhausted a blocked question still returns its referral.
 - [ ] `backend/evals/datasets/rag-cases.json` holds at least 20 cases and a pytest test validates it.
 - [ ] `manage.py rag_eval` runs against a dev DB with the corpus and prints a pass count per class;
-      it refuses to run when `BlogChunks` is empty.
+      it refuses to run when `BlogChunks` is empty, when `FORUM_VECTOR_SEARCH_ENABLED` is off, and when
+      `DEBUG` is False or a Railway environment is detected (a test covers each refusal); an `unavailable`
+      retrieval aborts the run; `backend/evals/results/` is in `.gitignore`.
 - [ ] The dev-DB corpus recipe is written down.
 
 ## Work Log
