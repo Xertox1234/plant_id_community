@@ -118,3 +118,7 @@ The PreToolUse injection hook prepends `docs/rules/_discipline.md` (4,426 bytes)
 - FIXED (low, test line 13): the later sentinel `trap … EXIT INT TERM` replaced the state-dir cleanup trap, so every run left an `inject-test.*` dir in TMPDIR. The sentinel trap now also removes `$INJECT_STATE_DIR`; a full run leaves the dir count unchanged.
 - DECLINED (low, line 41): outside paths also skip the trigger tier. This is the owner's Option 2 as decided on 2026-11-03 (skip outside the repo); a repo file reached by another spelling is now covered by the normalization and physical-root fixes above.
 - DECLINED (low, test line 151): the physical-root and inside-`..` behaviours are now tested (the two new cases above), so nothing further is needed.
+
+### 2026-11-03 - Review round 2: non-blocking findings (PR #1263)
+
+- DECLINED (low, `test-inject-patterns.sh:172`): the physical-root test checks something only on a checkout whose path contains a symlink; elsewhere it repeats the absolute-path case. It still guards the logic where the spellings differ, and building a symlinked root inside the test would add more setup than the two-line branch it covers.

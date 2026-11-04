@@ -102,3 +102,9 @@ The result looks like a large staged change on the wrong branch. Merges and reba
 - DECLINED (low, line 42): a trailing `# --no-track` comment, or `-- origin/<path>` after a bare `--`, can mis-read. The hook is warn-only, so the worst case is one missing or one extra warning; not worth extra parsing.
 - DECLINED (low, line 79): `git switch <name>` DWIM, `checkout --track` without `-b` and `worktree add -b … origin/x` are not detected. The owner scoped the rule to `switch -c`/`checkout -b` (decision 2026-11-03); the sweep runbook already uses `worktree add --no-track`.
 - DECLINED (low, settings.json line 59): adding a `warn-git-track.sh` bullet to CLAUDE.md. The owner chose "hook only … no CLAUDE.md entry" (2026-11-03).
+
+### 2026-11-03 - Review round 2: non-blocking findings (PR #1263)
+
+- DECLINED (low, `warn-git-track.sh:73`): `echo git switch -c …`, `git switch -c origin/foo main` and `git checkout -b x -- origin/main` warn. These are false positives only, and the hook only warns.
+- DECLINED (low, `warn-git-track.sh:66`): `git worktree add -b … origin/main` and remotes other than `origin` stay quiet. The owner scoped the rule to `switch -c`/`checkout -b` (2026-11-03), and the sweep runbook already uses `worktree add --no-track`.
+- DECLINED (low, `test-warn-git-track.sh:40`): no test pins `git -c k=v`, `-t` or `--track=direct`. Those parser branches only add warnings, so a regression there means a missing warning, never a block.
