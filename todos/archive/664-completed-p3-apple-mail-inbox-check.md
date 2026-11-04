@@ -45,12 +45,16 @@ Split from todo 626 on 2026-10-28 (owner: "new todo for Apple Mail"). Todo 626 r
 
 - Archived by `land.py archive`; review is on the PR.
 
-## Notes
-
-Owner-only: needs the owner's own Apple Mail client. Browser screenshots are not inbox evidence.
-
 ### 2026-11-03 - Review round 1: non-blocking findings (PR #1265)
 
 - RECORDED (low, two reports at line 26): the criterion asks for the client/OS version. The owner's answer named only "iOS and macOS"; no iOS, macOS or Apple Mail version was given, so the versions are not recorded. Limitation: version not recorded.
 - DECLINED (low, line 38): "Criterion 0" (0-based, as the sweep's `ac.json` counts) and "AC 1" (1-based) name the same single criterion; there is only one.
 - DECLINED (low, `todos/archive/626-…md:45`): 626's link to `todos/664-pending-…` is a historical note in an archived todo; todo id 664 still resolves in `todos/archive/`.
+
+### 2026-11-03 - Review round 2: non-blocking findings (PR #1265)
+
+- FIXED (low, two reports at line 52): the round-1 entry had been appended under `## Notes`; it is now in the Work Log, above this entry.
+
+## Notes
+
+Owner-only: needs the owner's own Apple Mail client. Browser screenshots are not inbox evidence.
