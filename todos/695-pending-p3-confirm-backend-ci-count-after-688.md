@@ -13,7 +13,7 @@ dependencies: ["688"]
 Todo 688 set `pythonpath = . packages/wagtail_forum` in `backend/pytest.ini`, so a
 worktree's pytest run imports the worktree's own `wagtail_forum` instead of the main
 checkout's editable install. Locally the full suite gave 6358 passed, 8 skipped with no
-`PYTHONPATH` set (main's collected count plus the 3 tests 688 added). Whether CI's
+`PYTHONPATH` set (main's collected count plus the tests 688 added in `test_import_location.py`, now 2). Whether CI's
 `backend-tests` job reports the same count is only visible once 688's PR has run in CI.
 Owner decision 2026-11-03 ("Move to new todo") moved that check here.
 

@@ -80,3 +80,8 @@ triaged: 2026-11-03
 
 - FIXED (low, two reports at `test_import_location.py:15-16`): the guard only told the two copies apart in a worktree; in the main checkout and CI both are the same path, so dropping the `pytest.ini` entry would not turn CI red. Added `test_package_root_is_on_pytest_pythonpath`, which reads `pytestconfig.getini("pythonpath")` and asserts `packages/wagtail_forum` is in it. A first draft checked `sys.path` instead; the kimi gate pointed out that pytest's default prepend import mode puts the package root on `sys.path` anyway (`packages/wagtail_forum/` has no `__init__.py`), so it was replaced. Mutation check: with `pythonpath = .` and `PYTHONPATH` set so collection gets through, the new test FAILS (1 failed, 1 passed); restored, 2 passed.
 - FIXED (low, `todos/695-…md:29`): the criterion said "same test count" while its steps said "plus 3". Both now say main's pre-merge count plus the tests in `test_import_location.py`, with no hard-coded number.
+
+### 2026-11-03 - Review round 2: non-blocking findings (PR #1266)
+
+- FIXED (low, `todos/695-…md:12`): the problem text still said 688 added 3 tests; `test_import_location.py` now defines 2, and the line says so.
+- NOT APPLIED (kimi gate WARNING on the round-1 commit): it said `Path(entry).resolve()` resolves a relative `pythonpath` entry against the CWD. Checked on pytest 9.0.3: `getini("pythonpath")` already returns absolute paths resolved against the ini file, and running from the repo root (`pytest -c backend/pytest.ini --rootdir backend …`) passes, 2 passed.
