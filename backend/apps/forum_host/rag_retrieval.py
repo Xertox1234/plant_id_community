@@ -157,7 +157,12 @@ _DEFAULT_INDEXES = (SimilarTopics, BlogChunks)
 
 
 def retrieve_grounding_passages(
-    question: str, *, user=None, indexes=_DEFAULT_INDEXES
+    question: str,
+    *,
+    user=None,
+    indexes=_DEFAULT_INDEXES,
+    floor: float | None = None,
+    top_scores: dict[str, float | None] | None = None,
 ) -> list[Passage] | None:
     """Scored, floored, visibility-checked, merged passages for ``question``.
 
@@ -171,10 +176,22 @@ def retrieve_grounding_passages(
     ``user`` — pass only from a caller whose OWN response is never cross-user
     cached (the same rule as ``find_similar_topics``); the RAG answer is
     per-asker and uncached, so the ask view passes it.
+
+    ``floor`` — ``None`` (the default) reads ``RAG_SIMILARITY_FLOOR`` at call
+    time; ``manage.py rag_eval --floor`` passes a value to measure a floor
+    before it is changed (todo 694).
+
+    ``top_scores`` — an optional dict the call FILLS with the best raw score
+    per index (keyed by index class name, ``None`` for an index that did not
+    search or found nothing), before the floor. An out-parameter rather than a
+    new return shape, so every caller and patch that expects ``list | None``
+    is unchanged; the eval reports these scores (todo 694).
     """
-    floor = constants.RAG_SIMILARITY_FLOOR
+    if floor is None:
+        floor = constants.RAG_SIMILARITY_FLOOR
+    if top_scores is None:
+        top_scores = {}
     by_source: dict[str | None, list] = {}
-    top_scores: dict[str, float | None] = {}
     searched = False
     for index_cls in indexes:
         docs = _scored_search(index_cls, question, constants.RAG_OVERFETCH_PER_INDEX)
