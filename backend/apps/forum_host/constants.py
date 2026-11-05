@@ -571,6 +571,32 @@ RAG_SIMILARITY_FLOOR = 0.5
 # floor, the visibility refetch and the per-source dedupe thin them out.
 RAG_OVERFETCH_PER_INDEX = 8
 
+# Query rewrite (2026-11-05). When on, a cheap completion turns the question
+# into a short diagnosis-style search query ("root rot snake plant") and
+# retrieval searches with BOTH, keeping each chunk's best score. Asker wording
+# names symptoms ("the base is mushy and smells"), articles name problems, and
+# the embedding alone missed that bridge: covered-snake-root-rot's article
+# ranked 15th. Measured with rag_eval (local corpus, 19 non-blocked cases):
+# the union moved root-rot into the merged passages (rank 3) with no case
+# lost; the strongest off-corpus score did not move (fig 0.487) and the others
+# rose by up to 0.026 (lawn's topic score, 0.345 -> 0.371).
+# A rewrite ALONE regressed cases (fiddle-leaf fell under the floor); a
+# hypothetical-answer rewrite pushed two off-corpus cases over it. OFF until
+# measured on the production corpus: one more completion and two more
+# embeddings per ask, ~0.5-1 s of latency, and the completion is not counted
+# against RAG_BUDGET_LIMIT (it runs after the peek; about 1/50 of an answer's
+# tokens). `manage.py rag_eval --rewrite` measures it.
+RAG_QUERY_REWRITE_ENABLED = False
+RAG_QUERY_REWRITE_TIMEOUT_SECONDS = 8
+# A rewrite is a search query: anything longer is the model ignoring the brief.
+RAG_QUERY_REWRITE_MAX_CHARS = 200
+RAG_QUERY_REWRITE_PROMPT = (
+    "A houseplant owner asks the question below. Write a short search query "
+    "naming the most likely diagnosis or care topic (for example 'root rot', "
+    "'spider mites', 'repotting') and the plant. Reply with the query only."
+    "\n\nQuestion: {question}"
+)
+
 # Caps on what reaches the prompt after merging both corpora.
 RAG_MAX_PASSAGES = 6
 RAG_MAX_CONTEXT_CHARS = 6000

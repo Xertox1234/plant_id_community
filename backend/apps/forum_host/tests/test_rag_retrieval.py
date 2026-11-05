@@ -574,3 +574,69 @@ def test_end_to_end_unrelated_question_returns_nothing_above_the_floor():
         passages = _retrieve("rose pruning")
 
     assert passages == []
+
+
+# --------------------------------------------------------------------------- #
+# extra_queries — the query rewrite's pooled search (2026-11-05)              #
+# --------------------------------------------------------------------------- #
+
+
+def _core_by_query(by_query):
+    """A fake core: ``{(index_cls, query): docs | None}``, None otherwise."""
+
+    def fake(index_cls, query, limit):
+        return by_query.get((index_cls, query))
+
+    return fake
+
+
+@pytest.mark.django_db
+def test_an_extra_query_adds_a_document_and_raises_a_score_never_lowers_one():
+    rot = _post("Root rot", BLOCKS, slug="root-rot-pool")
+    snake = _post("Snake plant care", BLOCKS, slug="snake-pool")
+    floor = constants.RAG_SIMILARITY_FLOOR
+    fake = _core_by_query(
+        {
+            # The question alone: only the snake article clears the floor.
+            (vi.BlogChunks, "q"): [_blog_doc(snake, floor + 0.1)],
+            (vi.SimilarTopics, "q"): [],
+            # The rewrite finds root rot and scores snake LOWER: the question's
+            # score must stand.
+            (vi.BlogChunks, "root rot"): [
+                _blog_doc(rot, floor + 0.2),
+                _blog_doc(snake, floor + 0.01),
+            ],
+            (vi.SimilarTopics, "root rot"): [],
+        }
+    )
+    scores: dict = {}
+    with patch(CORE, side_effect=fake):
+        passages = _retrieve("q", extra_queries=("root rot",), top_scores=scores)
+    assert [(p.slug, round(p.score, 3)) for p in passages] == [
+        ("root-rot-pool", round(floor + 0.2, 3)),
+        ("snake-pool", round(floor + 0.1, 3)),
+    ]
+    assert scores == {"SimilarTopics": None, "BlogChunks": floor + 0.2}
+
+    with patch(CORE, side_effect=fake):
+        alone = _retrieve("q")
+    assert [p.slug for p in alone] == ["snake-pool"]
+
+
+@pytest.mark.django_db
+def test_an_extra_query_that_cannot_search_neither_unsearches_nor_searches_an_index():
+    snake = _post("Snake plant care", BLOCKS, slug="snake-pool-2")
+    floor = constants.RAG_SIMILARITY_FLOOR
+    fake = _core_by_query(
+        {
+            (vi.BlogChunks, "q"): [_blog_doc(snake, floor + 0.1)],
+            # SimilarTopics could not search the question; the rewrite's hits
+            # for it must not make it count as searched.
+            (vi.SimilarTopics, "root rot"): [_blog_doc(snake, 0.99)],
+        }
+    )
+    scores: dict = {}
+    with patch(CORE, side_effect=fake):
+        passages = _retrieve("q", extra_queries=("root rot",), top_scores=scores)
+    assert [p.slug for p in passages] == ["snake-pool-2"]
+    assert scores == {"BlogChunks": floor + 0.1}

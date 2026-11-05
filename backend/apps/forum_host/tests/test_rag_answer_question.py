@@ -155,3 +155,87 @@ def test_floor_and_top_scores_are_threaded_through_retrieval():
             QUESTION, generate=None, persist=False, charge=False, floor=0.6
         )
     assert outcome.top_scores == {"BlogChunks": 0.71, "SimilarTopics": None}
+
+
+# --------------------------------------------------------------------------- #
+# The query rewrite (2026-11-05)                                               #
+# --------------------------------------------------------------------------- #
+
+REWRITE_LLM = "apps.forum_host.rag.generate_ai_text"
+
+
+def test_the_rewrite_ships_off():
+    assert constants.RAG_QUERY_REWRITE_ENABLED is False
+
+
+@pytest.mark.django_db
+def test_rewrite_searches_with_the_question_and_the_rewritten_query():
+    retrieve = MagicMock(return_value=_passages(1))
+    llm = MagicMock(return_value='"root rot snake plant"\n')
+    generate = MagicMock(return_value="It is root rot [1].")
+    with patch(RETRIEVE, retrieve), patch(REWRITE_LLM, llm):
+        outcome = answer_question(
+            QUESTION, generate=generate, persist=False, charge=False, rewrite=True
+        )
+    assert outcome.status == STATUS_ANSWERED
+    assert outcome.rewritten == "root rot snake plant"
+    assert retrieve.call_args.args == (QUESTION,)
+    assert retrieve.call_args.kwargs["extra_queries"] == ("root rot snake plant",)
+    rewrite_prompt = llm.call_args.args[0]
+    assert QUESTION in rewrite_prompt
+    assert (
+        llm.call_args.kwargs["timeout"] == constants.RAG_QUERY_REWRITE_TIMEOUT_SECONDS
+    )
+    # The answering prompt carries the asker's question, never the rewrite.
+    answer_prompt = generate.call_args.args[0]
+    assert QUESTION in answer_prompt and "root rot snake plant" not in answer_prompt
+
+
+@pytest.mark.django_db
+def test_rewrite_off_makes_no_rewrite_call_and_passes_no_extra_query():
+    retrieve = MagicMock(return_value=_passages(1))
+    llm = MagicMock(return_value="root rot")
+    with patch(RETRIEVE, retrieve), patch(REWRITE_LLM, llm):
+        outcome = answer_question(QUESTION, generate=None, charge=False)
+    llm.assert_not_called()
+    assert "extra_queries" not in retrieve.call_args.kwargs
+    assert outcome.rewritten is None
+
+
+@pytest.mark.django_db
+def test_a_referral_or_an_exhausted_budget_never_pays_for_a_rewrite():
+    llm = MagicMock(return_value="root rot")
+    with patch(RETRIEVE, return_value=_passages(1)), patch(REWRITE_LLM, llm):
+        referral = answer_question(
+            "Can my cat eat this plant safely?", generate=None, rewrite=True
+        )
+        _exhaust_rag_budget()
+        exhausted = answer_question(QUESTION, generate=None, rewrite=True)
+    assert referral.status == STATUS_REFERRAL
+    assert exhausted.status == STATUS_BUDGET_EXHAUSTED
+    llm.assert_not_called()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "reply",
+    [
+        RuntimeError("provider down"),
+        "",
+        "   \n  ",
+        "x" * (constants.RAG_QUERY_REWRITE_MAX_CHARS + 1),
+        QUESTION.upper(),
+    ],
+    ids=["raises", "empty", "blank", "over-long", "the-question-back"],
+)
+def test_a_failed_rewrite_falls_back_to_the_question_alone(reply):
+    retrieve = MagicMock(return_value=_passages(1))
+    llm = MagicMock(side_effect=reply if isinstance(reply, Exception) else None)
+    if not isinstance(reply, Exception):
+        llm.return_value = reply
+    with patch(RETRIEVE, retrieve), patch(REWRITE_LLM, llm):
+        outcome = answer_question(QUESTION, generate=None, charge=False, rewrite=True)
+    llm.assert_called_once()
+    assert outcome.status == STATUS_RETRIEVED
+    assert outcome.rewritten is None
+    assert "extra_queries" not in retrieve.call_args.kwargs

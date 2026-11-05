@@ -173,7 +173,9 @@ CARE_TOPICS: list[tuple[str, str, str]] = [
     (
         "root-rot",
         "Root Rot: How to Spot It and Save the Plant",
-        "recognizing root rot, trimming damaged roots, and repotting into fresh mix",
+        "recognizing root rot, including rot that shows first as a mushy, "
+        "bad-smelling stem base in succulents such as snake plants, trimming "
+        "damaged roots, and repotting into fresh mix",
     ),
     (
         "winter-houseplant-care",

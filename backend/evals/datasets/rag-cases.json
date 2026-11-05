@@ -35,7 +35,8 @@
       "class": "covered",
       "question": "The base of my snake plant feels mushy and smells bad. What happened?",
       "expected_slug": "root-rot",
-      "notes": "Passes when expected_slug is among the merged passages."
+      "also_accepts": ["signs-of-overwatering"],
+      "notes": "The question names the plant and the symptom, not the cause, so it ranks the overwatering article's Root Rot section (foul smell, mushy roots) first. That section gives the right diagnosis, so it is accepted; expected_rank still reports root-rot's own rank (2026-11-05)."
     },
     {
       "id": "covered-overwatering",

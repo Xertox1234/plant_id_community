@@ -391,6 +391,57 @@ def test_a_topic_passage_gives_a_non_covered_case_no_expected_rank():
     assert row["expected_score"] is None
 
 
+@override_settings(**DEV)
+@pytest.mark.django_db
+def test_an_also_accepts_slug_passes_a_covered_case_and_sets_its_margin(tmp_path):
+    _seed_blog_chunks()
+    case = {
+        "id": "rot",
+        "class": "covered",
+        "question": "My snake plant base is mushy.",
+        "expected_slug": "root-rot",
+        "also_accepts": ["signs-of-overwatering"],
+    }
+    passages = [
+        _blog("snake-plant-care-guide", 0.6, n=1),
+        _blog("signs-of-overwatering", 0.54, n=2),
+    ]
+    fake = _fake_retrieval(
+        {case["question"]: (passages, {"BlogChunks": 0.6, "SimilarTopics": None})}
+    )
+    with patch(RETRIEVE, side_effect=fake):
+        row = rag_eval.evaluate_case(case, 0.5)
+        output = _run("--cases", str(_cases_file(tmp_path, [case])))
+    assert row["pass"] is True
+    assert row["expected_rank"] is None  # root-rot itself was not retrieved
+    assert row["matched_slug"] == "signs-of-overwatering"
+    assert row["expected_score"] == 0.54
+    assert "   -*  PASS" in output
+    assert "also_accepts" in output
+
+
+@override_settings(**DEV)
+@pytest.mark.django_db
+def test_the_expected_slug_outranking_an_accepted_one_is_the_match():
+    case = {
+        "id": "rot",
+        "class": "covered",
+        "question": "My snake plant base is mushy.",
+        "expected_slug": "root-rot",
+        "also_accepts": ["signs-of-overwatering"],
+    }
+    passages = [_blog("signs-of-overwatering", 0.7, n=1), _blog("root-rot", 0.6, n=2)]
+    fake = _fake_retrieval(
+        {case["question"]: (passages, {"BlogChunks": 0.7, "SimilarTopics": None})}
+    )
+    with patch(RETRIEVE, side_effect=fake):
+        row = rag_eval.evaluate_case(case, 0.5)
+    # The best-ranked accepted slug sets the margin; the primary keeps its rank.
+    assert row["expected_rank"] == 2
+    assert row["matched_slug"] == "signs-of-overwatering"
+    assert row["expected_score"] == 0.7
+
+
 @pytest.mark.parametrize("slug", [["pothos-care-guide"], {"a": 1}, 3])
 def test_a_non_string_expected_slug_is_a_value_error(slug):
     data = {
@@ -420,3 +471,32 @@ def test_similar_topics_not_searching_aborts_the_run(tmp_path):
         CommandError, match="SimilarTopics could not search for case off"
     ):
         _run("--cases", str(_cases_file(tmp_path, SMALL_CASES)))
+
+
+@override_settings(**DEV)
+@pytest.mark.django_db
+@pytest.mark.parametrize("flag", [(), ("--rewrite",), ("--no-rewrite",)])
+def test_rewrite_flag_reaches_answer_question_and_the_summary(tmp_path, flag):
+    _seed_blog_chunks()
+    case = {"id": "c", "class": "covered", "question": "q", "expected_slug": "root-rot"}
+    seen = []
+
+    def fake(question, *, user=None, floor=None, top_scores=None, extra_queries=()):
+        seen.append(extra_queries)
+        top_scores.update({"BlogChunks": 0.6, "SimilarTopics": None})
+        return [_blog("root-rot", 0.6)]
+
+    out = tmp_path / "run.json"
+    with patch(RETRIEVE, side_effect=fake), patch(
+        "apps.forum_host.rag.generate_ai_text", return_value="root rot"
+    ) as llm:
+        output = _run(
+            "--cases", str(_cases_file(tmp_path, [case])), "--json", str(out), *flag
+        )
+    on = flag == ("--rewrite",)  # the default follows RAG_QUERY_REWRITE_ENABLED: off
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["summary"]["rewrite"] is on
+    assert data["cases"][0]["rewritten"] == ("root rot" if on else None)
+    assert seen == [("root rot",) if on else ()]
+    assert llm.called is on
+    assert ("Query rewrite: on" in output) is on
