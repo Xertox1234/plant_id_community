@@ -15,7 +15,8 @@ Runs every case through `answer_question(..., generate=None, persist=False,
 charge=False)`: no completion call, no `RagAnswer` row, none of the live
 `RAG_BUDGET_LIMIT`. The only spend is the question embeddings, charged to
 `EMBED_BUDGET` (about 2 units per non-blocked case, so about 38 of its 1000 for
-the 24 cases).
+the 24 cases), unless `--rewrite` adds one small completion and 2 more units
+per case.
 
 ```bash
 cd backend
@@ -23,6 +24,7 @@ python manage.py rag_eval                       # the shipped cases, RAG_SIMILAR
 python manage.py rag_eval --floor 0.55          # measure a floor before changing it
 python manage.py rag_eval --json run-0.55.json  # also writes evals/results/run-0.55.json
 python manage.py rag_eval --cases path/to/other-cases.json
+python manage.py rag_eval --rewrite             # also search with the query rewrite
 ```
 
 It prints one row per case (id, class, outcome, top `BlogChunks` score, top
@@ -32,7 +34,7 @@ score's margin under it. Case failures are reported, not an error exit.
 
 | Class | Passes when |
 |---|---|
-| `covered` | not a referral, and `expected_slug` is among the merged passages the prompt would see |
+| `covered` | not a referral, and `expected_slug` (or one of its optional `also_accepts` slugs) is among the merged passages the prompt would see |
 | `adjacent` | reported only: the class the floor is tuned on |
 | `off-corpus` | nothing clears the floor (`no_information`) |
 | `blocked-ingestion` / `blocked-chemical` | a referral with reason `ingestion` / `chemical_dosing`, before any retrieval |
@@ -51,6 +53,33 @@ cleared the floor; at 0.5 all 3 off-corpus cases refuse, and the weakest
 covered case keeps a 0.055 margin. `covered-snake-root-rot` fails at both
 floors: its expected article is not among the merged passages, a retrieval
 ranking issue the floor cannot fix.
+
+**`covered-snake-root-rot`, diagnosed 2026-11-05.** The question names the
+plant and the symptom ("the base is mushy and smells bad"), not the cause, and
+the local `root-rot` article never mentioned snake plants or a rotting stem
+base: its best chunk ranked 15th (0.432). Three changes followed:
+
+- **`also_accepts`.** The overwatering article's Root Rot section ranked first
+  (0.544) and gives the right diagnosis, so the case accepts it. The `rank`
+  column still reports `expected_slug`'s own rank; a `*` marks a pass on an
+  `also_accepts` slug, and the margin is read off the passage that matched.
+- **The article.** A "Rot at the Base of the Stem" section (succulents, snake
+  plants, a mushy base, a sour smell) moved `root-rot` to rank 1 (0.641), and
+  the `care_topics.py` brief now asks for it. The section was added by hand to
+  the local dev article; `generate_care_drafts` skips an existing slug, so
+  another dev DB shows rank 1 only once the section is added there too. It also ranks in the top 2 for
+  aloe, ZZ and jade wordings the section was not written for.
+- **The query rewrite** (`RAG_QUERY_REWRITE_ENABLED`, **off**). A small
+  completion rewrites the question as a diagnosis-style query ("root rot snake
+  plant") and retrieval searches with both, keeping each chunk's best score.
+  Measured first: full-text search could not fix this case (best `root-rot`
+  rank 12), a rewrite alone dropped fiddle-leaf under the floor, and a
+  hypothetical-answer rewrite pushed two off-corpus cases over it. The union
+  loses nothing: with the original article it puts `root-rot` in the merged
+  passages (rank 3), and with the fixed one the weakest covered margin goes
+  from 0.055 to 0.102 while the strongest off-corpus score stays at 0.487. It costs one more
+  completion (not counted against `RAG_BUDGET_LIMIT`) and two more embeddings
+  per ask; turn it on only after `rag_eval --rewrite` on the real corpus.
 
 ## Phase 2: `manage.py rag_eval_judged` (judged, before a model or prompt swap)
 

@@ -67,6 +67,11 @@ def test_covered_cases_name_a_care_topics_slug():
         (lambda c: c.update({"surprise": 1}), "unknown fields"),
         (lambda c: c.pop("question"), "missing fields"),
         (lambda c: c.update({"question": "  "}), "non-empty"),
+        (lambda c: c.update({"also_accepts": "root-rot"}), "also_accepts"),
+        (lambda c: c.update({"also_accepts": []}), "also_accepts"),
+        (lambda c: c.update({"also_accepts": ["no-such-article"]}), "also_accepts"),
+        (lambda c: c.update({"also_accepts": [c["expected_slug"]]}), "repeats"),
+        (lambda c: c.update({"also_accepts": ["root-rot", "root-rot"]}), "repeats"),
     ],
 )
 def test_schema_check_rejects_a_broken_case(mutate, message):
@@ -87,4 +92,10 @@ def test_schema_check_rejects_a_duplicate_id_and_a_slug_on_a_non_covered_case():
     other = next(c for c in data["cases"] if c["class"] != COVERED)
     other["expected_slug"] = "root-rot"
     with pytest.raises(ValueError, match="only covered"):
+        validate_cases(data)
+
+    data = _data()
+    other = next(c for c in data["cases"] if c["class"] != COVERED)
+    other["also_accepts"] = ["root-rot"]
+    with pytest.raises(ValueError, match="only covered cases take also_accepts"):
         validate_cases(data)

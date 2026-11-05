@@ -18,7 +18,7 @@ AI feature in the repo); the order of operations is the design. Steps 1-2 are
 the view's (``post()``); steps 3-7 are ``answer_question()``, which the view and
 ``manage.py rag_eval`` both call (todo 694) — the eval with ``persist=False,
 charge=False`` and ``generate=None``, so a run writes no rows, spends none of the
-RAG budget and makes no completion call:
+RAG budget and makes no completion call (unless the query rewrite is on):
 
 1. Two-flag gate → 503 ``disabled``. M13 is a strict superset of H15, so
    ``FORUM_RAG_ENABLED`` alone is not enough — with vector search off every
@@ -119,6 +119,34 @@ STATUS_BUDGET_EXHAUSTED = "budget_exhausted"
 STATUS_RETRIEVED = "retrieved"
 
 
+def _rewrite_query(question: str) -> str | None:
+    """A diagnosis-style search query for ``question``, or ``None``.
+
+    ``None`` on any failure (provider error, empty, over-long, the same text
+    back): retrieval then searches with the question alone, exactly as with
+    the rewrite off. Never raises. Through ``generate_ai_text`` and its
+    prompt-keyed cache on purpose: the same question should search the same
+    way, and a repeat costs nothing.
+    """
+    prompt = constants.RAG_QUERY_REWRITE_PROMPT.format(question=question)
+    try:
+        reply = generate_ai_text(
+            prompt,
+            alias=constants.RAG_ALIAS,
+            timeout=constants.RAG_QUERY_REWRITE_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        logger.exception("[ERROR] Forum plant-care query rewrite failed")
+        return None
+    lines = (reply or "").strip().splitlines()
+    query = lines[0].strip().strip("\"'").strip() if lines else ""
+    if not query or len(query) > constants.RAG_QUERY_REWRITE_MAX_CHARS:
+        return None
+    if query.casefold() == question.casefold():
+        return None
+    return query
+
+
 class _DefaultGenerate:
     """Sentinel type for ``answer_question``'s default ``generate``."""
 
@@ -135,7 +163,8 @@ class RagOutcome:
     ``top_scores`` is the best raw score per index before the floor, keyed by
     index class name: ``None`` when an index searched and found nothing, no
     key when it could not search; empty when retrieval never ran (a referral,
-    an exhausted budget).
+    an exhausted budget). ``rewritten`` is the extra search query the rewrite
+    produced, ``None`` when the rewrite was off, failed or never reached.
     """
 
     status: str
@@ -146,6 +175,7 @@ class RagOutcome:
     answer: str | None = None
     citations: list[int] = field(default_factory=list)
     answer_id: int | None = None
+    rewritten: str | None = None
 
 
 def answer_question(
@@ -157,6 +187,7 @@ def answer_question(
     charge: bool = True,
     floor: float | None = None,
     template: str | None = None,
+    rewrite: bool | None = None,
 ) -> RagOutcome:
     """The RAG pipeline after body validation (todo 694, spec §4).
 
@@ -168,7 +199,8 @@ def answer_question(
     - ``generate`` — the completion callable, ``generate_ai_text``'s shape.
       ``None`` makes this a retrieval-only call: it returns after retrieval,
       the floor and the passage merge with status ``retrieved`` (non-empty) or
-      ``no_information`` (empty), and never calls a completion model. The
+      ``no_information`` (empty), and never calls the answering model (the
+      query rewrite, when on, is its own small completion). The
       default is ``generate_ai_text``, resolved at CALL time through a
       sentinel: a default bound at import would escape a patch of
       ``apps.forum_host.rag.generate_ai_text``.
@@ -179,6 +211,11 @@ def answer_question(
     - ``template`` — ``None`` means ``RAG_PROMPT_TEMPLATE``. Only the judged
       eval passes another; a persisted row records ``RAG_PROMPT_VERSION``, so
       a request path must never pass one.
+    - ``rewrite`` — ``None`` means ``RAG_QUERY_REWRITE_ENABLED``. When on, the
+      question is also searched as ``_rewrite_query`` phrases it, after the
+      referral check and the budget peek, so a blocked or unaffordable
+      question never pays for it. The rewrite is only a search query: the
+      prompt and the persisted row carry the asker's own question.
 
     Never raises for a provider failure: that is status ``unavailable``.
     """
@@ -202,22 +239,35 @@ def answer_question(
     ):
         return RagOutcome(status=STATUS_BUDGET_EXHAUSTED)
 
+    if rewrite is None:
+        rewrite = constants.RAG_QUERY_REWRITE_ENABLED
+    rewritten = _rewrite_query(question) if rewrite else None
+    # Only passed when there is one, so the rewrite-off call is unchanged.
+    extra = {"extra_queries": (rewritten,)} if rewritten else {}
+
     top_scores: dict[str, float | None] = {}
     # user= is safe here: the ask view's response is per-asker and never cached.
     passages = retrieve_grounding_passages(
-        question, user=user, floor=floor, top_scores=top_scores
+        question, user=user, floor=floor, top_scores=top_scores, **extra
     )
     if passages is None:
         # No index could search (embedding budget exhausted, provider
         # down): TRANSIENT, and not a claim about the corpus. Nothing
         # charged — nothing reached a provider.
-        return RagOutcome(status=STATUS_UNAVAILABLE, top_scores=top_scores)
+        return RagOutcome(
+            rewritten=rewritten, status=STATUS_UNAVAILABLE, top_scores=top_scores
+        )
     if not passages:
         # Guardrail 1 — refuse when unsourced. No LLM call, no charge.
-        return RagOutcome(status=STATUS_NO_INFORMATION, top_scores=top_scores)
+        return RagOutcome(
+            rewritten=rewritten, status=STATUS_NO_INFORMATION, top_scores=top_scores
+        )
     if generate is None:
         return RagOutcome(
-            status=STATUS_RETRIEVED, passages=list(passages), top_scores=top_scores
+            rewritten=rewritten,
+            status=STATUS_RETRIEVED,
+            passages=list(passages),
+            top_scores=top_scores,
         )
 
     prompt = _build_prompt(question, passages, template)
@@ -230,7 +280,10 @@ def answer_question(
         # the provider).
         logger.exception("[ERROR] Forum plant-care answer provider call failed")
         return RagOutcome(
-            status=STATUS_UNAVAILABLE, passages=list(passages), top_scores=top_scores
+            rewritten=rewritten,
+            status=STATUS_UNAVAILABLE,
+            passages=list(passages),
+            top_scores=top_scores,
         )
 
     # Charged on any call that RETURNED, before the emptiness check — an
@@ -244,11 +297,17 @@ def answer_question(
     if not text:
         logger.warning("[ERROR] Forum plant-care answer came back empty")
         return RagOutcome(
-            status=STATUS_UNAVAILABLE, passages=list(passages), top_scores=top_scores
+            rewritten=rewritten,
+            status=STATUS_UNAVAILABLE,
+            passages=list(passages),
+            top_scores=top_scores,
         )
     if is_no_information(text):
         return RagOutcome(
-            status=STATUS_PASSAGES_ONLY, passages=list(passages), top_scores=top_scores
+            rewritten=rewritten,
+            status=STATUS_PASSAGES_ONLY,
+            passages=list(passages),
+            top_scores=top_scores,
         )
 
     # Guardrail 3 — drop invented [n]; suppress a citation-free answer.
@@ -256,7 +315,10 @@ def answer_question(
     if not citations:
         logger.info("[RAG] answer suppressed: zero valid citations")
         return RagOutcome(
-            status=STATUS_PASSAGES_ONLY, passages=list(passages), top_scores=top_scores
+            rewritten=rewritten,
+            status=STATUS_PASSAGES_ONLY,
+            passages=list(passages),
+            top_scores=top_scores,
         )
 
     answer_id = None
@@ -270,6 +332,7 @@ def answer_question(
         )
         answer_id = row.pk
     return RagOutcome(
+        rewritten=rewritten,
         status=STATUS_ANSWERED,
         passages=list(passages),
         top_scores=top_scores,

@@ -5,7 +5,8 @@ case in ``backend/evals/datasets/rag-cases.json`` through ``answer_question``
 with ``generate=None, persist=False, charge=False``: no completion call, no
 ``RagAnswer`` row, none of the live ``RAG_BUDGET_LIMIT``. The only spend is the
 question embeddings, charged to ``EMBED_BUDGET`` (about 2 units per
-non-blocked case).
+non-blocked case). ``--rewrite`` (or ``RAG_QUERY_REWRITE_ENABLED``) adds the
+query rewrite: one small completion and 2 more embedding units per case.
 
 Never run on a production shell. It refuses when ``DEBUG`` is False, when a
 Railway environment is detected, when ``FORUM_VECTOR_SEARCH_ENABLED`` is off,
@@ -18,6 +19,7 @@ Case failures do not change the exit status: the command reports. Recipe for
 loading the corpus into a dev DB: ``backend/evals/README.md``.
 """
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -72,9 +74,9 @@ BLOCKED_REASONS = {BLOCKED_INGESTION: INGESTION, BLOCKED_CHEMICAL: CHEMICAL_DOSI
 
 # Every case field is forwarded to the check or marked metadata (spec §3,
 # field-forwarding rule): `question` goes to answer_question, `class` and
-# `expected_slug` drive the assertion, `id` labels the row, `notes` is
-# metadata and never forwarded.
-CASE_FIELDS = {"id", "class", "question", "expected_slug", "notes"}
+# `expected_slug` and `also_accepts` drive the assertion, `id` labels the row,
+# `notes` is metadata and never forwarded.
+CASE_FIELDS = {"id", "class", "question", "expected_slug", "also_accepts", "notes"}
 REQUIRED_FIELDS = {"id", "class", "question"}
 
 
@@ -122,8 +124,24 @@ def validate_cases(data: Any) -> list[dict]:
                 raise ValueError(
                     f"case {label}: expected_slug must be a care_topics.py slug"
                 )
-        elif "expected_slug" in case:
-            raise ValueError(f"case {label}: only covered cases take expected_slug")
+            also = case.get("also_accepts", [])
+            if "also_accepts" in case and (
+                not isinstance(also, list)
+                or not also
+                or not all(isinstance(s, str) and s in slugs for s in also)
+            ):
+                raise ValueError(
+                    f"case {label}: also_accepts must be a non-empty list of "
+                    "care_topics.py slugs"
+                )
+            if expected in also or len(set(also)) != len(also):
+                raise ValueError(
+                    f"case {label}: also_accepts repeats a slug or the expected_slug"
+                )
+        else:
+            for key in ("expected_slug", "also_accepts"):
+                if key in case:
+                    raise ValueError(f"case {label}: only covered cases take {key}")
     return cases
 
 
@@ -143,11 +161,16 @@ def _top(outcome: RagOutcome, index: str) -> float | None:
     return outcome.top_scores.get(index)
 
 
-def evaluate_case(case: dict, floor: float) -> dict:
+def evaluate_case(case: dict, floor: float, rewrite: bool = False) -> dict:
     """Run one case and return its result row. Raises ``CommandError`` when
     retrieval was unavailable: an environment error, not a case result."""
     outcome = answer_question(
-        case["question"], generate=None, persist=False, charge=False, floor=floor
+        case["question"],
+        generate=None,
+        persist=False,
+        charge=False,
+        floor=floor,
+        rewrite=rewrite,
     )
     if outcome.status == STATUS_UNAVAILABLE:
         raise CommandError(
@@ -171,18 +194,25 @@ def evaluate_case(case: dict, floor: float) -> dict:
     cls = case["class"]
     slugs = [p.slug if p.kind == "blog" else None for p in outcome.passages]
     expected = case.get("expected_slug")
+    accepted = [expected, *case.get("also_accepts", [])] if expected else []
     # Topic passages carry slug None, so match only a real expected slug.
+    # `expected_rank` is the primary slug's rank; the case passes on the
+    # best-ranked accepted slug, whose score is the margin the floor reads.
     rank = (
         slugs.index(expected) + 1
-        if expected is not None and expected in slugs
+        if expected in accepted and expected in slugs
         else None
     )
-    expected_score = outcome.passages[rank - 1].score if rank else None
+    matched_rank = min(
+        (slugs.index(s) + 1 for s in accepted if s in slugs), default=None
+    )
+    matched_slug = slugs[matched_rank - 1] if matched_rank else None
+    expected_score = outcome.passages[matched_rank - 1].score if matched_rank else None
     referral = outcome.status == STATUS_REFERRAL
 
     passed: bool | None
     if cls == COVERED:
-        passed = not referral and rank is not None
+        passed = not referral and matched_rank is not None
     elif cls == ADJACENT:
         passed = None  # reported, not asserted: the floor is tuned on this class
     elif cls == OFF_CORPUS:
@@ -201,8 +231,10 @@ def evaluate_case(case: dict, floor: float) -> dict:
         "top_similar_topics": _top(outcome, "SimilarTopics"),
         "expected_slug": expected,
         "expected_rank": rank,
+        "matched_slug": matched_slug,
         "expected_score": expected_score,
         "cleared_floor": bool(outcome.passages),
+        "rewritten": outcome.rewritten,
         "pass": passed,
     }
 
@@ -271,6 +303,16 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
+            "--rewrite",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help=(
+                "Also search with the query rewrite (one cheap completion per "
+                "case, not charged to RAG_BUDGET_LIMIT). Default: "
+                "RAG_QUERY_REWRITE_ENABLED."
+            ),
+        )
+        parser.add_argument(
             "--json",
             metavar="OUT",
             help=(
@@ -315,8 +357,12 @@ class Command(BaseCommand):
                 "first (evals/README.md)."
             )
 
-        rows = [evaluate_case(case, floor) for case in cases]
+        rewrite = options["rewrite"]
+        if rewrite is None:
+            rewrite = constants.RAG_QUERY_REWRITE_ENABLED
+        rows = [evaluate_case(case, floor, rewrite) for case in cases]
         summary = summarise(rows, floor)
+        summary["rewrite"] = rewrite
         self._print(rows, summary)
 
         if options["json"]:
@@ -340,13 +386,19 @@ class Command(BaseCommand):
         for r in rows:
             verdict = "-" if r["pass"] is None else ("PASS" if r["pass"] else "FAIL")
             rank = "-" if r["expected_rank"] is None else str(r["expected_rank"])
+            if r["matched_slug"] not in (None, r["expected_slug"]):
+                rank += "*"  # passed on an also_accepts slug
             self.stdout.write(
                 f"{r['id']:<32} {r['class']:<18} {r['outcome']:<15} "
                 f"{_fmt(r['top_blog_chunks']):>6} {_fmt(r['top_similar_topics']):>6} "
                 f"{rank:>4}  {verdict}"
             )
         self.stdout.write("")
+        if any(r.get("matched_slug") not in (None, r["expected_slug"]) for r in rows):
+            self.stdout.write("* passed on an also_accepts slug, not expected_slug")
         self.stdout.write(f"Floor: {summary['floor']:.3f}")
+        if summary.get("rewrite"):
+            self.stdout.write("Query rewrite: on")
         for cls, counts in summary["per_class"].items():
             if counts["asserted"]:
                 self.stdout.write(
