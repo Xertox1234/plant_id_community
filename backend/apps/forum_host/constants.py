@@ -557,7 +557,15 @@ RAG_REPORT_QUESTION_PREVIEW_CHARS = 80
 # off-topic one without a call and keeps an 0.11 margin under the weakest
 # answer. rag_retrieval.py logs the top score per index on every question
 # ([RAG] lines); re-check against those as the corpus grows.
-RAG_SIMILARITY_FLOOR = 0.45
+#
+# 0.5, measured (manage.py rag_eval, 2026-11-04; owner decision the same day):
+# 23 cases against a local corpus of 53 AI-drafted care articles. At 0.45 the
+# off-corpus fig-overwintering question (top 0.487) cleared the floor and would
+# have paid for a completion; at 0.5 all 3 off-corpus cases refuse without a
+# call. The weakest covered case still clears it (0.555, a 0.055 margin), and
+# no covered result changed. Margins are thin on both sides (off-corpus 0.013
+# under): re-run `manage.py rag_eval` after any corpus change.
+RAG_SIMILARITY_FLOOR = 0.5
 
 # Per-index overfetch: each index returns this many scored chunks before the
 # floor, the visibility refetch and the per-source dedupe thin them out.

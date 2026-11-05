@@ -20,8 +20,8 @@ the 24 cases).
 ```bash
 cd backend
 python manage.py rag_eval                       # the shipped cases, RAG_SIMILARITY_FLOOR
-python manage.py rag_eval --floor 0.5           # measure a floor before changing it
-python manage.py rag_eval --json run-0.5.json   # also writes evals/results/run-0.5.json
+python manage.py rag_eval --floor 0.55          # measure a floor before changing it
+python manage.py rag_eval --json run-0.55.json  # also writes evals/results/run-0.55.json
 python manage.py rag_eval --cases path/to/other-cases.json
 ```
 
@@ -45,14 +45,23 @@ is off, and when the `BlogChunks` index is empty. A case whose retrieval comes
 back unavailable (embedding budget exhausted, provider down) aborts the run.
 **Never run it on a production shell.** Nothing here reads production data.
 
-## Phase 2: `manage.py rag_eval_judged` (judged, before a model swap)
+**The floor moved 0.45 → 0.5 on 2026-11-04** from this command's numbers
+(local corpus): at 0.45 the off-corpus fig-overwintering case (top 0.487)
+cleared the floor; at 0.5 all 3 off-corpus cases refuse, and the weakest
+covered case keeps a 0.055 margin. `covered-snake-root-rot` fails at both
+floors: its expected article is not among the merged passages, a retrieval
+ranking issue the floor cannot fix.
+
+## Phase 2: `manage.py rag_eval_judged` (judged, before a model or prompt swap)
 
 A paired comparison on the `covered` and `adjacent` cases only (blocked and
 off-corpus cases never reach the model). Each case runs through
-`answer_question(..., persist=False, charge=False)` twice: the **old** arm
-generates with `--old-model` (default: the production model,
-`WAGTAIL_AI["PROVIDERS"]["default"]["model"]`), the **new** arm with
-`--new-model`. The judge, `EVAL_JUDGE_MODEL` (`claude-sonnet-5-5`, pinned in
+`answer_question(..., persist=False, charge=False)` twice, once per arm. An arm
+is a model and a prompt template. The **old** arm defaults to the production
+model (`WAGTAIL_AI["PROVIDERS"]["default"]["model"]`) and `RAG_PROMPT_TEMPLATE`;
+`--old-model`/`--old-prompt` override it. The **new** arm takes the old arm's
+values unless `--new-model`/`--new-prompt` say otherwise, and must change at
+least one. The judge, `EVAL_JUDGE_MODEL` (`claude-sonnet-5-5`, pinned in
 `apps/forum_host/constants.py`), then scores each answer 1-10, with a one-line
 reason, on groundedness, relevance and safety. It reads the exact prompt the
 answering model received: rules, question and numbered passages.
@@ -61,7 +70,18 @@ answering model received: rules, question and numbered passages.
 cd backend
 python manage.py rag_eval_judged --new-model gpt-4o-mini                 # A/A: measures noise
 python manage.py rag_eval_judged --new-model <candidate> --runs 3 --json swap.json
+python manage.py rag_eval_judged --new-prompt prompt-v2.txt --runs 3 --json prompt-v2.json
 ```
+
+- **A prompt file** is a text file holding a whole template, like
+  `RAG_PROMPT_TEMPLATE`: exactly the `{question}` and `{passages}` fields (a
+  literal brace is written `{{` or `}}`) and the `NO_INFORMATION` sentinel.
+  Anything else is refused before a call. The output names each arm's prompt
+  as `production@<hash>` or `<file>@<hash>` (first 12 hex of its SHA-256), so a
+  result records the exact text it ran. The judge's rubric is fixed, so a
+  candidate that drops a rule (safety, citations) is still scored against it.
+  Shipping a winner means editing `RAG_PROMPT_TEMPLATE` and bumping
+  `RAG_PROMPT_VERSION`, which every `RagAnswer` row records.
 
 - **Keys.** The judge needs `ANTHROPIC_API_KEY` in `backend/.env`, local only:
   never committed, never a repository or Railway secret. Generation uses the
@@ -96,11 +116,14 @@ python manage.py rag_eval_judged --new-model <candidate> --runs 3 --json swap.js
   projection. Means per arm differed by up to 0.42, and one case moved 3
   points on groundedness with no change at all: a single run can show a false
   regression, which is why a difference is read across 3 runs.
+  The first prompt comparison the same day (the production prompt with "at
+  most 3 sentences" for 5, one run) cost $0.14 for 50 calls: means moved by
+  under 0.2 and one case dropped 2 points, the same size as the A/A noise.
 - **It refuses to run** under the same conditions as phase 1, plus a missing
   `ANTHROPIC_API_KEY`.
-- **Not built yet: a prompt swap.** Old and new differ by model id only. A
-  prompt candidate is a different `generate` (or prompt template) passed to
-  `answer_question`, which the command would need a second option for.
+- **A/A first.** Before reading a model or prompt difference, an A/A run
+  (`--new-model` set to the production model) shows the noise on the same
+  corpus.
 
 ## Loading the corpus into a dev DB
 

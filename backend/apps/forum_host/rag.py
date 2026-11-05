@@ -78,13 +78,17 @@ from .vector_indexes import rag_enabled
 logger = logging.getLogger(__name__)
 
 
-def _build_prompt(question: str, passages) -> str:
+def _build_prompt(question: str, passages, template: str | None = None) -> str:
     """Number the passages exactly as the ``sources`` array does, so a ``[n]``
-    the model emits resolves to the source the client shows under ``n``."""
+    the model emits resolves to the source the client shows under ``n``.
+    ``template`` — ``None`` means ``RAG_PROMPT_TEMPLATE``; ``manage.py
+    rag_eval_judged --new-prompt`` passes a candidate to compare against it."""
     numbered = "\n\n".join(
         f"[{p.n}] ({p.kind}: {p.title}, {p.date})\n{p.text}" for p in passages
     )
-    return constants.RAG_PROMPT_TEMPLATE.format(question=question, passages=numbered)
+    if template is None:
+        template = constants.RAG_PROMPT_TEMPLATE
+    return template.format(question=question, passages=numbered)
 
 
 def _passages_only(passages) -> Response:
@@ -152,6 +156,7 @@ def answer_question(
     persist: bool = True,
     charge: bool = True,
     floor: float | None = None,
+    template: str | None = None,
 ) -> RagOutcome:
     """The RAG pipeline after body validation (todo 694, spec §4).
 
@@ -171,6 +176,9 @@ def answer_question(
     - ``charge=False`` skips the ``RAG_BUDGET_LIMIT`` peek and consume. The
       question embedding is still charged to ``EMBED_BUDGET`` by retrieval.
     - ``floor`` — ``None`` means ``RAG_SIMILARITY_FLOOR``.
+    - ``template`` — ``None`` means ``RAG_PROMPT_TEMPLATE``. Only the judged
+      eval passes another; a persisted row records ``RAG_PROMPT_VERSION``, so
+      a request path must never pass one.
 
     Never raises for a provider failure: that is status ``unavailable``.
     """
@@ -212,7 +220,7 @@ def answer_question(
             status=STATUS_RETRIEVED, passages=list(passages), top_scores=top_scores
         )
 
-    prompt = _build_prompt(question, passages)
+    prompt = _build_prompt(question, passages, template)
     try:
         reply = generate(
             prompt, alias=constants.RAG_ALIAS, timeout=constants.RAG_TIMEOUT_SECONDS
