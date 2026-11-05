@@ -250,6 +250,15 @@ void main() {
       expect(fakeMessaging.requestPermissionCalls, 0);
     });
 
+    test('a permanent denial reads as off, never asking again', () async {
+      fakeMessaging.authorization = AuthorizationStatus.deniedPermanently;
+
+      await service.syncAfterLogin();
+
+      expect(service.status.value.permission, PushPermission.denied);
+      expect(fakeMessaging.requestPermissionCalls, 0);
+    });
+
     test('requestPermission (the settings tile) reports the answer', () async {
       fakeMessaging.authorization = AuthorizationStatus.notDetermined;
       fakeMessaging.authorizationAfterRequest = AuthorizationStatus.denied;

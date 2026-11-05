@@ -638,6 +638,314 @@ abstract class _$RecentTopics extends $AsyncNotifier<List<ForumTopicStub>> {
   }
 }
 
+/// The home activity feed — the ten most recent topics with solved/unread
+/// state and a wide image. Distinct from [RecentTopics], the offline mirror.
+
+@ProviderFor(homeRecentTopics)
+final homeRecentTopicsProvider = HomeRecentTopicsProvider._();
+
+/// The home activity feed — the ten most recent topics with solved/unread
+/// state and a wide image. Distinct from [RecentTopics], the offline mirror.
+
+final class HomeRecentTopicsProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<List<ForumRecentTopic>>,
+          List<ForumRecentTopic>,
+          FutureOr<List<ForumRecentTopic>>
+        >
+    with
+        $FutureModifier<List<ForumRecentTopic>>,
+        $FutureProvider<List<ForumRecentTopic>> {
+  /// The home activity feed — the ten most recent topics with solved/unread
+  /// state and a wide image. Distinct from [RecentTopics], the offline mirror.
+  HomeRecentTopicsProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: forumRetry,
+        name: r'homeRecentTopicsProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$homeRecentTopicsHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<List<ForumRecentTopic>> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<List<ForumRecentTopic>> create(Ref ref) {
+    return homeRecentTopics(ref);
+  }
+}
+
+String _$homeRecentTopicsHash() => r'a73787f331011d02d6ebc24b693927ede272eeff';
+
+/// A topic's latest-replies peek. Kept alive while the forum home is mounted
+/// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the
+/// home invalidates it on pull-to-refresh and when the viewer changes.
+
+@ProviderFor(latestReplies)
+final latestRepliesProvider = LatestRepliesFamily._();
+
+/// A topic's latest-replies peek. Kept alive while the forum home is mounted
+/// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the
+/// home invalidates it on pull-to-refresh and when the viewer changes.
+
+final class LatestRepliesProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<ForumLatestReplies>,
+          ForumLatestReplies,
+          FutureOr<ForumLatestReplies>
+        >
+    with
+        $FutureModifier<ForumLatestReplies>,
+        $FutureProvider<ForumLatestReplies> {
+  /// A topic's latest-replies peek. Kept alive while the forum home is mounted
+  /// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the
+  /// home invalidates it on pull-to-refresh and when the viewer changes.
+  LatestRepliesProvider._({
+    required LatestRepliesFamily super.from,
+    required int super.argument,
+  }) : super(
+         retry: forumRetry,
+         name: r'latestRepliesProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$latestRepliesHash();
+
+  @override
+  String toString() {
+    return r'latestRepliesProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<ForumLatestReplies> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<ForumLatestReplies> create(Ref ref) {
+    final argument = this.argument as int;
+    return latestReplies(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is LatestRepliesProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$latestRepliesHash() => r'daa94c9dce11233d1792f525c00fd27217c9f0f3';
+
+/// A topic's latest-replies peek. Kept alive while the forum home is mounted
+/// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the
+/// home invalidates it on pull-to-refresh and when the viewer changes.
+
+final class LatestRepliesFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<ForumLatestReplies>, int> {
+  LatestRepliesFamily._()
+    : super(
+        retry: forumRetry,
+        name: r'latestRepliesProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// A topic's latest-replies peek. Kept alive while the forum home is mounted
+  /// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the
+  /// home invalidates it on pull-to-refresh and when the viewer changes.
+
+  LatestRepliesProvider call(int topicId) =>
+      LatestRepliesProvider._(argument: topicId, from: this);
+
+  @override
+  String toString() => r'latestRepliesProvider';
+}
+
+/// The forum home's lifetime, for the data that should outlive a widget on
+/// the home but not the home itself (spec §6.4: a peek lives "while the
+/// screen is alive"). `ForumScreen` watches it; when the screen goes, it is
+/// disposed and releases every peek it held. Read with no home mounted, it
+/// is disposed at once and a peek is an ordinary autoDispose read.
+
+@ProviderFor(forumHomeScope)
+final forumHomeScopeProvider = ForumHomeScopeProvider._();
+
+/// The forum home's lifetime, for the data that should outlive a widget on
+/// the home but not the home itself (spec §6.4: a peek lives "while the
+/// screen is alive"). `ForumScreen` watches it; when the screen goes, it is
+/// disposed and releases every peek it held. Read with no home mounted, it
+/// is disposed at once and a peek is an ordinary autoDispose read.
+
+final class ForumHomeScopeProvider
+    extends $FunctionalProvider<ForumHomeScope, ForumHomeScope, ForumHomeScope>
+    with $Provider<ForumHomeScope> {
+  /// The forum home's lifetime, for the data that should outlive a widget on
+  /// the home but not the home itself (spec §6.4: a peek lives "while the
+  /// screen is alive"). `ForumScreen` watches it; when the screen goes, it is
+  /// disposed and releases every peek it held. Read with no home mounted, it
+  /// is disposed at once and a peek is an ordinary autoDispose read.
+  ForumHomeScopeProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'forumHomeScopeProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$forumHomeScopeHash();
+
+  @$internal
+  @override
+  $ProviderElement<ForumHomeScope> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  ForumHomeScope create(Ref ref) {
+    return forumHomeScope(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(ForumHomeScope value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<ForumHomeScope>(value),
+    );
+  }
+}
+
+String _$forumHomeScopeHash() => r'39365d0df5f918f71a59f94428f4d564ac638d14';
+
+/// Community counters for the home "Who's online" card.
+
+@ProviderFor(communityStats)
+final communityStatsProvider = CommunityStatsProvider._();
+
+/// Community counters for the home "Who's online" card.
+
+final class CommunityStatsProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<ForumCommunityStats>,
+          ForumCommunityStats,
+          FutureOr<ForumCommunityStats>
+        >
+    with
+        $FutureModifier<ForumCommunityStats>,
+        $FutureProvider<ForumCommunityStats> {
+  /// Community counters for the home "Who's online" card.
+  CommunityStatsProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: forumRetry,
+        name: r'communityStatsProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$communityStatsHash();
+
+  @$internal
+  @override
+  $FutureProviderElement<ForumCommunityStats> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<ForumCommunityStats> create(Ref ref) {
+    return communityStats(ref);
+  }
+}
+
+String _$communityStatsHash() => r'6ebf247ba745cd1575862dcea97826fa7890c252';
+
+/// The activity card currently expanded on the forum home (one at a time).
+
+@ProviderFor(ExpandedActivityTopic)
+final expandedActivityTopicProvider = ExpandedActivityTopicProvider._();
+
+/// The activity card currently expanded on the forum home (one at a time).
+final class ExpandedActivityTopicProvider
+    extends $NotifierProvider<ExpandedActivityTopic, int?> {
+  /// The activity card currently expanded on the forum home (one at a time).
+  ExpandedActivityTopicProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'expandedActivityTopicProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$expandedActivityTopicHash();
+
+  @$internal
+  @override
+  ExpandedActivityTopic create() => ExpandedActivityTopic();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(int? value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<int?>(value),
+    );
+  }
+}
+
+String _$expandedActivityTopicHash() =>
+    r'018c0b87a148325e87b8eddbc556da9093405f01';
+
+/// The activity card currently expanded on the forum home (one at a time).
+
+abstract class _$ExpandedActivityTopic extends $Notifier<int?> {
+  int? build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<int?, int?>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<int?, int?>,
+              int?,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
 /// The user's notifications (cursor-paginated, newest first).
 
 @ProviderFor(NotificationsFeed)
@@ -670,7 +978,7 @@ final class NotificationsFeedProvider
   NotificationsFeed create() => NotificationsFeed();
 }
 
-String _$notificationsFeedHash() => r'a5d19458edf41647f2c59a1851c4251a141e9160';
+String _$notificationsFeedHash() => r'b0c0e73f3cd0cb8f32e0541f95ba6643acf32b19';
 
 /// The user's notifications (cursor-paginated, newest first).
 

@@ -132,9 +132,12 @@ Compact checklist auto-injected before edits.
   — monkeypatch the fast-path check to miss once and assert the locked re-check
   reuses the existing row (see `wagtail_forum/tests/test_collections.py`).
 - **Running backend tests from a git worktree needs two guards:** (1) the venv's
-  `wagtail_forum` is an *editable install pointing at the main checkout* — prepend
-  `PYTHONPATH=<worktree>/backend/packages/wagtail_forum` or the worktree's package
-  edits are silently NOT under test (import-file-mismatch collection errors are
+  `wagtail_forum` is an *editable install pointing at the main checkout*. For
+  pytest, `backend/pytest.ini` handles it (`pythonpath = . packages/wagtail_forum`,
+  todo 688), so no prefix is needed. Anything that is not pytest (`manage.py`,
+  `mypy`, `python -c`) still imports the main checkout's copy: prepend
+  `PYTHONPATH=<worktree>/backend/packages/wagtail_forum` there, or the worktree's
+  package edits are silently NOT under test (import-file-mismatch collection errors are
   the tell); (2) never run two pytest sessions concurrently — they share the one
   `test_plant_community` Postgres DB and cross-kill with phantom connection
   errors/DuplicateDatabase. See `docs/LEARNINGS.md` 2026-07-17.

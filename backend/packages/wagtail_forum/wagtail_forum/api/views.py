@@ -94,7 +94,7 @@ except ImportError:  # pragma: no cover
 from ..blocks import ForumBodyBlock
 from ..collections import get_forum_image_collection
 from ..conf import get_setting
-from ..link_previews import link_preview_snapshots
+from ..link_previews import link_preview_envelope, link_preview_snapshots
 from ..models import (
     Forum,
     ForumIdentificationAttachment,
@@ -2523,7 +2523,8 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
     which fires per-object image fetches; docs/LEARNINGS.md 2026-06-25), with
     the topic's identification-attachment image as fallback. Each row carries
     the small `thumbnail_url` (fill-80x80, the web rail) and a wide `image_url`
-    (fill-720x400, the mobile home card), plus `is_solved` (accepted answer
+    (fill-720x400, the mobile home card; with no image it falls back to the
+    first link card's cached preview image), plus `is_solved` (accepted answer
     set) and `is_unread` (per-viewer; always False for anonymous — safe
     because authenticated responses are served private/no-store).
     """
@@ -2570,11 +2571,25 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         topic_ids = [t.pk for t in topics]
 
         # First image block id per topic, from opening posts' raw stream data.
+        # The first link card's cached image is kept too: image_url falls back
+        # to it when the topic has no uploaded image (owner decision
+        # 2026-11-03). link_preview_envelope only ever yields our own storage's
+        # URL for a name our image cache wrote, never a third-party address.
         image_id_by_topic = {}
+        preview_url_by_topic = {}
         for post in Post.objects.filter(
             topic_id__in=topic_ids, is_opening_post=True, live=True
         ).only("topic_id", "body"):
             for block in post.body.raw_data:
+                if (
+                    block.get("type") == "link_preview"
+                    and post.topic_id not in preview_url_by_topic
+                ):
+                    preview_url = link_preview_envelope(block.get("value"), request)[
+                        "image_url"
+                    ]
+                    if preview_url:
+                        preview_url_by_topic[post.topic_id] = preview_url
                 if block.get("type") != "image":
                     continue
                 # image_block_pk, not the raw value: since 0037 the value is an
@@ -2633,7 +2648,9 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
             return rendition_url(topic, "fill-80x80")
 
         def wide(topic):
-            return rendition_url(topic, "fill-720x400")
+            return rendition_url(topic, "fill-720x400") or preview_url_by_topic.get(
+                topic.pk
+            )
 
         return Response(
             {

@@ -488,7 +488,7 @@ void main() {
     );
 
     test(
-      'markRead(id: ...) splices that row read and refreshes the badge',
+      'markRead(ids: ...) splices those rows read and refreshes the badge',
       () async {
         final api = FakeForumApi()
           ..notifications = [
@@ -505,7 +505,7 @@ void main() {
         await container.read(unreadNotificationCountProvider.future);
         await container
             .read(notificationsFeedProvider.notifier)
-            .markRead(id: 1);
+            .markRead(ids: [1]);
 
         final items = container
             .read(notificationsFeedProvider)
@@ -524,7 +524,7 @@ void main() {
       },
     );
 
-    test('markRead() with no id marks every unread row read', () async {
+    test('markRead() with no ids marks every unread row read', () async {
       final api = FakeForumApi()
         ..notifications = [
           notification(id: 1, readAt: null),

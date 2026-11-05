@@ -8,7 +8,6 @@ It validates Firebase ID tokens and exchanges them for Django JWT tokens.
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import TYPE_CHECKING, Optional, Tuple
 
 import firebase_admin
@@ -25,7 +24,11 @@ from apps.users.email_verification import (
     is_email_verified,
     mark_email_verified,
 )
-from apps.users.signup import create_default_plant_collection, join_forum_members_group
+from apps.users.signup import (
+    create_default_plant_collection,
+    generate_username,
+    join_forum_members_group,
+)
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import Q
@@ -715,18 +718,9 @@ def get_or_create_user_from_firebase(
         )
         raise ValueError("Email is verified on another account")
 
-    # User doesn't exist - create new user with collision-safe username
-    base_username = firebase_email.split("@")[0]
-    username = base_username
-
-    # Check for username collision
-    if User.objects.filter(username=username).exists():
-        # Append UUID suffix to make username unique
-        username = f"{base_username}_{uuid.uuid4().hex[:8]}"
-        logger.info(
-            f"[FIREBASE AUTH] Username collision for '{base_username}', "
-            f"using '{username}' for {redact_email(firebase_email)}"
-        )
+    # User doesn't exist - create one. The username is public in the forum, so
+    # it is random, never the email's local part.
+    username = generate_username()
 
     # Create new user
     try:

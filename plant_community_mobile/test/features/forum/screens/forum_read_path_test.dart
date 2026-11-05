@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/forum_screen.dart';
+import 'package:plant_community_mobile/features/forum/widgets/home/forum_boards_section.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_composer_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_thread_screen.dart';
@@ -16,7 +17,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../support/forum_test_support.dart';
 
 void main() {
-  testWidgets('forum home lists boards and sync-backed recent topics', (
+  testWidgets('forum home lists boards and recent; syncs the mirror', (
     tester,
   ) async {
     final api = FakeForumApi()
@@ -28,6 +29,22 @@ void main() {
           description: 'Chat',
           topicCount: 2,
           postCount: 5,
+        ),
+      ]
+      // The home's Recent activity reads GET forum/topics/recent/ now; the
+      // offline sync mirror is still synced on open (asserted below).
+      ..recentTopics = [
+        ForumRecentTopic(
+          id: 1,
+          slug: 'recent-one',
+          title: 'Recent one',
+          board: const ForumTopicBoardRef(
+            id: 1,
+            slug: 'general',
+            title: 'General',
+          ),
+          replyCount: 0,
+          lastPostAt: DateTime.utc(2026, 1, 1),
         ),
       ]
       ..syncPages = [
@@ -54,8 +71,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('General'), findsOneWidget);
+    // Scoped: the activity card's board chip also says "General".
+    expect(
+      find.descendant(
+        of: find.byType(ForumBoardsSection),
+        matching: find.text('General'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Recent one'), findsOneWidget);
+    // Opening the forum still runs the delta sync that feeds offline reading.
+    expect(api.syncCalls, isNotEmpty);
   });
 
   testWidgets('forum home shows the unread notification count on the bell', (

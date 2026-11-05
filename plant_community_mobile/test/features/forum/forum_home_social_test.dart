@@ -6,6 +6,7 @@ import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_experts_strip.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_stats_grid.dart';
+import 'package:plant_community_mobile/features/forum/widgets/home/forum_season_card.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 
 import 'support/forum_test_support.dart';
@@ -41,11 +42,13 @@ void main() {
       await tester.pumpWidget(_wrap(api, loggedIn: true));
       await tester.pumpAndSettle();
 
-      expect(find.text('Your season'), findsOneWidget);
-      expect(find.byType(ForumStatsGrid), findsOneWidget);
+      // The redesigned card (ForumSeasonCard) replaced the stats grid on the
+      // home; same data, same badge chips.
+      expect(find.text('YOUR SEASON'), findsOneWidget);
+      expect(find.byType(ForumSeasonCard), findsOneWidget);
       expect(find.text('12'), findsOneWidget);
-      expect(find.text('6 to Botanist badge'), findsOneWidget);
-      expect(find.text('days in a row'), findsOneWidget);
+      expect(find.text('Botanist badge · 4 / 10 IDs'), findsOneWidget);
+      expect(find.text('Day streak'), findsOneWidget);
       expect(find.byType(ForumBadgeChips), findsOneWidget);
       expect(find.widgetWithText(Chip, 'Botanist'), findsOneWidget);
       expect(find.widgetWithText(Chip, 'Helper'), findsOneWidget);
@@ -59,7 +62,8 @@ void main() {
       await tester.pumpWidget(_wrap(api, loggedIn: false));
       await tester.pumpAndSettle();
 
-      expect(find.text('Your season'), findsNothing);
+      expect(find.text('YOUR SEASON'), findsNothing);
+      expect(find.byType(ForumSeasonCard), findsNothing);
       expect(api.fetchMyStatsCalls, 0);
     });
   });

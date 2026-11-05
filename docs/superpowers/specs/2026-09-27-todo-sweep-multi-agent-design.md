@@ -456,8 +456,10 @@ brief states:
 - **Python:** the main checkout's interpreter by absolute path
   (`<main>/backend/venv/bin/python`), with
   `PYTHONPATH=<worktree>/backend/packages/wagtail_forum`. `wagtail_forum` is
-  installed editable from the main checkout, and without the prefix pytest
-  collects it twice and reports import-file-mismatch errors.
+  installed editable from the main checkout. Since todo 688 pytest needs no
+  prefix (`backend/pytest.ini` lists `packages/wagtail_forum` in `pythonpath`,
+  which goes ahead of the editable finder); the prefix stays for `manage.py`,
+  `mypy` and `python -c`, which do not read `pytest.ini`.
 - **Web:** `ln -sfn <main>/web/node_modules <worktree>/web/node_modules` (a
   symlink in a gitignored path is never committed).
 - **Flutter:** `flutter pub get` in the worktree (served from the shared pub

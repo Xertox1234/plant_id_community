@@ -353,6 +353,26 @@ def test_one_index_searching_is_enough_for_a_list():
 
 
 @pytest.mark.django_db
+def test_floor_argument_and_top_scores_out_parameter():
+    """``floor=`` overrides the constant; ``top_scores`` gets the raw best
+    score per index that searched (``None`` when it found nothing) and no
+    key for an index that could not search (todo 694)."""
+    from .test_similar import _topic
+
+    topic = _topic("Tomato blight", "tomato blight", suffix="tsc")
+    docs = [_topic_doc(topic, 0.5)]
+    scores: dict = {}
+    with patch(CORE, side_effect=_core_returning(topic_docs=docs)):
+        assert _retrieve(floor=0.6, top_scores=scores) == []
+        assert scores == {"SimilarTopics": 0.5}
+        assert [p.pk for p in _retrieve(floor=0.4)] == [topic.pk]
+    scores = {}
+    with patch(CORE, side_effect=_core_returning(topic_docs=docs, blog_docs=[])):
+        _retrieve(top_scores=scores)
+    assert scores == {"SimilarTopics": 0.5, "BlogChunks": None}
+
+
+@pytest.mark.django_db
 def test_unpublished_topic_is_dropped_by_the_refetch():
     """The index may still hold a topic that was unpublished/moderated away
     after indexing; `live=True` in the refetch is what keeps it out (pinned on
@@ -554,3 +574,69 @@ def test_end_to_end_unrelated_question_returns_nothing_above_the_floor():
         passages = _retrieve("rose pruning")
 
     assert passages == []
+
+
+# --------------------------------------------------------------------------- #
+# extra_queries — the query rewrite's pooled search (2026-11-05)              #
+# --------------------------------------------------------------------------- #
+
+
+def _core_by_query(by_query):
+    """A fake core: ``{(index_cls, query): docs | None}``, None otherwise."""
+
+    def fake(index_cls, query, limit):
+        return by_query.get((index_cls, query))
+
+    return fake
+
+
+@pytest.mark.django_db
+def test_an_extra_query_adds_a_document_and_raises_a_score_never_lowers_one():
+    rot = _post("Root rot", BLOCKS, slug="root-rot-pool")
+    snake = _post("Snake plant care", BLOCKS, slug="snake-pool")
+    floor = constants.RAG_SIMILARITY_FLOOR
+    fake = _core_by_query(
+        {
+            # The question alone: only the snake article clears the floor.
+            (vi.BlogChunks, "q"): [_blog_doc(snake, floor + 0.1)],
+            (vi.SimilarTopics, "q"): [],
+            # The rewrite finds root rot and scores snake LOWER: the question's
+            # score must stand.
+            (vi.BlogChunks, "root rot"): [
+                _blog_doc(rot, floor + 0.2),
+                _blog_doc(snake, floor + 0.01),
+            ],
+            (vi.SimilarTopics, "root rot"): [],
+        }
+    )
+    scores: dict = {}
+    with patch(CORE, side_effect=fake):
+        passages = _retrieve("q", extra_queries=("root rot",), top_scores=scores)
+    assert [(p.slug, round(p.score, 3)) for p in passages] == [
+        ("root-rot-pool", round(floor + 0.2, 3)),
+        ("snake-pool", round(floor + 0.1, 3)),
+    ]
+    assert scores == {"SimilarTopics": None, "BlogChunks": floor + 0.2}
+
+    with patch(CORE, side_effect=fake):
+        alone = _retrieve("q")
+    assert [p.slug for p in alone] == ["snake-pool"]
+
+
+@pytest.mark.django_db
+def test_an_extra_query_that_cannot_search_neither_unsearches_nor_searches_an_index():
+    snake = _post("Snake plant care", BLOCKS, slug="snake-pool-2")
+    floor = constants.RAG_SIMILARITY_FLOOR
+    fake = _core_by_query(
+        {
+            (vi.BlogChunks, "q"): [_blog_doc(snake, floor + 0.1)],
+            # SimilarTopics could not search the question; the rewrite's hits
+            # for it must not make it count as searched.
+            (vi.SimilarTopics, "root rot"): [_blog_doc(snake, 0.99)],
+        }
+    )
+    scores: dict = {}
+    with patch(CORE, side_effect=fake):
+        passages = _retrieve("q", extra_queries=("root rot",), top_scores=scores)
+    assert [p.slug for p in passages] == ["snake-pool-2"]
+    assert scores == {"BlogChunks": floor + 0.1}

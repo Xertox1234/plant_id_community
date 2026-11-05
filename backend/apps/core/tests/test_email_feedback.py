@@ -36,6 +36,7 @@ from apps.core.models import (
 )
 from apps.core.security import SecurityMonitor
 from apps.core.services.email_service import EmailOutcome, EmailService, EmailType
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.cache import cache
@@ -76,7 +77,23 @@ BACKSTOP = {
 }
 
 
-def _event(event_type, to="reader@example.com", *, created_at=None, **data):
+_OUR_SENDER = object()
+
+
+def _event(
+    event_type,
+    to="reader@example.com",
+    *,
+    created_at=None,
+    sender=_OUR_SENDER,
+    **data,
+):
+    """A Resend event. ``sender`` is ``data.from``: by default this app's own
+    DEFAULT_FROM_EMAIL; ``None`` leaves the field out."""
+    if sender is _OUR_SENDER:
+        sender = settings.DEFAULT_FROM_EMAIL
+    if sender is not None:
+        data["from"] = sender
     return {
         "type": event_type,
         "created_at": created_at or timezone.now().isoformat(),
@@ -288,6 +305,68 @@ class TestWebhookAuthentication:
         response = _post(_event("email.opened"))
         assert response.json() == {"status": "ignored"}
         assert not EmailSuppression.objects.exists()
+
+
+# ---------------------------------------------------------------------------
+# One Resend account, several products: only this app's mail is acted on
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("webhook_on")
+class TestSenderDomain:
+    """The Resend account also sends for other products, and its webhooks are
+    account-wide. A complaint about another product's mail must never stop
+    this app mailing that person, so an event is acted on only when it was
+    sent from DEFAULT_FROM_EMAIL's domain."""
+
+    @pytest.fixture(autouse=True)
+    def _our_sender(self, settings):
+        settings.DEFAULT_FROM_EMAIL = "Houseplant MD <noreply@houseplant-md.com>"
+
+    def test_a_complaint_about_another_products_mail_is_ignored(self):
+        response = _post(
+            _event(EVENT_COMPLAINED, sender="OCRecipes <hello@ocrecipes.com>")
+        )
+        assert response.status_code == 200
+        assert response.json() == {"status": "ignored"}
+        assert not EmailSuppression.objects.exists()
+        assert not EmailProviderEvent.objects.exists()
+
+    def test_a_hard_bounce_of_another_products_mail_is_ignored(self):
+        response = _post(
+            _event(
+                EVENT_BOUNCED,
+                sender="noreply@lumatuner.com",
+                bounce={"type": "Permanent", "subType": "General"},
+            )
+        )
+        assert response.json() == {"status": "ignored"}
+        assert not EmailSuppression.objects.exists()
+
+    def test_a_lookalike_domain_is_not_ours(self):
+        response = _post(_event(EVENT_COMPLAINED, sender="x@evil-houseplant-md.com"))
+        assert response.json() == {"status": "ignored"}
+        assert not EmailSuppression.objects.exists()
+
+    def test_a_handled_event_without_a_sender_is_ignored(self):
+        response = _post(_event(EVENT_COMPLAINED, sender=None))
+        assert response.json() == {"status": "ignored"}
+        assert not EmailSuppression.objects.exists()
+
+    def test_a_complaint_about_our_mail_still_suppresses(self):
+        response = _post(
+            _event(EVENT_COMPLAINED, sender="Houseplant MD <noreply@HOUSEPLANT-MD.com>")
+        )
+        assert response.json() == {"status": "processed"}
+        assert _suppression("reader@example.com").reason == Reason.COMPLAINT
+
+    def test_a_subdomain_of_ours_is_ours(self):
+        response = _post(
+            _event(EVENT_COMPLAINED, sender="noreply@send.houseplant-md.com")
+        )
+        assert response.json() == {"status": "processed"}
+        assert _suppression("reader@example.com") is not None
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,9 @@ this keeps them: the similarity floor is the primary guardrail (design doc,
 guardrail 1) and it can only be applied to a scored hit.
 
 Pipeline per question:
-1. ``_scored_search`` each index (``RAG_OVERFETCH_PER_INDEX`` hits each).
+1. ``_scored_search`` each index (``RAG_OVERFETCH_PER_INDEX`` hits each), once
+   for the question and once per extra query (the optional query rewrite,
+   ``rag._rewrite_query``), keeping each document's best score.
 2. Discard everything under ``RAG_SIMILARITY_FLOOR``.
 3. Refetch survivors through EACH corpus's own visibility predicate — never
    trust the index: a page may have been unpublished or a board restricted
@@ -21,6 +23,7 @@ Adding a corpus = a new index class + a refetcher keyed by its
 """
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
 from apps.blog.models import BlogPostPage
@@ -156,8 +159,31 @@ _REFETCHERS = {
 _DEFAULT_INDEXES = (SimilarTopics, BlogChunks)
 
 
+def _pool(index_cls, docs, extra_queries: Sequence[str]) -> list:
+    """The question's hits plus each extra query's, best score per document.
+
+    Keyed by ``document_key`` (one chunk), not the source object: the
+    per-source dedupe runs later, in the refetchers. Sorted by score so the
+    pool reads like a single search's result.
+    """
+    best = {doc.document_key: doc for doc in docs}
+    for query in extra_queries:
+        extra = _scored_search(index_cls, query, constants.RAG_OVERFETCH_PER_INDEX)
+        for doc in extra or ():
+            held = best.get(doc.document_key)
+            if held is None or doc.score > held.score:
+                best[doc.document_key] = doc
+    return sorted(best.values(), key=lambda d: d.score, reverse=True)
+
+
 def retrieve_grounding_passages(
-    question: str, *, user=None, indexes=_DEFAULT_INDEXES
+    question: str,
+    *,
+    user=None,
+    indexes=_DEFAULT_INDEXES,
+    floor: float | None = None,
+    top_scores: dict[str, float | None] | None = None,
+    extra_queries: Sequence[str] = (),
 ) -> list[Passage] | None:
     """Scored, floored, visibility-checked, merged passages for ``question``.
 
@@ -171,17 +197,40 @@ def retrieve_grounding_passages(
     ``user`` — pass only from a caller whose OWN response is never cross-user
     cached (the same rule as ``find_similar_topics``); the RAG answer is
     per-asker and uncached, so the ask view passes it.
+
+    ``floor`` — ``None`` (the default) reads ``RAG_SIMILARITY_FLOOR`` at call
+    time; ``manage.py rag_eval --floor`` passes a value to measure a floor
+    before it is changed (todo 694).
+
+    ``top_scores`` — an optional dict the call FILLS with the best raw score
+    per index (keyed by index class name), before the floor: ``None`` for an
+    index that searched and found nothing, and NO key for an index that could
+    not search, so a caller can tell the two apart. An out-parameter rather than a
+    new return shape, so every caller and patch that expects ``list | None``
+    is unchanged; the eval reports these scores (todo 694).
+
+    ``extra_queries`` — more texts to search each index with (the query
+    rewrite, 2026-11-05). Their hits are pooled with the question's, keeping
+    each document's best score, so an extra query can only ADD candidates or
+    raise a score, never drop one the question found. The question's own
+    search decides whether an index searched: an extra query that cannot
+    search is skipped, never turning a searched index into an unsearched one.
+    ``top_scores`` is the best score over the pool.
     """
-    floor = constants.RAG_SIMILARITY_FLOOR
+    if floor is None:
+        floor = constants.RAG_SIMILARITY_FLOOR
+    if top_scores is None:
+        top_scores = {}
     by_source: dict[str | None, list] = {}
-    top_scores: dict[str, float | None] = {}
     searched = False
     for index_cls in indexes:
         docs = _scored_search(index_cls, question, constants.RAG_OVERFETCH_PER_INDEX)
         label = getattr(index_cls, "__name__", "index")
-        top_scores[label] = max((d.score for d in docs), default=None) if docs else None
         if docs is None:
             continue
+        if extra_queries:
+            docs = _pool(index_cls, docs, extra_queries)
+        top_scores[label] = max((d.score for d in docs), default=None)
         searched = True
         for doc in docs:
             if doc.score < floor:

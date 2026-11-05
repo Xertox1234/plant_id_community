@@ -745,3 +745,81 @@ def test_recent_topics_query_count_unchanged_by_new_fields():
     # lookups (content types, site settings) that depend on which tests ran
     # first, and failed CI at 6 vs a local 5 while this equality held.
     assert count_five == count_ten
+
+
+# ---- link-preview fallback for image_url (owner decision 2026-11-03) ------
+
+_PREVIEW_NAME = "forum/link-previews/" + "a" * 64 + ".webp"
+
+
+def _preview_topic(board, author, slug, last_post_at, image, extra_blocks=()):
+    topic = _plain_topic(board, author, slug, last_post_at)
+    Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[
+            {"type": "paragraph", "value": "look"},
+            *extra_blocks,
+            {
+                "type": "link_preview",
+                "value": {"url": "https://example.com/p", "image": image},
+            },
+        ],
+    )
+    return topic
+
+
+@pytest.mark.django_db
+def test_recent_topics_image_url_falls_back_to_link_preview_image():
+    """A topic whose opening post has no uploaded image but has a link card
+    with our cached image becomes a picture card. The small thumbnail stays
+    rendition-only."""
+    board = _board()
+    author = User.objects.create_user(username="ada")
+
+    topic = _preview_topic(board, author, "preview", timezone.now(), _PREVIEW_NAME)
+
+    row = APIClient().get("/forum/topics/recent/").data["results"][0]
+    assert row["id"] == topic.id
+    assert row["image_url"].startswith("http://testserver")
+    assert row["image_url"].endswith(_PREVIEW_NAME)
+    assert row["thumbnail_url"] is None
+
+
+@pytest.mark.django_db
+def test_recent_topics_link_preview_never_serves_an_uncached_image():
+    """A card image that isn't a name our cache wrote (a third-party URL, a
+    blank) never reaches image_url."""
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    now = timezone.now()
+    _preview_topic(board, author, "third-party", now, "https://evil.example/x.png")
+    _preview_topic(board, author, "blank", now - datetime.timedelta(hours=1), "")
+
+    resp = APIClient().get("/forum/topics/recent/")
+
+    assert [r["image_url"] for r in resp.data["results"]] == [None, None]
+
+
+@pytest.mark.django_db
+def test_recent_topics_uploaded_image_beats_link_preview():
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    image = get_image_model().objects.create(
+        title="up.jpg",
+        file=get_test_image_file(),
+        collection=get_forum_image_collection(),
+    )
+    _preview_topic(
+        board,
+        author,
+        "both",
+        timezone.now(),
+        _PREVIEW_NAME,
+        extra_blocks=[{"type": "image", "value": image.id}],
+    )
+
+    row = APIClient().get("/forum/topics/recent/").data["results"][0]
+    assert "fill-720x400" in row["image_url"]

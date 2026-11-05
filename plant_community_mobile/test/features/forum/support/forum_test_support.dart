@@ -361,6 +361,20 @@ class FakeForumApi implements ForumApi {
 
   List<ForumExpert> experts = const [];
   int fetchExpertsCalls = 0;
+
+  List<ForumRecentTopic> recentTopics = const [];
+  final List<int> recentTopicsLimits = [];
+  Object? recentTopicsError;
+
+  /// Per-topic latest-replies fixtures; a topic with none gets an empty peek.
+  Map<int, ForumLatestReplies> latestRepliesByTopic = {};
+  final Map<int, int> _latestRepliesCalls = {};
+  Object? latestRepliesError;
+  int latestRepliesCalls(int topicId) => _latestRepliesCalls[topicId] ?? 0;
+
+  ForumCommunityStats communityStats = const ForumCommunityStats();
+  Object? communityStatsError;
+  int communityStatsCalls = 0;
   ApiException? failExpertsWith;
 
   /// The server's stored notification settings (todo 620): a successful
@@ -380,8 +394,16 @@ class FakeForumApi implements ForumApi {
   final List<Map<String, Object?>> notificationSettingsUpdates = [];
   ApiException? failNotificationSettingsUpdateWith;
 
+  Object? boardsError;
+  int fetchBoardsCalls = 0;
+
   @override
-  Future<List<ForumBoard>> fetchBoards() async => boards;
+  Future<List<ForumBoard>> fetchBoards() async {
+    fetchBoardsCalls++;
+    final err = boardsError;
+    if (err != null) throw err;
+    return boards;
+  }
 
   int fetchTopicDetailCalls = 0;
 
@@ -1084,6 +1106,30 @@ class FakeForumApi implements ForumApi {
     if (fail != null) throw fail;
     return experts;
   }
+
+  @override
+  Future<List<ForumRecentTopic>> fetchRecentTopics({int limit = 10}) async {
+    recentTopicsLimits.add(limit);
+    final err = recentTopicsError;
+    if (err != null) throw err;
+    return recentTopics;
+  }
+
+  @override
+  Future<ForumLatestReplies> fetchLatestReplies(int topicId) async {
+    _latestRepliesCalls[topicId] = latestRepliesCalls(topicId) + 1;
+    final err = latestRepliesError;
+    if (err != null) throw err;
+    return latestRepliesByTopic[topicId] ?? const ForumLatestReplies();
+  }
+
+  @override
+  Future<ForumCommunityStats> fetchCommunityStats() async {
+    communityStatsCalls++;
+    final err = communityStatsError;
+    if (err != null) throw err;
+    return communityStats;
+  }
 }
 
 /// Build a [ForumPollOption] fixture.
@@ -1350,8 +1396,11 @@ ForumDirectMessage directMessage({
 /// A test [AuthService] that returns a fixed [AuthState] without touching
 /// Firebase. Use via `authServiceProvider.overrideWith(...)`.
 class FakeAuthService extends AuthService {
-  FakeAuthService({required this.loggedIn});
+  FakeAuthService({required this.loggedIn, this.initial});
   final bool loggedIn;
+
+  /// When set, the starting state in place of [loggedIn]'s.
+  final AuthState? initial;
 
   /// Taps on "Continue with Google", recorded rather than performed.
   ///
@@ -1374,7 +1423,12 @@ class FakeAuthService extends AuthService {
 
   @override
   AuthState build() =>
-      loggedIn ? const AuthState(jwtToken: 'test-jwt') : const AuthState();
+      initial ??
+      (loggedIn ? const AuthState(jwtToken: 'test-jwt') : const AuthState());
+
+  /// Puts the auth state in [next] — a sign-in, sign-out or account switch
+  /// without touching Firebase (the inherited flows need its plugin).
+  void setAuth(AuthState next) => state = next;
 }
 
 /// Build a [ForumAuthor] fixture.

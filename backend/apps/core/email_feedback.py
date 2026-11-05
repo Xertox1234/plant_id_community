@@ -69,7 +69,9 @@ CLICK_SALT = "apps.core.email_feedback.click"
 
 # The events this app acts on. Anything else (email.sent, delivery_delayed,
 # opened, clicked, contact or domain events) is recorded and ignored: opens
-# are never collected, and clicks come from our own redirect.
+# are never collected, and clicks come from our own redirect. Events for
+# mail another product sent from the same Resend account are not recorded at
+# all (``is_own_sender``).
 EVENT_DELIVERED = "email.delivered"
 EVENT_BOUNCED = "email.bounced"
 EVENT_COMPLAINED = "email.complained"
@@ -314,6 +316,7 @@ class ParsedEvent:
     recipients: tuple[str, ...]
     bounce_type: str
     bounce_subtype: str
+    sender: str = ""
 
 
 def _text(value, field: str, *, required: bool = False, limit: int = 255) -> str:
@@ -359,7 +362,31 @@ def parse_event(payload) -> ParsedEvent:
         recipients=tuple(recipients),
         bounce_type=_text(bounce.get("type"), "data.bounce.type", limit=32),
         bounce_subtype=_text(bounce.get("subType"), "data.bounce.subType", limit=32),
+        sender=_text(data.get("from"), "data.from"),
     )
+
+
+def _domain(address: str) -> str:
+    return parseaddr(address or "")[1].rpartition("@")[2].strip().lower()
+
+
+def is_own_sender(sender: str) -> bool:
+    """True when ``sender`` (an event's ``data.from``) is on this app's sending
+    domain, DEFAULT_FROM_EMAIL's, or a subdomain of it. The Resend account
+    also sends for other products and its webhooks are account-wide, so
+    another product's complaint must never suppress an address here."""
+    ours = _domain(getattr(settings, "DEFAULT_FROM_EMAIL", ""))
+    theirs = _domain(sender)
+    return bool(ours and theirs) and (theirs == ours or theirs.endswith("." + ours))
+
+
+def _is_foreign(event: ParsedEvent) -> bool:
+    """Another product's mail: a sender that is not ours, or an event we act
+    on that names no sender at all (fail closed: never suppress on a guess).
+    Account-level events with no sender (contact, domain) are not foreign."""
+    if event.sender:
+        return not is_own_sender(event.sender)
+    return event.event_type in HANDLED_EVENTS
 
 
 def normalize_message_id(value: str) -> str:
@@ -430,6 +457,13 @@ def ingest(svix_id: str, event: ParsedEvent) -> str:
     an event this app does not act on, else ``processed``."""
     from .models import EmailNotification, EmailProviderEvent, EmailSuppression
 
+    if _is_foreign(event):
+        # Not recorded: another product's events must not enter this app's
+        # ledger or baseline counts. Answering 200 stops Resend retrying.
+        logger.info(
+            f"[EMAIL] provider event {event.event_type} ignored: not our sender"
+        )
+        return "ignored"
     with transaction.atomic():
         try:
             with transaction.atomic():

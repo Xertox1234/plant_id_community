@@ -4,6 +4,9 @@ priority: p3
 issue_id: "663"
 tags: [backend, plant-identification]
 dependencies: ["661"]
+triage: blocked-prod
+triaged: 2026-11-03
+blocked_on: "Owner exports at least a week of prod `[MERGE]` log lines from Railway, then makes the threshold call"
 ---
 
 # Tune the identify cross-provider rule from the logged `[MERGE]` lines

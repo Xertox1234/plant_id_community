@@ -557,11 +557,45 @@ RAG_REPORT_QUESTION_PREVIEW_CHARS = 80
 # off-topic one without a call and keeps an 0.11 margin under the weakest
 # answer. rag_retrieval.py logs the top score per index on every question
 # ([RAG] lines); re-check against those as the corpus grows.
-RAG_SIMILARITY_FLOOR = 0.45
+#
+# 0.5, measured (manage.py rag_eval, 2026-11-04; owner decision the same day):
+# 23 cases against a local corpus of 53 AI-drafted care articles. At 0.45 the
+# off-corpus fig-overwintering question (top 0.487) cleared the floor and would
+# have paid for a completion; at 0.5 all 3 off-corpus cases refuse without a
+# call. The weakest covered case still clears it (0.555, a 0.055 margin), and
+# no covered result changed. Margins are thin on both sides (off-corpus 0.013
+# under): re-run `manage.py rag_eval` after any corpus change.
+RAG_SIMILARITY_FLOOR = 0.5
 
 # Per-index overfetch: each index returns this many scored chunks before the
 # floor, the visibility refetch and the per-source dedupe thin them out.
 RAG_OVERFETCH_PER_INDEX = 8
+
+# Query rewrite (2026-11-05). When on, a cheap completion turns the question
+# into a short diagnosis-style search query ("root rot snake plant") and
+# retrieval searches with BOTH, keeping each chunk's best score. Asker wording
+# names symptoms ("the base is mushy and smells"), articles name problems, and
+# the embedding alone missed that bridge: covered-snake-root-rot's article
+# ranked 15th. Measured with rag_eval (local corpus, 19 non-blocked cases):
+# the union moved root-rot into the merged passages (rank 3) with no case
+# lost; the strongest off-corpus score did not move (fig 0.487) and the others
+# rose by up to 0.026 (lawn's topic score, 0.345 -> 0.371).
+# A rewrite ALONE regressed cases (fiddle-leaf fell under the floor); a
+# hypothetical-answer rewrite pushed two off-corpus cases over it. OFF until
+# measured on the production corpus: one more completion and two more
+# embeddings per ask, ~0.5-1 s of latency, and the completion is not counted
+# against RAG_BUDGET_LIMIT (it runs after the peek; about 1/50 of an answer's
+# tokens). `manage.py rag_eval --rewrite` measures it.
+RAG_QUERY_REWRITE_ENABLED = False
+RAG_QUERY_REWRITE_TIMEOUT_SECONDS = 8
+# A rewrite is a search query: anything longer is the model ignoring the brief.
+RAG_QUERY_REWRITE_MAX_CHARS = 200
+RAG_QUERY_REWRITE_PROMPT = (
+    "A houseplant owner asks the question below. Write a short search query "
+    "naming the most likely diagnosis or care topic (for example 'root rot', "
+    "'spider mites', 'repotting') and the plant. Reply with the query only."
+    "\n\nQuestion: {question}"
+)
 
 # Caps on what reaches the prompt after merging both corpora.
 RAG_MAX_PASSAGES = 6
@@ -688,6 +722,45 @@ RAG_PROMPT_TEMPLATE = (
     "{passages}\n"
     "----- END PASSAGES -----"
 )
+
+# --- RAG eval phase 2: `manage.py rag_eval_judged` (spec 2026-11-03 §6-7) ---
+# Local and on demand only; never imported by a request path.
+#
+# The judge, pinned here so scores from different runs mean the same thing
+# (owner decision 2026-11-04: Claude Sonnet 5.5, called directly through the
+# Anthropic API with the owner's credits). Its key is ANTHROPIC_API_KEY in
+# local backend/.env only: never committed, never a Railway or repo secret.
+EVAL_JUDGE_MODEL = "claude-sonnet-5-5"
+# Thinking stays on (Sonnet 5.5 cannot turn it off); effort bounds how much of
+# it a call buys. Its tokens are billed as output, which is why a call's real
+# cost runs above the bare JSON's length.
+EVAL_JUDGE_EFFORT = "medium"
+# Room for thinking plus the JSON verdict; a "max_tokens" stop means the JSON
+# was cut off and the case goes unscored.
+EVAL_JUDGE_MAX_TOKENS = 4096
+EVAL_JUDGE_TIMEOUT_SECONDS = 120
+# Owner decision 2026-11-04: "record 3 dollar per run". One invocation of the
+# command is one run, whatever its --runs; the cap covers the judge AND the
+# generation calls. Refused before the first call when the projection exceeds
+# it; stopped after any call that pushes the measured total past it.
+EVAL_SPEND_CAP_USD = 3.00
+# USD per million (input, output) tokens, read 2026-11-04 (Anthropic: the
+# claude-api pricing table; OpenAI: gpt-4o-mini list price). A model missing
+# here is refused rather than run unpriced: add its row first.
+EVAL_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
+    "claude-sonnet-5-5": (2.00, 10.00),
+    "gpt-4o-mini": (0.15, 0.60),
+}
+# The projection's per-call token guesses (spec §7.3 estimated ~3,000 in /
+# 400 out per judged case; output here is raised for thinking). The measured
+# usage, not these, drives the running total.
+EVAL_EST_GENERATE_INPUT_TOKENS = 2000
+EVAL_EST_GENERATE_OUTPUT_TOKENS = 300
+EVAL_EST_JUDGE_INPUT_TOKENS = 3000
+EVAL_EST_JUDGE_OUTPUT_TOKENS = 1500
+# A new-arm score this far below the old arm's, on any dimension, is listed
+# as a regression (spec §6).
+EVAL_REGRESSION_DELTA = 2
 
 # Max items in the public forum RSS feed (todo 256 H9).
 FORUM_RSS_MAX_ITEMS = 50
