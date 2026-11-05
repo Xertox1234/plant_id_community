@@ -145,7 +145,15 @@ def _cases_file(tmp_path, cases=CASES):
     return path
 
 
-def _run(tmp_path, openai_client, judge_client, *args, retrieval=RETRIEVAL):
+def _run(
+    tmp_path,
+    openai_client,
+    judge_client,
+    *args,
+    retrieval=RETRIEVAL,
+    new_model=NEW_MODEL,
+):
+    model_args = ["--new-model", new_model] if new_model else []
     out = StringIO()
     with (
         patch(RETRIEVE, side_effect=_retrieval(retrieval)),
@@ -155,8 +163,7 @@ def _run(tmp_path, openai_client, judge_client, *args, retrieval=RETRIEVAL):
     ):
         call_command(
             "rag_eval_judged",
-            "--new-model",
-            NEW_MODEL,
+            *model_args,
             "--cases",
             str(_cases_file(tmp_path)),
             "--json",
@@ -434,3 +441,106 @@ def test_runs_repeat_and_average_the_paired_difference(tmp_path):
     # covered-pothos: run 1 delta -3, run 2 delta -1 -> mean -2: a regression.
     assert result["summary"]["deltas"]["covered-pothos"]["groundedness"] == -2
     assert [r["id"] for r in result["summary"]["regressions"]] == ["covered-pothos"]
+
+
+# --------------------------------------------------------------------------- #
+# Prompt comparison: --old-prompt / --new-prompt
+
+CANDIDATE = (
+    "CANDIDATE PROMPT. Answer from the passages only, citing [n]; if they do "
+    "not answer, reply NO_INFORMATION. Literal braces: {{ok}}.\n"
+    "Q: {question}\nP:\n{passages}"
+)
+
+
+def _template_file(tmp_path, text=CANDIDATE, name="candidate.txt"):
+    path = tmp_path / name
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_a_prompt_comparison_runs_both_arms_on_one_model(tmp_path):
+    prompts = []
+
+    def reply(prompt):
+        prompts.append(prompt)
+        return "Water weekly [1]."
+
+    judge_client = FakeJudge(lambda a: _verdict(9, 9, 9))
+    candidate = _template_file(tmp_path)
+    out, result = _run(
+        tmp_path,
+        FakeOpenAI({PROD_MODEL: reply}),
+        judge_client,
+        "--new-prompt",
+        str(candidate),
+        new_model=None,
+    )
+
+    # Arms alternate old, new per case; the model is the same on both.
+    old_prompt, new_prompt = prompts[0], prompts[1]
+    assert old_prompt.startswith(constants.RAG_PROMPT_TEMPLATE[:40])
+    assert new_prompt.startswith("CANDIDATE PROMPT.")
+    assert "Literal braces: {ok}." in new_prompt
+    assert Q_POTHOS in new_prompt and "About pothos-care-guide." in new_prompt
+    # The judge reads each arm's own prompt.
+    judged_prompts = [c["messages"][0]["content"] for c in judge_client.calls]
+    assert old_prompt in judged_prompts[0] and new_prompt in judged_prompts[1]
+    s = result["summary"]
+    assert s["old_model"] == s["new_model"] == PROD_MODEL
+    assert s["old_prompt"].startswith("production@")
+    assert s["new_prompt"].startswith(f"{candidate}@")
+    assert s["old_prompt"].split("@")[1] != s["new_prompt"].split("@")[1]
+    assert f"prompt={s['new_prompt']}" in out
+
+
+def test_an_old_prompt_alone_applies_to_both_arms(tmp_path):
+    prompts = []
+
+    def reply(prompt):
+        prompts.append(prompt)
+        return "Water weekly [1]."
+
+    _run(
+        tmp_path,
+        FakeOpenAI({PROD_MODEL: reply, NEW_MODEL: reply}),
+        FakeJudge(lambda a: _verdict(9, 9, 9)),
+        "--old-prompt",
+        str(_template_file(tmp_path)),
+    )
+    assert prompts and all(p.startswith("CANDIDATE PROMPT.") for p in prompts)
+
+
+def test_refuses_when_the_new_arm_changes_nothing(tmp_path):
+    openai_client, judge_client = FakeOpenAI({}), FakeJudge(lambda a: _verdict(9, 9, 9))
+    with pytest.raises(CommandError, match="--new-model, --new-prompt"):
+        _run(tmp_path, openai_client, judge_client, new_model=None)
+    assert openai_client.calls == [] and judge_client.calls == []
+
+
+@pytest.mark.parametrize(
+    "text, message",
+    [
+        ("NO_INFORMATION. {question} only", "exactly"),
+        ("NO_INFORMATION. {question} {passages} {extra}", "exactly"),
+        ("NO_INFORMATION. {question} {passages} {", "malformed"),
+        ("{question} {passages}", "never asks for NO_INFORMATION"),
+    ],
+)
+def test_refuses_an_unusable_prompt_template(tmp_path, text, message):
+    openai_client, judge_client = FakeOpenAI({}), FakeJudge(lambda a: _verdict(9, 9, 9))
+    bad = _template_file(tmp_path, text, name="bad.txt")
+    with pytest.raises(CommandError, match=message):
+        _run(tmp_path, openai_client, judge_client, "--new-prompt", str(bad))
+    assert openai_client.calls == [] and judge_client.calls == []
+
+
+def test_refuses_a_missing_prompt_file(tmp_path):
+    with pytest.raises(CommandError, match="Cannot read prompt template"):
+        _run(
+            tmp_path,
+            FakeOpenAI({}),
+            FakeJudge(lambda a: _verdict(9, 9, 9)),
+            "--new-prompt",
+            str(tmp_path / "nope.txt"),
+        )

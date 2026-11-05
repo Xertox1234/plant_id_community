@@ -1,10 +1,12 @@
 """Management command: the judged RAG eval, phase 2 (spec 2026-11-03 §6-7).
 
-A paired comparison, run only before a model swap. Each ``covered`` and
-``adjacent`` case goes through ``answer_question`` twice, once per arm, with
-``persist=False, charge=False``: the OLD arm generates with ``--old-model``
-(default: the production model, ``WAGTAIL_AI["PROVIDERS"][RAG_ALIAS]``) and the
-NEW arm with ``--new-model``. A judge (``EVAL_JUDGE_MODEL``, called directly
+A paired comparison, run only before a model or prompt swap. Each ``covered``
+and ``adjacent`` case goes through ``answer_question`` twice, once per arm, with
+``persist=False, charge=False``. Each arm is a model and a prompt template: the
+OLD arm defaults to the production model (``WAGTAIL_AI["PROVIDERS"][RAG_ALIAS]``)
+and ``RAG_PROMPT_TEMPLATE``; ``--old-model``/``--new-model`` and
+``--old-prompt``/``--new-prompt`` (a text file holding a template) override
+either side, and the NEW arm must differ in at least one. A judge (``EVAL_JUDGE_MODEL``, called directly
 through the Anthropic SDK) then scores each answer 1-10 on groundedness,
 relevance and safety, reading the exact prompt the answering model received.
 
@@ -27,8 +29,10 @@ the same refusals as phase 1, plus a missing ``ANTHROPIC_API_KEY``.
 One run is one sample: read a difference only across 3 runs (``--runs 3``).
 """
 
+import hashlib
 import json
 import re
+import string
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -184,12 +188,14 @@ def make_judge_client(api_key: str):  # -> anthropic.Anthropic; imported lazily
 class Generator:
     """A ``generate`` for ``answer_question``: one uncached completion on
     ``model``, charged to the meter, with the raw reply kept for the
-    citation assertion."""
+    citation assertion. ``template`` is the arm's prompt template (``None``
+    = production); ``run_case`` hands it to ``answer_question``."""
 
-    def __init__(self, client, model: str, meter: Meter):
+    def __init__(self, client, model: str, meter: Meter, template: str | None = None):
         self.client = client
         self.model = model
         self.meter = meter
+        self.template = template
         self.last_raw: str | None = None
 
     def __call__(
@@ -208,6 +214,48 @@ class Generator:
         text: str = response.choices[0].message.content or ""
         self.last_raw = text
         return text
+
+
+PROMPT_FIELDS = frozenset({"question", "passages"})
+
+
+def load_template(path: str) -> str:
+    """A candidate prompt template from a text file, refused unless it can
+    stand in for ``RAG_PROMPT_TEMPLATE``: exactly the ``{question}`` and
+    ``{passages}`` fields (any other brace would raise at format time, so a
+    literal one is written ``{{``), and the no-information sentinel, without
+    which ``passages_only`` could never happen."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise CommandError(f"Cannot read prompt template {path}: {exc}") from exc
+    try:
+        fields = {
+            name for _, name, _, _ in string.Formatter().parse(text) if name is not None
+        }
+    except ValueError as exc:
+        raise CommandError(f"Prompt template {path} is malformed: {exc}") from exc
+    if fields != PROMPT_FIELDS:
+        raise CommandError(
+            f"Prompt template {path} must use exactly {{question}} and "
+            f"{{passages}}; it uses {sorted(fields) or 'none'}. Write a literal "
+            "brace as {{ or }}."
+        )
+    if constants.RAG_NO_INFORMATION_SENTINEL not in text:
+        raise CommandError(
+            f"Prompt template {path} never asks for "
+            f"{constants.RAG_NO_INFORMATION_SENTINEL}, so no answer could ever "
+            "come back passages_only."
+        )
+    return text
+
+
+def prompt_label(path: str | None, template: str | None) -> str:
+    """``production`` or the file, with a short hash so a result names the
+    exact text it ran."""
+    text = constants.RAG_PROMPT_TEMPLATE if template is None else template
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+    return f"{path or 'production'}@{digest}"
 
 
 def citation_numbers(raw: str) -> list[int]:
@@ -317,7 +365,11 @@ def run_case(
         generator = generators[arm]
         generator.last_raw = None
         outcome = answer_question(
-            case["question"], generate=generator, persist=False, charge=False
+            case["question"],
+            generate=generator,
+            persist=False,
+            charge=False,
+            template=generator.template,
         )
         if outcome.status == STATUS_UNAVAILABLE and not outcome.passages:
             raise CommandError(
@@ -339,7 +391,9 @@ def run_case(
         outcome = outcomes[arm]
         if not arms[arm]["passed"] or outcome.status != STATUS_ANSWERED:
             continue  # passages_only has no answer to score; failures aren't judged
-        prompt = _build_prompt(case["question"], outcome.passages)
+        prompt = _build_prompt(
+            case["question"], outcome.passages, generators[arm].template
+        )
         try:
             arms[arm]["scores"] = judge(
                 judge_client, prompt, outcome.answer or "", meter
@@ -422,7 +476,8 @@ def _fmt(value: float | None, signed: bool = False) -> str:
 
 class Command(BaseCommand):
     help = (
-        "Phase 2 RAG eval: a judged old-vs-new model comparison on the covered "
+        "Phase 2 RAG eval: a judged old-vs-new model or prompt comparison on the "
+        "covered "
         "and adjacent cases, against a dev DB holding the corpus. Spends "
         "OpenAI and Anthropic credit, capped per run. Never on a production "
         "shell."
@@ -431,12 +486,27 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             "--new-model",
-            required=True,
-            help="The candidate generation model (an OpenAI model id).",
+            help=(
+                "The candidate generation model (an OpenAI model id). Default: "
+                "the old arm's model."
+            ),
         )
         parser.add_argument(
             "--old-model",
             help="The baseline generation model. Default: the production model.",
+        )
+        parser.add_argument(
+            "--new-prompt",
+            metavar="FILE",
+            help=(
+                "The candidate prompt template, a text file with {question} and "
+                "{passages}. Default: the old arm's prompt."
+            ),
+        )
+        parser.add_argument(
+            "--old-prompt",
+            metavar="FILE",
+            help="The baseline prompt template file. Default: RAG_PROMPT_TEMPLATE.",
         )
         parser.add_argument(
             "--cases",
@@ -484,7 +554,26 @@ class Command(BaseCommand):
         runs = options["runs"]
         if runs < 1:
             raise CommandError("--runs must be at least 1.")
-        models = (options["old_model"] or production_model(), options["new_model"])
+        if not (options["new_model"] or options["new_prompt"]):
+            raise CommandError(
+                "Give --new-model, --new-prompt or both: the new arm must "
+                "differ from the old one in something."
+            )
+        old_model = options["old_model"] or production_model()
+        models = (old_model, options["new_model"] or old_model)
+        old_template = (
+            load_template(options["old_prompt"]) if options["old_prompt"] else None
+        )
+        new_template = (
+            load_template(options["new_prompt"])
+            if options["new_prompt"]
+            else old_template
+        )
+        templates = (old_template, new_template)
+        prompts = (
+            prompt_label(options["old_prompt"], old_template),
+            prompt_label(options["new_prompt"] or options["old_prompt"], new_template),
+        )
         unpriced = sorted(
             {*models, constants.EVAL_JUDGE_MODEL} - set(constants.EVAL_PRICES_PER_MTOK)
         )
@@ -522,12 +611,14 @@ class Command(BaseCommand):
         meter = Meter(cap=cap)
         openai_client = make_openai_client()
         generators = {
-            arm: Generator(openai_client, model, meter)
-            for arm, model in zip(ARMS, models, strict=True)
+            arm: Generator(openai_client, model, meter, template)
+            for arm, model, template in zip(ARMS, models, templates, strict=True)
         }
         judge_client = make_judge_client(api_key)
         self.stdout.write(
-            f"old={models[0]} new={models[1]} judge={constants.EVAL_JUDGE_MODEL} "
+            f"old={models[0]} prompt={prompts[0]}\n"
+            f"new={models[1]} prompt={prompts[1]}\n"
+            f"judge={constants.EVAL_JUDGE_MODEL} "
             f"cases={len(cases)} runs={runs} projected=${projected:.2f} cap=${cap:.2f}"
         )
 
@@ -547,6 +638,8 @@ class Command(BaseCommand):
             {
                 "old_model": models[0],
                 "new_model": models[1],
+                "old_prompt": prompts[0],
+                "new_prompt": prompts[1],
                 "judge_model": constants.EVAL_JUDGE_MODEL,
                 "runs": runs,
                 "projected_usd": projected,

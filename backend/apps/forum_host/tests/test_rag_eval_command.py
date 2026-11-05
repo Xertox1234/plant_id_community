@@ -159,9 +159,10 @@ def test_prints_the_per_case_table_and_a_pass_count_per_class(tmp_path):
     assert "blocked-chemical: 1/1 passed" in output
     assert "not-blocked: 1/1 passed" in output
     assert "covered-hit" in output and "covered-miss" in output
-    # weakest covered = 0.81 (the only hit), strongest off-corpus = 0.41
-    assert "Weakest covered score: 0.810 (margin over floor 0.360)" in output
-    assert "Strongest off-corpus score: 0.410 (margin under floor 0.040)" in output
+    # weakest covered = 0.81 (the only hit), strongest off-corpus = 0.41, against
+    # the default RAG_SIMILARITY_FLOOR (0.5)
+    assert "Weakest covered score: 0.810 (margin over floor 0.310)" in output
+    assert "Strongest off-corpus score: 0.410 (margin under floor 0.090)" in output
 
 
 @override_settings(**DEV)
