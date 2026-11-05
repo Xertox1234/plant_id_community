@@ -689,6 +689,45 @@ RAG_PROMPT_TEMPLATE = (
     "----- END PASSAGES -----"
 )
 
+# --- RAG eval phase 2: `manage.py rag_eval_judged` (spec 2026-11-03 §6-7) ---
+# Local and on demand only; never imported by a request path.
+#
+# The judge, pinned here so scores from different runs mean the same thing
+# (owner decision 2026-11-04: Claude Sonnet 5.5, called directly through the
+# Anthropic API with the owner's credits). Its key is ANTHROPIC_API_KEY in
+# local backend/.env only: never committed, never a Railway or repo secret.
+EVAL_JUDGE_MODEL = "claude-sonnet-5-5"
+# Thinking stays on (Sonnet 5.5 cannot turn it off); effort bounds how much of
+# it a call buys. Its tokens are billed as output, which is why a call's real
+# cost runs above the bare JSON's length.
+EVAL_JUDGE_EFFORT = "medium"
+# Room for thinking plus the JSON verdict; a "max_tokens" stop means the JSON
+# was cut off and the case goes unscored.
+EVAL_JUDGE_MAX_TOKENS = 4096
+EVAL_JUDGE_TIMEOUT_SECONDS = 120
+# Owner decision 2026-11-04: "record 3 dollar per run". One invocation of the
+# command is one run, whatever its --runs; the cap covers the judge AND the
+# generation calls. Refused before the first call when the projection exceeds
+# it; stopped after any call that pushes the measured total past it.
+EVAL_SPEND_CAP_USD = 3.00
+# USD per million (input, output) tokens, read 2026-11-04 (Anthropic: the
+# claude-api pricing table; OpenAI: gpt-4o-mini list price). A model missing
+# here is refused rather than run unpriced: add its row first.
+EVAL_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
+    "claude-sonnet-5-5": (2.00, 10.00),
+    "gpt-4o-mini": (0.15, 0.60),
+}
+# The projection's per-call token guesses (spec §7.3 estimated ~3,000 in /
+# 400 out per judged case; output here is raised for thinking). The measured
+# usage, not these, drives the running total.
+EVAL_EST_GENERATE_INPUT_TOKENS = 2000
+EVAL_EST_GENERATE_OUTPUT_TOKENS = 300
+EVAL_EST_JUDGE_INPUT_TOKENS = 3000
+EVAL_EST_JUDGE_OUTPUT_TOKENS = 1500
+# A new-arm score this far below the old arm's, on any dimension, is listed
+# as a regression (spec §6).
+EVAL_REGRESSION_DELTA = 2
+
 # Max items in the public forum RSS feed (todo 256 H9).
 FORUM_RSS_MAX_ITEMS = 50
 
