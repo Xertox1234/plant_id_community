@@ -52,7 +52,9 @@ the laptop.
   (default 2), never follows a symlink, and never touches an entry a live worktree uses;
   `--tmp` also reports (never deletes) `tmp/` entries older than 14 days. With the drive
   unmounted it exits 0 and does nothing. The `completing-todos` cleanup step runs it after
-  `git worktree prune`.
+  `git worktree prune`. A one-off build folder that no worktree links is an orphan too:
+  after 2 days without a write, the next sweep deletes it. Keep one by linking it from a
+  worktree, or put it somewhere else (for example `tmp/`, which is only ever reported).
 - **Before ejecting**, run `./gradlew --stop` (from `android/`). Gradle and Kotlin daemons keep
   jars open on the drive. Also quit Docker Desktop: its disk image (shared by every project) lives at
   `_shared/docker/`. `lsof +f -- /Volumes/U34Bolt` shows what is holding it.

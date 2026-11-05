@@ -55,6 +55,7 @@ class Entry:
     size: int
     mtime: float
     live_for: list[str]
+    unreadable: str | None = None  # set when measure() failed: never deleted
 
     @property
     def name(self) -> str:
@@ -98,22 +99,33 @@ def live_targets(worktrees: list[str]) -> dict[str, str]:
 
 
 def _related(a: str, b: str) -> bool:
-    """True when ``a`` and ``b`` are the same path or one contains the other."""
+    """True when ``a`` and ``b`` are the same path or one contains the other.
+
+    Compared case-insensitively: U34Bolt is case-insensitive APFS, and
+    ``realpath`` does not correct a link's letter case, so ``build/G1`` and
+    ``build/g1`` are one folder. Folding can only make more entries live.
+    """
+    a, b = a.casefold(), b.casefold()
     return a == b or a.startswith(b + os.sep) or b.startswith(a + os.sep)
 
 
 def measure(path: Path) -> tuple[int, float]:
-    """Total size and newest mtime under ``path``, never following a symlink."""
+    """Total size and newest mtime under ``path``, never following a symlink.
+
+    Raises OSError when the entry, or any folder inside it, cannot be read:
+    its newest mtime is then unknown, so it must not be judged old.
+    """
     st = os.lstat(path)
     size, newest = st.st_size, st.st_mtime
     if path.is_symlink() or not path.is_dir():
         return size, newest
-    for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
+
+    def fail(exc: OSError) -> None:
+        raise exc
+
+    for dirpath, dirnames, filenames in os.walk(path, followlinks=False, onerror=fail):
         for name in dirnames + filenames:
-            try:
-                s = os.lstat(os.path.join(dirpath, name))
-            except OSError:
-                continue
+            s = os.lstat(os.path.join(dirpath, name))
             size += s.st_size
             newest = max(newest, s.st_mtime)
     return size, newest
@@ -123,14 +135,18 @@ def scan(root: Path, targets: dict[str, str]) -> list[Entry]:
     entries = []
     real_root = os.path.realpath(root)
     for child in sorted(root.iterdir()):
-        size, mtime = measure(child)
+        try:
+            size, mtime = measure(child)
+            unreadable = None
+        except OSError as exc:
+            size, mtime, unreadable = 0, 0.0, str(exc)
         # A top-level link is judged by where it points AND by its own path
         # (the parent resolved, the link itself not).
         resolved = {os.path.realpath(child), os.path.join(real_root, child.name)}
         live = sorted(
             {wt for t, wt in targets.items() for r in resolved if _related(r, t)}
         )
-        entries.append(Entry(child, size, mtime, live))
+        entries.append(Entry(child, size, mtime, live, unreadable))
     return entries
 
 
@@ -165,7 +181,10 @@ def report_tmp(tmp_root: Path, now: float, out) -> None:
     cutoff = now - TMP_REPORT_AGE_DAYS * 86400
     old = []
     for child in sorted(tmp_root.iterdir()):
-        size, mtime = measure(child)
+        try:
+            size, mtime = measure(child)
+        except OSError:
+            continue  # report only: an unreadable entry is simply not listed
         if mtime < cutoff:
             old.append((child, size, mtime))
     for child, size, mtime in old:
@@ -213,7 +232,10 @@ def main(
     args = p.parse_args(argv)
     now = time.time() if now is None else now
 
-    mount = args.mount or (MOUNT if args.root == DEFAULT_ROOT else None)
+    # Any root on the drive checks the mount, however it is spelled: with the
+    # drive gone, /Volumes/U34Bolt/... could be a stray folder on the system disk.
+    under_mount = os.path.abspath(args.root).casefold().startswith(MOUNT.casefold() + os.sep)
+    mount = args.mount or (MOUNT if under_mount else None)
     if mount and not is_mounted(mount):
         print(f"{mount} is not mounted; nothing to do.", file=out)
         return 0
@@ -230,9 +252,11 @@ def main(
     targets = live_targets(wts)
 
     entries = scan(root, targets)
-    orphans = [e for e in entries if not e.live_for]
+    orphans = [e for e in entries if not e.live_for and not e.unreadable]
     for e in entries:
-        if e.live_for:
+        if e.unreadable and not e.live_for:
+            print(f"skip   {e.name}: unreadable, never deleted ({e.unreadable})", file=out)
+        elif e.live_for:
             print(f"live   {human(e.size)} {stamp(e.mtime)} {e.name} <- {', '.join(e.live_for)}", file=out)
         else:
             print(f"orphan {human(e.size)} {stamp(e.mtime)} {e.name}", file=out)

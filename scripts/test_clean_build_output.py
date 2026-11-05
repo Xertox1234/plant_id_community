@@ -136,6 +136,45 @@ class ApplyTests(Fixture):
         self.run_main("--apply")
         self.assertTrue(e.exists())
 
+    def test_link_in_a_different_letter_case_keeps_the_entry(self):
+        # U34Bolt is case-insensitive APFS: build/Sweep-G2 and build/sweep-g2
+        # are one folder, and realpath keeps the link's spelling.
+        live = self.entry("sweep-g2", days=365)
+        wt = self.worktree("g2", self.root / "Sweep-G2")
+        code, out = self.run_main("--apply", "--min-age", "0", worktrees=[wt])
+        self.assertEqual(code, 0, out)
+        self.assertTrue(live.exists(), "a live entry was deleted over letter case")
+
+    def test_unreadable_entry_is_never_deleted(self):
+        e = self.entry("half-read", days=30)
+        real = cbo.measure
+
+        def flaky(path):
+            if path.name == "half-read":
+                raise PermissionError("denied")
+            return real(path)
+
+        with mock.patch.object(cbo, "measure", side_effect=flaky):
+            code, out = self.run_main("--apply", "--min-age", "0")
+        self.assertEqual(code, 0, out)
+        self.assertTrue(e.exists())
+        self.assertIn("skip   half-read: unreadable", out)
+        self.assertIn("Orphans: 0,", out)
+
+    def test_unreadable_subfolder_makes_measure_raise(self):
+        e = self.entry("locked", days=30)
+        with mock.patch.object(cbo.os, "walk") as walk:
+            walk.side_effect = lambda *a, **k: k["onerror"](PermissionError("denied"))
+            with self.assertRaises(OSError):
+                cbo.measure(e)
+
+    def test_failed_delete_exits_one_and_reports(self):
+        self.entry("stuck", days=30)
+        with mock.patch.object(cbo, "delete", side_effect=OSError("busy")):
+            code, out = self.run_main("--apply")
+        self.assertEqual(code, 1)
+        self.assertIn("Deleted: 0,", out)
+
     def test_unreadable_worktree_list_deletes_nothing(self):
         e = self.entry("orphan", days=30)
         out = io.StringIO()
@@ -221,6 +260,15 @@ class NoOpTests(Fixture):
             code = cbo.main(["--apply"], worktrees=[], now=NOW, out=out)
         m.assert_called_once_with(cbo.MOUNT)
         self.assertEqual(code, 0)
+
+    def test_other_spellings_of_a_root_on_the_drive_check_the_mount(self):
+        for root in (cbo.DEFAULT_ROOT + "/", "/Volumes/u34bolt/plant_id_community/build",
+                     "/Volumes/U34Bolt/plant_id_community/./build"):
+            out = io.StringIO()
+            with mock.patch.object(cbo, "is_mounted", return_value=False) as m:
+                code = cbo.main(["--root", root, "--apply"], worktrees=[], now=NOW, out=out)
+            m.assert_called_once_with(cbo.MOUNT)
+            self.assertEqual(code, 0, root)
 
     def test_is_mounted_reads_df_mount_column(self):
         # A plain directory on the system disk is not its own mount point.

@@ -364,6 +364,8 @@ Then sweep orphaned build output on U34Bolt (todo 697; owner decision 2026-11-05
 `python3 REPO/scripts/clean_build_output.py --apply`, sandbox off (the sandbox cannot write to the drive).
 It deletes only orphans older than 2 days that no live worktree's `plant_community_mobile/build` link points
 at, and exits 0 doing nothing when U34Bolt is not mounted. Report what it deleted in the wrap-up.
+A non-zero exit (a delete failed, or the worktree list could not be read) never blocks the wrap-up: the
+worktrees and PRs are already done. Report its `failed …` lines as an owner hand-off and carry on.
 
 **A wedged CI job** (todo 512) can hold an armed PR open indefinitely. On PR #906 a Web CI run stayed
 `in_progress` for over 80 minutes, and `gh run cancel`, the API's `force-cancel` and `gh run rerun` each

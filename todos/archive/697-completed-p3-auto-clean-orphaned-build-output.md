@@ -217,6 +217,41 @@ behind on U34Bolt until someone notices.
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-11-05 - Review round 1: non-blocking findings (PR #1282)
+
+Round 1 was clean (no blocking finding). Each non-blocking finding, fixed by hand
+with a test (each guard mutation-checked: removing it fails its test) or declined:
+
+- **medium + 2 lows, case-sensitive liveness** (`scripts/clean_build_output.py` `_related`):
+  FIXED. U34Bolt is case-insensitive APFS and `realpath` keeps a link's spelling,
+  so a link to `build/Sweep-G2` read the folder `sweep-g2` as an orphan. Paths are
+  now compared casefolded, which can only make more entries live. Test:
+  `test_link_in_a_different_letter_case_keeps_the_entry`.
+- **low, `measure()` crashes on a vanished or unreadable entry; `os.walk` silently
+  skipped unreadable subfolders, understating the newest mtime**: FIXED. `measure()`
+  raises on any unreadable part (`onerror`); `scan()` marks that entry unreadable,
+  prints `skip … unreadable, never deleted`, and leaves it out of the orphans; the
+  `--tmp` report skips it. Tests: `test_unreadable_entry_is_never_deleted`,
+  `test_unreadable_subfolder_makes_measure_raise`.
+- **low, mount check only when `--root` equals the default string**: FIXED. Any root
+  whose absolute path lies under `/Volumes/U34Bolt` (any case) checks the mount.
+  Test: `test_other_spellings_of_a_root_on_the_drive_check_the_mount`.
+- **low, completing-todos does not say what a non-zero exit means**: FIXED. The
+  cleanup paragraph now says it never blocks the wrap-up, and its `failed …` lines
+  are an owner hand-off.
+- **low, a one-off build folder no worktree links is deleted after 2 days**:
+  DECLINED as a code change. It is the intended rule (owner decision 2026-11-05,
+  delete automatically); `plant_community_mobile/CLAUDE.md` now says so, and how to
+  keep one (link it from a worktree, or use `tmp/`, which is report-only).
+- **low, `is_mounted` True branch untested**: DECLINED, already covered:
+  `test_is_mounted_reads_df_mount_column` asserts `is_mounted("/")` is True.
+- **low, no test for a failed delete or for `--tmp` under `--apply`**: the delete
+  failure is FIXED (`test_failed_delete_exits_one_and_reports`); the `--tmp --apply`
+  case was already covered by `test_tmp_reports_old_entries_and_deletes_nothing`.
+- kimi WARNING at commit, `os.path.realpath` raising on an unresolvable link:
+  DECLINED. Non-strict `realpath` never raises for a missing target on Python 3.10+;
+  it returns the path as far as it resolves.
+
 ## Notes
 
 P3: costs disk space, not correctness. The orphans found today are about
