@@ -309,10 +309,10 @@ Expected test behavior:
 - [ ] Request queuing for offline mode
 - [ ] Interceptor for analytics tracking
 
-## PlantIdentificationService
+## Plant identification
 
-**Location**: `plant_identification_service.dart`
-
-Coordinates plant image upload, backend identification, result parsing, and
-cleanup. Tests use local mock `ApiService` and `FirebaseStorageService`
-implementations rather than a separate `mock_plant_service.dart` file.
+Scans run as background server jobs since Scan 2.0 Part 2: see
+`lib/features/scan/scan_job_api.dart` (client) and
+`lib/features/scan/scan_job_tracker.dart` (upload, polling, collection save).
+The old single-image `PlantIdentificationService` and its Firebase Storage
+upload were removed with it.

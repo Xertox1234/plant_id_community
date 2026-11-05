@@ -716,6 +716,8 @@ class _FakeApiService extends ApiService {
     dynamic data,
     Map<String, dynamic>? queryParameters,
     Options? options,
+    void Function(int sent, int total)? onSendProgress,
+    Duration? receiveTimeout,
   }) => _record('POST', path, data, options);
 
   @override

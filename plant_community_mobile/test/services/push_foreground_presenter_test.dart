@@ -8,9 +8,14 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plant_community_mobile/features/scan/scan_job_api.dart';
+import 'package:plant_community_mobile/features/scan/scan_job_tracker.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
+import 'package:plant_community_mobile/shared/root_scaffold_messenger.dart';
 import 'package:plant_community_mobile/services/push_foreground_presenter.dart';
 import 'package:plant_community_mobile/services/push_message_router_service.dart';
+
+import '../features/scan/fake_scan_job_tracker.dart';
 
 RemoteMessage _reply({String? id = 'm-1', String? title = 'New reply'}) =>
     RemoteMessage(
@@ -234,6 +239,79 @@ void main() {
       expect(messages.hasListener, isFalse);
       await tester.pump(const Duration(seconds: 5));
     });
+  });
+
+  _scanPushTest();
+}
+
+class _CountingTracker extends FakeScanJobTracker {
+  final pushed = <String>[];
+
+  @override
+  Future<void> onPush(String jobId) async => pushed.add(jobId);
+}
+
+class _CountingAllowance {
+  int reads = 0;
+}
+
+void _scanPushTest() {
+  testWidgets('scan_job_finished foreground message shows a banner and calls '
+      'tracker.onPush', (tester) async {
+    final messages = StreamController<RemoteMessage>.broadcast();
+    addTearDown(messages.close);
+    final allowance = _CountingAllowance();
+    final container = ProviderContainer(
+      overrides: [
+        foregroundMessagesProvider.overrideWithValue(messages.stream),
+        authServiceProvider.overrideWith(_SignedIn.new),
+        scanJobTrackerProvider.overrideWith(_CountingTracker.new),
+        scanAllowanceProvider.overrideWith((ref) async {
+          allowance.reads++;
+          return null;
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          scaffoldMessengerKey: rootScaffoldMessengerKey,
+          home: const Scaffold(body: SizedBox()),
+        ),
+      ),
+    );
+    container.read(pushForegroundPresenterProvider);
+    final sub = container.listen(scanAllowanceProvider, (_, _) {});
+    addTearDown(sub.close);
+    await container.read(scanAllowanceProvider.future);
+    expect(allowance.reads, 1);
+
+    messages.add(
+      RemoteMessage(
+        messageId: 'scan-1',
+        data: const {
+          'event': 'scan_job_finished',
+          'job_id': 'job-9',
+          'status': 'done',
+        },
+        notification: RemoteNotification(
+          title: 'Your plant check is ready',
+          body: 'Tap to see the result',
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final tracker =
+        container.read(scanJobTrackerProvider.notifier) as _CountingTracker;
+    expect(tracker.pushed, ['job-9']);
+    // The allowance was invalidated and re-read.
+    expect(allowance.reads, 2);
+    expect(find.text('Your plant check is ready'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 5));
   });
 }
 

@@ -6,13 +6,16 @@ import 'package:plant_community_mobile/features/scan/capture_steps.dart';
 void main() {
   late ProviderContainer container;
   late CaptureSession notifier;
-  CaptureSessionState read() => container.read(captureSessionProvider);
+  CaptureSessionState read() =>
+      container.read(captureSessionProvider(ScanMode.diagnose));
 
   setUp(() {
     container = ProviderContainer();
     addTearDown(container.dispose);
-    container.listen(captureSessionProvider, (_, _) {});
-    notifier = container.read(captureSessionProvider.notifier);
+    container.listen(captureSessionProvider(ScanMode.diagnose), (_, _) {});
+    notifier = container.read(
+      captureSessionProvider(ScanMode.diagnose).notifier,
+    );
   });
 
   test('initial state', () {
@@ -24,6 +27,14 @@ void main() {
     expect(read().isCurrentSkippable, isFalse);
     expect(read().hasShotForCurrent, isFalse);
     expect(read().isLastStep, isFalse);
+  });
+
+  test('the family arg is the first state', () {
+    final c = ProviderContainer();
+    addTearDown(c.dispose);
+    final s = c.read(captureSessionProvider(ScanMode.identify));
+    expect(s.mode, ScanMode.identify);
+    expect(s.currentRole, CaptureRole.leaf);
   });
 
   test('skip on required step is a no-op', () {

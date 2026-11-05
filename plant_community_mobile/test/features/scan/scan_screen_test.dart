@@ -11,10 +11,13 @@ import 'package:plant_community_mobile/features/scan/capture_steps.dart';
 import 'package:plant_community_mobile/features/scan/frame_quality.dart';
 import 'package:plant_community_mobile/features/scan/hint_stabilizer.dart';
 import 'package:plant_community_mobile/features/scan/scan_camera.dart';
+import 'package:plant_community_mobile/features/scan/scan_job_api.dart';
+import 'package:plant_community_mobile/features/scan/scan_job_tracker.dart';
 import 'package:plant_community_mobile/features/scan/scan_screen.dart';
 import 'package:plant_community_mobile/features/scan/widgets/viewfinder_frame.dart';
 
 import 'fake_scan_camera.dart';
+import 'fake_scan_job_tracker.dart';
 
 FrameSample _sample({
   required int luma,
@@ -64,6 +67,7 @@ void main() {
     WidgetTester tester, {
     Brightness brightness = Brightness.light,
     ScanMode initialMode = ScanMode.diagnose,
+    bool settle = true,
   }) async {
     await tester.pumpWidget(
       ProviderScope(
@@ -76,6 +80,8 @@ void main() {
             return fake;
           }),
           hintClockProvider.overrideWithValue(() => fakeNow),
+          scanJobTrackerProvider.overrideWith(FakeScanJobTracker.new),
+          scanAllowanceProvider.overrideWith((ref) async => null),
         ],
         child: MaterialApp(
           theme: AppTheme.build(brightness, AppDensity.cozy),
@@ -83,7 +89,7 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    if (settle) await tester.pumpAndSettle();
   }
 
   Future<void> advance(WidgetTester tester, Duration d) async {
@@ -119,6 +125,16 @@ void main() {
     expectDoneEnabled(tester, false);
     expect(fake.isStreaming, isTrue);
     handle.dispose();
+  });
+
+  testWidgets('identify mode shows no diagnose chips on the first frame', (
+    tester,
+  ) async {
+    await pumpScreen(tester, initialMode: ScanMode.identify, settle: false);
+
+    expect(find.text("Show me what's wrong"), findsNothing);
+    expect(find.text('Point at a leaf'), findsOneWidget);
+    await tester.pumpAndSettle();
   });
 
   testWidgets('initialMode identify starts on the leaf step', (tester) async {

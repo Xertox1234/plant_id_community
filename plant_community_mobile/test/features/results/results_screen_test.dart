@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/results/results_screen.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
+import 'package:plant_community_mobile/features/scan/scan_job_api.dart';
 import 'package:plant_community_mobile/models/plant.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -47,5 +48,140 @@ void main() {
   testWidgets('no crash on pump', (tester) async {
     await tester.pumpWidget(_wrap(ResultsScreen(plant: _mockPlant())));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('results shows found diagnosis with percent', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ResultsScreen(
+          plant: _mockPlant(),
+          diagnosis: const ScanDiagnosis(
+            state: 'found',
+            name: 'Root rot',
+            probability: 0.72,
+            description: 'Soggy soil is killing the roots.',
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Root rot'), findsOneWidget);
+    expect(find.text('72%'), findsOneWidget);
+    expect(find.text('Soggy soil is killing the roots.'), findsOneWidget);
+  });
+
+  testWidgets('results shows Looks healthy', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ResultsScreen(
+          plant: _mockPlant(),
+          diagnosis: const ScanDiagnosis(state: 'healthy'),
+        ),
+      ),
+    );
+    expect(find.text('Looks healthy'), findsOneWidget);
+  });
+
+  testWidgets('results shows degraded copy', (tester) async {
+    const copy =
+        "We named your plant but couldn't check its health. "
+        "Your check wasn't used.";
+    await tester.pumpWidget(
+      _wrap(ResultsScreen(plant: _mockPlant(), degraded: true)),
+    );
+    expect(find.text(copy), findsOneWidget);
+
+    await tester.pumpWidget(
+      _wrap(
+        ResultsScreen(
+          plant: _mockPlant(),
+          diagnosis: const ScanDiagnosis(state: 'unavailable'),
+        ),
+      ),
+    );
+    expect(find.text(copy), findsOneWidget);
+  });
+
+  testWidgets('results shows identification confidence', (tester) async {
+    await tester.pumpWidget(
+      _wrap(ResultsScreen(plant: _mockPlant(), confidence: 0.91)),
+    );
+    expect(find.text('91% match'), findsOneWidget);
+  });
+
+  testWidgets('results shows degraded copy for an unknown state', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        ResultsScreen(
+          plant: _mockPlant(),
+          diagnosis: const ScanDiagnosis(state: 'brand_new_state'),
+        ),
+      ),
+    );
+    expect(find.text(ResultsScreen.degradedCopy), findsOneWidget);
+    expect(find.text('Looks healthy'), findsNothing);
+  });
+
+  testWidgets('results found with no name shows no empty title', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        ResultsScreen(
+          plant: _mockPlant(),
+          diagnosis: const ScanDiagnosis(
+            state: 'found',
+            probability: 0.5,
+            description: 'x',
+          ),
+        ),
+      ),
+    );
+    expect(find.text(ResultsScreen.degradedCopy), findsOneWidget);
+    expect(find.textContaining('50%'), findsNothing);
+    expect(find.text('Looks healthy'), findsNothing);
+  });
+
+  testWidgets('a degraded result with onRetry shows Try again', (tester) async {
+    var tapped = 0;
+    await tester.pumpWidget(
+      _wrap(
+        ResultsScreen(
+          plant: _mockPlant(),
+          degraded: true,
+          onRetry: () => tapped++,
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(ResultsScreen.retryKey));
+    expect(tapped, 1);
+    expect(find.text('Try again'), findsOneWidget);
+  });
+
+  testWidgets('no Try again without onRetry, or when not degraded', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(ResultsScreen(plant: _mockPlant(), degraded: true)),
+    );
+    expect(find.byKey(ResultsScreen.retryKey), findsNothing);
+    await tester.pumpWidget(
+      _wrap(ResultsScreen(plant: _mockPlant(), onRetry: () {})),
+    );
+    expect(find.byKey(ResultsScreen.retryKey), findsNothing);
+  });
+
+  testWidgets('a found diagnosis whose name is only spaces reads as '
+      'unchecked', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        ResultsScreen(
+          plant: _mockPlant(),
+          diagnosis: const ScanDiagnosis(state: 'found', name: '   '),
+        ),
+      ),
+    );
+    expect(find.text(ResultsScreen.degradedCopy), findsOneWidget);
   });
 }

@@ -39,6 +39,8 @@ class RecordingApiService extends ApiService {
     dynamic data,
     Map<String, dynamic>? queryParameters,
     Options? options,
+    void Function(int sent, int total)? onSendProgress,
+    Duration? receiveTimeout,
   }) async {
     requests.add(('POST', path, data, queryParameters));
     return _answer('POST', path);

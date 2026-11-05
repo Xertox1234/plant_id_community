@@ -39,7 +39,6 @@ dependencies:
   firebase_core: ^4.15.2  # >=4.15.1 pins Firebase iOS SDK 12.19.3 (Firestore eMudhra CA fix)
   firebase_auth: ^6.1.2
   cloud_firestore: ^6.10.1
-  firebase_storage: ^13.0.4
   firebase_messaging: ^16.7.1  # Push notifications (16.7 adds AuthorizationStatus.deniedPermanently)
 
   # State Management
@@ -56,6 +55,7 @@ dependencies:
   # HTTP
   dio: ^5.8.1
   http: ^1.2.2  # For weather API calls
+  http_parser: ^4.1.2  # MediaType for multipart part Content-Types
 
   # Utils
   intl: ^0.20.1

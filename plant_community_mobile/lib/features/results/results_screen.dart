@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_spacing.dart';
@@ -8,6 +7,8 @@ import '../../core/theme/app_typography.dart';
 import '../../shared/widgets/canopy_surfaces.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../models/plant.dart';
+import '../../shared/widgets/api_image.dart';
+import '../scan/scan_job_api.dart';
 
 /// Results screen displaying plant identification
 ///
@@ -22,7 +23,33 @@ import '../../models/plant.dart';
 class ResultsScreen extends StatelessWidget {
   final Plant plant;
 
-  const ResultsScreen({super.key, required this.plant});
+  /// The health verdict of a diagnose scan; null for an identify scan.
+  final ScanDiagnosis? diagnosis;
+
+  /// How sure the identification is (0..1), when known.
+  final double? confidence;
+
+  /// The scan named the plant but its health check did not run.
+  final bool degraded;
+
+  const ResultsScreen({
+    super.key,
+    required this.plant,
+    this.diagnosis,
+    this.confidence,
+    this.degraded = false,
+    this.onRetry,
+  });
+
+  /// Offered on a degraded result as "Try again": re-runs the check, which
+  /// the degraded scan did not use. Null hides it.
+  final VoidCallback? onRetry;
+
+  static const retryKey = Key('results-retry');
+
+  static const degradedCopy =
+      "We named your plant but couldn't check its health. "
+      "Your check wasn't used.";
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +65,12 @@ class ResultsScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Health verdict, above the image
+              if (degraded || diagnosis != null) ...[
+                _buildDiagnosis(context),
+                const SizedBox(height: AppSpacing.lg),
+              ],
+
               // Plant Image with Badge
               _buildPlantImage(context),
               const SizedBox(height: AppSpacing.lg),
@@ -59,6 +92,81 @@ class ResultsScreen extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  /// The diagnosis block: found, healthy, or the degraded notice.
+  Widget _buildDiagnosis(BuildContext context) {
+    final theme = Theme.of(context);
+    final d = diagnosis;
+    final Widget content;
+    final foundName = d?.state == 'found' ? d?.name?.trim() : null;
+    final known =
+        d != null &&
+        (d.state == 'healthy' ||
+            (d.state == 'found' && foundName != null && foundName.isNotEmpty));
+    // Only a verdict we recognise is shown; anything else (unavailable, a
+    // state a newer server adds, a found with no name) reads as unchecked
+    // rather than as a false health claim.
+    final retry = onRetry;
+    if (degraded && retry != null) {
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(degradedCopy, style: theme.textTheme.bodyMedium),
+          const SizedBox(height: AppSpacing.md),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton(
+              key: retryKey,
+              // 48dp: Material's 40dp default misses the tap-target guideline.
+              style: const ButtonStyle(
+                minimumSize: WidgetStatePropertyAll(Size(64, 48)),
+              ),
+              onPressed: retry,
+              child: const Text('Try again'),
+            ),
+          ),
+        ],
+      );
+    } else if (degraded || d == null || !known) {
+      content = Text(degradedCopy, style: theme.textTheme.bodyMedium);
+    } else if (d.state == 'found') {
+      final p = d.probability;
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  foundName ?? '',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              if (p != null) Text('${(p * 100).round()}%'),
+            ],
+          ),
+          if (d.description != null && d.description!.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(d.description!, style: theme.textTheme.bodyMedium),
+          ],
+        ],
+      );
+    } else {
+      // Reached only for state == 'healthy'.
+      content = Text(
+        'Looks healthy',
+        style: theme.textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.bold,
+        ),
+      );
+    }
+    return CanopyCard(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: content,
     );
   }
 
@@ -122,8 +230,8 @@ class ResultsScreen extends StatelessWidget {
     final bool isUrl = imagePath.startsWith('http');
 
     return isUrl
-        ? CachedNetworkImage(
-            imageUrl: imagePath,
+        ? ApiImage(
+            url: imagePath,
             fit: BoxFit.cover,
             placeholder: (context, url) => Container(
               color: Theme.of(context).colorScheme.surfaceContainerLow,
@@ -172,6 +280,13 @@ class ResultsScreen extends StatelessWidget {
               color: Theme.of(context).textTheme.bodySmall?.color,
             ),
           ),
+          if (confidence != null) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              '${(confidence! * 100).round()}% match',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
 
           // Description

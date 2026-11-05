@@ -76,6 +76,12 @@ PREFIX_CONSTANTS = {
         "both children (/new, /:id) are registered, and no group-list screen "
         "exists (groups are folded into ForumConversationsScreen)"
     ),
+    "scanResult": (
+        "guard prefix for /scans/:id (Scan 2.0 Part 2, task C4); not a "
+        "destination -- only the parameterised child is registered. Opened "
+        "through scanResultPath(id) from the scan status pill and the camera "
+        "status view"
+    ),
 }
 
 

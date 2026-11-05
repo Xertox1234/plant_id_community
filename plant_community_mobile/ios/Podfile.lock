@@ -1223,9 +1223,6 @@ PODS:
   - Firebase/Messaging (12.19.3):
     - Firebase/CoreOnly
     - FirebaseMessaging (~> 12.19.0)
-  - Firebase/Storage (12.19.3):
-    - Firebase/CoreOnly
-    - FirebaseStorage (~> 12.19.0)
   - firebase_auth (6.7.1):
     - Firebase/Auth (= 12.19.3)
     - firebase_core
@@ -1235,10 +1232,6 @@ PODS:
     - Flutter
   - firebase_messaging (16.7.1):
     - Firebase/Messaging (= 12.19.3)
-    - firebase_core
-    - Flutter
-  - firebase_storage (13.6.1):
-    - Firebase/Storage (= 12.19.3)
     - firebase_core
     - Flutter
   - FirebaseAppCheckInterop (12.19.0)
@@ -1295,13 +1288,6 @@ PODS:
     - GoogleUtilities/UserDefaults (~> 8.1)
     - nanopb (~> 3.30910.0)
   - FirebaseSharedSwift (12.19.0)
-  - FirebaseStorage (12.19.0):
-    - FirebaseAppCheckInterop (~> 12.19.0)
-    - FirebaseAuthInterop (~> 12.19.0)
-    - FirebaseCore (~> 12.19.0)
-    - FirebaseCoreExtension (~> 12.19.0)
-    - GoogleUtilities/Environment (~> 8.1)
-    - GTMSessionFetcher/Core (< 6.0, >= 3.4)
   - Flutter (1.0.0)
   - flutter_local_notifications (0.0.1):
     - Flutter
@@ -1482,7 +1468,6 @@ DEPENDENCIES:
   - firebase_auth (from `.symlinks/plugins/firebase_auth/ios`)
   - firebase_core (from `.symlinks/plugins/firebase_core/ios`)
   - firebase_messaging (from `.symlinks/plugins/firebase_messaging/ios`)
-  - firebase_storage (from `.symlinks/plugins/firebase_storage/ios`)
   - Flutter (from `Flutter`)
   - flutter_local_notifications (from `.symlinks/plugins/flutter_local_notifications/ios`)
   - flutter_secure_storage_darwin (from `.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
@@ -1515,7 +1500,6 @@ SPEC REPOS:
     - FirebaseInstallations
     - FirebaseMessaging
     - FirebaseSharedSwift
-    - FirebaseStorage
     - GoogleDataTransport
     - GoogleSignIn
     - GoogleUtilities
@@ -1540,8 +1524,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/firebase_core/ios"
   firebase_messaging:
     :path: ".symlinks/plugins/firebase_messaging/ios"
-  firebase_storage:
-    :path: ".symlinks/plugins/firebase_storage/ios"
   Flutter:
     :path: Flutter
   flutter_local_notifications:
@@ -1580,7 +1562,6 @@ SPEC CHECKSUMS:
   firebase_auth: 749e959255e42e6ca6ec2ecc83a0e1ce55d384fe
   firebase_core: 4d065e808a89f0eaa0df16660666783f9ea13d38
   firebase_messaging: d66dd9b68ca259955678628aa4f3e4294d055790
-  firebase_storage: 8ea03b6c6623411cd9995b2950e3b6fe7f256afa
   FirebaseAppCheckInterop: bd4b791ffaed7ae719304af6369d243ddee5e4a0
   FirebaseAuth: 8c38236f67e5e3dd6aacf3e0c46b3eed31e9c820
   FirebaseAuthInterop: f1ad187a0052276ad49a990538accfdf36fc595d
@@ -1592,7 +1573,6 @@ SPEC CHECKSUMS:
   FirebaseInstallations: f70a49eed611f5602f373e40974b3b01556ac217
   FirebaseMessaging: c15f48126adbe8b4d3238a5e1fa24bab3ad3e472
   FirebaseSharedSwift: c91f36aeaa566e12b682caacc40d34c8303c3124
-  FirebaseStorage: 357354fbde2ba62983c0fe5d9cf10155046b5404
   Flutter: 71a624a5bc0c04062bf19101d501e466baf2fb47
   flutter_local_notifications: 643a3eda1ce1c0599413ca31672536d423dee214
   flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23

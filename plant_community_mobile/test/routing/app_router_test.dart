@@ -20,7 +20,6 @@ import 'package:plant_community_mobile/features/garden/services/garden_api_servi
 import 'package:plant_community_mobile/features/profile/edit_profile_screen.dart';
 import 'package:plant_community_mobile/features/scan/scan_camera.dart';
 import 'package:plant_community_mobile/features/scan/scan_screen.dart';
-import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
@@ -452,7 +451,7 @@ void main() {
       await tester.pump(const Duration(seconds: 4));
     });
 
-    testWidgets('Should navigate to results with plant data', (
+    testWidgets('/scans/<id> signed out redirects to login', (
       WidgetTester tester,
     ) async {
       final container = ProviderContainer(
@@ -465,18 +464,7 @@ void main() {
       addTearDown(container.dispose);
 
       final router = container.read(appRouterProvider);
-      final testPlant = Plant(
-        id: 'test-123',
-        name: 'Test Plant',
-        scientificName: 'Testus planticus',
-        description: 'A test plant for routing tests',
-        care: const ['Water regularly', 'Full sun'],
-        imageUrl: 'https://example.com/plant.jpg',
-        timestamp: DateTime.now(),
-      );
 
-      // Screens may be Consumers (HomePage's onboarding card, todo 412), so
-      // the router's own container must be in scope.
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
@@ -484,54 +472,16 @@ void main() {
         ),
       );
 
-      // Navigate to results with plant data
-      router.go(AppRoutes.results, extra: testPlant);
+      router.go(scanResultPath('job-1'));
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(
         router.routerDelegate.currentConfiguration.uri.path,
-        equals(AppRoutes.results),
+        equals(AppRoutes.login),
       );
 
       await tester.pump(const Duration(seconds: 4));
     });
-
-    testWidgets(
-      'Should show error screen when navigating to results without plant data',
-      (WidgetTester tester) async {
-        final container = ProviderContainer(
-          overrides: [
-            authServiceProvider.overrideWith(
-              _MockUnauthenticatedAuthNotifier.new,
-            ),
-          ],
-        );
-        addTearDown(container.dispose);
-
-        final router = container.read(appRouterProvider);
-
-        // Screens may be Consumers (HomePage's onboarding card, todo 412), so
-        // the router's own container must be in scope.
-        await tester.pumpWidget(
-          UncontrolledProviderScope(
-            container: container,
-            child: MaterialApp.router(routerConfig: router),
-          ),
-        );
-
-        // Navigate to results WITHOUT plant data
-        router.go(AppRoutes.results);
-        // Pump one frame to unmount SplashScreen (cancelling its timer), then settle
-        await tester.pump();
-        await tester.pumpAndSettle(const Duration(milliseconds: 100));
-
-        // Should show error screen
-        expect(find.text('Oops! Something went wrong'), findsOneWidget);
-        expect(find.byIcon(LucideIcons.circleAlert), findsOneWidget);
-
-        await tester.pump(const Duration(seconds: 4));
-      },
-    );
 
     testWidgets('Should handle invalid route', (WidgetTester tester) async {
       final container = ProviderContainer(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/constants/app_spacing.dart';
@@ -12,6 +13,8 @@ import '../../shared/widgets/clay_button.dart';
 import '../../shared/widgets/feature_card.dart';
 import '../blog/screens/blog_format.dart';
 import '../onboarding/onboarding_checklist_card.dart';
+import '../scan/capture_steps.dart';
+import '../scan/scan_job_api.dart';
 import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// Home page with hero section and feature cards
@@ -129,7 +132,8 @@ class HomePage extends StatelessWidget {
             fullWidth: true,
             onPressed: () => context.push(AppRoutes.camera),
           ),
-          // Room for the daily-allowance line (Scan 2.0 phase C).
+          // The daily allowance; the gap above the link stays when hidden.
+          const _AllowanceLine(),
           SizedBox(height: ext.gapY),
           Center(
             child: TextButton(
@@ -232,6 +236,38 @@ class HomePage extends StatelessWidget {
         icon: LucideIcons.arrowRight,
         fullWidth: true,
         onPressed: () => context.push(AppRoutes.camera),
+      ),
+    );
+  }
+}
+
+/// "N checks left today" under the hero button, from the server's allowance.
+/// Renders nothing while it loads, when signed out, or when it can't be read.
+class _AllowanceLine extends ConsumerWidget {
+  const _AllowanceLine();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final allowance = ref.watch(scanAllowanceProvider).asData?.value;
+    if (allowance == null) return const SizedBox.shrink();
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
+    final n = allowance.remainingFor(ScanMode.diagnose);
+    final text = n > 0
+        ? '$n check${n == 1 ? '' : 's'} left today'
+        : allowance.isPremium
+        ? 'More checks at midnight'
+        : 'No checks left today · Go premium for '
+              '${allowance.premiumDiagnoseLimit}';
+    return Padding(
+      padding: EdgeInsets.only(top: ext.gapY),
+      child: Center(
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: AppTypography.bodySm.copyWith(color: ext.ink2),
+        ),
       ),
     );
   }

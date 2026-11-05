@@ -69,6 +69,7 @@ dev_dependencies:
 ```
 
 **Setup**:
+
 ```dart
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 
@@ -82,11 +83,13 @@ void main() {
 ```
 
 **Pros**:
+
 - Proper Firebase mocking
 - All widget tests would pass
 - Realistic test environment
 
 **Cons**:
+
 - Additional dependency
 - Setup complexity
 
@@ -107,16 +110,19 @@ GoRouter appRouter(Ref ref, {AuthState? authStateOverride}) {
 ```
 
 **Test Usage**:
+
 ```dart
 final router = appRouter(container.ref, authStateOverride: mockAuthState);
 ```
 
 **Pros**:
+
 - No Firebase dependency in tests
 - Cleaner separation of concerns
 - More testable architecture
 
 **Cons**:
+
 - Requires refactoring router implementation
 - Changes production code for testability
 
@@ -143,11 +149,13 @@ void main() {
 ```
 
 **Pros**:
+
 - Tests real app behavior
 - Firebase already initialized in real app
 - More confidence in production code
 
 **Cons**:
+
 - Slower tests
 - Less isolated testing
 - Requires Firebase project setup
@@ -196,11 +204,13 @@ The widget tests are a **nice-to-have** for CI/CD automation, not a blocker for 
 ## Next Steps
 
 **Short term** (to unblock Task 4):
+
 1. Document test limitation in PR
-2. Proceed with Task 4 (PlantIdentificationService)
+2. Proceed with Task 4 (PlantIdentificationService) — historical: that service was removed in Scan 2.0 Part 2; scans now run as background jobs (`lib/features/scan/scan_job_tracker.dart`)
 3. Add widget tests to backlog for future sprint
 
 **Long term** (nice-to-have):
+
 1. Implement Option 1 (firebase_auth_mocks)
 2. Achieve 100% test coverage
 3. Add to CI/CD pipeline

@@ -5,11 +5,14 @@
 // 286 (Apple provisioning still missing for a distributed build); this is
 // the closest coverage available until that lands.
 
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_messaging_platform_interface/firebase_messaging_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/core/routing/app_router.dart';
 import 'package:plant_community_mobile/features/auth/login_screen.dart';
@@ -18,12 +21,19 @@ import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
 import 'package:plant_community_mobile/features/garden/garden_screen.dart';
 import 'package:plant_community_mobile/features/garden/services/garden_api_service.dart';
+import 'package:plant_community_mobile/features/home/home_page.dart';
 import 'package:plant_community_mobile/features/onboarding/onboarding_checklist_service.dart';
+import 'package:plant_community_mobile/features/scan/capture_steps.dart';
+import 'package:plant_community_mobile/features/scan/scan_job_api.dart';
+import 'package:plant_community_mobile/features/scan/scan_job_tracker.dart';
+import 'package:plant_community_mobile/features/scan/scan_result_screen.dart';
+import 'package:plant_community_mobile/features/scan/widgets/scan_job_pill.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/push_message_router_service.dart';
 
 import '../features/forum/support/forum_test_support.dart';
+import '../features/scan/fake_scan_job_tracker.dart';
 import '../features/garden/support/garden_test_support.dart';
 
 /// The reply_added/mention/answer_accepted shape from the backend's
@@ -72,8 +82,10 @@ const _careReminderPayload = RemoteMessage(
 ProviderContainer _careContainer({
   AuthState auth = const AuthState(jwtToken: 'jwt'),
   FakeGardenApi? garden,
+  List<Override> extra = const [],
 }) => ProviderContainer(
   overrides: [
+    ...extra,
     authServiceProvider.overrideWithValue(auth),
     gardenApiProvider.overrideWithValue(garden ?? FakeGardenApi()),
     forumApiProvider.overrideWithValue(FakeForumApi()),
@@ -104,18 +116,24 @@ class _FakeFirebaseAuth extends Fake implements FirebaseAuth {
   Stream<User?> authStateChanges() => const Stream.empty();
 }
 
-class _FakeUser extends Fake implements User {}
+class _FakeUser extends Fake implements User {
+  // Read by the scan tracker, which the result screen now builds.
+  @override
+  String get uid => 'user-1';
+}
 
 /// Like [_careContainer], but the session is still being restored.
-ProviderContainer _restoringCareContainer() => ProviderContainer(
-  overrides: [
-    authServiceProvider.overrideWith(_RestoringAuthService.new),
-    gardenApiProvider.overrideWithValue(FakeGardenApi()),
-    forumApiProvider.overrideWithValue(FakeForumApi()),
-    forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
-    onboardingChecklistServiceProvider.overrideWith(_NoChecklist.new),
-  ],
-);
+ProviderContainer _restoringCareContainer({List<Override> extra = const []}) =>
+    ProviderContainer(
+      overrides: [
+        ...extra,
+        authServiceProvider.overrideWith(_RestoringAuthService.new),
+        gardenApiProvider.overrideWithValue(FakeGardenApi()),
+        forumApiProvider.overrideWithValue(FakeForumApi()),
+        forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+        onboardingChecklistServiceProvider.overrideWith(_NoChecklist.new),
+      ],
+    );
 
 /// No onboarding checklist, without touching the network.
 class _NoChecklist extends OnboardingChecklistService {
@@ -123,7 +141,253 @@ class _NoChecklist extends OnboardingChecklistService {
   Future<OnboardingChecklist?> build() async => null;
 }
 
+/// The scan-job push shape from the backend (Scan 2.0 C5).
+const _scanPushPayload = RemoteMessage(
+  data: {'event': 'scan_job_finished', 'job_id': 'job-9', 'status': 'done'},
+);
+
+class _ScanApi extends ScanJobApi {
+  _ScanApi() : super(ApiService(baseUrl: 'https://a.test'));
+
+  @override
+  Future<ScanJob> get(String id) => Completer<ScanJob>().future;
+}
+
+/// Answers with job-9 finished, result and all.
+class _DoneScanApi extends ScanJobApi {
+  _DoneScanApi() : super(ApiService(baseUrl: 'https://a.test'));
+
+  @override
+  Future<ScanJob> get(String id) async => ScanJob(
+    id: id,
+    mode: ScanMode.diagnose,
+    status: ScanJobStatus.done,
+    chargedAs: 'diagnose',
+    result: const ScanJobResult(
+      plantName: 'Monstera',
+      scientificName: 'Monstera deliciosa',
+      confidence: 0.9,
+      description: 'A climbing aroid.',
+      diagnosis: ScanDiagnosis(state: 'healthy'),
+    ),
+    photos: const {},
+    coverPhoto: null,
+    createdAt: DateTime.utc(2026, 11, 2, 9, 30),
+  );
+}
+
 void main() {
+  group('scan_job_finished pushes (Scan 2.0 C5)', () {
+    final scanApi = scanJobApiProvider.overrideWithValue(_ScanApi());
+    // Home sits under the result; keep its allowance line off the network.
+    final noAllowance = scanAllowanceProvider.overrideWith((ref) async => null);
+
+    testWidgets('scan_job_finished warm tap pushes /scans/<id>', (
+      tester,
+    ) async {
+      final container = _careContainer(extra: [scanApi, noAllowance]);
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      container.listen(appRouterProvider, (_, _) {});
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pump();
+      final service = _TestablePushMessageRouterService(
+        () => router,
+        _FakeMessaging(),
+      );
+      addTearDown(service.detach);
+
+      FirebaseMessagingPlatform.onMessageOpenedApp.add(_scanPushPayload);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(ScanResultScreen), findsOneWidget);
+      expect(
+        tester.widget<ScanResultScreen>(find.byType(ScanResultScreen)).jobId,
+        'job-9',
+      );
+      await _drainSplashTimer(tester);
+    });
+
+    testWidgets('a warm tap on the already-open result does not stack a '
+        'duplicate', (tester) async {
+      final container = _careContainer(extra: [scanApi, noAllowance]);
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      container.listen(appRouterProvider, (_, _) {});
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pump();
+      final service = _TestablePushMessageRouterService(
+        () => router,
+        _FakeMessaging(),
+      );
+      addTearDown(service.detach);
+
+      FirebaseMessagingPlatform.onMessageOpenedApp.add(_scanPushPayload);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      FirebaseMessagingPlatform.onMessageOpenedApp.add(_scanPushPayload);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // Offstage routes count too: a stacked copy would sit underneath.
+      expect(
+        find.byType(ScanResultScreen, skipOffstage: false),
+        findsOneWidget,
+      );
+      router.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(ScanResultScreen, skipOffstage: false), findsNothing);
+      await _drainSplashTimer(tester);
+    });
+
+    testWidgets('a push-opened result over a ready tracker leaves no pill and '
+        'marks the job viewed', (tester) async {
+      final tracker = FakeScanJobTracker(
+        ScanTrackerState(
+          phase: TrackerPhase.ready,
+          job: fakeScanJob(id: 'job-9', status: ScanJobStatus.done),
+          lastCapture: fakeCapture,
+        ),
+      );
+      final container = _careContainer(
+        extra: [
+          scanJobApiProvider.overrideWithValue(_DoneScanApi()),
+          noAllowance,
+          scanJobTrackerProvider.overrideWith(() => tracker),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      container.listen(appRouterProvider, (_, _) {});
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            builder: (context, child) => Stack(
+              children: [
+                child!,
+                const Positioned(
+                  left: 16,
+                  right: 16,
+                  bottom: 16,
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: ScanJobPill(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await _drainSplashTimer(tester);
+      expect(find.text(ScanJobPill.readyCopy), findsOneWidget);
+      final service = _TestablePushMessageRouterService(
+        () => router,
+        _FakeMessaging(),
+      );
+      addTearDown(service.detach);
+
+      FirebaseMessagingPlatform.onMessageOpenedApp.add(_scanPushPayload);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+
+      expect(find.byType(ScanResultScreen), findsOneWidget);
+      expect(find.text('Monstera'), findsOneWidget);
+      expect(find.text(ScanJobPill.readyCopy), findsNothing);
+      expect(tracker.calls, ['viewed:job-9']);
+    });
+
+    testWidgets(
+      'cold start goes home then pushes /scans/<id> after auth restore',
+      (tester) async {
+        final container = _restoringCareContainer(
+          extra: [scanApi, noAllowance],
+        );
+        addTearDown(container.dispose);
+        final router = container.read(appRouterProvider);
+        container.listen(appRouterProvider, (_, _) {});
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pump();
+        final service = _TestablePushMessageRouterService(
+          () => router,
+          _FakeMessaging(initialMessage: _scanPushPayload),
+          awaitAuthRestore: container.read(authRestoreWaiterProvider),
+        );
+        addTearDown(service.detach);
+
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        // Restore still in flight: nothing pushed, no login detour.
+        expect(find.byType(ScanResultScreen), findsNothing);
+        expect(find.byType(LoginScreen), findsNothing);
+
+        await _drainSplashTimer(tester);
+        (container.read(authServiceProvider.notifier) as _RestoringAuthService)
+            .finishRestore();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(find.byType(ScanResultScreen), findsOneWidget);
+        expect(find.byType(LoginScreen), findsNothing);
+        // Home sits underneath: popping the result lands on it.
+        router.pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.byType(ScanResultScreen), findsNothing);
+        expect(find.byType(HomePage), findsOneWidget);
+      },
+    );
+
+    testWidgets('missing job_id does nothing', (tester) async {
+      final container = _careContainer(extra: [scanApi, noAllowance]);
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      container.listen(appRouterProvider, (_, _) {});
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pump();
+      final service = _TestablePushMessageRouterService(
+        () => router,
+        _FakeMessaging(),
+      );
+      addTearDown(service.detach);
+
+      FirebaseMessagingPlatform.onMessageOpenedApp.add(
+        const RemoteMessage(data: {'event': 'scan_job_finished'}),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(ScanResultScreen), findsNothing);
+      await _drainSplashTimer(tester);
+    });
+  });
+
   group('care_task_due pushes (todo 386)', () {
     testWidgets('a warm-resume tap opens the garden', (tester) async {
       final container = _careContainer();
