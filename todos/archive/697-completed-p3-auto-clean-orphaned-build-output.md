@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "697"
 tags: [tooling, worktrees, mobile, flutter, u34bolt, disk]
@@ -113,18 +113,18 @@ behind on U34Bolt until someone notices.
 
 ## Acceptance Criteria
 
-- [ ] `python3 scripts/clean_build_output.py` (no flags) lists orphaned
+- [x] `python3 scripts/clean_build_output.py` (no flags) lists orphaned
       entries under `/Volumes/U34Bolt/plant_id_community/build/` with sizes and
       deletes nothing.
-- [ ] `--apply` deletes only orphans older than `--min-age`; an entry a live
+- [x] `--apply` deletes only orphans older than `--min-age`; an entry a live
       worktree's `build` link points at is never deleted (covered by a test).
-- [ ] With U34Bolt unmounted (or `--root` pointing at a missing path) the script
+- [x] With U34Bolt unmounted (or `--root` pointing at a missing path) the script
       exits 0 and changes nothing (covered by a test).
-- [ ] A symlink inside an orphan is removed as a link, never followed
+- [x] A symlink inside an orphan is removed as a link, never followed
       (covered by a test).
-- [ ] The `completing-todos` cleanup step runs the script after
+- [x] The `completing-todos` cleanup step runs the script after
       `git worktree prune`.
-- [ ] `plant_community_mobile/CLAUDE.md` documents the build symlink
+- [x] `plant_community_mobile/CLAUDE.md` documents the build symlink
       convention, the script, and deleting the link before `git worktree remove`.
 
 ## Work Log
@@ -135,6 +135,87 @@ behind on U34Bolt until someone notices.
   `U34Bolt/plant_id_community/build/scan2-c` (1.8 GB) behind. The owner deletes
   that folder by hand (Claude's `rm -rf` was permission-denied); `testflight-18`
   (528 MB) is the other orphan found.
+
+### 2026-11-05 - Implemented by the todo sweep (run 2026-11-05-2004)
+
+- Added `scripts/clean_build_output.py`: lists every entry of
+  `/Volumes/U34Bolt/plant_id_community/build/` with size and newest mtime, marks
+  each one no live worktree's `plant_community_mobile/build` link resolves to, into
+  or above as an orphan; dry run by default, `--apply` deletes orphans older than
+  `--min-age` (2 days), `--tmp` reports old `tmp/` entries without deleting. Exits 0
+  when the drive is unmounted (`df -P`) or the root is missing; deletes nothing if
+  `git worktree list` fails; never follows a symlink.
+- 20 tests in `scripts/test_clean_build_output.py` (temp root, fake worktrees),
+  wired into `.github/workflows/harness-ci.yml`. Mutation-checked: dropping the
+  live-target filter fails 5 tests, following links inside an orphan fails the
+  symlink test.
+- `completing-todos` cleanup now runs the script (dry run, then `--apply`, sandbox
+  off) after `git worktree prune`, per the owner decision to delete automatically.
+- `plant_community_mobile/.gitignore` ignores the `build` link (`/build`), and
+  `plant_community_mobile/CLAUDE.md` documents the link convention, the script and
+  deleting the link before `git worktree remove`.
+- Owner action outside the repo: update the `plant_id_community/` entry in
+  `/Volumes/U34Bolt/README.md` (it says the project has no `build/` folder there).
+
+### 2026-11-05 - Verified by the todo sweep (run 2026-11-05-2004)
+
+- AC 2: `python3 scripts/test_clean_build_output.py` — evidence `.sweep-evidence/g2/697-ac1.txt` (not committed), last lines:
+
+  ```text
+
+  ----------------------------------------------------------------------
+  Ran 20 tests in 0.037s
+
+  OK
+  ```
+
+- AC 3: `python3 scripts/test_clean_build_output.py` — evidence `.sweep-evidence/g2/697-ac2.txt` (not committed), last lines:
+
+  ```text
+
+  ----------------------------------------------------------------------
+  Ran 20 tests in 0.032s
+
+  OK
+  ```
+
+- AC 4: `python3 scripts/test_clean_build_output.py` — evidence `.sweep-evidence/g2/697-ac3.txt` (not committed), last lines:
+
+  ```text
+
+  ----------------------------------------------------------------------
+  Ran 20 tests in 0.033s
+
+  OK
+  ```
+
+- AC 5: `grep -n -B2 -A6 clean_build_output .claude/skills/completing-todos/SKILL.md` — evidence `.sweep-evidence/g2/697-ac4.txt` (not committed), last lines:
+
+  ```text
+  366-at, and exits 0 doing nothing when U34Bolt is not mounted. Report what it deleted in the wrap-up.
+  367-
+  368-**A wedged CI job** (todo 512) can hold an armed PR open indefinitely. On PR #906 a Web CI run stayed
+  369-`in_progress` for over 80 minutes, and `gh run cancel`, the API's `force-cancel` and `gh run rerun` each
+  370-refused it. When a required check has shown `in_progress` far past its usual time and those refuse, start a fresh run
+  ```
+
+- AC 6: `grep -n -E 'clean_build_output|link first|worktree remove|plant_id_community/build|/build\b' plant_community_mobile/CLAUDE.md` — evidence `.sweep-evidence/g2/697-ac5.txt` (not committed), last lines:
+
+  ```text
+  43:  `plant_community_mobile/build -> /Volumes/U34Bolt/plant_id_community/build/<name>`.
+  44:  `plant_community_mobile/.gitignore` ignores the link (`/build`, no trailing slash).
+  45:  On a branch cut before that ignore, `git worktree remove` refuses the worktree because the
+  47:  `build` link first** (`rm plant_community_mobile/build`, no `-r`), then remove the
+  49:  `python3 scripts/clean_build_output.py` sweeps it (todo 697): a dry run by default lists
+  ```
+
+### 2026-11-05 - Confirmed by the owner, ticked by the todo sweep (run 2026-11-05-2004)
+
+- AC 1: confirmed by the owner on 2026-11-05: "Owner confirmed 2026-11-05 after a live dry run on U34Bolt with a 1 MB probe folder zz-orphan-probe dated 2026-11-01: output 'orphan 1.0 MB 2026-11-01 00:00 zz-orphan-probe', 'Orphans: 1, 1.0 MB.', 'Dry run: nothing deleted.', exit 0, probe still present afterwards (then removed by hand)" (`state.py confirm`; no command or evidence)
+
+### 2026-11-05 - Completed by the todo sweep (run 2026-11-05-2004)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
 ## Notes
 

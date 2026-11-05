@@ -37,6 +37,7 @@ name: Harness CI
 #   python3 scripts/test_check_log_prefixes.py && \
 #   python3 scripts/test_check_flutter_codegen.py && \
 #   python3 scripts/test_staged_hooks_venv.py && \
+#   python3 scripts/test_clean_build_output.py && \
 #   python3 scripts/check_log_prefixes.py --root backend/packages --fail-over 0 && \
 #   python3 scripts/check_log_prefixes.py --root backend/plant_community_backend --fail-over 0 && \
 #   python3 scripts/todos/test_todofile.py && \
@@ -74,6 +75,8 @@ name: Harness CI
       - 'scripts/test-staged.sh'
       - 'scripts/mypy_staged.py'
       - 'scripts/test_staged_hooks_venv.py'
+      - 'scripts/clean_build_output.py'
+      - 'scripts/test_clean_build_output.py'
       - 'plant_community_mobile/run_archive.sh'
       - 'plant_community_mobile/scripts/test_run_archive.sh'
       - 'todos/archive-status-allowlist.yml'
@@ -121,6 +124,7 @@ jobs:
           python3 scripts/inject/test_budget_rules.py
           python3 scripts/test_check_flutter_codegen.py
           python3 scripts/test_staged_hooks_venv.py  # todo 687: worktree venv fallback
+          python3 scripts/test_clean_build_output.py  # todo 697: U34Bolt orphan sweep
 
       # Offline: runs a COPY of run_archive.sh against fake release config, a
       # stubbed App Store Connect query and a `flutter` that refuses to run.

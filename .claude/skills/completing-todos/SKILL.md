@@ -53,7 +53,7 @@ there. Run these steps with the sandbox off, and no others:
 - Stage D steps 1–8, a Stage C repair commit, and the empty commit that restarts a wedged CI run and the
   `DIRTY` recovery merge (Merge confirmation): `ensure-worktree`, `land.py`, `git add`, `git branch -m`,
   `git commit`, a rebase and a merge of origin/main in `$WT`.
-- Cleanup: `git worktree remove $WT`, then `git worktree prune`.
+- Cleanup: `git worktree remove $WT`, then `git worktree prune`, then `scripts/clean_build_output.py --apply`.
 
 A step that fails for any other reason is not a sandbox problem; stop and report it.
 
@@ -359,6 +359,11 @@ For each `reviewed` group: `gh pr view <n> --json state` → `MERGED` → `state
 → `/usr/bin/git -C REPO worktree remove $WT` (pushed and merged, so nothing is lost) → `state.py set-group $RUN G archived`.
 Both git steps run with the sandbox off. Finish with `/usr/bin/git -C REPO worktree prune`: in the sandbox,
 `worktree remove` deletes the directory but not `.git/worktrees/<name>`.
+Then sweep orphaned build output on U34Bolt (todo 697; owner decision 2026-11-05: delete automatically):
+`python3 REPO/scripts/clean_build_output.py` (dry run: lists each entry and which are orphans), then
+`python3 REPO/scripts/clean_build_output.py --apply`, sandbox off (the sandbox cannot write to the drive).
+It deletes only orphans older than 2 days that no live worktree's `plant_community_mobile/build` link points
+at, and exits 0 doing nothing when U34Bolt is not mounted. Report what it deleted in the wrap-up.
 
 **A wedged CI job** (todo 512) can hold an armed PR open indefinitely. On PR #906 a Web CI run stayed
 `in_progress` for over 80 minutes, and `gh run cancel`, the API's `force-cancel` and `gh run rerun` each

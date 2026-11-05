@@ -38,6 +38,21 @@ the laptop.
 - **`/Volumes/U34Bolt/plant_id_community/tmp/`**: set `TMPDIR` to it for a single big build
   (for example `TMPDIR=/Volumes/U34Bolt/plant_id_community/tmp ./run_archive.sh`). Never set
   it globally.
+- **`/Volumes/U34Bolt/plant_id_community/build/<name>`**: a worktree's (or a one-off
+  build's) `build/` output, redirected by hand with a symlink,
+  `plant_community_mobile/build -> /Volumes/U34Bolt/plant_id_community/build/<name>`.
+  `plant_community_mobile/.gitignore` ignores the link (`/build`, no trailing slash).
+  On a branch cut before that ignore, `git worktree remove` refuses the worktree because the
+  link is untracked; either way it deletes only the link, never the folder. **Delete the
+  `build` link first** (`rm plant_community_mobile/build`, no `-r`), then remove the
+  worktree. The folder it pointed at stays behind until
+  `python3 scripts/clean_build_output.py` sweeps it (todo 697): a dry run by default lists
+  every entry with its size and last write, marking each one no live worktree's `build`
+  link points at as an orphan; `--apply` deletes orphans older than `--min-age` days
+  (default 2), never follows a symlink, and never touches an entry a live worktree uses;
+  `--tmp` also reports (never deletes) `tmp/` entries older than 14 days. With the drive
+  unmounted it exits 0 and does nothing. The `completing-todos` cleanup step runs it after
+  `git worktree prune`.
 - **Before ejecting**, run `./gradlew --stop` (from `android/`). Gradle and Kotlin daemons keep
   jars open on the drive. Also quit Docker Desktop: its disk image (shared by every project) lives at
   `_shared/docker/`. `lsof +f -- /Volumes/U34Bolt` shows what is holding it.
