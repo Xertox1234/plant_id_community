@@ -4,6 +4,9 @@ priority: p3
 issue_id: "697"
 tags: [tooling, worktrees, mobile, flutter, u34bolt, disk]
 dependencies: []
+triage: ready
+triaged: 2026-11-05
+owner_decision: "Delete automatically: the completing-todos cleanup runs the script with --apply (orphans older than 2 days, none a live worktree uses) (2026-11-05)"
 ---
 
 # Clean up orphaned build output automatically
