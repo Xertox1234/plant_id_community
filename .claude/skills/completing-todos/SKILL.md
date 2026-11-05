@@ -53,7 +53,7 @@ there. Run these steps with the sandbox off, and no others:
 - Stage D steps 1–8, a Stage C repair commit, and the empty commit that restarts a wedged CI run and the
   `DIRTY` recovery merge (Merge confirmation): `ensure-worktree`, `land.py`, `git add`, `git branch -m`,
   `git commit`, a rebase and a merge of origin/main in `$WT`.
-- Cleanup: `git worktree remove $WT`, then `git worktree prune`, then `scripts/clean_build_output.py --apply`.
+- Cleanup: `git worktree remove $WT`, then `git worktree prune`, then `python3 scripts/clean_build_output.py --apply`.
 
 A step that fails for any other reason is not a sandbox problem; stop and report it.
 

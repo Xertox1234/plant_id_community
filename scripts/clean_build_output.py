@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import math
 import os
 import shutil
 import subprocess
@@ -89,13 +90,28 @@ def git_worktrees(repo: str) -> list[str]:
 
 
 def live_targets(worktrees: list[str]) -> dict[str, str]:
-    """Map the resolved target of each worktree's ``build`` link to that worktree."""
+    """Map the resolved target of each worktree's ``build`` link to that worktree.
+
+    Raises OSError when a link's presence cannot be told (a permission error,
+    not a missing path): a link we cannot see must not make its folder an orphan.
+    """
     targets: dict[str, str] = {}
     for wt in worktrees:
         link = os.path.join(wt, BUILD_LINK)
-        if os.path.lexists(link):
-            targets[os.path.realpath(link)] = wt
+        try:
+            os.lstat(link)
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        targets[os.path.realpath(link)] = wt
     return targets
+
+
+def min_age_days(value: str) -> float:
+    """argparse type for --min-age: a finite, non-negative number of days."""
+    days = float(value)
+    if not math.isfinite(days) or days < 0:
+        raise argparse.ArgumentTypeError(f"--min-age must be a finite number >= 0, not {value}")
+    return days
 
 
 def _related(a: str, b: str) -> bool:
@@ -215,7 +231,7 @@ def main(
     p.add_argument("--apply", action="store_true", help="delete orphans older than --min-age")
     p.add_argument(
         "--min-age",
-        type=float,
+        type=min_age_days,
         default=DEFAULT_MIN_AGE_DAYS,
         metavar="DAYS",
         help=f"only delete orphans last written more than DAYS ago (default {DEFAULT_MIN_AGE_DAYS:g})",
@@ -249,9 +265,12 @@ def main(
     except (OSError, subprocess.CalledProcessError) as exc:
         print(f"cannot list worktrees ({exc}); nothing deleted.", file=sys.stderr)
         return 1
-    targets = live_targets(wts)
-
-    entries = scan(root, targets)
+    try:
+        targets = live_targets(wts)
+        entries = scan(root, targets)
+    except OSError as exc:
+        print(f"cannot read a worktree link or {root} ({exc}); nothing deleted.", file=sys.stderr)
+        return 1
     orphans = [e for e in entries if not e.live_for and not e.unreadable]
     for e in entries:
         if e.unreadable and not e.live_for:

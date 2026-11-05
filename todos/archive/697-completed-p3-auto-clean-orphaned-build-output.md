@@ -252,6 +252,30 @@ with a test (each guard mutation-checked: removing it fails its test) or decline
   DECLINED. Non-strict `realpath` never raises for a missing target on Python 3.10+;
   it returns the path as far as it resolves.
 
+### 2026-11-05 - Review round 2: non-blocking findings (PR #1282)
+
+Round 2 was clean (no blocking finding). Fixed by hand with a test (each guard
+mutation-checked) or declined:
+
+- **low, `--min-age nan`/negative defeats the age guard** (`nan` makes every
+  `mtime > cutoff` false, so `--apply` deleted fresh orphans): FIXED. `--min-age`
+  takes only a finite number >= 0; anything else is a usage error (exit 2). Test:
+  `test_min_age_rejects_nan_and_negative`.
+- **low, `os.path.lexists` hides a permission error on a worktree's `build` link**,
+  so the folder behind it could read as an orphan: FIXED. `live_targets` uses
+  `os.lstat`; only a missing path means "no link", and any other error aborts with
+  exit 1 and nothing deleted. Test: `test_unreadable_worktree_link_deletes_nothing`.
+- **low, an unlistable build root crashes with a traceback**: FIXED with the same
+  guard: `scan()` errors print `cannot read …; nothing deleted.` and exit 1.
+- **low, the failed-delete test did not assert the `failed …` line**: FIXED;
+  `test_failed_delete_exits_one_and_reports` now checks stderr for `failed stuck: busy`.
+- **low, completing-todos ran `scripts/clean_build_output.py` without `python3`**
+  (mode 644): FIXED in the Sandbox cleanup bullet.
+- **low, two worktrees linking one folder name only one in the `live <-` line**:
+  DECLINED: cosmetic; the entry is live and kept either way.
+- **low, a live-and-unreadable entry prints `0 B` and a 1970 date**: DECLINED:
+  cosmetic and never deleted; only a worktree that links an unreadable folder hits it.
+
 ## Notes
 
 P3: costs disk space, not correctness. The orphans found today are about

@@ -170,10 +170,37 @@ class ApplyTests(Fixture):
 
     def test_failed_delete_exits_one_and_reports(self):
         self.entry("stuck", days=30)
-        with mock.patch.object(cbo, "delete", side_effect=OSError("busy")):
+        with mock.patch.object(cbo, "delete", side_effect=OSError("busy")), \
+                mock.patch("sys.stderr", new_callable=io.StringIO) as err:
             code, out = self.run_main("--apply")
         self.assertEqual(code, 1)
         self.assertIn("Deleted: 0,", out)
+        self.assertIn("failed stuck: busy", err.getvalue())
+
+    def test_min_age_rejects_nan_and_negative(self):
+        e = self.entry("recent", days=0.1)
+        for bad in ("nan", "-1", "inf"):
+            with self.assertRaises(SystemExit) as cm, \
+                    mock.patch("sys.stderr", new_callable=io.StringIO):
+                self.run_main("--apply", "--min-age", bad)
+            self.assertEqual(cm.exception.code, 2, bad)
+        self.assertTrue(e.exists())
+
+    def test_unreadable_worktree_link_deletes_nothing(self):
+        e = self.entry("maybe-live", days=30)
+        wt = self.worktree("locked", e)
+        real_lstat = os.lstat
+
+        def deny(path, *a, **k):
+            if str(path).endswith(cbo.BUILD_LINK):
+                raise PermissionError("denied")
+            return real_lstat(path, *a, **k)
+
+        with mock.patch.object(cbo.os, "lstat", side_effect=deny), \
+                mock.patch("sys.stderr", new_callable=io.StringIO):
+            code, _ = self.run_main("--apply", "--min-age", "0", worktrees=[wt])
+        self.assertEqual(code, 1)
+        self.assertTrue(e.exists(), "a folder behind an unreadable link was deleted")
 
     def test_unreadable_worktree_list_deletes_nothing(self):
         e = self.entry("orphan", days=30)
