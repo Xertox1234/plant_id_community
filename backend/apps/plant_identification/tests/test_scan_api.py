@@ -651,3 +651,25 @@ def test_photo_whose_object_is_gone_is_404_not_500(tmp_path):
     response = client.get(f"{BASE}{job_id}/photos/problem/")
     assert response.status_code == 404
     assert response.data["code"] == "not_found"
+
+
+@pytest.mark.django_db
+def test_spoofed_photo_400_names_its_role():
+    """L4 (and the L6 gap): the real validate_image_file, end to end."""
+    client = _client(_user())
+    fake = SimpleUploadedFile("leaf.jpg", b"not an image", content_type="image/jpeg")
+    with patch(
+        "apps.plant_identification.api.scan_views.validate_image_file",
+        wraps=__import__(
+            "apps.plant_identification.utils", fromlist=["validate_image_file"]
+        ).validate_image_file,
+    ):
+        response = client.post(
+            BASE,
+            {"mode": "diagnose", "problem": _file("problem"), "leaf": fake},
+            format="multipart",
+        )
+    assert response.status_code == 400
+    assert response.data["code"] == "invalid"
+    assert set(response.data["errors"]) == {"leaf"}
+    assert not ScanJob.objects.exists()

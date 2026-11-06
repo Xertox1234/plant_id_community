@@ -191,7 +191,12 @@ def _validated_photos(request: Request, mode: str) -> Dict[str, Any]:
             continue
         if upload.size > SCAN_MAX_PHOTO_BYTES:
             raise ValidationError({role: ["Photo too large: the maximum is 10 MB."]})
-        validate_image_file(upload)
+        try:
+            validate_image_file(upload)
+        except ValidationError as exc:
+            # Keyed by role like every other photo error, so the client can
+            # tell which photo failed (scan-2 audit L4).
+            raise ValidationError({role: exc.detail}) from None
         upload.seek(0)
         try:
             photos[role] = normalize_scan_photo(upload)
