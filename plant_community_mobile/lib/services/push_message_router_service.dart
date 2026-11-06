@@ -142,7 +142,9 @@ class PushMessageRouterService {
     // A finished scan job carries `job_id` and no `topic_id`.
     if (message.data['event'] == scanJobFinishedEvent) {
       final jobId = message.data['job_id'];
-      if (jobId is String && jobId.isNotEmpty) {
+      // A UUID, like the care branch's ids: it becomes a route and an API
+      // path, so anything else is dropped (scan-2 audit L13).
+      if (jobId is String && _uuidPattern.hasMatch(jobId)) {
         unawaited(_routeScanResult(jobId, isColdStart: isColdStart));
       }
       return;
