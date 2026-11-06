@@ -48,6 +48,7 @@ from ..constants import (
 )
 from ..scan_jobs import (
     allowance_for,
+    delete_scan_photos,
     expire_stale_jobs,
     local_date_for,
     parse_utc_offset,
@@ -448,6 +449,7 @@ class ScanJobViewSet(GenericViewSet):
                 "not_active",
                 "This scan has already finished.",
             )
+        delete_scan_photos([job.pk])
         logger.info("[SCAN] job=%s cancelled by user=%s", job.pk, request.user.pk)
         return self._job_response(job)
 

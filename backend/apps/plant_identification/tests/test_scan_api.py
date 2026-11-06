@@ -719,3 +719,16 @@ def test_degraded_diagnoses_exhaust_the_identify_allowance():
     assert refused.data["kind"] == "identify"
     # The diagnosis slot was never spent.
     assert _create(client).status_code == 201
+
+
+@pytest.mark.django_db
+def test_cancel_deletes_photos(django_capture_on_commit_callbacks):
+    client = _client(_user())
+    response = _create(client)
+    job = ScanJob.objects.get(uuid=response.data["id"])
+    files = [(i.image.storage, i.image.name) for i in job.images.all()]
+    assert files and all(s.exists(n) for s, n in files)
+    with django_capture_on_commit_callbacks(execute=True):
+        assert client.post(f"{BASE}{response.data['id']}/cancel/").status_code == 200
+    assert job.images.count() == 0
+    assert not any(s.exists(n) for s, n in files)

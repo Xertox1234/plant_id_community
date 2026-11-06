@@ -504,3 +504,41 @@ def test_a_second_active_job_for_one_user_is_refused_by_the_db(user):
     # A finished job does not block a new one.
     ScanJob.objects.filter(user=user).update(status="done", charged_as="diagnose")
     ScanJob.objects.create(user=user, mode="identify", local_date=date(2026, 11, 2))
+
+
+def _photo_files(job):
+    return [(i.image.storage, i.image.name) for i in job.images.all()]
+
+
+@pytest.mark.django_db
+def test_failed_finalize_deletes_photos(user, fcm, django_capture_on_commit_callbacks):
+    job = _job(user)
+    files = _photo_files(job)
+    assert files and all(s.exists(n) for s, n in files)
+    with _scan(return_value=_results(suggestions=False)):
+        _run(job, django_capture_on_commit_callbacks)
+    assert job.status == "failed"
+    assert job.images.count() == 0
+    assert not any(s.exists(n) for s, n in files)
+
+
+@pytest.mark.django_db
+def test_done_finalize_keeps_photos(user, fcm, django_capture_on_commit_callbacks):
+    job = _job(user)
+    with _scan(return_value=_results()):
+        _run(job, django_capture_on_commit_callbacks)
+    assert job.status == "done"
+    assert job.images.count() == 2
+
+
+@pytest.mark.django_db
+def test_expire_stale_deletes_photos(user, django_capture_on_commit_callbacks):
+    job = _job(user)
+    files = _photo_files(job)
+    ScanJob.objects.filter(pk=job.pk).update(
+        status="processing", created_at=timezone.now() - timedelta(minutes=11)
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        assert expire_stale_jobs(user.pk) == 1
+    assert job.images.count() == 0
+    assert not any(s.exists(n) for s, n in files)

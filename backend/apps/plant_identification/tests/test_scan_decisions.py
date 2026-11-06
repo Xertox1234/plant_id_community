@@ -1,13 +1,19 @@
 """The scan decision fields and their serializer output (keep-or-dismiss, 1/11)."""
 
+import io
 from datetime import timedelta
 
 import pytest
 from apps.plant_identification.api.scan_serializers import ScanJobSerializer
 from apps.plant_identification.constants import SCAN_DECISION_WINDOW_HOURS
-from apps.plant_identification.scan_models import ScanJob
+from apps.plant_identification.scan_jobs import erase_scan
+from apps.plant_identification.scan_models import ScanJob, ScanJobImage
+from apps.plant_identification.scan_storage import normalize_scan_photo
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
+from django.test import override_settings
 from django.utils import timezone
+from PIL import Image
 from rest_framework.test import APIRequestFactory
 
 
@@ -82,3 +88,74 @@ def test_erased_decisions():
         "expired",
         "removed",
     ]
+
+
+@pytest.fixture
+def roots(tmp_path):
+    media = tmp_path / "media"
+    private = tmp_path / "private"
+    media.mkdir()
+    private.mkdir()
+    with override_settings(MEDIA_ROOT=str(media), SCAN_PHOTO_LOCAL_ROOT=str(private)):
+        yield
+
+
+def _photo_job(**fields):
+    job = _job(**fields)
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (40, 120, 40)).save(buf, "JPEG")
+    image = ScanJobImage.objects.create(
+        job=job,
+        role="leaf",
+        image=normalize_scan_photo(ContentFile(buf.getvalue(), name="x.jpg")),
+    )
+    return job, image.image.name, image.image.storage
+
+
+@pytest.mark.django_db
+def test_erase_deletes_rows_files_and_result_keeps_charge(
+    roots, django_capture_on_commit_callbacks
+):
+    job, name, storage = _photo_job(
+        status="done",
+        decision="undecided",
+        charged_as="diagnose",
+        result={"x": 1},
+    )
+    assert storage.exists(name)
+    with django_capture_on_commit_callbacks(execute=True):
+        assert erase_scan(job.pk, "dismissed", from_decisions=("undecided",)) is True
+    job.refresh_from_db()
+    assert ScanJobImage.objects.filter(job=job).count() == 0
+    assert not storage.exists(name)
+    assert job.result is None
+    assert job.decision == "dismissed"
+    assert job.decided_at is not None
+    assert job.status == "done"
+    assert job.charged_as == "diagnose"
+
+
+@pytest.mark.django_db
+def test_erase_refund_clears_charge(roots, django_capture_on_commit_callbacks):
+    job, _, _ = _photo_job(status="done", decision="undecided", charged_as="diagnose")
+    with django_capture_on_commit_callbacks(execute=True):
+        assert (
+            erase_scan(job.pk, "dismissed", from_decisions=("undecided",), refund=True)
+            is True
+        )
+    job.refresh_from_db()
+    assert job.charged_as == ""
+
+
+@pytest.mark.django_db
+def test_erase_from_wrong_decision_is_noop(roots, django_capture_on_commit_callbacks):
+    job, name, storage = _photo_job(
+        status="done", decision="kept", charged_as="diagnose", result={"x": 1}
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        assert erase_scan(job.pk, "dismissed", from_decisions=("undecided",)) is False
+    job.refresh_from_db()
+    assert ScanJobImage.objects.filter(job=job).count() == 1
+    assert storage.exists(name)
+    assert job.decision == "kept"
+    assert job.result == {"x": 1}

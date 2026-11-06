@@ -41,7 +41,12 @@ from .constants import (
     SCAN_PUSH_READY,
     SCAN_PUSH_RETRY_DELAY,
 )
-from .scan_jobs import classify_scan, expire_stale_jobs, summarize_scan_result
+from .scan_jobs import (
+    classify_scan,
+    delete_scan_photos,
+    expire_stale_jobs,
+    summarize_scan_result,
+)
 from .scan_models import ScanJob
 from .services.combined_identification_service import (
     CombinedPlantIdentificationService,
@@ -105,6 +110,8 @@ def _finalize(
                 job_id,
             )
             return False
+        if status == "failed":
+            delete_scan_photos([job_id])
         transaction.on_commit(lambda: _enqueue_notify(job_id))
     # After the commit: onboarding bookkeeping never touches the outcome's
     # transaction (a failed query inside it would poison the finalize).
