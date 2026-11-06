@@ -41,6 +41,10 @@ part 'app_router.g.dart';
 /// The path of one scan job's result screen.
 String scanResultPath(String id) => '${AppRoutes.scanResult}/$id';
 
+/// The full result of a scan, behind the short card's View:
+/// `/scans/<id>/full`.
+String scanFullResultPath(String id) => '${scanResultPath(id)}/full';
+
 /// App route paths
 abstract class AppRoutes {
   static const splash = '/';
@@ -447,6 +451,17 @@ GoRouter appRouter(Ref ref) {
           state: state,
           child: ScanResultScreen(jobId: state.pathParameters['id']!),
         ),
+        routes: [
+          GoRoute(
+            path: 'full',
+            name: 'scanFullResult',
+            pageBuilder: (context, state) => _buildPageWithTransition(
+              context: context,
+              state: state,
+              child: ScanFullResultScreen(jobId: state.pathParameters['id']!),
+            ),
+          ),
+        ],
       ),
       // Top-level (outside the shell), like settings: it is pushed from the
       // Profile tab, not from inside the forum branch.

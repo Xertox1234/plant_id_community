@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,10 +9,13 @@ import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 import 'package:plant_community_mobile/features/results/results_screen.dart';
 import 'package:plant_community_mobile/features/scan/capture_steps.dart';
+import 'package:plant_community_mobile/features/scan/scan_decisions.dart';
 import 'package:plant_community_mobile/features/scan/scan_job_api.dart';
 import 'package:plant_community_mobile/features/scan/scan_job_tracker.dart';
 import 'package:plant_community_mobile/features/scan/scan_result_screen.dart';
+import 'package:plant_community_mobile/features/scan/widgets/short_scan_card.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
+import 'package:plant_community_mobile/shared/widgets/clay_button.dart';
 
 import 'fake_scan_job_tracker.dart';
 
@@ -29,7 +34,47 @@ class _FakeApi extends ScanJobApi {
   }
 }
 
-ScanJob _job(ScanJobStatus status, {ScanJobResult? result}) => ScanJob(
+/// Records keep/dismiss without the API or Firestore. Configured through
+/// [_decisionError] and [_keepGate] because the provider builds lazily, on
+/// the first tap; both are reset by every pump.
+class _FakeDecisions extends ScanDecisions {
+  _FakeDecisions(super.ref);
+
+  @override
+  Future<void> keep(ScanJob job) async {
+    _decisionCalls.add('keep:${job.id}');
+    final g = _keepGate;
+    if (g != null) await g.future;
+    if (_decisionError != null) throw _decisionError!;
+  }
+
+  @override
+  Future<void> dismiss(String jobId) async {
+    _decisionCalls.add('dismiss:$jobId');
+    if (_decisionError != null) throw _decisionError!;
+  }
+}
+
+var _decisionCalls = <String>[];
+
+/// Thrown by keep and dismiss after recording, when set.
+Object? _decisionError;
+
+/// Holds a keep open while set.
+Completer<void>? _keepGate;
+
+void _resetDecisions() {
+  _decisionCalls = <String>[];
+  _decisionError = null;
+  _keepGate = null;
+}
+
+ScanJob _job(
+  ScanJobStatus status, {
+  ScanJobResult? result,
+  ScanDecision decision = ScanDecision.kept,
+  DateTime? decideBy,
+}) => ScanJob(
   id: 'job-9',
   mode: ScanMode.diagnose,
   status: status,
@@ -38,6 +83,16 @@ ScanJob _job(ScanJobStatus status, {ScanJobResult? result}) => ScanJob(
   photos: const {},
   coverPhoto: 'https://a.test/api/v1/scans/job-9/photos/whole/',
   createdAt: DateTime.utc(2026, 11, 2, 9, 30),
+  decision: decision,
+  decideBy: decideBy,
+);
+
+/// An undecided job with most of a day left to decide.
+ScanJob _undecided(ScanJobStatus status) => _job(
+  status,
+  result: _result,
+  decision: ScanDecision.undecided,
+  decideBy: DateTime.now().add(const Duration(hours: 18, minutes: 30)),
 );
 
 const _result = ScanJobResult(
@@ -57,12 +112,14 @@ Future<_FakeApi> _pump(
   ScanTrackerState tracker = const ScanTrackerState(),
 }) async {
   final api = _FakeApi(job, error: error);
+  _resetDecisions();
   _tracker = FakeScanJobTracker(tracker);
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         scanJobApiProvider.overrideWithValue(api),
         scanJobTrackerProvider.overrideWith(() => _tracker),
+        scanDecisionsProvider.overrideWith(_FakeDecisions.new),
       ],
       child: MaterialApp(
         theme: AppTheme.build(Brightness.light, AppDensity.cozy),
@@ -80,13 +137,26 @@ Future<GoRouter> _pumpPushed(
   required ScanTrackerState tracker,
 }) async {
   _tracker = FakeScanJobTracker(tracker);
+  _resetDecisions();
   final router = GoRouter(
     initialLocation: '/',
     routes: [
       GoRoute(path: '/', builder: (_, _) => const Text('home-page')),
+      GoRoute(path: '/home', builder: (_, _) => const Text('home-root')),
+      GoRoute(
+        path: '/collection',
+        builder: (_, _) => const Text('my-plants-page'),
+      ),
       GoRoute(
         path: '/scans/:id',
         builder: (_, s) => ScanResultScreen(jobId: s.pathParameters['id']!),
+        routes: [
+          GoRoute(
+            path: 'full',
+            builder: (_, s) =>
+                ScanFullResultScreen(jobId: s.pathParameters['id']!),
+          ),
+        ],
       ),
     ],
   );
@@ -96,6 +166,7 @@ Future<GoRouter> _pumpPushed(
       overrides: [
         scanJobApiProvider.overrideWithValue(_FakeApi(job)),
         scanJobTrackerProvider.overrideWith(() => _tracker),
+        scanDecisionsProvider.overrideWith(_FakeDecisions.new),
       ],
       child: MaterialApp.router(
         theme: AppTheme.build(Brightness.light, AppDensity.cozy),
@@ -253,6 +324,184 @@ void main() {
       await _pumpPushed(tester, job, tracker: _trackerAt(job));
       expect(find.byType(ResultsScreen), findsOneWidget);
       expect(find.byKey(ResultsScreen.retryKey), findsNothing);
+    });
+  });
+
+  group('keep or dismiss', () {
+    testWidgets('undecided job opens the short card', (tester) async {
+      await _pumpPushed(
+        tester,
+        _undecided(ScanJobStatus.done),
+        tracker: const ScanTrackerState(),
+      );
+      expect(find.byType(ShortScanCard), findsOneWidget);
+      expect(find.byType(ResultsScreen), findsNothing);
+      expect(find.text('Monstera'), findsOneWidget);
+      expect(find.text('Deletes in 18 h'), findsOneWidget);
+      expect(find.text('Add to My Collection'), findsNothing);
+      expect(_tracker.calls, contains('viewed:job-9'));
+    });
+
+    testWidgets('View opens the full result with Add to My Collection', (
+      tester,
+    ) async {
+      await _pumpPushed(
+        tester,
+        _undecided(ScanJobStatus.done),
+        tracker: const ScanTrackerState(),
+      );
+      await tester.tap(find.text('View'));
+      await _settle(tester);
+      expect(find.byType(ResultsScreen), findsOneWidget);
+      expect(find.text('A climbing aroid.'), findsOneWidget);
+      expect(find.text('Add to My Collection'), findsOneWidget);
+      expect(find.byKey(ScanDecisionBar.dismissKey), findsOneWidget);
+    });
+
+    testWidgets('Add calls keep and shows In My Collection', (tester) async {
+      await _pumpPushed(
+        tester,
+        _undecided(ScanJobStatus.done),
+        tracker: const ScanTrackerState(),
+      );
+      await tester.tap(find.text('View'));
+      await _settle(tester);
+      _keepGate = Completer<void>();
+      await tester.tap(find.text('Add to My Collection'));
+      await tester.pump();
+      // In flight: both buttons are off, but the way back still works.
+      expect(_decisionCalls, ['keep:job-9']);
+      final dismiss = tester.widget<ClayButton>(
+        find.byKey(ScanDecisionBar.dismissKey),
+      );
+      expect(dismiss.onPressed, isNull);
+      expect(find.byType(BackButton), findsOneWidget);
+
+      _keepGate!.complete();
+      await _settle(tester);
+      expect(find.text('In My Collection'), findsOneWidget);
+      expect(find.text('Add to My Collection'), findsNothing);
+      expect(find.byKey(ScanDecisionBar.dismissKey), findsNothing);
+    });
+
+    testWidgets('a failed Add shows the error and offers Add again', (
+      tester,
+    ) async {
+      await _pumpPushed(
+        tester,
+        _undecided(ScanJobStatus.done),
+        tracker: const ScanTrackerState(),
+      );
+      await tester.tap(find.text('View'));
+      await _settle(tester);
+      _decisionError = ApiException('Scan already decided.', statusCode: 409);
+      await tester.tap(find.text('Add to My Collection'));
+      await _settle(tester);
+      expect(find.text('Scan already decided.'), findsOneWidget);
+      expect(find.text('Add to My Collection'), findsOneWidget);
+      expect(find.text('In My Collection'), findsNothing);
+    });
+
+    testWidgets('Dismiss calls dismiss and leaves', (tester) async {
+      final router = await _pumpPushed(
+        tester,
+        _undecided(ScanJobStatus.done),
+        tracker: const ScanTrackerState(),
+      );
+      await tester.tap(find.byKey(ShortScanCard.dismissKey));
+      await _settle(tester);
+      expect(_decisionCalls, ['dismiss:job-9']);
+      expect(find.text('home-page'), findsOneWidget);
+      expect(router.canPop(), isFalse);
+    });
+
+    testWidgets('Dismiss on the full result goes to My Plants', (tester) async {
+      await _pumpPushed(
+        tester,
+        _undecided(ScanJobStatus.done),
+        tracker: const ScanTrackerState(),
+      );
+      await tester.tap(find.text('View'));
+      await _settle(tester);
+      await tester.tap(find.byKey(ScanDecisionBar.dismissKey));
+      await _settle(tester);
+      expect(_decisionCalls, ['dismiss:job-9']);
+      expect(find.text('my-plants-page'), findsOneWidget);
+    });
+
+    testWidgets('a failed Dismiss stays on the card', (tester) async {
+      await _pumpPushed(
+        tester,
+        _undecided(ScanJobStatus.done),
+        tracker: const ScanTrackerState(),
+      );
+      _decisionError = ApiException('offline');
+      await tester.tap(find.byKey(ShortScanCard.dismissKey));
+      await _settle(tester);
+      expect(find.byType(ShortScanCard), findsOneWidget);
+      expect(
+        find.text("Couldn't dismiss the scan. Try again."),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('shows deleted state on 404', (tester) async {
+      await _pump(
+        tester,
+        _job(ScanJobStatus.done),
+        error: ApiException('Not found.', statusCode: 404),
+      );
+      await tester.pump();
+      expect(find.text('This scan was deleted'), findsOneWidget);
+      expect(find.byType(ErrorScreen), findsNothing);
+    });
+
+    testWidgets('a past-due undecided job reads as deleted', (tester) async {
+      await _pump(
+        tester,
+        _job(
+          ScanJobStatus.done,
+          result: _result,
+          decision: ScanDecision.undecided,
+          decideBy: DateTime.now().subtract(const Duration(minutes: 1)),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('This scan was deleted'), findsOneWidget);
+      expect(find.byType(ShortScanCard), findsNothing);
+    });
+
+    testWidgets('kept job shows In My Collection and no Add', (tester) async {
+      await _pump(tester, _job(ScanJobStatus.done, result: _result));
+      await tester.pump();
+      expect(find.byType(ResultsScreen), findsOneWidget);
+      expect(find.text('In My Collection'), findsOneWidget);
+      expect(find.text('Add to My Collection'), findsNothing);
+      expect(find.byType(ShortScanCard), findsNothing);
+    });
+
+    testWidgets('half-result offers Try again', (tester) async {
+      final job = _undecided(ScanJobStatus.degraded);
+      await _pumpPushed(tester, job, tracker: _trackerAt(job));
+      expect(find.byType(ShortScanCard), findsOneWidget);
+      expect(find.text("Health check didn't run"), findsOneWidget);
+      await tester.tap(find.text('Try again'));
+      await _settle(tester);
+      expect(_tracker.calls, contains('retry'));
+      expect(find.text('home-page'), findsOneWidget);
+    });
+
+    testWidgets('a half-result without the capture offers no Try again', (
+      tester,
+    ) async {
+      final job = _undecided(ScanJobStatus.degraded);
+      await _pumpPushed(
+        tester,
+        job,
+        tracker: _trackerAt(job, withCapture: false),
+      );
+      expect(find.byType(ShortScanCard), findsOneWidget);
+      expect(find.text('Try again'), findsNothing);
     });
   });
 }
