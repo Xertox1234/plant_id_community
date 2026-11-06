@@ -687,3 +687,35 @@ def test_retrieve_and_photo_query_counts_are_pinned(django_assert_num_queries):
     with django_assert_num_queries(2):
         response = client.get(f"{BASE}{job_id}/photos/problem/")
         assert response.status_code == 200
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "method, path",
+    [
+        ("get", "allowance/"),
+        ("post", ""),
+        ("get", "00000000-0000-0000-0000-000000000000/"),
+        ("post", "00000000-0000-0000-0000-000000000000/cancel/"),
+        ("get", "00000000-0000-0000-0000-000000000000/photos/problem/"),
+    ],
+)
+def test_every_scan_endpoint_needs_sign_in(method, path):
+    """L6: 401 on each endpoint, not only create."""
+    response = getattr(APIClient(), method)(BASE + path)
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_degraded_diagnoses_exhaust_the_identify_allowance():
+    """L6: a degraded diagnosis is charged as identify, end to end to a 429."""
+    client = _client(_user())
+    for _ in range(5):
+        created = _create(client)
+        assert created.status_code == 201
+        _finish(created, "degraded", "identify")
+    refused = _create(client, "identify")
+    assert refused.status_code == 429
+    assert refused.data["kind"] == "identify"
+    # The diagnosis slot was never spent.
+    assert _create(client).status_code == 201
