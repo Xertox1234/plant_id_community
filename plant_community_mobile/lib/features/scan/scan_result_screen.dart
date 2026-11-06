@@ -18,10 +18,10 @@ import '../../shared/widgets/clay_button.dart';
 import '../profile/forum_notification_settings_card.dart' show apiErrorMessage;
 import '../results/results_screen.dart';
 import 'capture_steps.dart';
+import 'scan_card_actions.dart';
 import 'scan_decisions.dart';
 import 'scan_job_api.dart';
 import 'scan_job_tracker.dart';
-import 'widgets/scan_job_pill.dart';
 import 'widgets/short_scan_card.dart';
 
 /// One scan job, fetched fresh by id (the tracker's copy is gone after a
@@ -54,18 +54,6 @@ Widget _errorScreen(Object error) => _isNotFound(error)
       );
 
 const _deletedTitle = 'This scan was deleted';
-
-/// Try again needs the capture, which only the tracker holds: gone after a
-/// kill, a dismiss or a retry.
-bool _watchCanRetry(WidgetRef ref, String jobId) => ref.watch(
-  scanJobTrackerProvider.select(
-    (s) =>
-        s.phase == TrackerPhase.ready &&
-        s.job?.id == jobId &&
-        s.job?.status == ScanJobStatus.degraded &&
-        s.lastCapture != null,
-  ),
-);
 
 /// The full result of [job] (which has a [result]), with [decisionBar].
 Widget _fullResult(
@@ -112,7 +100,7 @@ class ScanResultScreen extends ConsumerWidget {
         ref.read(scanJobTrackerProvider.notifier).viewed(jobId, job: job),
       );
     });
-    final canRetry = _watchCanRetry(ref, jobId);
+    final canRetry = watchCanRetryScan(ref, jobId);
     final job = ref.watch(scanJobProvider(jobId));
     return job.when(
       loading: () =>
@@ -150,19 +138,11 @@ class ScanResultScreen extends ConsumerWidget {
     final messenger = ScaffoldMessenger.maybeOf(context);
     final retrying = tracker.retry();
     _closeResult(context);
-    try {
-      await retrying;
-    } on ScanRefused catch (e) {
-      final message = scanRefusalMessage(e, mode: mode ?? ScanMode.diagnose);
-      if (message != null) {
-        messenger?.showSnackBar(SnackBar(content: Text(message)));
-      }
-    } catch (e) {
-      debugPrint('[SCAN_JOB] Retry from the result failed: $e');
-      messenger?.showSnackBar(
-        const SnackBar(content: Text("Couldn't start the check. Try again.")),
-      );
-    }
+    await reportScanRetry(
+      retrying,
+      mode: mode ?? ScanMode.diagnose,
+      messenger: messenger,
+    );
   }
 }
 
@@ -255,21 +235,12 @@ class _ShortCardPage extends ConsumerWidget {
       );
       return;
     }
-    _clearTrackedPill(container, job.id);
+    clearTrackedScanPill(container, job.id);
     if (context.mounted) _closeResult(context);
   }
 }
 
 const _dismissFailed = "Couldn't dismiss the scan. Try again.";
-
-/// After a server dismiss: drops the tracker's pill when it is showing this
-/// scan, so it stops offering View and Try again for an erased scan (its
-/// `retry_of` would be ignored and the retry charged as a new scan). The
-/// tracker's dismiss is local-only.
-void _clearTrackedPill(ProviderContainer container, String jobId) {
-  if (container.read(scanJobTrackerProvider).job?.id != jobId) return;
-  container.read(scanJobTrackerProvider.notifier).dismiss();
-}
 
 /// `/scans/<id>/full`: the whole result, with Add to My Collection and
 /// Dismiss while the scan is undecided, or "In My Collection" once kept.
@@ -374,7 +345,7 @@ class _ScanDecisionBarState extends ConsumerState<ScanDecisionBar> {
       if (mounted) setState(() => _busy = _Busy.none);
       return;
     }
-    _clearTrackedPill(container, widget.job.id);
+    clearTrackedScanPill(container, widget.job.id);
     // A tab root: `go`, never `push` (docs/rules/flutter.md).
     router?.go(AppRoutes.collection);
   }
