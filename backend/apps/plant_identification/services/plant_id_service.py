@@ -201,9 +201,13 @@ class PlantIDAPIService:
             # Cache miss - check quota before making API call
             logger.info(f"[CACHE] MISS for image {image_hash[:8]}... (checking quota)")
 
-            # Check quota before acquiring lock and making API call
-            if not self.quota_manager.can_call_plant_id(
-                calls=2 if include_diseases else 1, reserve=quota_reserve
+            # Claim the calls before acquiring the lock (scan-2 audit M3): the
+            # claim is the counter increment, so concurrent callers cannot
+            # both pass a cap only one fits under. Whatever is not spent below
+            # is handed back in the ``finally``.
+            reserved = 2 if include_diseases else 1
+            if not self.quota_manager.reserve_plant_id(
+                calls=reserved, reserve=quota_reserve
             ):
                 daily_usage = self.quota_manager.get_plant_id_daily_usage()
                 logger.error(
@@ -214,118 +218,124 @@ class PlantIDAPIService:
                     "Plant.id API quota exhausted. Please try again later or upgrade your plan."
                 )
 
-            # Quota available - acquire distributed lock to prevent cache stampede
-            logger.info("[QUOTA] Plant.id quota available (acquiring lock)")
+            spent = 0
 
-            # Use distributed lock if Redis is available
-            if self.redis_client:
-                import redis_lock
+            def call_api() -> Dict[str, Any]:
+                nonlocal spent
+                try:
+                    out: Dict[str, Any] = self.circuit.call(
+                        self._call_plant_id_api,
+                        id_images,
+                        hl_images,
+                        cache_key,
+                        image_hash,
+                        include_diseases,
+                    )
+                except CircuitBreakerError:
+                    raise  # open circuit: no call was made
+                except Exception:
+                    # The identification POST was attempted; a failed one
+                    # never reaches the health assessment.
+                    spent = 1
+                    raise
+                spent = reserved
+                return out
 
-                lock_key = (
-                    f"lock:plant_id:{self.API_VERSION}:{image_hash}:{include_diseases}"
-                )
-                lock_id = get_lock_id()
+            try:
+                # Quota available - acquire distributed lock to prevent cache stampede
+                logger.info("[QUOTA] Plant.id quota available (acquiring lock)")
 
-                logger.info(
-                    f"[LOCK] Attempting to acquire lock for {image_hash[:8]}... (id: {lock_id})"
-                )
+                # Use distributed lock if Redis is available
+                if self.redis_client:
+                    import redis_lock
 
-                lock = redis_lock.Lock(
-                    self.redis_client,
-                    lock_key,
-                    expire=CACHE_LOCK_EXPIRE,
-                    auto_renewal=CACHE_LOCK_AUTO_RENEWAL,
-                    id=lock_id,
-                )
+                    lock_key = f"lock:plant_id:{self.API_VERSION}:{image_hash}:{include_diseases}"
+                    lock_id = get_lock_id()
 
-                # Try to acquire lock (blocks if another process has it)
-                if lock.acquire(
-                    blocking=CACHE_LOCK_BLOCKING, timeout=CACHE_LOCK_TIMEOUT
-                ):
-                    try:
-                        logger.info(
-                            f"[LOCK] Lock acquired for {image_hash[:8]}... (id: {lock_id})"
-                        )
+                    logger.info(
+                        f"[LOCK] Attempting to acquire lock for {image_hash[:8]}... (id: {lock_id})"
+                    )
 
-                        # Double-check cache (another process may have populated it)
+                    lock = redis_lock.Lock(
+                        self.redis_client,
+                        lock_key,
+                        expire=CACHE_LOCK_EXPIRE,
+                        auto_renewal=CACHE_LOCK_AUTO_RENEWAL,
+                        id=lock_id,
+                    )
+
+                    # Try to acquire lock (blocks if another process has it)
+                    if lock.acquire(
+                        blocking=CACHE_LOCK_BLOCKING, timeout=CACHE_LOCK_TIMEOUT
+                    ):
+                        try:
+                            logger.info(
+                                f"[LOCK] Lock acquired for {image_hash[:8]}... (id: {lock_id})"
+                            )
+
+                            # Double-check cache (another process may have populated it)
+                            cached_result = cache.get(cache_key)
+                            if cached_result:
+                                logger.info(
+                                    f"[LOCK] Cache populated by another process for {image_hash[:8]}... "
+                                    f"(skipping API call)"
+                                )
+                                return cached_result
+
+                            # Call API through circuit breaker
+                            logger.info(
+                                f"[LOCK] Calling Plant.id API for {image_hash[:8]}..."
+                            )
+                            return call_api()
+
+                        finally:
+                            # Always release lock - wrap in try/except for error handling
+                            try:
+                                lock.release()
+                                logger.info(
+                                    f"[LOCK] Released lock for {image_hash[:8]}... (id: {lock_id})"
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    f"[LOCK] Failed to release lock for {image_hash[:8]}... (id: {lock_id}): {e}. "
+                                    f"Lock will auto-expire after {CACHE_LOCK_EXPIRE}s"
+                                )
+                    else:
+                        # Lock acquisition timed out - check cache one more time
+                        # (another process may have finished and populated cache)
                         cached_result = cache.get(cache_key)
                         if cached_result:
                             logger.info(
-                                f"[LOCK] Cache populated by another process for {image_hash[:8]}... "
-                                f"(skipping API call)"
+                                f"[LOCK] Lock timeout resolved - cache populated by another process "
+                                f"for {image_hash[:8]}... (skipping API call)"
                             )
                             return cached_result
 
-                        # Call API through circuit breaker
-                        logger.info(
-                            f"[LOCK] Calling Plant.id API for {image_hash[:8]}..."
+                        logger.warning(
+                            f"[LOCK] Lock acquisition timed out for {image_hash[:8]}... "
+                            f"after {CACHE_LOCK_TIMEOUT}s (proceeding without lock - cache stampede risk)"
                         )
-                        result: dict[str, Any] = self.circuit.call(
-                            self._call_plant_id_api,
-                            id_images,
-                            hl_images,
-                            cache_key,
-                            image_hash,
-                            include_diseases,
-                        )
-
-                        return result
-
-                    finally:
-                        # Always release lock - wrap in try/except for error handling
-                        try:
-                            lock.release()
-                            logger.info(
-                                f"[LOCK] Released lock for {image_hash[:8]}... (id: {lock_id})"
-                            )
-                        except Exception as e:
-                            logger.error(
-                                f"[LOCK] Failed to release lock for {image_hash[:8]}... (id: {lock_id}): {e}. "
-                                f"Lock will auto-expire after {CACHE_LOCK_EXPIRE}s"
-                            )
+                        # Fall through to direct API call without lock
                 else:
-                    # Lock acquisition timed out - check cache one more time
-                    # (another process may have finished and populated cache)
-                    cached_result = cache.get(cache_key)
-                    if cached_result:
-                        logger.info(
-                            f"[LOCK] Lock timeout resolved - cache populated by another process "
-                            f"for {image_hash[:8]}... (skipping API call)"
-                        )
-                        return cached_result
-
                     logger.warning(
-                        f"[LOCK] Lock acquisition timed out for {image_hash[:8]}... "
-                        f"after {CACHE_LOCK_TIMEOUT}s (proceeding without lock - cache stampede risk)"
+                        "[LOCK] Redis not available - skipping distributed lock (cache stampede possible)"
                     )
-                    # Fall through to direct API call without lock
-            else:
-                logger.warning(
-                    "[LOCK] Redis not available - skipping distributed lock (cache stampede possible)"
-                )
 
-            # Fallback: Call API without lock (if Redis unavailable or lock timeout)
-            # One final cache check to minimize duplicate API calls
-            cached_result = cache.get(cache_key)
-            if cached_result:
+                # Fallback: Call API without lock (if Redis unavailable or lock timeout)
+                # One final cache check to minimize duplicate API calls
+                cached_result = cache.get(cache_key)
+                if cached_result:
+                    logger.info(
+                        f"[CACHE] Last-chance cache hit for {image_hash[:8]}... (skipping API call)"
+                    )
+                    return cached_result
+
                 logger.info(
-                    f"[CACHE] Last-chance cache hit for {image_hash[:8]}... (skipping API call)"
+                    f"[CACHE] Calling Plant.id API for {image_hash[:8]}... (no lock)"
                 )
-                return cached_result
-
-            logger.info(
-                f"[CACHE] Calling Plant.id API for {image_hash[:8]}... (no lock)"
-            )
-            result = self.circuit.call(
-                self._call_plant_id_api,
-                id_images,
-                hl_images,
-                cache_key,
-                image_hash,
-                include_diseases,
-            )
-
-            return result
+                return call_api()
+            finally:
+                self.quota_manager.release_plant_id(reserved - spent)
 
         except CircuitBreakerError as exc:
             logger.error(
@@ -472,8 +482,9 @@ class PlantIDAPIService:
                 f"[PLANT_ID] Plant.id identification successful: {suggestions[0].get('name', 'Unknown')}"
             )
 
-        # Count the real calls made: 1, or 2 when the health POST was attempted
-        self.quota_manager.increment_plant_id(calls_made)
+        # calls_made (1, or 2 when the health POST was attempted) was claimed
+        # by reserve_plant_id in identify_plant before this ran (M3).
+        logger.info(f"[QUOTA] Plant.id calls made: {calls_made}")
 
         # Store in cache for 24 hours
         cache.set(cache_key, formatted_result, timeout=CACHE_TIMEOUT_24_HOURS)

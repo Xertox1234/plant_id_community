@@ -33,6 +33,9 @@ class FakeRedis:
         self.store[key] = self.store.get(key, 0) + amount
         return self.store[key]
 
+    def decrby(self, key, amount=1):
+        return self.incrby(key, -amount)
+
     def incr(self, key):
         return self.incrby(key, 1)
 
@@ -196,3 +199,80 @@ def test_quota_reserve_blocks_identify_call(service, redis_fake):
     redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_DAILY] = 1
     with override_settings(PLANT_ID_DAILY_QUOTA=3), pytest.raises(QuotaExceeded):
         service.identify_plant(b"x", include_diseases=False, quota_reserve=2)
+
+
+def test_reserve_lets_only_one_of_two_claims_fit(quota, redis_fake):
+    # Check-then-increment let both pass at 1/3 and land at 5/3 (M3).
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_DAILY] = 1
+    with override_settings(PLANT_ID_DAILY_QUOTA=3, PLANT_ID_MONTHLY_QUOTA=100):
+        assert quota.reserve_plant_id(calls=2) is True
+        assert quota.reserve_plant_id(calls=2) is False
+    assert quota.get_plant_id_daily_usage() == 3
+    assert quota.get_plant_id_monthly_usage() == 2
+
+
+def test_reserve_honours_the_diagnosis_reserve(quota, redis_fake):
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_DAILY] = 1
+    with override_settings(PLANT_ID_DAILY_QUOTA=3, PLANT_ID_MONTHLY_QUOTA=100):
+        assert quota.reserve_plant_id(calls=1, reserve=2) is False
+    assert quota.get_plant_id_daily_usage() == 1
+
+
+def test_reserve_over_the_monthly_cap_rolls_back_both(quota, redis_fake):
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY] = 99
+    with override_settings(PLANT_ID_DAILY_QUOTA=3, PLANT_ID_MONTHLY_QUOTA=100):
+        assert quota.reserve_plant_id(calls=2) is False
+    assert quota.get_plant_id_daily_usage() == 0
+    assert quota.get_plant_id_monthly_usage() == 99
+
+
+def test_failed_identification_counts_one_call(service, quota):
+    import requests
+
+    def post(url, **kwargs):
+        raise requests.exceptions.ConnectionError("down")
+
+    with (
+        override_settings(PLANT_ID_DAILY_QUOTA=10),
+        patch.object(service.session, "post", side_effect=post),
+        pytest.raises(requests.exceptions.ConnectionError),
+    ):
+        service.identify_plant(b"x", include_diseases=True)
+    # The identification POST was attempted; the health POST never was.
+    assert quota.get_plant_id_daily_usage() == 1
+    assert quota.get_plant_id_monthly_usage() == 1
+
+
+def test_open_circuit_spends_nothing(service, quota):
+    from apps.plant_identification.services.plant_id_service import (
+        ExternalAPIError,
+        _plant_id_circuit,
+    )
+
+    _plant_id_circuit.open()
+    with (
+        override_settings(PLANT_ID_DAILY_QUOTA=10),
+        pytest.raises(ExternalAPIError),
+    ):
+        service.identify_plant(b"x", include_diseases=True)
+    assert quota.get_plant_id_daily_usage() == 0
+    assert quota.get_plant_id_monthly_usage() == 0
+
+
+def test_failed_health_assessment_still_counts_two_calls(service, quota):
+    import requests
+
+    def post(url, **kwargs):
+        if url.endswith("/identification"):
+            return _ok({"result": {"classification": {"suggestions": []}}})
+        raise requests.exceptions.ConnectionError("health down")
+
+    with (
+        override_settings(PLANT_ID_DAILY_QUOTA=10),
+        patch.object(service.session, "post", side_effect=post),
+    ):
+        service.identify_plant(b"x", include_diseases=True)
+    # The health POST was attempted (and is swallowed into health_error), so
+    # both claimed calls are kept, not refunded.
+    assert quota.get_plant_id_daily_usage() == 2
+    assert quota.get_plant_id_monthly_usage() == 2

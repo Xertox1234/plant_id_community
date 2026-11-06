@@ -184,6 +184,61 @@ class QuotaManager:
             logger.error(f"[QUOTA] Error getting Plant.id monthly usage: {e}")
             return 0
 
+    def reserve_plant_id(self, calls: int = 1, reserve: int = 0) -> bool:
+        """Atomically claim ``calls`` Plant.id calls under both caps.
+
+        ``can_call_plant_id`` then ``increment_plant_id`` after the HTTP calls
+        let two concurrent jobs both pass at 1/3 and land at 5/3. Here each
+        INCRBY is the claim: a counter that went over its cap is rolled back
+        with DECRBY and the claim refused. A claim that was not spent (a cache
+        hit after it, an open circuit, a failed first call) is handed back
+        with ``release_plant_id``. Fails open when Redis is down, like
+        ``can_call_plant_id``.
+
+        Args:
+            calls: API calls about to be made (a diagnosis makes 2).
+            reserve: Daily calls to leave untouched for a later diagnosis.
+        """
+        client = self.redis_client
+        if client is None:
+            logger.warning(
+                "[QUOTA] Redis unavailable, allowing Plant.id call (no quota tracking)"
+            )
+            return True
+        daily_key = QUOTA_KEY_PREFIX_PLANT_ID_DAILY
+        monthly_key = QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY
+        try:
+            daily = cast(int, client.incrby(daily_key, calls))
+            self._ensure_ttl(daily_key, self._seconds_until_midnight())
+            if daily + reserve > settings.PLANT_ID_DAILY_QUOTA:
+                client.decrby(daily_key, calls)
+                return False
+            monthly = cast(int, client.incrby(monthly_key, calls))
+            self._ensure_ttl(monthly_key, self._seconds_until_month_end())
+            if monthly > settings.PLANT_ID_MONTHLY_QUOTA:
+                client.decrby(monthly_key, calls)
+                client.decrby(daily_key, calls)
+                return False
+        except Exception as e:
+            logger.error(f"[QUOTA] Error reserving Plant.id quota: {e}")
+            return True  # Fail open
+        logger.info(
+            f"[QUOTA] Plant.id usage: {daily}/{settings.PLANT_ID_DAILY_QUOTA} daily, "
+            f"{monthly}/{settings.PLANT_ID_MONTHLY_QUOTA} monthly"
+        )
+        return True
+
+    def release_plant_id(self, calls: int) -> None:
+        """Hand back ``calls`` reserved Plant.id calls that were never made."""
+        client = self.redis_client
+        if client is None or calls <= 0:
+            return
+        try:
+            client.decrby(QUOTA_KEY_PREFIX_PLANT_ID_DAILY, calls)
+            client.decrby(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY, calls)
+        except Exception as e:
+            logger.error(f"[QUOTA] Error releasing Plant.id quota: {e}")
+
     def increment_plant_id(self, calls: int = 1) -> None:
         """
         Add `calls` real API calls to the Plant.id counters (daily and monthly).

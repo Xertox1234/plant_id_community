@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 from apps.core.exceptions import ExternalAPIError
 from apps.plant_identification.services.plant_id_service import PlantIDAPIService
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 
 def reset_circuit_breaker():
@@ -29,6 +29,15 @@ def reset_circuit_breaker():
     _plant_id_circuit.close()
 
 
+# These tests hit the real Redis quota counters and never reset them. Since
+# failed Plant.id calls are counted (scan-2 audit M3), the default 3/day cap
+# would be crossed mid-run and QuotaExceeded would mask the circuit behaviour.
+_ROOMY_QUOTA = override_settings(
+    PLANT_ID_DAILY_QUOTA=1_000_000, PLANT_ID_MONTHLY_QUOTA=1_000_000
+)
+
+
+@_ROOMY_QUOTA
 class CircuitBreakerTests(TestCase):
     """Test circuit breaker behavior in PlantIDAPIService."""
 
@@ -149,6 +158,7 @@ class CircuitBreakerTests(TestCase):
         self.assertIn("reset_timeout", stats)
 
 
+@_ROOMY_QUOTA
 class DistributedLockTests(TestCase):
     """Test distributed lock implementation for cache stampede prevention."""
 
@@ -318,6 +328,7 @@ class DistributedLockTests(TestCase):
         self.assertGreater(api_call_count["count"], 0)
 
 
+@_ROOMY_QUOTA
 class IntegrationTests(TestCase):
     """Integration tests for circuit breaker + distributed locks."""
 
