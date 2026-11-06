@@ -1067,4 +1067,40 @@ void main() {
       expect(h.deleted, ['/tmp/w.jpg']);
     });
   });
+
+  testWidgets('failing polls back off, and a success resets them (L11)', (
+    tester,
+  ) async {
+    final h = _Harness();
+    await h.tracker.restored;
+    h.api.gets.add(_job(ScanJobStatus.processing));
+    await h.tracker.submit(_capture);
+    h.api.getError = ApiException('Server error', statusCode: 503);
+
+    await h.tick(tester); // fails: next poll no sooner than 6 s
+    final afterFirst = h.getCount;
+    await h.tick(tester);
+    await h.tick(tester);
+    expect(h.getCount, afterFirst, reason: 'still inside the backoff');
+
+    h.now = h.now.add(const Duration(seconds: 6));
+    await h.tick(tester); // fails again: now 12 s
+    expect(h.getCount, afterFirst + 1);
+    h.now = h.now.add(const Duration(seconds: 6));
+    await h.tick(tester);
+    expect(h.getCount, afterFirst + 1, reason: 'the wait doubled');
+    h.now = h.now.add(const Duration(seconds: 6));
+    await h.tick(tester);
+    expect(h.getCount, afterFirst + 2);
+    expect(h.state.phase, isNot(TrackerPhase.failed));
+
+    // The server answers again: back to every tick.
+    h.api.getError = null;
+    h.now = h.now.add(const Duration(seconds: 60));
+    await h.tick(tester);
+    final recovered = h.getCount;
+    await h.tick(tester);
+    expect(h.getCount, recovered + 1);
+    h.container.dispose();
+  });
 }

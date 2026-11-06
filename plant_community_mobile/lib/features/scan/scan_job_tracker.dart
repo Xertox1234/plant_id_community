@@ -31,6 +31,11 @@ const scanJobPendingIdKey = 'scan_job.pending_id';
 /// How often a running job is re-read.
 const scanJobPollInterval = Duration(seconds: 3);
 
+/// The longest wait between polls while they keep failing (offline, a 5xx):
+/// each failure doubles the wait from [scanJobPollInterval] up to this, so
+/// an unreachable server is not asked every 3 s forever (scan-2 audit L11).
+const scanJobPollBackoffCap = Duration(seconds: 60);
+
 /// Used when no allowance was read (a restored or adopted job).
 const defaultSlowAfterSeconds = 45;
 
@@ -96,6 +101,10 @@ class ScanJobTracker extends _$ScanJobTracker {
   String? _handledId;
   DateTime? _uploadFinishedAt;
   int _slowAfterSeconds = defaultSlowAfterSeconds;
+
+  /// Consecutive failed polls, and the earliest time the next may run.
+  int _pollFailures = 0;
+  DateTime? _nextPollAt;
   Future<void>? _restoring;
 
   /// The user the tracked job (and the shown state) belongs to.
@@ -382,6 +391,7 @@ class ScanJobTracker extends _$ScanJobTracker {
     }
     if (id == null || !ref.mounted || !_current(gen)) return;
     _pendingId = id;
+    _resetBackoff();
     _ownerUid = uid;
     _uploadFinishedAt = null;
     ScanJob job;
@@ -473,6 +483,7 @@ class ScanJobTracker extends _$ScanJobTracker {
 
   Future<void> _track(String id) async {
     _pendingId = id;
+    _resetBackoff();
     try {
       await _storage.write(key: scanJobPendingIdKey, value: id);
     } catch (e) {
@@ -516,6 +527,7 @@ class ScanJobTracker extends _$ScanJobTracker {
       return;
     }
     if (_pendingId == null || !_isActive(state.phase)) return;
+    _resetBackoff(); // back in the app: ask now, not after the backoff
     _startTimer();
     unawaited(_poll());
   }
@@ -524,20 +536,38 @@ class ScanJobTracker extends _$ScanJobTracker {
     final id = _pendingId;
     final gen = _gen;
     if (id == null || _fetchingGen == gen || _handledId == id) return;
+    final wait = _nextPollAt;
+    if (wait != null && _now().isBefore(wait)) return;
     _fetchingGen = gen;
     try {
       final job = await _api.get(id);
+      _resetBackoff();
       if (_current(gen)) _apply(job, gen);
     } on ApiException catch (e) {
       if (!_current(gen) || _handledReadError(e)) return;
       debugPrint('[SCAN_JOB] Poll failed: $e');
+      _backOff();
       _markSlowIfDue(state.job);
     } catch (e) {
       debugPrint('[SCAN_JOB] Poll failed: $e');
+      _backOff();
       if (_current(gen)) _markSlowIfDue(state.job);
     } finally {
       if (_fetchingGen == gen) _fetchingGen = null;
     }
+  }
+
+  void _resetBackoff() {
+    _pollFailures = 0;
+    _nextPollAt = null;
+  }
+
+  void _backOff() {
+    _pollFailures++;
+    final seconds = scanJobPollInterval.inSeconds << _pollFailures.clamp(0, 5);
+    _nextPollAt = _now().add(
+      Duration(seconds: seconds.clamp(0, scanJobPollBackoffCap.inSeconds)),
+    );
   }
 
   /// Moves the state to match [job]. Terminal handling is synchronous up to
