@@ -1,9 +1,10 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "698"
 tags: [scan, plant-id, cost, owner-decision]
 dependencies: []
+owner_decision: "Fails are free: no change (2026-11-06)"
 ---
 
 # Scan 2.0: failed and late-cancelled scans still spend Plant.id for free
@@ -73,8 +74,8 @@ limit barely slows it.
 
 ## Acceptance Criteria
 
-- [ ] Owner decision recorded here with its date.
-- [ ] A test proves a late-cancelled diagnose and a no-plant diagnose follow
+- [x] Owner decision recorded here with its date (2026-11-06: no change).
+- Dropped, not done: A test proves a late-cancelled diagnose and a no-plant diagnose follow
       the chosen rule.
 
 ## Work Log
@@ -83,3 +84,10 @@ limit barely slows it.
 
 - Filed as the owner-decision residual of H1 (fixed in the audit PR for the
   cancel-before-the-call window).
+
+### 2026-11-06 - Closed by owner decision: no change
+
+- Owner decision: failed and cancelled scans stay free ("Fails are free: no
+  change"). Neither option 1, 2 nor 3 was implemented; no code changed for this
+  todo. The CLAUDE.md `SCAN_DIAGNOSE_DAILY_*` row now records the decision.
+- The second acceptance criterion is not met by design (no new rule to test).

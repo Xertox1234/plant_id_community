@@ -7,9 +7,23 @@ import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/shared/widgets/api_image.dart';
 
 /// A private-photo store that never loads (the image stays on its
-/// placeholder) and counts how often it was emptied.
-class FakePhotoCache extends Fake implements BaseCacheManager {
+/// placeholder), counts how often it was emptied, lists [stored] as its
+/// keys on disk and records each [removeFile].
+class FakePhotoCache extends Fake implements BaseCacheManager, ListsStoredKeys {
+  FakePhotoCache({List<String>? stored}) : stored = stored ?? [];
+
   int emptied = 0;
+  final List<String> stored;
+  final removed = <String>[];
+
+  @override
+  Future<List<String>> storedKeys() async => List.of(stored);
+
+  @override
+  Future<void> removeFile(String key) async {
+    removed.add(key);
+    stored.remove(key);
+  }
 
   @override
   Stream<FileResponse> getFileStream(

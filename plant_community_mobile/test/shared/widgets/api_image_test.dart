@@ -140,6 +140,49 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('evictScanPhotos drops every photo of one scan from disk and '
+      'memory, and nothing else', (tester) async {
+    const job = '11111111-2222-3333-4444-555555555555';
+    const other = '99999999-8888-7777-6666-555555555555';
+    String key(String uid, String id, String role) =>
+        '$uid|$_origin/api/v1/plant-identification/scans/$id/photos/$role/';
+    // On disk from an earlier session (two roles), plus another scan's.
+    final cache = FakePhotoCache(
+      stored: [
+        key('user-a', job, 'whole'),
+        key('user-a', job, 'leaf'),
+        key('user-a', other, 'whole'),
+      ],
+    );
+    // Shown this session: in memory, and one key only the session knows.
+    final shown = [key('user-a', job, 'whole'), key('user-a', job, 'problem')];
+    final otherShown = key('user-a', other, 'whole');
+    final images = PaintingBinding.instance.imageCache;
+    CachedNetworkImageProvider provider(String k) => CachedNetworkImageProvider(
+      k.substring(k.indexOf('|') + 1),
+      cacheKey: k,
+    );
+    for (final k in [...shown, otherShown]) {
+      debugRecordPhotoKey(k);
+      images.putIfAbsent(provider(k), _PendingImage.new);
+      expect(images.containsKey(provider(k)), isTrue);
+    }
+
+    await evictScanPhotos(cache, job);
+
+    expect(cache.removed.toSet(), {
+      key('user-a', job, 'whole'),
+      key('user-a', job, 'leaf'),
+      shown[1],
+    });
+    expect(cache.stored, [otherShown]);
+    for (final k in shown) {
+      expect(images.containsKey(provider(k)), isFalse, reason: k);
+    }
+    expect(images.containsKey(provider(otherShown)), isTrue);
+    images.clear();
+  });
+
   test('photo fetches send the token held now, not the one at build', () async {
     final api = ApiService(baseUrl: '$_origin/api/v1', authToken: 'old');
     String? sent;
@@ -191,3 +234,5 @@ class _Uid extends Notifier<String?> {
 
   void set(String? uid) => state = uid;
 }
+
+class _PendingImage extends ImageStreamCompleter {}

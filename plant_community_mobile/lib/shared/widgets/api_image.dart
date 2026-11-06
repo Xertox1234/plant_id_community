@@ -35,7 +35,7 @@ class LiveTokenFileService extends HttpFileService {
 /// The store for the API's private photos, separate from the default cache
 /// (which public images keep using) so it can be emptied on its own.
 final privatePhotoCacheManagerProvider = Provider<BaseCacheManager>(
-  (ref) => CacheManager(
+  (ref) => PrivatePhotoCacheManager(
     Config(
       privatePhotoCacheKey,
       stalePeriod: const Duration(days: 7),
@@ -44,6 +44,35 @@ final privatePhotoCacheManagerProvider = Provider<BaseCacheManager>(
     ),
   ),
 );
+
+/// A photo store that can list the keys of the files it holds on disk, so
+/// one scan's photos can be found among them (from earlier sessions too).
+abstract interface class ListsStoredKeys {
+  Future<List<String>> storedKeys();
+}
+
+/// The private-photo [CacheManager], able to list its stored keys.
+class PrivatePhotoCacheManager extends CacheManager implements ListsStoredKeys {
+  PrivatePhotoCacheManager(super.config) : _repo = config.repo;
+
+  final CacheInfoRepository _repo;
+
+  @override
+  Future<List<String>> storedKeys() async {
+    // Opening is counted per connection: this pair leaves the store's own
+    // connection open.
+    await _repo.open();
+    try {
+      return [for (final o in await _repo.getAllObjects()) o.key];
+    } finally {
+      await _repo.close();
+    }
+  }
+}
+
+/// The private cache keys [ApiImage] has used this session: the in-memory
+/// image cache cannot be listed, so eviction looks here.
+final _sessionPhotoKeys = <String>{};
 
 /// [privatePhotoCacheManagerProvider], emptied whenever the signed-in user
 /// changes (sign-out, account switch): private scan photos must not outlive
@@ -67,8 +96,40 @@ Future<void> clearPrivatePhotos(BaseCacheManager manager) async {
   PaintingBinding.instance.imageCache
     ..clear()
     ..clearLiveImages();
+  _sessionPhotoKeys.clear();
   await manager.emptyCache();
 }
+
+/// Removes every cached photo of scan [jobId] (all roles, any user key) from
+/// [manager] on disk and from the decoded-image cache in memory, after the
+/// server erased them (dismiss, remove). A key matches when it holds
+/// `/scans/<jobId>/photos/`. Best effort: a store that cannot be listed
+/// still loses the keys used this session.
+Future<void> evictScanPhotos(BaseCacheManager manager, String jobId) async {
+  final marker = '/scans/$jobId/photos/';
+  final keys = <String>{..._sessionPhotoKeys};
+  if (manager is ListsStoredKeys) {
+    try {
+      keys.addAll(await (manager as ListsStoredKeys).storedKeys());
+    } catch (e) {
+      debugPrint('[API_IMAGE] Listing stored photos failed: ${e.runtimeType}');
+    }
+  }
+  final images = PaintingBinding.instance.imageCache;
+  for (final key in keys.where((k) => k.contains(marker)).toList()) {
+    final bar = key.indexOf('|');
+    final url = bar < 0 ? key : key.substring(bar + 1);
+    // Same equality as the provider [ApiImage] builds: cacheKey and scale.
+    images.evict(CachedNetworkImageProvider(url, cacheKey: key));
+    _sessionPhotoKeys.remove(key);
+    await manager.removeFile(key);
+  }
+}
+
+/// Records [key] as used this session (what [ApiImage] does for an API
+/// photo), for tests of [evictScanPhotos].
+@visibleForTesting
+void debugRecordPhotoKey(String key) => _sessionPhotoKeys.add(key);
 
 /// A network image that signs in for the app's own private photo URLs.
 ///
@@ -120,12 +181,14 @@ class ApiImage extends ConsumerWidget {
     final private = headers != null;
     // Only API photos need the user: public images never read auth state.
     final uid = private ? ref.watch(currentUserIdProvider) : null;
+    final cacheKey = private ? '${uid ?? '-'}|$url' : null;
+    if (cacheKey != null) _sessionPhotoKeys.add(cacheKey);
     return CachedNetworkImage(
       imageUrl: url,
       fit: fit,
       httpHeaders: headers,
       cacheManager: private ? ref.watch(privatePhotoCacheProvider) : null,
-      cacheKey: private ? '${uid ?? '-'}|$url' : null,
+      cacheKey: cacheKey,
       placeholder: placeholder,
       errorWidget: errorWidget,
     );

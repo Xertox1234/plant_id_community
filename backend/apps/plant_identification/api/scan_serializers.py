@@ -7,13 +7,14 @@ no public URL.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Dict, Optional
 
 from django.urls import reverse
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from ..constants import SCAN_MODE_CHOICES
+from ..constants import SCAN_DECISION_WINDOW_HOURS, SCAN_MODE_CHOICES
 from ..scan_models import ScanJob, ScanJobImage
 
 # The photo shown as the job's thumbnail: the first present, in this order.
@@ -45,6 +46,13 @@ class ScanJobSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="The scan's summary once it is done or degraded; null otherwise.",
     )
+    decision = serializers.ChoiceField(
+        choices=ScanJob.DECISION_CHOICES,
+        read_only=True,
+        help_text="The user's decision on a finished scan: undecided until "
+        "they add it to My Collection (kept) or dismiss it.",
+    )
+    decide_by = serializers.SerializerMethodField()
     photos = serializers.SerializerMethodField()
     cover_photo = serializers.SerializerMethodField()
 
@@ -58,10 +66,34 @@ class ScanJobSerializer(serializers.ModelSerializer):
             "created_at",
             "finished_at",
             "result",
+            "decision",
+            "decide_by",
             "photos",
             "cover_photo",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(
+        {
+            "type": "string",
+            "format": "date-time",
+            "nullable": True,
+            "description": "When an undecided finished scan expires; null "
+            "otherwise.",
+        }
+    )
+    def get_decide_by(self, job: ScanJob) -> Optional[str]:
+        if (
+            job.decision != "undecided"
+            or job.status not in ("done", "degraded")
+            or job.finished_at is None
+        ):
+            return None
+        return str(
+            serializers.DateTimeField().to_representation(
+                job.finished_at + timedelta(hours=SCAN_DECISION_WINDOW_HOURS)
+            )
+        )
 
     def _roles(self, job: ScanJob) -> list[str]:
         # images is prefetched by the view; .all() reuses the prefetch.
@@ -97,6 +129,14 @@ class ScanJobCreateSerializer(serializers.Serializer):
     utc_offset_minutes = serializers.IntegerField(
         required=False,
         help_text="Minutes east of UTC (-840..840); absent or invalid means UTC.",
+    )
+    retry_of = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "UUID of a degraded, undecided scan of yours being retried: it is "
+            "dismissed and its identify charge refunded. Anything else is ignored."
+        ),
     )
     problem = serializers.ImageField(
         required=False, help_text="Close-up of the problem. Required for diagnose."

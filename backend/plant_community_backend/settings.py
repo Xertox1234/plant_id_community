@@ -993,6 +993,7 @@ CORS_ALLOW_HEADERS = [
     # 24h. Caught by web/e2e/forum-image-upload.spec.js (todo 357); jsdom cannot
     # see it because it does not enforce CORS.
     "idempotency-key",
+    "x-scan-decisions",  # Scan keep-or-dismiss opt-in (new clients send "1")
     "x-request-id",  # For distributed tracing (httpClient)
     "x-requested-with",
 ]
@@ -1474,6 +1475,11 @@ CELERY_BEAT_SCHEDULE = {
     "scan-stale-sweep": {
         "task": "apps.plant_identification.tasks.expire_stale_scan_jobs",
         "schedule": crontab(minute="*/2"),
+    },
+    # Keep-or-dismiss: erase finished scans undecided past 24 h as "expired".
+    "scan-decision-sweep": {
+        "task": "apps.plant_identification.tasks.expire_undecided_scan_jobs",
+        "schedule": crontab(minute="*/15"),
     },
     # Todo 625: email click rows and provider events are kept 90 days.
     "email-feedback-prune": {

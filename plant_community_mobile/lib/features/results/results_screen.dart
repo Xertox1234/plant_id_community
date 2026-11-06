@@ -39,7 +39,12 @@ class ResultsScreen extends StatelessWidget {
     this.confidence,
     this.degraded = false,
     this.onRetry,
+    this.decisionBar,
   });
+
+  /// Pinned under the scroll body, inside the bottom safe area: a scan's
+  /// Add to My Collection / Dismiss controls. Null shows nothing.
+  final Widget? decisionBar;
 
   /// Offered on a degraded result as "Try again": re-runs the check, which
   /// the degraded scan did not use. Null hides it.
@@ -59,6 +64,20 @@ class ResultsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Plant Identified'), centerTitle: true),
+      bottomNavigationBar: decisionBar == null
+          ? null
+          : SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  ext.padScreen,
+                  AppSpacing.sm,
+                  ext.padScreen,
+                  AppSpacing.md,
+                ),
+                child: decisionBar,
+              ),
+            ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: EdgeInsets.all(ext.padScreen),

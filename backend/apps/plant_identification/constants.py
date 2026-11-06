@@ -249,3 +249,6 @@ SCAN_PHOTO_CACHE_CONTROL = "private, max-age=86400"
 # rolling window, not a local calendar day, so the client's UTC offset cannot
 # reach a second "day" (scan-2 audit M1).
 SCAN_ALLOWANCE_WINDOW_HOURS = 24
+# A finished scan waits this long for Add to My Collection or Dismiss before
+# it expires and its photos are erased (keep-or-dismiss).
+SCAN_DECISION_WINDOW_HOURS = 24

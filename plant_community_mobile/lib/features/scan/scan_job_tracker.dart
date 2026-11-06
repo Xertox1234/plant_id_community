@@ -5,12 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../models/plant.dart';
 import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
-import '../../services/firestore_service.dart';
 import 'capture_session.dart';
 import 'capture_steps.dart';
+import 'scan_decisions.dart';
 import 'scan_job_api.dart';
 import 'shot_files.dart';
 
@@ -71,15 +70,15 @@ class ScanTrackerState {
 }
 
 /// The one background scan job of this device: uploads it, polls it every
-/// [scanJobPollInterval], and saves a finished plant to My Collection once.
+/// [scanJobPollInterval]. It never writes a finished scan to My Collection:
+/// the user keeps it explicitly (the server's keep/dismiss decision).
 ///
 /// Every async continuation checks [_gen]: [submit], [cancel], [dismiss] and
-/// a change of signed-in user bump it, so a GET or save that lands after one
-/// of them is dropped.
+/// a change of signed-in user bump it, so a GET that lands after one of them
+/// is dropped.
 ///
 /// A job belongs to the user signed in when it was tracked ([_ownerUid]).
-/// When that user signs out or another signs in, the job is forgotten, and
-/// a result is only ever saved to its owner's collection.
+/// When that user signs out or another signs in, the job is forgotten.
 @Riverpod(keepAlive: true)
 class ScanJobTracker extends _$ScanJobTracker {
   /// The tracked job, mirrored in storage under [scanJobPendingIdKey].
@@ -147,22 +146,25 @@ class ScanJobTracker extends _$ScanJobTracker {
   /// Starts a scan of [r]. Throws [ScanRefused] without uploading when the
   /// allowance says no; rethrows other server refusals and [ApiException]s.
   /// A 409 `scan_in_progress` is adopted: that job is tracked instead.
-  Future<void> submit(CaptureResult r) async {
+  ///
+  /// [retryOf] is the id of the degraded job this scan replaces, so the
+  /// server refunds its identify charge and drops its card.
+  Future<void> submit(CaptureResult r, {String? retryOf}) async {
     await restored;
     if (_submitting || _isActive(state.phase)) {
       throw ScanAlreadyRunning();
     }
     _submitting = true;
     try {
-      await _submit(r);
+      await _submit(r, retryOf);
     } finally {
       _submitting = false;
     }
   }
 
-  Future<void> _submit(CaptureResult r) async {
+  Future<void> _submit(CaptureResult r, String? retryOf) async {
     // The pre-check runs before anything changes, so a refusal leaves the
-    // current job (and its pending save) untouched. A cancel, dismiss or user
+    // current job untouched. A cancel, dismiss or user
     // change during it bumps [_gen] or changes the user: then nothing starts.
     final before = _gen;
     final uid = ref.read(currentUserIdProvider);
@@ -196,6 +198,7 @@ class ScanJobTracker extends _$ScanJobTracker {
     try {
       job = await _api.create(
         r,
+        retryOf: retryOf,
         onProgress: (p) {
           if (_current(gen) && state.phase == TrackerPhase.uploading) {
             state = ScanTrackerState(
@@ -314,7 +317,12 @@ class ScanJobTracker extends _$ScanJobTracker {
         'Only a failed or degraded scan with its capture can be retried.',
       );
     }
-    await submit(capture);
+    // A degraded job's card is replaced by the new scan; a failed job left
+    // nothing to replace.
+    final retryOf = state.phase == TrackerPhase.ready ? state.job?.id : null;
+    await submit(capture, retryOf: retryOf);
+    // The old card leaves My Plants once the new job exists.
+    if (retryOf != null && ref.mounted) ref.invalidate(undecidedScansProvider);
   }
 
   static bool _retryable(ScanTrackerState s) =>
@@ -325,8 +333,8 @@ class ScanJobTracker extends _$ScanJobTracker {
   /// The result of [jobId] was opened at `/scans/<id>` (from a push, the
   /// pill or the scan screen's status view). Any other job: nothing.
   ///
-  /// The tracked job's finished state is applied first, so the collection
-  /// save runs exactly once even when the push beat the poll; [job] is the
+  /// The tracked job's finished state is applied first, so it is handled
+  /// exactly once even when the push beat the poll; [job] is the
   /// copy the screen already loaded (read again when missing or still
   /// running). Then the job is forgotten, so no stale "ready" pill is left
   /// on top of the result. A job still running keeps being tracked.
@@ -358,11 +366,12 @@ class ScanJobTracker extends _$ScanJobTracker {
         state.lastCapture != null) {
       return;
     }
-    // The save (when there is one) is already running: dismiss doesn't stop it.
     dismiss();
   }
 
-  /// Forgets the job (after its result was viewed, or a failure closed).
+  /// Forgets the job locally (after its result was viewed, or a failure
+  /// closed) and hides the pill. Never calls the server: the keep/dismiss
+  /// decision is `ScanDecisions`.
   void dismiss() {
     _gen++;
     _stopTimer();
@@ -575,8 +584,8 @@ class ScanJobTracker extends _$ScanJobTracker {
     );
   }
 
-  /// Moves the state to match [job]. Terminal handling is synchronous up to
-  /// the collection save, so a second tick or push finds [_handledId] set.
+  /// Moves the state to match [job]. Terminal handling is synchronous,
+  /// so a second tick or push finds [_handledId] set.
   void _apply(ScanJob job, int gen) {
     if (job.id != _pendingId || _handledId == job.id) return;
     final capture = state.lastCapture;
@@ -596,7 +605,10 @@ class ScanJobTracker extends _$ScanJobTracker {
         job: job,
         lastCapture: capture,
       );
-      unawaited(_saveThenClear(job, gen));
+      // A finished scan is a new undecided card in My Plants, which stays
+      // mounted (an indexed-stack tab) and would not refetch on its own.
+      if (ref.mounted) ref.invalidate(undecidedScansProvider);
+      unawaited(_clearAfterFinish(job, gen));
     } else if (job.status == ScanJobStatus.failed) {
       state = ScanTrackerState(
         phase: TrackerPhase.failed,
@@ -636,49 +648,11 @@ class ScanJobTracker extends _$ScanJobTracker {
     );
   }
 
-  /// The stored id is cleared only after the save, so a kill in between
-  /// restores the job and saves it again under the same doc id.
-  Future<void> _saveThenClear(ScanJob job, int gen) async {
-    final result = job.result;
-    final uid = ref.read(currentUserIdProvider);
-    if (uid == null || uid.isEmpty || uid != _ownerUid) {
-      // Nobody to save for (auth not restored yet), or not the job's owner.
-      // Keep the stored id so its owner's next restore saves it.
-      debugPrint('[SCAN_JOB] Job ${job.id} not saved: not its owner.');
-      return;
-    }
-    if (result != null) {
-      // The Firestore service auto-disposes; hold it for the whole write.
-      final keep = ref.listen(firestoreServiceProvider, (_, _) {});
-      try {
-        await ref
-            .read(firestoreServiceProvider.notifier)
-            .savePlant(
-              uid,
-              Plant(
-                id: job.id,
-                name: result.plantName,
-                scientificName: result.scientificName,
-                description: result.description,
-                care: const [],
-                imageUrl: job.coverPhoto,
-                // The job's own time, so a repeat save writes the same doc.
-                timestamp: job.createdAt,
-              ),
-            );
-      } catch (e) {
-        // Keep the stored id: the next launch restores the job and saves
-        // again (same doc id). A dismiss still clears it.
-        debugPrint('[SCAN_JOB] Collection save failed: $e');
-        return;
-      } finally {
-        keep.close();
-      }
-    } else {
-      debugPrint('[SCAN_JOB] Finished job ${job.id} has no result to save.');
-    }
-    // A dismiss or new scan since then owns the stored id now.
-    if (!_current(gen)) return;
+  /// A finished job needs no restore: the result stays on the server until
+  /// the user decides, and nothing is written locally. Only the stored id and
+  /// the tracked id are cleared (a running job keeps both, to survive a kill).
+  Future<void> _clearAfterFinish(ScanJob job, int gen) async {
+    if (!_current(gen) || _pendingId != job.id) return;
     _pendingId = null;
     await _clearStored();
   }

@@ -9,41 +9,41 @@ part of 'scan_job_tracker.dart';
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // ignore_for_file: type=lint, type=warning
 /// The one background scan job of this device: uploads it, polls it every
-/// [scanJobPollInterval], and saves a finished plant to My Collection once.
+/// [scanJobPollInterval]. It never writes a finished scan to My Collection:
+/// the user keeps it explicitly (the server's keep/dismiss decision).
 ///
 /// Every async continuation checks [_gen]: [submit], [cancel], [dismiss] and
-/// a change of signed-in user bump it, so a GET or save that lands after one
-/// of them is dropped.
+/// a change of signed-in user bump it, so a GET that lands after one of them
+/// is dropped.
 ///
 /// A job belongs to the user signed in when it was tracked ([_ownerUid]).
-/// When that user signs out or another signs in, the job is forgotten, and
-/// a result is only ever saved to its owner's collection.
+/// When that user signs out or another signs in, the job is forgotten.
 
 @ProviderFor(ScanJobTracker)
 final scanJobTrackerProvider = ScanJobTrackerProvider._();
 
 /// The one background scan job of this device: uploads it, polls it every
-/// [scanJobPollInterval], and saves a finished plant to My Collection once.
+/// [scanJobPollInterval]. It never writes a finished scan to My Collection:
+/// the user keeps it explicitly (the server's keep/dismiss decision).
 ///
 /// Every async continuation checks [_gen]: [submit], [cancel], [dismiss] and
-/// a change of signed-in user bump it, so a GET or save that lands after one
-/// of them is dropped.
+/// a change of signed-in user bump it, so a GET that lands after one of them
+/// is dropped.
 ///
 /// A job belongs to the user signed in when it was tracked ([_ownerUid]).
-/// When that user signs out or another signs in, the job is forgotten, and
-/// a result is only ever saved to its owner's collection.
+/// When that user signs out or another signs in, the job is forgotten.
 final class ScanJobTrackerProvider
     extends $NotifierProvider<ScanJobTracker, ScanTrackerState> {
   /// The one background scan job of this device: uploads it, polls it every
-  /// [scanJobPollInterval], and saves a finished plant to My Collection once.
+  /// [scanJobPollInterval]. It never writes a finished scan to My Collection:
+  /// the user keeps it explicitly (the server's keep/dismiss decision).
   ///
   /// Every async continuation checks [_gen]: [submit], [cancel], [dismiss] and
-  /// a change of signed-in user bump it, so a GET or save that lands after one
-  /// of them is dropped.
+  /// a change of signed-in user bump it, so a GET that lands after one of them
+  /// is dropped.
   ///
   /// A job belongs to the user signed in when it was tracked ([_ownerUid]).
-  /// When that user signs out or another signs in, the job is forgotten, and
-  /// a result is only ever saved to its owner's collection.
+  /// When that user signs out or another signs in, the job is forgotten.
   ScanJobTrackerProvider._()
     : super(
         from: null,
@@ -71,18 +71,18 @@ final class ScanJobTrackerProvider
   }
 }
 
-String _$scanJobTrackerHash() => r'6561b9ab06645cd6685a6ed55555fce79dcbd521';
+String _$scanJobTrackerHash() => r'73a02f231dd91ed4ddb090b8ed23d3fc95d5825a';
 
 /// The one background scan job of this device: uploads it, polls it every
-/// [scanJobPollInterval], and saves a finished plant to My Collection once.
+/// [scanJobPollInterval]. It never writes a finished scan to My Collection:
+/// the user keeps it explicitly (the server's keep/dismiss decision).
 ///
 /// Every async continuation checks [_gen]: [submit], [cancel], [dismiss] and
-/// a change of signed-in user bump it, so a GET or save that lands after one
-/// of them is dropped.
+/// a change of signed-in user bump it, so a GET that lands after one of them
+/// is dropped.
 ///
 /// A job belongs to the user signed in when it was tracked ([_ownerUid]).
-/// When that user signs out or another signs in, the job is forgotten, and
-/// a result is only ever saved to its owner's collection.
+/// When that user signs out or another signs in, the job is forgotten.
 
 abstract class _$ScanJobTracker extends $Notifier<ScanTrackerState> {
   ScanTrackerState build();

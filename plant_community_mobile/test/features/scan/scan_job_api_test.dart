@@ -16,7 +16,11 @@ Map<String, dynamic> _jobJson({
   Map<String, dynamic>? result,
   Map<String, String>? photos,
   String? coverPhoto,
+  Object? decision = 'undecided',
+  String? decideBy = '2026-11-03T09:30:20Z',
 }) => {
+  'decision': ?decision,
+  'decide_by': decideBy,
   'id': _jobId,
   'mode': mode,
   'status': status,
@@ -60,7 +64,9 @@ class _Call {
     this.query,
     this.onSendProgress,
     this.receiveTimeout,
+    this.options,
   );
+  final Options? options;
   final String method;
   final String path;
   final dynamic data;
@@ -74,7 +80,7 @@ class _FakeApiService extends ApiService {
 
   final calls = <_Call>[];
   Object? error;
-  Map<String, dynamic> body = {};
+  Object? body = <String, dynamic>{};
 
   @override
   void setAuthToken(String? token) {}
@@ -86,8 +92,9 @@ class _FakeApiService extends ApiService {
     Map<String, dynamic>? query, [
     void Function(int, int)? progress,
     Duration? timeout,
+    Options? options,
   ]) async {
-    calls.add(_Call(method, path, data, query, progress, timeout));
+    calls.add(_Call(method, path, data, query, progress, timeout, options));
     if (error != null) throw error!;
     return Response(
       requestOptions: RequestOptions(path: path),
@@ -101,7 +108,7 @@ class _FakeApiService extends ApiService {
     String path, {
     Map<String, dynamic>? queryParameters,
     Options? options,
-  }) => _answer('GET', path, null, queryParameters);
+  }) => _answer('GET', path, null, queryParameters, null, null, options);
 
   @override
   Future<Response> post(
@@ -118,6 +125,7 @@ class _FakeApiService extends ApiService {
     queryParameters,
     onSendProgress,
     receiveTimeout,
+    options,
   );
 }
 
@@ -176,6 +184,88 @@ void main() {
     expect(progress, [0.25]);
     expect(job.status, ScanJobStatus.pending);
     expect(job.status.isActive, isTrue);
+    expect(call.options!.headers!['X-Scan-Decisions'], '1');
+    expect(fields.containsKey('retry_of'), isFalse);
+  });
+
+  test('create sends retry_of when given', () async {
+    api.body = _jobJson(status: 'pending', chargedAs: '', result: null);
+    await client.create(
+      CaptureResult(
+        mode: ScanMode.diagnose,
+        shots: {CaptureRole.problem: shot('p')},
+      ),
+      retryOf: _jobId,
+    );
+    final form = api.calls.single.data as FormData;
+    final fields = {for (final f in form.fields) f.key: f.value};
+    expect(fields['retry_of'], _jobId);
+    expect(api.calls.single.options!.headers!['X-Scan-Decisions'], '1');
+  });
+
+  test('fromJson maps decision and decide_by', () {
+    final job = ScanJob.fromJson(_jobJson());
+    expect(job.decision, ScanDecision.undecided);
+    expect(job.decideBy, DateTime.utc(2026, 11, 3, 9, 30, 20));
+    for (final d in ScanDecision.values) {
+      expect(ScanJob.fromJson(_jobJson(decision: d.name)).decision, d);
+    }
+  });
+
+  test('a missing, unknown or null decision becomes kept', () {
+    for (final j in [
+      _jobJson(decision: null, decideBy: null),
+      _jobJson(decision: 'mystery'),
+      _jobJson(decision: 7),
+    ]) {
+      final job = ScanJob.fromJson(j);
+      expect(job.decision, ScanDecision.kept);
+    }
+    expect(
+      ScanJob.fromJson(_jobJson(decision: null, decideBy: null)).decideBy,
+      isNull,
+    );
+  });
+
+  test('keep, dismiss, remove and undecided hit the right endpoints', () async {
+    api.body = _jobJson(decision: 'kept', decideBy: null);
+    final kept = await client.keep(_jobId);
+    expect(kept.decision, ScanDecision.kept);
+    expect(api.calls.last.method, 'POST');
+    expect(api.calls.last.path, '/plant-identification/scans/$_jobId/keep/');
+
+    api.body = null;
+    await client.dismiss(_jobId);
+    expect(api.calls.last.method, 'POST');
+    expect(api.calls.last.path, '/plant-identification/scans/$_jobId/dismiss/');
+    await client.remove(_jobId);
+    expect(api.calls.last.method, 'POST');
+    expect(api.calls.last.path, '/plant-identification/scans/$_jobId/remove/');
+
+    api.body = [_jobJson(), _jobJson(decision: 'undecided')];
+    final list = await client.undecided();
+    expect(api.calls.last.method, 'GET');
+    expect(api.calls.last.path, '/plant-identification/scans/');
+    expect(api.calls.last.query, {'decision': 'undecided'});
+    expect(list, hasLength(2));
+    expect(list.first.decision, ScanDecision.undecided);
+  });
+
+  test('jobIdFromPhotoUrl reads the uuid or returns null', () {
+    expect(
+      ScanJobApi.jobIdFromPhotoUrl(
+        'https://api.test/api/v1/plant-identification/scans/$_jobId/photos/whole/',
+      ),
+      _jobId,
+    );
+    expect(
+      ScanJobApi.jobIdFromPhotoUrl(
+        'https://firebasestorage.googleapis.com/v0/b/x/o/scans%2Fa.jpg?alt=media',
+      ),
+      isNull,
+    );
+    expect(ScanJobApi.jobIdFromPhotoUrl(null), isNull);
+    expect(ScanJobApi.jobIdFromPhotoUrl(''), isNull);
   });
 
   test('fromJson parses a degraded job with diagnosis unavailable', () {
