@@ -245,3 +245,7 @@ SCAN_REQUIRED_ROLE = {"diagnose": "problem", "identify": "leaf"}
 SCAN_MAX_PHOTO_BYTES = 10 * 1024 * 1024  # per photo, before re-encoding
 SCAN_CREATE_RATE = "100/h"  # per-user burst limit on POST scans/
 SCAN_PHOTO_CACHE_CONTROL = "private, max-age=86400"
+# Scans count against the allowance for this long after they were created: a
+# rolling window, not a local calendar day, so the client's UTC offset cannot
+# reach a second "day" (scan-2 audit M1).
+SCAN_ALLOWANCE_WINDOW_HOURS = 24

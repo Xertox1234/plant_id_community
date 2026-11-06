@@ -986,21 +986,13 @@ void main() {
     // These tests are skipped by default to allow unit tests to pass in CI
     // without requiring backend infrastructure.
 
-    test(
-      'should successfully call backend health check endpoint',
-      () async {
-        // Placeholder for future integration test
-      },
-      skip: 'Requires running Django backend',
-    );
+    test('should successfully call backend health check endpoint', () async {
+      // Placeholder for future integration test
+    }, skip: 'Requires running Django backend');
 
-    test(
-      'should handle authentication with JWT token',
-      () async {
-        // Placeholder for future integration test
-      },
-      skip: 'Requires running Django backend',
-    );
+    test('should handle authentication with JWT token', () async {
+      // Placeholder for future integration test
+    }, skip: 'Requires running Django backend');
 
     test('should upload file to backend', () async {
       // Placeholder for future integration test

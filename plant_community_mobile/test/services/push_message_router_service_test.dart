@@ -143,7 +143,11 @@ class _NoChecklist extends OnboardingChecklistService {
 
 /// The scan-job push shape from the backend (Scan 2.0 C5).
 const _scanPushPayload = RemoteMessage(
-  data: {'event': 'scan_job_finished', 'job_id': 'job-9', 'status': 'done'},
+  data: {
+    'event': 'scan_job_finished',
+    'job_id': '3f1c2b4a-9d8e-4f7a-8b6c-5d4e3f2a1b09',
+    'status': 'done',
+  },
 );
 
 class _ScanApi extends ScanJobApi {
@@ -153,7 +157,7 @@ class _ScanApi extends ScanJobApi {
   Future<ScanJob> get(String id) => Completer<ScanJob>().future;
 }
 
-/// Answers with job-9 finished, result and all.
+/// Answers with 3f1c2b4a-9d8e-4f7a-8b6c-5d4e3f2a1b09 finished, result and all.
 class _DoneScanApi extends ScanJobApi {
   _DoneScanApi() : super(ApiService(baseUrl: 'https://a.test'));
 
@@ -209,7 +213,7 @@ void main() {
       expect(find.byType(ScanResultScreen), findsOneWidget);
       expect(
         tester.widget<ScanResultScreen>(find.byType(ScanResultScreen)).jobId,
-        'job-9',
+        '3f1c2b4a-9d8e-4f7a-8b6c-5d4e3f2a1b09',
       );
       await _drainSplashTimer(tester);
     });
@@ -257,7 +261,10 @@ void main() {
       final tracker = FakeScanJobTracker(
         ScanTrackerState(
           phase: TrackerPhase.ready,
-          job: fakeScanJob(id: 'job-9', status: ScanJobStatus.done),
+          job: fakeScanJob(
+            id: '3f1c2b4a-9d8e-4f7a-8b6c-5d4e3f2a1b09',
+            status: ScanJobStatus.done,
+          ),
           lastCapture: fakeCapture,
         ),
       );
@@ -310,7 +317,7 @@ void main() {
       expect(find.byType(ScanResultScreen), findsOneWidget);
       expect(find.text('Monstera'), findsOneWidget);
       expect(find.text(ScanJobPill.readyCopy), findsNothing);
-      expect(tracker.calls, ['viewed:job-9']);
+      expect(tracker.calls, ['viewed:3f1c2b4a-9d8e-4f7a-8b6c-5d4e3f2a1b09']);
     });
 
     testWidgets(
@@ -379,6 +386,40 @@ void main() {
 
       FirebaseMessagingPlatform.onMessageOpenedApp.add(
         const RemoteMessage(data: {'event': 'scan_job_finished'}),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(ScanResultScreen), findsNothing);
+      await _drainSplashTimer(tester);
+    });
+
+    testWidgets('a job_id that is not a UUID does nothing', (tester) async {
+      final container = _careContainer(extra: [scanApi, noAllowance]);
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      container.listen(appRouterProvider, (_, _) {});
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pump();
+      final service = _TestablePushMessageRouterService(
+        () => router,
+        _FakeMessaging(),
+      );
+      addTearDown(service.detach);
+
+      FirebaseMessagingPlatform.onMessageOpenedApp.add(
+        const RemoteMessage(
+          data: {
+            'event': 'scan_job_finished',
+            'job_id': 'not-a-uuid',
+            'status': 'done',
+          },
+        ),
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));

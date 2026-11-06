@@ -12,8 +12,17 @@ import '../../services/firestore_service.dart';
 import 'capture_session.dart';
 import 'capture_steps.dart';
 import 'scan_job_api.dart';
+import 'shot_files.dart';
 
 part 'scan_job_tracker.g.dart';
+
+/// [ScanJobTracker.submit] while a scan is already running or submitting.
+///
+/// Its own type (still a [StateError]) so a caller can show the running job
+/// without also swallowing every other [StateError] (scan-2 audit L12).
+class ScanAlreadyRunning extends StateError {
+  ScanAlreadyRunning() : super('A scan is already running.');
+}
 
 /// Secure-storage key holding the id of the job still being tracked, so a
 /// scan survives the app being killed.
@@ -21,6 +30,11 @@ const scanJobPendingIdKey = 'scan_job.pending_id';
 
 /// How often a running job is re-read.
 const scanJobPollInterval = Duration(seconds: 3);
+
+/// The longest wait between polls while they keep failing (offline, a 5xx):
+/// each failure doubles the wait from [scanJobPollInterval] up to this, so
+/// an unreachable server is not asked every 3 s forever (scan-2 audit L11).
+const scanJobPollBackoffCap = Duration(seconds: 60);
 
 /// Used when no allowance was read (a restored or adopted job).
 const defaultSlowAfterSeconds = 45;
@@ -87,6 +101,10 @@ class ScanJobTracker extends _$ScanJobTracker {
   String? _handledId;
   DateTime? _uploadFinishedAt;
   int _slowAfterSeconds = defaultSlowAfterSeconds;
+
+  /// Consecutive failed polls, and the earliest time the next may run.
+  int _pollFailures = 0;
+  DateTime? _nextPollAt;
   Future<void>? _restoring;
 
   /// The user the tracked job (and the shown state) belongs to.
@@ -108,6 +126,16 @@ class ScanJobTracker extends _$ScanJobTracker {
       _lifecycle?.dispose();
     });
     ref.listen<String?>(currentUserIdProvider, (_, next) => _onUser(next));
+    // A capture is kept for Try again; once a different one (or none)
+    // replaces it, its shot files are deleted, keeping any the new capture
+    // reuses (scan-2 audit L9).
+    listenSelf((previous, next) {
+      final before = previous?.lastCapture;
+      if (before == null || identical(before, next.lastCapture)) return;
+      final keep = next.lastCapture?.shots.values.toSet() ?? const {};
+      final gone = before.shots.values.where((p) => !keep.contains(p));
+      if (gone.isNotEmpty) ref.read(shotFileDeleterProvider)(gone);
+    });
     _restoring = restore();
     unawaited(_restoring);
     return const ScanTrackerState();
@@ -122,7 +150,7 @@ class ScanJobTracker extends _$ScanJobTracker {
   Future<void> submit(CaptureResult r) async {
     await restored;
     if (_submitting || _isActive(state.phase)) {
-      throw StateError('A scan is already running.');
+      throw ScanAlreadyRunning();
     }
     _submitting = true;
     try {
@@ -363,6 +391,7 @@ class ScanJobTracker extends _$ScanJobTracker {
     }
     if (id == null || !ref.mounted || !_current(gen)) return;
     _pendingId = id;
+    _resetBackoff();
     _ownerUid = uid;
     _uploadFinishedAt = null;
     ScanJob job;
@@ -389,6 +418,7 @@ class ScanJobTracker extends _$ScanJobTracker {
   /// A push said [jobId] finished: re-read it now when it is ours.
   Future<void> onPush(String jobId) async {
     if (jobId != _pendingId) return;
+    _resetBackoff(); // a push proves the server is reachable: ask now
     await _poll();
   }
 
@@ -454,6 +484,7 @@ class ScanJobTracker extends _$ScanJobTracker {
 
   Future<void> _track(String id) async {
     _pendingId = id;
+    _resetBackoff();
     try {
       await _storage.write(key: scanJobPendingIdKey, value: id);
     } catch (e) {
@@ -497,6 +528,7 @@ class ScanJobTracker extends _$ScanJobTracker {
       return;
     }
     if (_pendingId == null || !_isActive(state.phase)) return;
+    _resetBackoff(); // back in the app: ask now, not after the backoff
     _startTimer();
     unawaited(_poll());
   }
@@ -505,20 +537,42 @@ class ScanJobTracker extends _$ScanJobTracker {
     final id = _pendingId;
     final gen = _gen;
     if (id == null || _fetchingGen == gen || _handledId == id) return;
+    final wait = _nextPollAt;
+    if (wait != null && _now().isBefore(wait)) return;
     _fetchingGen = gen;
     try {
       final job = await _api.get(id);
-      if (_current(gen)) _apply(job, gen);
+      // Only this job's polls move the backoff: a stale one finishing after
+      // a cancel or a new submit must not delay the next job's first poll.
+      if (!_current(gen)) return;
+      _resetBackoff();
+      _apply(job, gen);
     } on ApiException catch (e) {
       if (!_current(gen) || _handledReadError(e)) return;
       debugPrint('[SCAN_JOB] Poll failed: $e');
+      _backOff();
       _markSlowIfDue(state.job);
     } catch (e) {
       debugPrint('[SCAN_JOB] Poll failed: $e');
-      if (_current(gen)) _markSlowIfDue(state.job);
+      if (!_current(gen)) return;
+      _backOff();
+      _markSlowIfDue(state.job);
     } finally {
       if (_fetchingGen == gen) _fetchingGen = null;
     }
+  }
+
+  void _resetBackoff() {
+    _pollFailures = 0;
+    _nextPollAt = null;
+  }
+
+  void _backOff() {
+    _pollFailures++;
+    final seconds = scanJobPollInterval.inSeconds << _pollFailures.clamp(0, 5);
+    _nextPollAt = _now().add(
+      Duration(seconds: seconds.clamp(0, scanJobPollBackoffCap.inSeconds)),
+    );
   }
 
   /// Moves the state to match [job]. Terminal handling is synchronous up to

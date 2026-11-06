@@ -208,7 +208,7 @@ def test_unexpected_error_finalizes_failed(
 def test_cancel_during_run_wins(user, fcm, django_capture_on_commit_callbacks):
     job = _job(user)
 
-    def cancel_then_answer(shots, mode):
+    def cancel_then_answer(shots, mode, **kwargs):
         ScanJob.objects.filter(pk=job.pk).update(status="cancelled")
         return _results("ok")
 
@@ -234,13 +234,21 @@ def test_finished_job_is_not_reclaimed(user, fcm, django_capture_on_commit_callb
 
 @pytest.mark.django_db
 def test_stale_processing_job_expires(user):
+    # One active job per user (L5 constraint): the fresh one has its own user.
+    other = get_user_model().objects.create_user(
+        username="fresh", email="fresh@example.com", password="x" * 16
+    )
     job = _job(user)
-    fresh = _job(user)
+    fresh = _job(other)
     ScanJob.objects.filter(pk=job.pk).update(
         status="processing", created_at=timezone.now() - timedelta(minutes=11)
     )
+    ScanJob.objects.filter(pk=fresh.pk).update(
+        created_at=timezone.now() - timedelta(minutes=9)
+    )
 
     assert expire_stale_jobs(user.pk) == 1
+    assert expire_stale_jobs(other.pk) == 0
 
     job.refresh_from_db()
     fresh.refresh_from_db()
@@ -381,3 +389,118 @@ def test_device_push_soft_time_limit_is_raised_not_retried(user, fcm):
         )
     fcm.assert_called_once()
     retry.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_cancel_before_the_paid_call_skips_plant_id(
+    user, fcm, django_capture_on_commit_callbacks
+):
+    """H1: the task's should_continue sees the cancel and no provider runs."""
+    job = _job(user)
+    plant_id = Mock()
+    plantnet = Mock()
+
+    def init(self):
+        from apps.plant_identification.services.combined_identification_service import (
+            get_executor,
+        )
+
+        self.plant_id = plant_id
+        self.plantnet = plantnet
+        self.executor = get_executor()
+
+    real_read = __import__(
+        "apps.plant_identification.tasks", fromlist=["_read_shots"]
+    )._read_shots
+
+    def read_then_cancel(j):
+        shots = real_read(j)
+        ScanJob.objects.filter(pk=j.pk).update(status="cancelled")
+        return shots
+
+    with (
+        patch.object(CombinedPlantIdentificationService, "__init__", init),
+        patch("apps.plant_identification.tasks._read_shots", read_then_cancel),
+    ):
+        _run(job, django_capture_on_commit_callbacks)
+
+    plant_id.identify_plant.assert_not_called()
+    plantnet.identify_plant.assert_not_called()
+    assert job.status == "cancelled"
+    assert job.charged_as == ""
+    assert job.notified_at is None
+    fcm.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_stale_sweep_fails_every_users_stuck_jobs_and_pushes(
+    user, fcm, django_capture_on_commit_callbacks
+):
+    """M2: the beat sweep needs no request from the job's owner."""
+    from apps.plant_identification.tasks import expire_stale_scan_jobs
+
+    other = get_user_model().objects.create_user(
+        username="other", email="other@example.com", password="x" * 16
+    )
+    stuck = _job(user)
+    stuck_other = _job(other)
+    fresh = _job(
+        get_user_model().objects.create_user(
+            username="fresh", email="fresh@example.com", password="x" * 16
+        )
+    )
+    ScanJob.objects.filter(pk__in=[stuck.pk, stuck_other.pk]).update(
+        status="processing", created_at=timezone.now() - timedelta(minutes=11)
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assert expire_stale_scan_jobs() == 2
+
+    for job in (stuck, stuck_other, fresh):
+        job.refresh_from_db()
+    assert stuck.status == stuck_other.status == "failed"
+    assert stuck.failure_reason == "stale"
+    assert stuck.notified_at is not None
+    assert fresh.status == "pending"
+    # Only `user` has a device: one "couldn't check" push.
+    assert fcm.call_count == 1
+    _fcm, token, data, content, collapse_key = fcm.call_args.args
+    assert data["job_id"] == str(stuck.uuid)
+    assert data["status"] == "failed"
+
+
+@pytest.mark.django_db
+def test_per_user_expiry_also_sends_the_failed_push(
+    user, fcm, django_capture_on_commit_callbacks
+):
+    job = _job(user)
+    ScanJob.objects.filter(pk=job.pk).update(
+        status="pending", created_at=timezone.now() - timedelta(minutes=11)
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assert expire_stale_jobs(user.pk) == 1
+
+    job.refresh_from_db()
+    assert job.notified_at is not None
+    assert fcm.call_count == 1
+
+
+def test_stale_sweep_is_scheduled():
+    from django.conf import settings
+
+    entry = settings.CELERY_BEAT_SCHEDULE["scan-stale-sweep"]
+    assert entry["task"] == "apps.plant_identification.tasks.expire_stale_scan_jobs"
+
+
+@pytest.mark.django_db
+def test_a_second_active_job_for_one_user_is_refused_by_the_db(user):
+    """L5: the invariant holds for writers that skip the create view's lock."""
+    from django.db import IntegrityError, transaction
+
+    _job(user)
+    with pytest.raises(IntegrityError), transaction.atomic():
+        ScanJob.objects.create(user=user, mode="identify", local_date=date(2026, 11, 2))
+    # A finished job does not block a new one.
+    ScanJob.objects.filter(user=user).update(status="done", charged_as="diagnose")
+    ScanJob.objects.create(user=user, mode="identify", local_date=date(2026, 11, 2))

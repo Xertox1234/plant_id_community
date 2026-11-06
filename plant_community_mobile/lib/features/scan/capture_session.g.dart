@@ -64,7 +64,7 @@ final class CaptureSessionProvider
   }
 }
 
-String _$captureSessionHash() => r'eddf88fff988a1fe184056615d6605dff30fa7b3';
+String _$captureSessionHash() => r'36896cb3914d9ba99775092093121578a95178a9';
 
 /// Keyed by the mode the camera opens in, so that mode is the very first
 /// state: no frame ever shows the other mode's steps.

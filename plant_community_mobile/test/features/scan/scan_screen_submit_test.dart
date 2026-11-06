@@ -252,18 +252,19 @@ void main() {
   testWidgets('allowance exhausted for premium names the daily limit', (
     tester,
   ) async {
-    await pump(
-      tester,
-      allowance: _allowance(isPremium: true, diagnoseLimit: 4),
-    );
+    final allowance = _allowance(isPremium: true, diagnoseLimit: 4);
+    await pump(tester, allowance: allowance);
     tracker.submitError = const ScanRefused(
       code: 'allowance_exhausted',
       kind: 'diagnose',
     );
     await shootAndDone(tester);
     await settle(tester);
+    // Rolling 24h window (scan-2 audit M1): the time, not "midnight".
     expect(
-      find.text("You've used today's 4 checks. More at midnight."),
+      find.text(
+        "You've used today's 4 checks. More at ${allowance.resetsAtLabel}.",
+      ),
       findsOneWidget,
     );
   });
@@ -317,6 +318,28 @@ void main() {
     expect(find.byKey(ScanScreen.statusViewKey), findsOneWidget);
     expect(find.byKey(ScanScreen.shutterKey), findsNothing);
     expect(find.byKey(const Key('fake-preview')), findsNothing);
+  });
+
+  testWidgets('a scan already running switches to the status view (L12)', (
+    tester,
+  ) async {
+    await pump(tester);
+    tracker.submitError = ScanAlreadyRunning();
+    await shootAndDone(tester);
+    await settle(tester);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(find.byKey(ScanScreen.statusViewKey), findsOneWidget);
+  });
+
+  testWidgets('any other StateError is a failure, not a running scan (L12)', (
+    tester,
+  ) async {
+    await pump(tester);
+    tracker.submitError = StateError('something else broke');
+    await shootAndDone(tester);
+    await settle(tester);
+    expect(find.byKey(ScanScreen.statusViewKey), findsNothing);
+    expect(find.text("Couldn't start the check. Try again."), findsOneWidget);
   });
 
   testWidgets('another failure shows a SnackBar and keeps the shots', (

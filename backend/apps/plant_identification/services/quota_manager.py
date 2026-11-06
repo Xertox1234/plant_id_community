@@ -14,6 +14,7 @@ Features:
 
 import logging
 from datetime import datetime, time, timedelta
+from datetime import timezone as dt_timezone
 from typing import Any, Dict, Optional, cast
 
 from django.conf import settings
@@ -75,8 +76,10 @@ class QuotaManager:
         Returns:
             Seconds until next midnight UTC
         """
-        now = datetime.utcnow()
-        tomorrow = datetime.combine(now.date() + timedelta(days=1), time.min)
+        now = datetime.now(dt_timezone.utc)
+        tomorrow = datetime.combine(
+            now.date() + timedelta(days=1), time.min, tzinfo=dt_timezone.utc
+        )
         return int((tomorrow - now).total_seconds())
 
     def _seconds_until_month_end(self) -> int:
@@ -86,13 +89,27 @@ class QuotaManager:
         Returns:
             Seconds until end of current month UTC
         """
-        now = datetime.utcnow()
+        now = datetime.now(dt_timezone.utc)
         # Get first day of next month
         if now.month == 12:
-            next_month = datetime(now.year + 1, 1, 1)
+            next_month = datetime(now.year + 1, 1, 1, tzinfo=dt_timezone.utc)
         else:
-            next_month = datetime(now.year, now.month + 1, 1)
+            next_month = datetime(now.year, now.month + 1, 1, tzinfo=dt_timezone.utc)
         return int((next_month - now).total_seconds())
+
+    def _ensure_ttl(self, key: str, seconds: int) -> None:
+        """Give ``key`` an expiry if it has none.
+
+        Checked after every increment, not only the first: an increment whose
+        EXPIRE never ran (a crash between the two commands, or a Redis error)
+        would otherwise leave a counter that never resets, and the API would
+        stay "over quota" until someone deleted the key by hand. TTL -1 means
+        no expiry. Works on every Redis version (EXPIRE NX needs 7.0).
+        """
+        client = self.redis_client
+        if client is not None and cast(int, client.ttl(key)) < 0:
+            client.expire(key, seconds)
+            logger.info(f"[QUOTA] {key} expiry set ({seconds}s)")
 
     # =========================================================================
     # Plant.id Quota Management
@@ -170,6 +187,70 @@ class QuotaManager:
             logger.error(f"[QUOTA] Error getting Plant.id monthly usage: {e}")
             return 0
 
+    def reserve_plant_id(self, calls: int = 1, reserve: int = 0) -> bool:
+        """Atomically claim ``calls`` Plant.id calls under both caps.
+
+        ``can_call_plant_id`` then ``increment_plant_id`` after the HTTP calls
+        let two concurrent jobs both pass at 1/3 and land at 5/3. Here each
+        INCRBY is the claim: a counter that went over its cap is rolled back
+        with DECRBY and the claim refused. A claim that was not spent (a cache
+        hit after it, an open circuit, a failed first call) is handed back
+        with ``release_plant_id``. Fails open when Redis is down, like
+        ``can_call_plant_id``.
+
+        Args:
+            calls: API calls about to be made (a diagnosis makes 2).
+            reserve: Daily calls to leave untouched for a later diagnosis.
+        """
+        client = self.redis_client
+        if client is None:
+            logger.warning(
+                "[QUOTA] Redis unavailable, allowing Plant.id call (no quota tracking)"
+            )
+            return True
+        daily_key = QUOTA_KEY_PREFIX_PLANT_ID_DAILY
+        monthly_key = QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY
+        try:
+            daily = cast(int, client.incrby(daily_key, calls))
+            self._ensure_ttl(daily_key, self._seconds_until_midnight())
+            if daily + reserve > settings.PLANT_ID_DAILY_QUOTA:
+                client.decrby(daily_key, calls)
+                return False
+            monthly = cast(int, client.incrby(monthly_key, calls))
+            self._ensure_ttl(monthly_key, self._seconds_until_month_end())
+            if monthly > settings.PLANT_ID_MONTHLY_QUOTA:
+                client.decrby(monthly_key, calls)
+                client.decrby(daily_key, calls)
+                return False
+        except Exception as e:
+            logger.error(f"[QUOTA] Error reserving Plant.id quota: {e}")
+            return True  # Fail open
+        logger.info(
+            f"[QUOTA] Plant.id usage: {daily}/{settings.PLANT_ID_DAILY_QUOTA} daily, "
+            f"{monthly}/{settings.PLANT_ID_MONTHLY_QUOTA} monthly"
+        )
+        return True
+
+    def release_plant_id(self, calls: int) -> None:
+        """Hand back ``calls`` reserved Plant.id calls that were never made."""
+        client = self.redis_client
+        if client is None or calls <= 0:
+            return
+        try:
+            client.decrby(QUOTA_KEY_PREFIX_PLANT_ID_DAILY, calls)
+            client.decrby(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY, calls)
+            # A key that expired between claim and refund comes back from
+            # DECRBY negative and without an expiry: give it one, so the
+            # extra headroom ends at the next reset.
+            self._ensure_ttl(
+                QUOTA_KEY_PREFIX_PLANT_ID_DAILY, self._seconds_until_midnight()
+            )
+            self._ensure_ttl(
+                QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY, self._seconds_until_month_end()
+            )
+        except Exception as e:
+            logger.error(f"[QUOTA] Error releasing Plant.id quota: {e}")
+
     def increment_plant_id(self, calls: int = 1) -> None:
         """
         Add `calls` real API calls to the Plant.id counters (daily and monthly).
@@ -187,25 +268,17 @@ class QuotaManager:
             daily_count = cast(
                 int, self.redis_client.incrby(QUOTA_KEY_PREFIX_PLANT_ID_DAILY, calls)
             )
-            if daily_count == calls:
-                # First call today - set expiration to midnight
-                ttl = self._seconds_until_midnight()
-                self.redis_client.expire(QUOTA_KEY_PREFIX_PLANT_ID_DAILY, ttl)
-                logger.info(
-                    f"[QUOTA] Plant.id daily counter started (expires in {ttl}s)"
-                )
+            self._ensure_ttl(
+                QUOTA_KEY_PREFIX_PLANT_ID_DAILY, self._seconds_until_midnight()
+            )
 
             # Increment monthly counter
             monthly_count = cast(
                 int, self.redis_client.incrby(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY, calls)
             )
-            if monthly_count == calls:
-                # First call this month - set expiration to end of month
-                ttl = self._seconds_until_month_end()
-                self.redis_client.expire(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY, ttl)
-                logger.info(
-                    f"[QUOTA] Plant.id monthly counter started (expires in {ttl}s)"
-                )
+            self._ensure_ttl(
+                QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY, self._seconds_until_month_end()
+            )
 
             # Log current usage
             logger.info(
@@ -319,24 +392,15 @@ class QuotaManager:
             hourly_count = cast(
                 int, self.redis_client.incr(QUOTA_KEY_PREFIX_PLANTNET_HOURLY)
             )
-            if hourly_count == 1:
-                # First call this hour - set expiration to 1 hour
-                self.redis_client.expire(QUOTA_KEY_PREFIX_PLANTNET_HOURLY, 3600)
-                logger.info(
-                    "[QUOTA] PlantNet hourly counter started (expires in 3600s)"
-                )
+            self._ensure_ttl(QUOTA_KEY_PREFIX_PLANTNET_HOURLY, 3600)
 
             # Increment daily counter
             daily_count = cast(
                 int, self.redis_client.incr(QUOTA_KEY_PREFIX_PLANTNET_DAILY)
             )
-            if daily_count == 1:
-                # First call today - set expiration to midnight
-                ttl = self._seconds_until_midnight()
-                self.redis_client.expire(QUOTA_KEY_PREFIX_PLANTNET_DAILY, ttl)
-                logger.info(
-                    f"[QUOTA] PlantNet daily counter started (expires in {ttl}s)"
-                )
+            self._ensure_ttl(
+                QUOTA_KEY_PREFIX_PLANTNET_DAILY, self._seconds_until_midnight()
+            )
 
             # Log current usage
             logger.info(

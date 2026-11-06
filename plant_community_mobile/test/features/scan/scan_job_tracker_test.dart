@@ -10,6 +10,7 @@ import 'package:plant_community_mobile/features/scan/capture_session.dart';
 import 'package:plant_community_mobile/features/scan/capture_steps.dart';
 import 'package:plant_community_mobile/features/scan/scan_job_api.dart';
 import 'package:plant_community_mobile/features/scan/scan_job_tracker.dart';
+import 'package:plant_community_mobile/features/scan/shot_files.dart';
 import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
@@ -160,6 +161,7 @@ class _Harness {
         currentUserIdProvider.overrideWith((ref) => ref.watch(uidProvider)),
         firebaseFirestoreProvider.overrideWithValue(firestore),
         firestoreServiceProvider.overrideWith(() => store),
+        shotFileDeleterProvider.overrideWithValue(deleted.addAll),
       ],
     );
     container.listen(scanJobTrackerProvider, (_, _) {});
@@ -169,6 +171,9 @@ class _Harness {
   final api = _FakeScanJobApi();
   final firestore = FakeFirebaseFirestore();
   final store = _CountingFirestoreService();
+
+  /// Shot files the tracker deleted (L9).
+  final deleted = <String>[];
   DateTime now = DateTime.utc(2026, 11, 2, 9, 30);
   late final ProviderContainer container;
 
@@ -1019,5 +1024,106 @@ void main() {
       expect(h.api.calls.where((c) => c == 'create'), hasLength(1));
       h.container.dispose();
     });
+  });
+
+  group('shot files (L9)', () {
+    testWidgets('kept while the capture can be retried, deleted once it '
+        'is done with', (tester) async {
+      final h = _Harness();
+      addTearDown(h.container.dispose);
+      await h.tracker.restored;
+      h.api.gets.add(_job(ScanJobStatus.done));
+
+      await h.tracker.submit(_capture);
+      await h.tick(tester);
+      expect(h.state.lastCapture, same(_capture));
+      expect(h.deleted, isEmpty);
+
+      h.tracker.dismiss();
+      expect(h.deleted, unorderedEquals(['/tmp/p.jpg', '/tmp/w.jpg']));
+    });
+
+    testWidgets('a new capture keeps the files it reuses', (tester) async {
+      final h = _Harness();
+      addTearDown(h.container.dispose);
+      await h.tracker.restored;
+      h.api.gets.add(_job(ScanJobStatus.done));
+      await h.tracker.submit(_capture);
+      await h.tick(tester);
+      expect(h.state.lastCapture, same(_capture));
+
+      // The next scan reuses the problem shot and adds a leaf.
+      const next = CaptureResult(
+        mode: ScanMode.diagnose,
+        shots: {
+          CaptureRole.problem: '/tmp/p.jpg',
+          CaptureRole.leaf: '/tmp/l.jpg',
+        },
+      );
+      await h.tracker.submit(next);
+      await h.tick(tester);
+
+      expect(h.state.lastCapture, same(next));
+      expect(h.deleted, ['/tmp/w.jpg']);
+    });
+  });
+
+  testWidgets('failing polls back off, and a success resets them (L11)', (
+    tester,
+  ) async {
+    final h = _Harness();
+    await h.tracker.restored;
+    h.api.gets.add(_job(ScanJobStatus.processing));
+    await h.tracker.submit(_capture);
+    h.api.getError = ApiException('Server error', statusCode: 503);
+
+    await h.tick(tester); // fails: next poll no sooner than 6 s
+    final afterFirst = h.getCount;
+    await h.tick(tester);
+    await h.tick(tester);
+    expect(h.getCount, afterFirst, reason: 'still inside the backoff');
+
+    h.now = h.now.add(const Duration(seconds: 6));
+    await h.tick(tester); // fails again: now 12 s
+    expect(h.getCount, afterFirst + 1);
+    h.now = h.now.add(const Duration(seconds: 6));
+    await h.tick(tester);
+    expect(h.getCount, afterFirst + 1, reason: 'the wait doubled');
+    h.now = h.now.add(const Duration(seconds: 6));
+    await h.tick(tester);
+    expect(h.getCount, afterFirst + 2);
+    expect(h.state.phase, isNot(TrackerPhase.failed));
+
+    // The server answers again: back to every tick.
+    h.api.getError = null;
+    h.now = h.now.add(const Duration(seconds: 60));
+    await h.tick(tester);
+    final recovered = h.getCount;
+    await h.tick(tester);
+    expect(h.getCount, recovered + 1);
+    h.container.dispose();
+  });
+
+  testWidgets('a push during the poll backoff asks at once (review round)', (
+    tester,
+  ) async {
+    final h = _Harness();
+    await h.tracker.restored;
+    h.api.gets.add(_job(ScanJobStatus.processing));
+    await h.tracker.submit(_capture);
+    h.api.getError = ApiException('Server error', statusCode: 503);
+    await h.tick(tester); // fails: backing off
+    final before = h.getCount;
+
+    h.api.getError = null;
+    h.api.gets
+      ..clear()
+      ..add(_job(ScanJobStatus.done));
+    await h.tracker.onPush(_jobId);
+    await tester.pump();
+
+    expect(h.getCount, before + 1);
+    expect(h.state.phase, TrackerPhase.ready);
+    h.container.dispose();
   });
 }

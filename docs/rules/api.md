@@ -269,3 +269,17 @@ Compact checklist auto-injected before edits. Long-form:
   so a bad FK or NOT NULL still reaches the 500 path. A bare
   `except IntegrityError: return 409` reports every integrity fault as a
   retryable race, silently (todo 628, PR #1096; follow-up 641).
+- **Never insert a method between a view's decorator stack and its `def`.**
+  `@extend_schema` / `@method_decorator(ratelimit(...))` bind to the NEXT
+  `def`, so a helper pasted above `def create` silently takes the rate limit
+  and schema and `create` ships unthrottled. Put helpers above the
+  decorators; the full-suite guards `apps/core/tests/test_openapi_rate_limit_429.py`
+  and `test_schema_request_examples.py` catch it, an app-scoped run does not
+  (scan-2 audit, `d869d102`).
+- **A capped counter for a paid API claims before the call, refunds after.**
+  INCRBY is the claim (DECRBY it back when over the cap); refund only calls
+  that never reached the provider (connect timeout, refused, DNS: a read
+  timeout may be billed). Repair the TTL after EVERY INCR/DECR when
+  `ttl(key) < 0`, never only when the count equals the increment; `EXPIRE NX`
+  needs Redis 7 and errors on 6 (`QuotaManager.reserve_plant_id`, scan-2
+  audit M3/M4).

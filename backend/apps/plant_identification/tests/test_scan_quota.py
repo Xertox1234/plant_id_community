@@ -7,6 +7,8 @@ import pytest
 from apps.plant_identification.constants import (
     QUOTA_KEY_PREFIX_PLANT_ID_DAILY,
     QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY,
+    QUOTA_KEY_PREFIX_PLANTNET_DAILY,
+    QUOTA_KEY_PREFIX_PLANTNET_HOURLY,
 )
 from apps.plant_identification.services.plant_id_service import PlantIDAPIService
 from apps.plant_identification.services.quota_manager import QuotaManager
@@ -19,6 +21,7 @@ class FakeRedis:
 
     def __init__(self):
         self.store: dict[str, int] = {}
+        self.ttls: dict[str, int] = {}
 
     def ping(self):
         return True
@@ -30,8 +33,20 @@ class FakeRedis:
         self.store[key] = self.store.get(key, 0) + amount
         return self.store[key]
 
+    def decrby(self, key, amount=1):
+        return self.incrby(key, -amount)
+
+    def incr(self, key):
+        return self.incrby(key, 1)
+
     def expire(self, key, ttl):
+        self.ttls[key] = ttl
         return True
+
+    def ttl(self, key):
+        if key not in self.store:
+            return -2
+        return self.ttls.get(key, -1)
 
 
 @pytest.fixture
@@ -101,6 +116,37 @@ def test_increment_adds_calls_to_both_counters(quota, redis_fake):
     assert quota.get_plant_id_monthly_usage() == 2
 
 
+def test_increment_gives_new_counters_an_expiry(quota, redis_fake):
+    quota.increment_plant_id(calls=2)
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANT_ID_DAILY) > 0
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY) > 0
+
+
+def test_increment_repairs_a_counter_that_lost_its_expiry(quota, redis_fake):
+    # A crash between INCRBY and EXPIRE left a counter that never resets;
+    # the old "set TTL only when count == calls" never repaired it.
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_DAILY] = 1
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY] = 1
+    quota.increment_plant_id(calls=1)
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANT_ID_DAILY) > 0
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY) > 0
+
+
+def test_increment_keeps_an_existing_expiry(quota, redis_fake):
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_DAILY] = 1
+    redis_fake.ttls[QUOTA_KEY_PREFIX_PLANT_ID_DAILY] = 42
+    quota.increment_plant_id(calls=1)
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANT_ID_DAILY) == 42
+
+
+def test_plantnet_increment_repairs_a_counter_that_lost_its_expiry(quota, redis_fake):
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANTNET_HOURLY] = 5
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANTNET_DAILY] = 5
+    quota.increment_plantnet()
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANTNET_HOURLY) == 3600
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANTNET_DAILY) > 0
+
+
 def test_diagnosis_counts_two_calls(service, quota):
     calls: list = []
     with patch.object(service.session, "post", side_effect=_post_router(calls)):
@@ -153,3 +199,172 @@ def test_quota_reserve_blocks_identify_call(service, redis_fake):
     redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_DAILY] = 1
     with override_settings(PLANT_ID_DAILY_QUOTA=3), pytest.raises(QuotaExceeded):
         service.identify_plant(b"x", include_diseases=False, quota_reserve=2)
+
+
+def test_reserve_lets_only_one_of_two_claims_fit(quota, redis_fake):
+    # Check-then-increment let both pass at 1/3 and land at 5/3 (M3).
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_DAILY] = 1
+    with override_settings(PLANT_ID_DAILY_QUOTA=3, PLANT_ID_MONTHLY_QUOTA=100):
+        assert quota.reserve_plant_id(calls=2) is True
+        assert quota.reserve_plant_id(calls=2) is False
+    assert quota.get_plant_id_daily_usage() == 3
+    assert quota.get_plant_id_monthly_usage() == 2
+
+
+def test_reserve_honours_the_diagnosis_reserve(quota, redis_fake):
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_DAILY] = 1
+    with override_settings(PLANT_ID_DAILY_QUOTA=3, PLANT_ID_MONTHLY_QUOTA=100):
+        assert quota.reserve_plant_id(calls=1, reserve=2) is False
+    assert quota.get_plant_id_daily_usage() == 1
+
+
+def test_reserve_over_the_monthly_cap_rolls_back_both(quota, redis_fake):
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY] = 99
+    with override_settings(PLANT_ID_DAILY_QUOTA=3, PLANT_ID_MONTHLY_QUOTA=100):
+        assert quota.reserve_plant_id(calls=2) is False
+    assert quota.get_plant_id_daily_usage() == 0
+    assert quota.get_plant_id_monthly_usage() == 99
+
+
+def test_failed_identification_counts_one_call(service, quota):
+    import requests
+
+    def post(url, **kwargs):
+        raise requests.exceptions.ConnectionError("down")
+
+    with (
+        override_settings(PLANT_ID_DAILY_QUOTA=10),
+        patch.object(service.session, "post", side_effect=post),
+        pytest.raises(requests.exceptions.ConnectionError),
+    ):
+        service.identify_plant(b"x", include_diseases=True)
+    # The identification POST was attempted; the health POST never was.
+    assert quota.get_plant_id_daily_usage() == 1
+    assert quota.get_plant_id_monthly_usage() == 1
+
+
+def test_open_circuit_spends_nothing(service, quota):
+    from apps.plant_identification.services.plant_id_service import (
+        ExternalAPIError,
+        _plant_id_circuit,
+    )
+
+    _plant_id_circuit.open()
+    with (
+        override_settings(PLANT_ID_DAILY_QUOTA=10),
+        pytest.raises(ExternalAPIError),
+    ):
+        service.identify_plant(b"x", include_diseases=True)
+    assert quota.get_plant_id_daily_usage() == 0
+    assert quota.get_plant_id_monthly_usage() == 0
+
+
+def test_failed_health_assessment_still_counts_two_calls(service, quota):
+    import requests
+
+    def post(url, **kwargs):
+        if url.endswith("/identification"):
+            return _ok({"result": {"classification": {"suggestions": []}}})
+        raise requests.exceptions.ConnectionError("health down")
+
+    with (
+        override_settings(PLANT_ID_DAILY_QUOTA=10),
+        patch.object(service.session, "post", side_effect=post),
+    ):
+        service.identify_plant(b"x", include_diseases=True)
+    # The health POST was attempted (and is swallowed into health_error), so
+    # both claimed calls are kept, not refunded.
+    assert quota.get_plant_id_daily_usage() == 2
+    assert quota.get_plant_id_monthly_usage() == 2
+
+
+def test_ttl_helpers_count_to_utc_midnight_and_month_end(quota):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-12-31T23:00:00Z"):
+        assert quota._seconds_until_midnight() == 3600
+        assert quota._seconds_until_month_end() == 3600
+    with freeze_time("2026-11-05T12:00:00Z"):
+        assert quota._seconds_until_midnight() == 12 * 3600
+        assert quota._seconds_until_month_end() == (25 * 24 + 12) * 3600
+
+
+def _post_raising(exc):
+    def post(url, **kwargs):
+        raise exc
+
+    return post
+
+
+@pytest.mark.parametrize(
+    "make_exc",
+    [
+        lambda: __import__("requests").exceptions.ConnectTimeout("connect"),
+        lambda: __import__("requests").exceptions.ConnectionError(
+            __import__("urllib3").exceptions.MaxRetryError(
+                None,
+                "https://plant.id/",
+                reason=__import__("urllib3").exceptions.NewConnectionError(
+                    None, "refused"
+                ),
+            )
+        ),
+    ],
+    ids=["connect-timeout", "refused"],
+)
+def test_a_call_that_never_reached_plant_id_is_refunded(service, quota, make_exc):
+    """Review round: an outage must not burn the 3/day cap on unsent calls."""
+    exc = make_exc()
+    with (
+        override_settings(PLANT_ID_DAILY_QUOTA=10),
+        patch.object(service.session, "post", side_effect=_post_raising(exc)),
+        pytest.raises(type(exc)),
+    ):
+        service.identify_plant(b"x", include_diseases=True)
+    assert quota.get_plant_id_daily_usage() == 0
+    assert quota.get_plant_id_monthly_usage() == 0
+
+
+def test_a_read_timeout_is_counted(service, quota):
+    """The request reached Plant.id, so it may be billed: kept."""
+    import requests
+
+    exc = requests.exceptions.ReadTimeout("read")
+    with (
+        override_settings(PLANT_ID_DAILY_QUOTA=10),
+        patch.object(service.session, "post", side_effect=_post_raising(exc)),
+        pytest.raises(requests.exceptions.ReadTimeout),
+    ):
+        service.identify_plant(b"x", include_diseases=False)
+    assert quota.get_plant_id_daily_usage() == 1
+
+
+def test_the_call_that_trips_the_circuit_is_counted(service, quota):
+    """pybreaker raises CircuitBreakerError on the tripping call, which ran."""
+    from apps.plant_identification.constants import PLANT_ID_CIRCUIT_FAIL_MAX
+    from apps.plant_identification.services.plant_id_service import ExternalAPIError
+
+    def failing(url, **kwargs):
+        resp = Mock()
+        resp.raise_for_status.side_effect = RuntimeError("500")
+        return resp
+
+    with (
+        override_settings(PLANT_ID_DAILY_QUOTA=100),
+        patch.object(service.session, "post", side_effect=failing),
+    ):
+        for i in range(PLANT_ID_CIRCUIT_FAIL_MAX):
+            with pytest.raises((RuntimeError, ExternalAPIError)):
+                service.identify_plant(f"img-{i}".encode(), include_diseases=False)
+        # Now open: this one never runs and costs nothing.
+        with pytest.raises(ExternalAPIError):
+            service.identify_plant(b"after", include_diseases=False)
+    assert quota.get_plant_id_daily_usage() == PLANT_ID_CIRCUIT_FAIL_MAX
+
+
+def test_a_refund_after_the_counter_expired_gives_it_an_expiry(quota, redis_fake):
+    """Review round: DECRBY on an expired key recreates it with no TTL."""
+    quota.release_plant_id(2)
+    assert redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_DAILY] == -2
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANT_ID_DAILY) > 0
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY) > 0

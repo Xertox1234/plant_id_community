@@ -51,6 +51,7 @@ from ..scan_jobs import (
     expire_stale_jobs,
     local_date_for,
     parse_utc_offset,
+    resets_at_for,
 )
 from ..scan_models import ScanJob, ScanJobImage
 from ..scan_storage import normalize_scan_photo, scan_photo_storage
@@ -76,7 +77,11 @@ ALLOWANCE_SCHEMA = inline_serializer(
         "diagnose": ALLOWANCE_KIND_SCHEMA,
         "identify": ALLOWANCE_KIND_SCHEMA,
         "resets_at": serializers.DateTimeField(
-            help_text="The next local midnight, in UTC."
+            help_text=(
+                "When the next diagnosis comes back, in UTC: a scan counts "
+                "for 24 hours after it was made (a rolling window, not a "
+                "calendar day)."
+            )
         ),
         "plant_id_available": serializers.BooleanField(
             help_text="False when Plant.id has no room for a diagnosis right now."
@@ -120,8 +125,9 @@ ERROR_NOT_ACTIVE = _error_schema(
 )
 ERROR_CREATE_429 = _error_schema(
     "ScanCreateLimitError",
-    "allowance_exhausted: no scans of this kind left today (kind, limit and "
-    "resets_at are set). rate_limit_exceeded: too many requests; the "
+    "allowance_exhausted: no scans of this kind left in the last 24 hours "
+    "(kind, limit and resets_at, when this kind's next scan comes back, are "
+    "set). rate_limit_exceeded: too many requests; the "
     "Retry-After header gives the seconds to wait.",
     kind=serializers.ChoiceField(choices=SCAN_MODE_CHOICES, required=False),
     limit=serializers.IntegerField(required=False),
@@ -137,7 +143,10 @@ UTC_OFFSET_PARAM = OpenApiParameter(
     OpenApiTypes.INT,
     OpenApiParameter.QUERY,
     required=False,
-    description="Minutes east of UTC (-840..840); absent or invalid means UTC.",
+    description=(
+        "Minutes east of UTC (-840..840); absent or invalid means UTC. "
+        "Recorded on the job; it does not move the allowance window."
+    ),
 )
 ROLE_PARAM = OpenApiParameter(
     "role", OpenApiTypes.STR, OpenApiParameter.PATH, enum=list(SCAN_ROLES)
@@ -182,7 +191,12 @@ def _validated_photos(request: Request, mode: str) -> Dict[str, Any]:
             continue
         if upload.size > SCAN_MAX_PHOTO_BYTES:
             raise ValidationError({role: ["Photo too large: the maximum is 10 MB."]})
-        validate_image_file(upload)
+        try:
+            validate_image_file(upload)
+        except ValidationError as exc:
+            # Keyed by role like every other photo error, so the client can
+            # tell which photo failed (scan-2 audit L4).
+            raise ValidationError({role: exc.detail}) from None
         upload.seek(0)
         try:
             photos[role] = normalize_scan_photo(upload)
@@ -275,9 +289,45 @@ class ScanJobViewSet(GenericViewSet):
     )
     @action(detail=False, methods=["get"])
     def allowance(self, request: Request) -> Response:
-        """Today's scan allowance for the signed-in user."""
+        """The signed-in user's scan allowance over the last 24 hours."""
         offset = request.query_params.get("utc_offset_minutes")
         return Response(allowance_for(request.user, offset))
+
+    def _refusal(self, request: Request, user, mode: str) -> Response | None:
+        """The 409/429/503 that stops this create, or None to go ahead."""
+        expire_stale_jobs(user.pk)  # a stuck job must not 409 forever
+        active = (
+            ScanJob.objects.filter(user=user, status__in=ScanJob.ACTIVE_STATUSES)
+            .order_by("-created_at")
+            .first()
+        )
+        if active is not None:
+            return _error(
+                request,
+                status.HTTP_409_CONFLICT,
+                "scan_in_progress",
+                "Another scan is still running.",
+                job_id=str(active.uuid),
+            )
+        allowance = allowance_for(user)
+        if allowance[mode]["remaining"] <= 0:
+            return _error(
+                request,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "allowance_exhausted",
+                "No scans of this kind left for now.",
+                kind=mode,
+                limit=allowance[mode]["limit"],
+                resets_at=resets_at_for(user, mode),
+            )
+        if mode == "diagnose" and not allowance["plant_id_available"]:
+            return _error(
+                request,
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "plant_id_busy",
+                "Plant health checks are busy right now. Try again later.",
+            )
+        return None
 
     @extend_schema(
         request={"multipart/form-data": ScanJobCreateSerializer},
@@ -313,60 +363,55 @@ class ScanJobViewSet(GenericViewSet):
         )
     )
     def create(self, request: Request) -> Response:
-        """Start a scan. The photos are form files named by role."""
+        """Start a scan. The photos are form files named by role.
+
+        The photos are decoded and re-encoded BEFORE the user row is locked
+        (scan-2 audit M5): a cheap unlocked check first refuses a user who
+        would be refused anyway, so an exhausted user forces no decode, and
+        the lock is held only for the authoritative re-check and the inserts.
+        """
         mode = str(request.data.get("mode", ""))
+        if mode not in SCAN_MODE_ROLES:
+            raise ValidationError({"mode": ["Must be diagnose or identify."]})
         offset = parse_utc_offset(request.data.get("utc_offset_minutes"))
+
+        refused = self._refusal(request, request.user, mode)
+        if refused is not None:
+            return refused
+        photos = _validated_photos(request, mode)
+
         User = get_user_model()
-        with transaction.atomic():
-            user = User.objects.select_for_update().get(pk=request.user.pk)
-            expire_stale_jobs(user.pk)
+        written: list[str] = []
+        try:
+            with transaction.atomic():
+                user = User.objects.select_for_update().get(pk=request.user.pk)
+                # Authoritative: a concurrent create may have won meanwhile.
+                refused = self._refusal(request, user, mode)
+                if refused is not None:
+                    return refused
 
-            active = (
-                ScanJob.objects.filter(user=user, status__in=ScanJob.ACTIVE_STATUSES)
-                .order_by("-created_at")
-                .first()
-            )
-            if active is not None:
-                return _error(
-                    request,
-                    status.HTTP_409_CONFLICT,
-                    "scan_in_progress",
-                    "Another scan is still running.",
-                    job_id=str(active.uuid),
+                job = ScanJob.objects.create(
+                    user=user,
+                    mode=mode,
+                    local_date=local_date_for(offset),
+                    utc_offset_minutes=offset,
                 )
-
-            photos = _validated_photos(request, mode)
-
-            allowance = allowance_for(user, offset)
-            if allowance[mode]["remaining"] <= 0:
-                return _error(
-                    request,
-                    status.HTTP_429_TOO_MANY_REQUESTS,
-                    "allowance_exhausted",
-                    "No scans of this kind left today.",
-                    kind=mode,
-                    limit=allowance[mode]["limit"],
-                    resets_at=allowance["resets_at"],
-                )
-
-            if mode == "diagnose" and not allowance["plant_id_available"]:
-                return _error(
-                    request,
-                    status.HTTP_503_SERVICE_UNAVAILABLE,
-                    "plant_id_busy",
-                    "Plant health checks are busy right now. Try again later.",
-                )
-
-            job = ScanJob.objects.create(
-                user=user,
-                mode=mode,
-                local_date=local_date_for(offset),
-                utc_offset_minutes=offset,
-            )
-            for role, photo in photos.items():
-                ScanJobImage.objects.create(job=job, role=role, image=photo)
-            job_id = job.pk
-            transaction.on_commit(lambda: _enqueue_scan_job(job_id))
+                for role, photo in photos.items():
+                    image = ScanJobImage.objects.create(job=job, role=role, image=photo)
+                    if image.image.name:
+                        written.append(image.image.name)
+                job_id = job.pk
+                transaction.on_commit(lambda: _enqueue_scan_job(job_id))
+        except Exception:
+            # The rows rolled back, but photos already written to storage did
+            # not, and with no row nothing would ever delete them.
+            storage = scan_photo_storage()
+            for name in written:
+                try:
+                    storage.delete(name)
+                except Exception:
+                    logger.exception("[SCAN] Could not delete orphaned photo %s", name)
+            raise
 
         logger.info("[SCAN] job=%s created mode=%s user=%s", job.pk, mode, user.pk)
         return self._job_response(job, status.HTTP_201_CREATED)
@@ -375,7 +420,11 @@ class ScanJobViewSet(GenericViewSet):
     def retrieve(self, request: Request, uuid=None) -> Response:
         """One scan job, with its result once it has finished."""
         expire_stale_jobs(request.user.pk)
-        return self._job_response(self.get_object())
+        # get_object already prefetched the images: no re-fetch (L8).
+        job = self.get_object()
+        return Response(
+            ScanJobSerializer(job, context=self.get_serializer_context()).data
+        )
 
     @extend_schema(
         request=None,
@@ -418,10 +467,20 @@ class ScanJobViewSet(GenericViewSet):
     def photos(self, request: Request, uuid=None, role: str = "") -> FileResponse:
         """Stream one of the job's photos. Private: never served from storage."""
         job = self.get_object()
-        image = ScanJobImage.objects.filter(job=job, role=role).first()
+        # From the prefetched images, not a second query (L8).
+        image = next((i for i in job.images.all() if i.role == role), None)
         if image is None or not image.image.name:
             raise NotFound("No photo for that role.")
-        handle = scan_photo_storage().open(image.image.name, "rb")
+        try:
+            handle = scan_photo_storage().open(image.image.name, "rb")
+        except FileNotFoundError:
+            # The row outlived its object (django-storages maps an S3 404 to
+            # FileNotFoundError, as FileSystemStorage does): the documented
+            # 404, not a 500. Other storage errors still surface (L1).
+            logger.warning(
+                "[SCAN] Photo object missing for job=%s role=%s", job.pk, role
+            )
+            raise NotFound("No photo for that role.") from None
         response = FileResponse(handle, content_type="image/jpeg")
         response["Cache-Control"] = SCAN_PHOTO_CACHE_CONTROL
         return response

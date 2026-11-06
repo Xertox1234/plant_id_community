@@ -31,7 +31,7 @@ String? scanRefusalMessage(
       if (allowance == null) return 'No checks left today';
       return allowance.isPremium
           ? "You've used today's ${allowance.diagnoseLimit} checks. "
-                'More at midnight.'
+                'More at ${allowance.resetsAtLabel}.'
           : 'No checks left today · Go premium for '
                 '${allowance.premiumDiagnoseLimit}';
     case 'plant_id_busy':

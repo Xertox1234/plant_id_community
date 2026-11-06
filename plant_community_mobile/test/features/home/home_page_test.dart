@@ -234,14 +234,18 @@ void main() {
       );
     });
 
-    testWidgets('premium with none says more checks at midnight', (
+    testWidgets('premium with none says when the next check comes back', (
       tester,
     ) async {
-      await tester.pumpWidget(
-        _wrap(allowance: _allowance(isPremium: true, remaining: 0)),
-      );
+      final allowance = _allowance(isPremium: true, remaining: 0);
+      await tester.pumpWidget(_wrap(allowance: allowance));
       await tester.pump();
-      expect(find.text('More checks at midnight'), findsOneWidget);
+      // Rolling 24h window (scan-2 audit M1): not "midnight" any more.
+      expect(
+        find.text('More checks at ${allowance.resetsAtLabel}'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('midnight'), findsNothing);
     });
 
     testWidgets('hidden when allowance is null', (tester) async {

@@ -111,3 +111,12 @@ Compact checklist auto-injected before edits. Long-form:
   distinct recipients fail with nothing sent yet, and hand every untried recipient
   back (release its claim or re-enqueue it); a stop must never silently drop them
   (PR #1052 round 3; the forum batch still drops them, todo 606).
+- **A cancellable task re-checks its row immediately before each paid call.**
+  Cancel/expiry is a conditional UPDATE; the task passes a `should_continue`
+  check (`status == "processing"`) into the service and stops with a
+  dedicated exception caught before the generic handler. Never
+  `revoke(terminate=True)` from code (Celery docs: it can kill the next task)
+  (scan-2 audit H1, `ScanAborted`).
+- **pybreaker raises `CircuitBreakerError` on the call that trips it**, after
+  that call ran. Never read the exception type as "nothing was spent"; record
+  whether the wrapped function started (scan-2 audit review round).

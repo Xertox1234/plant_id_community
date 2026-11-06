@@ -20,6 +20,7 @@ import 'hint_stabilizer.dart';
 import 'scan_camera.dart';
 import 'scan_job_api.dart';
 import 'scan_job_tracker.dart';
+import 'shot_files.dart';
 import 'widgets/camera_permission_view.dart';
 import 'widgets/capture_controls.dart';
 import 'widgets/hint_chip.dart';
@@ -262,13 +263,19 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     if (camera == null || !_ready || _capturing) return;
     setState(() => _capturing = true);
     unawaited(HapticFeedback.lightImpact());
+    // Read before the await: ref is unusable once the screen is disposed.
+    final deleteFiles = ref.read(shotFileDeleterProvider);
     String? path;
     try {
       path = await camera.takePicture();
     } catch (_) {
       path = null;
     }
-    if (!mounted) return;
+    if (!mounted) {
+      // The session is gone with the screen: nobody else will delete it.
+      if (path != null) deleteFiles([path]);
+      return;
+    }
     setState(() => _capturing = false);
     // A shot that landed just before a teardown is still a good shot.
     if (path != null) {
@@ -336,7 +343,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           allowance: ref.read(scanAllowanceProvider).value,
         ),
       );
-    } on StateError {
+    } on ScanAlreadyRunning {
       // The tracker already has a scan running: show that one.
       if (mounted) _showStatusView();
     } catch (e) {

@@ -13,8 +13,8 @@ from datetime import timezone as dt_timezone
 from unittest.mock import Mock, patch
 
 import pytest
-from apps.plant_identification.scan_jobs import local_date_for, next_local_midnight
-from apps.plant_identification.scan_models import ScanJob
+from apps.plant_identification.scan_jobs import local_date_for
+from apps.plant_identification.scan_models import ScanJob, ScanJobImage
 from apps.plant_identification.services.combined_identification_service import (
     CombinedPlantIdentificationService,
 )
@@ -208,7 +208,9 @@ def test_active_job_reserves_its_slot():
 
 
 @pytest.mark.django_db
-def test_local_day_uses_offset():
+def test_offset_is_recorded_but_cannot_reach_a_second_day():
+    """M1: flipping utc_offset_minutes used to land on another local date
+    with a fresh slot; the rolling window is the same at every offset."""
     client = _client(_user())
     with freeze_time("2026-11-02T23:30:00Z"):
         response = _create(client, offset=60)
@@ -217,8 +219,41 @@ def test_local_day_uses_offset():
         job.refresh_from_db()
         assert job.local_date == date(2026, 11, 3)
         assert job.utc_offset_minutes == 60
-        allowance = client.get(BASE + "allowance/?utc_offset_minutes=0").data
-    assert allowance["diagnose"]["used"] == 0
+        for offset in (-840, 0, 840):
+            allowance = client.get(
+                BASE + f"allowance/?utc_offset_minutes={offset}"
+            ).data
+            assert allowance["diagnose"]["used"] == 1
+            assert _create(client, offset=offset).status_code == 429
+
+
+@pytest.mark.django_db
+def test_slot_comes_back_24_hours_after_the_scan():
+    client = _client(_user())
+    with freeze_time("2026-11-02T10:00:00Z"):
+        _finish(_create(client), "done", "diagnose")
+    with freeze_time("2026-11-03T09:59:00Z"):
+        refused = _create(client)
+        assert refused.status_code == 429
+        assert refused.data["resets_at"] == "2026-11-03T10:00:00Z"
+        assert client.get(BASE + "allowance/").data["resets_at"] == (
+            "2026-11-03T10:00:00Z"
+        )
+    with freeze_time("2026-11-03T10:00:01Z"):
+        assert _create(client).status_code == 201
+
+
+@pytest.mark.django_db
+def test_exhausted_identify_429_carries_identify_reset():
+    client = _client(_user())
+    with freeze_time("2026-11-02T08:00:00Z"):
+        for _ in range(5):
+            _finish(_create(client, "identify"), "done", "identify")
+    with freeze_time("2026-11-02T12:00:00Z"):
+        refused = _create(client, "identify")
+    assert refused.status_code == 429
+    assert refused.data["kind"] == "identify"
+    assert refused.data["resets_at"] == "2026-11-03T08:00:00Z"
 
 
 @pytest.mark.parametrize(
@@ -398,20 +433,11 @@ def test_allowance_shape():
     assert body["is_premium"] is False
     assert body["diagnose"] == {"limit": 1, "used": 0, "remaining": 1}
     assert body["identify"] == {"limit": 5, "used": 0, "remaining": 5}
-    # Local now is 2026-11-03T00:30+01:00; the next local midnight is
-    # 2026-11-04T00:00+01:00 = 2026-11-03T23:00Z.
-    assert body["resets_at"] == "2026-11-03T23:00:00Z"
+    # Nothing counted: a diagnosis is available now (rolling window, M1).
+    assert body["resets_at"] == "2026-11-02T23:30:00Z"
     assert body["plant_id_available"] is True
     assert body["slow_after_seconds"] == 45
     assert body["premium_diagnose_limit"] == 3
-
-
-def test_next_local_midnight_negative_offset():
-    with freeze_time("2026-11-02T03:00:00Z"):
-        # UTC-5: local 2026-11-01T22:00, next midnight 2026-11-02T05:00Z.
-        assert next_local_midnight(-300) == datetime(
-            2026, 11, 2, 5, 0, tzinfo=dt_timezone.utc
-        )
 
 
 @pytest.mark.django_db
@@ -563,3 +589,133 @@ def test_photo_404s_stay_404_with_image_accept(accept):
     foreign = other.get(f"{BASE}{job_id}/photos/problem/", HTTP_ACCEPT=accept)
     assert foreign.status_code == 404
     assert foreign.json()["code"] == "not_found"
+
+
+@pytest.mark.django_db
+def test_exhausted_user_forces_no_photo_decode():
+    """M5: the unlocked pre-check refuses before any PIL decode/re-encode."""
+    client = _client(_user())
+    _finish(_create(client), "done", "diagnose")
+    with patch(
+        "apps.plant_identification.api.scan_views.normalize_scan_photo"
+    ) as normalize:
+        refused = _create(client)
+    assert refused.status_code == 429
+    normalize.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_failed_photo_save_leaves_no_orphaned_file(roots, tmp_path):
+    """M5: a rolled-back create deletes the photos it already wrote."""
+    real_create = ScanJobImage.objects.create
+    calls = []
+
+    def create_then_fail(**kwargs):
+        calls.append(kwargs["role"])
+        if len(calls) == 2:
+            raise RuntimeError("storage hiccup")
+        return real_create(**kwargs)
+
+    client = _client(_user())
+    client.raise_request_exception = False
+    with patch(
+        "apps.plant_identification.api.scan_views.ScanJobImage.objects.create",
+        side_effect=create_then_fail,
+    ):
+        response = _create(client)
+
+    assert response.status_code == 500
+    assert len(calls) == 2
+    assert not ScanJob.objects.exists()
+    assert not ScanJobImage.objects.exists()
+    written = [p for p in (tmp_path / "private").rglob("*") if p.is_file()]
+    assert written == []
+
+
+@pytest.mark.django_db
+def test_invalid_mode_is_400_even_with_an_active_job():
+    client = _client(_user())
+    assert _create(client).status_code == 201
+    response = client.post(BASE, {"mode": "bogus"}, format="multipart")
+    assert response.status_code == 400
+    assert "mode" in response.data["errors"]
+
+
+@pytest.mark.django_db
+def test_photo_whose_object_is_gone_is_404_not_500(tmp_path):
+    """L1: a row whose stored object was deleted answers the documented 404."""
+    client = _client(_user())
+    job_id = _create(client).data["id"]
+    for path in (tmp_path / "private").rglob("problem.jpg"):
+        path.unlink()
+    response = client.get(f"{BASE}{job_id}/photos/problem/")
+    assert response.status_code == 404
+    assert response.data["code"] == "not_found"
+
+
+@pytest.mark.django_db
+def test_spoofed_photo_400_names_its_role():
+    """L4 (and the L6 gap): the real validate_image_file, end to end."""
+    client = _client(_user())
+    fake = SimpleUploadedFile("leaf.jpg", b"not an image", content_type="image/jpeg")
+    with patch(
+        "apps.plant_identification.api.scan_views.validate_image_file",
+        wraps=__import__(
+            "apps.plant_identification.utils", fromlist=["validate_image_file"]
+        ).validate_image_file,
+    ):
+        response = client.post(
+            BASE,
+            {"mode": "diagnose", "problem": _file("problem"), "leaf": fake},
+            format="multipart",
+        )
+    assert response.status_code == 400
+    assert response.data["code"] == "invalid"
+    assert set(response.data["errors"]) == {"leaf"}
+    assert not ScanJob.objects.exists()
+
+
+@pytest.mark.django_db
+def test_retrieve_and_photo_query_counts_are_pinned(django_assert_num_queries):
+    """L8: retrieve and the photo stream reuse get_object's prefetch."""
+    client = _client(_user())
+    job_id = _create(client).data["id"]
+    # retrieve: stale expiry SELECT, job SELECT, images prefetch.
+    with django_assert_num_queries(3):
+        assert client.get(f"{BASE}{job_id}/").status_code == 200
+    # photo: job SELECT, images prefetch.
+    with django_assert_num_queries(2):
+        response = client.get(f"{BASE}{job_id}/photos/problem/")
+        assert response.status_code == 200
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "method, path",
+    [
+        ("get", "allowance/"),
+        ("post", ""),
+        ("get", "00000000-0000-0000-0000-000000000000/"),
+        ("post", "00000000-0000-0000-0000-000000000000/cancel/"),
+        ("get", "00000000-0000-0000-0000-000000000000/photos/problem/"),
+    ],
+)
+def test_every_scan_endpoint_needs_sign_in(method, path):
+    """L6: 401 on each endpoint, not only create."""
+    response = getattr(APIClient(), method)(BASE + path)
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_degraded_diagnoses_exhaust_the_identify_allowance():
+    """L6: a degraded diagnosis is charged as identify, end to end to a 429."""
+    client = _client(_user())
+    for _ in range(5):
+        created = _create(client)
+        assert created.status_code == 201
+        _finish(created, "degraded", "identify")
+    refused = _create(client, "identify")
+    assert refused.status_code == 429
+    assert refused.data["kind"] == "identify"
+    # The diagnosis slot was never spent.
+    assert _create(client).status_code == 201

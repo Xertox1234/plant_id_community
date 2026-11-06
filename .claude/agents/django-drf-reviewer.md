@@ -207,6 +207,16 @@ Use Grep as fallback for any LSP call that returns an error or an empty/inconclu
 - [ ] **`except IntegrityError` → 409 is scoped to one constraint** (`exc.__cause__.diag.constraint_name`), logged with a bracketed log prefix, and re-raises everything else
 - [ ] **No edit to a data migration that has already merged** (`git log origin/main -- <migration>`): prod has applied it, so a correction belongs in a new migration
 
+### Scan 2.0 audit additions (2026-11-06)
+
+- [ ] A method added to a ViewSet sits ABOVE any `@extend_schema` /
+  `@method_decorator(...)` stack, never between it and its `def` (the
+  decorators bind to the next `def`; scan-2 `d869d102` silently moved
+  create's rate limit onto a helper).
+- [ ] A paid-API call is claimed against its cap BEFORE it is made and
+  refunded only when it never reached the provider; `CircuitBreakerError`
+  on the tripping call still means the call ran.
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

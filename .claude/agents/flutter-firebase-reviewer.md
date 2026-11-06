@@ -63,6 +63,12 @@ Firebase Auth 5.3.3, flutter_secure_storage, firebase-admin (backend), JWT token
 
 - [ ] An on-device FCM *delivery* E2E must NOT be driven by `flutter test integration_test/…` — the tool uninstalls the app on teardown, which invalidates the freshly-minted FCM token (`NotRegistered` on send). `flutter test` verifies *registration* only; use a `flutter run` harness that keeps the app installed for delivery (see `plant_community_mobile/tool/fcm_e2e_hold.dart` + `docs/LEARNINGS.md` 2026-07-22)
 
+- [ ] An image loaded with an `Authorization` header uses its own
+  `CacheManager` and a per-user `cacheKey`, and that store (plus
+  `PaintingBinding.instance.imageCache`) is emptied when a signed-in user
+  leaves: `CachedNetworkImage` keys on the URL and ignores headers
+  (scan-2 audit M7).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

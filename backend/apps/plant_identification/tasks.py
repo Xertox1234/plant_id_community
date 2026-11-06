@@ -41,9 +41,12 @@ from .constants import (
     SCAN_PUSH_READY,
     SCAN_PUSH_RETRY_DELAY,
 )
-from .scan_jobs import classify_scan, summarize_scan_result
+from .scan_jobs import classify_scan, expire_stale_jobs, summarize_scan_result
 from .scan_models import ScanJob
-from .services.combined_identification_service import CombinedPlantIdentificationService
+from .services.combined_identification_service import (
+    CombinedPlantIdentificationService,
+    ScanAborted,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +60,11 @@ def _read_shots(job: ScanJob) -> Dict[str, bytes]:
         with image.image.open("rb") as fh:
             shots[image.role] = fh.read()
     return shots
+
+
+def _still_processing(job_id: int) -> bool:
+    """True while the job is still ours to run (no cancel or expiry landed)."""
+    return ScanJob.objects.filter(pk=job_id, status="processing").exists()
 
 
 def _enqueue_notify(job_id: int) -> None:
@@ -149,9 +157,18 @@ def run_scan_job(self, job_id: int) -> None:
         # not leave it processing until the stale expiry.
         job = ScanJob.objects.get(pk=job_id)
         shots = _read_shots(job)
-        results = CombinedPlantIdentificationService().scan(shots, job.mode)
+        results = CombinedPlantIdentificationService().scan(
+            shots,
+            job.mode,
+            should_continue=lambda: _still_processing(job_id),
+        )
         status, charged_as = classify_scan(job.mode, results)
         summary = summarize_scan_result(job.mode, results)
+    except ScanAborted:
+        # Cancelled or expired before the paid call: the cancel/expiry
+        # already wrote the outcome, and no Plant.id call was made.
+        logger.info("[SCAN] job=%s left processing; Plant.id not called", job_id)
+        return
     except SoftTimeLimitExceeded:
         logger.error("[SCAN] job=%s hit the soft time limit", job_id)
         _finalize(job_id, "failed", failure_reason=SCAN_FAILURE_TIMEOUT)
@@ -178,6 +195,16 @@ def run_scan_job(self, job_id: int) -> None:
         result=summary,
         failure_reason=SCAN_FAILURE_NO_RESULT if status == "failed" else "",
     )
+
+
+@shared_task(ignore_result=True)
+def expire_stale_scan_jobs() -> int:
+    """Beat: fail every scan job stuck past the stale limit (scan-2 audit M2).
+
+    The per-user expiry only runs when that user asks again; a job whose
+    worker died would otherwise stay active, unnotified, until they do.
+    """
+    return expire_stale_jobs()
 
 
 @shared_task(

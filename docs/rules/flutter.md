@@ -284,3 +284,13 @@ Compact checklist auto-injected before edits. Long-form:
   forward as its own field, or every failure collapses to a generic line and the
   user loses the server's reason (`apiErrorMessage` in
   `lib/features/profile/forum_notification_settings_card.dart`, todo 651, PR #1127).
+- **Private (auth-header) images get their own `CacheManager` and a per-user
+  `cacheKey`.** `CachedNetworkImage` keys disk and memory on the URL and
+  ignores `httpHeaders`, so the default cache serves one account's photo to
+  the next. Empty the store and `PaintingBinding.instance.imageCache` when a
+  signed-in user leaves (previous uid non-null), and fetch through a
+  `FileService` that reads the live token (`ApiImage`, scan-2 audit M7/L14).
+- **A temp file has exactly one owner at a time.** `camera`/`image_picker`
+  never delete their outputs: the capture session owns shots until
+  `finish()`, then the consumer owns them; whoever owns it deletes it, and a
+  replacement keeps paths the new value reuses (scan-2 audit L9).
