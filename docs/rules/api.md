@@ -283,3 +283,5 @@ Compact checklist auto-injected before edits. Long-form:
   `ttl(key) < 0`, never only when the count equals the increment; `EXPIRE NX`
   needs Redis 7 and errors on 6 (`QuotaManager.reserve_plant_id`, scan-2
   audit M3/M4).
+- Erasing a scan never deletes its `ScanJob` row before its allowance window
+  passes: the allowance counts rows.
