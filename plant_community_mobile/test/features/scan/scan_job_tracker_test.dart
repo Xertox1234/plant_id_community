@@ -10,6 +10,7 @@ import 'package:plant_community_mobile/features/scan/capture_session.dart';
 import 'package:plant_community_mobile/features/scan/capture_steps.dart';
 import 'package:plant_community_mobile/features/scan/scan_job_api.dart';
 import 'package:plant_community_mobile/features/scan/scan_job_tracker.dart';
+import 'package:plant_community_mobile/features/scan/shot_files.dart';
 import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
@@ -160,6 +161,7 @@ class _Harness {
         currentUserIdProvider.overrideWith((ref) => ref.watch(uidProvider)),
         firebaseFirestoreProvider.overrideWithValue(firestore),
         firestoreServiceProvider.overrideWith(() => store),
+        shotFileDeleterProvider.overrideWithValue(deleted.addAll),
       ],
     );
     container.listen(scanJobTrackerProvider, (_, _) {});
@@ -169,6 +171,9 @@ class _Harness {
   final api = _FakeScanJobApi();
   final firestore = FakeFirebaseFirestore();
   final store = _CountingFirestoreService();
+
+  /// Shot files the tracker deleted (L9).
+  final deleted = <String>[];
   DateTime now = DateTime.utc(2026, 11, 2, 9, 30);
   late final ProviderContainer container;
 
@@ -1018,6 +1023,48 @@ void main() {
       await expectLater(h.tracker.retry(), throwsStateError);
       expect(h.api.calls.where((c) => c == 'create'), hasLength(1));
       h.container.dispose();
+    });
+  });
+
+  group('shot files (L9)', () {
+    testWidgets('kept while the capture can be retried, deleted once it '
+        'is done with', (tester) async {
+      final h = _Harness();
+      addTearDown(h.container.dispose);
+      await h.tracker.restored;
+      h.api.gets.add(_job(ScanJobStatus.done));
+
+      await h.tracker.submit(_capture);
+      await h.tick(tester);
+      expect(h.state.lastCapture, same(_capture));
+      expect(h.deleted, isEmpty);
+
+      h.tracker.dismiss();
+      expect(h.deleted, unorderedEquals(['/tmp/p.jpg', '/tmp/w.jpg']));
+    });
+
+    testWidgets('a new capture keeps the files it reuses', (tester) async {
+      final h = _Harness();
+      addTearDown(h.container.dispose);
+      await h.tracker.restored;
+      h.api.gets.add(_job(ScanJobStatus.done));
+      await h.tracker.submit(_capture);
+      await h.tick(tester);
+      expect(h.state.lastCapture, same(_capture));
+
+      // The next scan reuses the problem shot and adds a leaf.
+      const next = CaptureResult(
+        mode: ScanMode.diagnose,
+        shots: {
+          CaptureRole.problem: '/tmp/p.jpg',
+          CaptureRole.leaf: '/tmp/l.jpg',
+        },
+      );
+      await h.tracker.submit(next);
+      await h.tick(tester);
+
+      expect(h.state.lastCapture, same(next));
+      expect(h.deleted, ['/tmp/w.jpg']);
     });
   });
 }

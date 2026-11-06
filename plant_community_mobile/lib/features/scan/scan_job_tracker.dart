@@ -12,6 +12,7 @@ import '../../services/firestore_service.dart';
 import 'capture_session.dart';
 import 'capture_steps.dart';
 import 'scan_job_api.dart';
+import 'shot_files.dart';
 
 part 'scan_job_tracker.g.dart';
 
@@ -116,6 +117,16 @@ class ScanJobTracker extends _$ScanJobTracker {
       _lifecycle?.dispose();
     });
     ref.listen<String?>(currentUserIdProvider, (_, next) => _onUser(next));
+    // A capture is kept for Try again; once a different one (or none)
+    // replaces it, its shot files are deleted, keeping any the new capture
+    // reuses (scan-2 audit L9).
+    listenSelf((previous, next) {
+      final before = previous?.lastCapture;
+      if (before == null || identical(before, next.lastCapture)) return;
+      final keep = next.lastCapture?.shots.values.toSet() ?? const {};
+      final gone = before.shots.values.where((p) => !keep.contains(p));
+      if (gone.isNotEmpty) ref.read(shotFileDeleterProvider)(gone);
+    });
     _restoring = restore();
     unawaited(_restoring);
     return const ScanTrackerState();

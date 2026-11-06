@@ -1,6 +1,7 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'capture_steps.dart';
+import 'shot_files.dart';
 
 part 'capture_session.g.dart';
 
@@ -47,15 +48,36 @@ class CaptureResult {
 /// state: no frame ever shows the other mode's steps.
 @riverpod
 class CaptureSession extends _$CaptureSession {
+  /// Shot files this session still owns: not yet handed to a scan by
+  /// [finish]. Deleted when the session is thrown away (L9).
+  final Set<String> _owned = {};
+  late ShotFileDeleter _deleteFiles;
+
   @override
-  CaptureSessionState build(ScanMode initialMode) =>
-      CaptureSessionState(mode: initialMode);
+  CaptureSessionState build(ScanMode initialMode) {
+    // Read now: ref must not be used inside onDispose.
+    _deleteFiles = ref.read(shotFileDeleterProvider);
+    ref.onDispose(() => _delete(_owned.toList()));
+    return CaptureSessionState(mode: initialMode);
+  }
+
+  void _delete(Iterable<String> paths) {
+    final gone = paths.toList();
+    if (gone.isEmpty) return;
+    _owned.removeAll(gone);
+    _deleteFiles(gone);
+  }
 
   /// Stores [path] for the current role, then moves to the next later step
   /// with no shot. Stays put when there is none; never wraps.
   void addShot(String path) {
     final steps = stepsFor(state.mode);
+    final replaced = state.shots[state.currentRole];
     final shots = {...state.shots, state.currentRole: path};
+    _owned.add(path);
+    if (replaced != null && replaced != path && _owned.contains(replaced)) {
+      _delete([replaced]);
+    }
     var next = state.stepIndex;
     for (var i = state.stepIndex + 1; i < steps.length; i++) {
       if (!shots.containsKey(steps[i])) {
@@ -80,13 +102,19 @@ class CaptureSession extends _$CaptureSession {
 
   void retake(CaptureRole role) {
     if (!stepsFor(state.mode).contains(role)) return;
+    final removed = state.shots[role];
     state = state.copyWith(shots: {...state.shots}..remove(role));
+    if (removed != null && _owned.contains(removed)) _delete([removed]);
     jumpTo(role);
   }
 
   /// Switches mode, back to step 0, keeping shots whose role exists in it.
   void setMode(ScanMode mode) {
     final roles = stepsFor(mode);
+    _delete([
+      for (final e in state.shots.entries)
+        if (!roles.contains(e.key) && _owned.contains(e.value)) e.value,
+    ]);
     state = CaptureSessionState(
       mode: mode,
       stepIndex: 0,
@@ -101,6 +129,8 @@ class CaptureSession extends _$CaptureSession {
     if (!state.canFinish) {
       throw StateError('Cannot finish before the required shot exists');
     }
+    // Handed to the scan: the tracker deletes them once it is done (L9).
+    _owned.removeAll(state.shots.values);
     return CaptureResult(
       mode: state.mode,
       shots: Map.unmodifiable(state.shots),
