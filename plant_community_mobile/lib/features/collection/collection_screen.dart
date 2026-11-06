@@ -115,9 +115,12 @@ class _CollectionBody extends ConsumerWidget {
 
     return _MinuteClock(
       now: now,
-      builder: (context, at) {
-        final cards = _liveCards(undecided, at);
-        return CustomScrollView(
+      jobs: undecided,
+      builder: (context, cards) => RefreshIndicator.adaptive(
+        onRefresh: () => _refreshUndecided(ref),
+        child: CustomScrollView(
+          // Pull to refresh works even when the content is short.
+          physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             if (cards.isNotEmpty)
               SliverPadding(
@@ -182,54 +185,92 @@ class _CollectionBody extends ConsumerWidget {
                 ),
               ),
           ],
-        );
-      },
+        ),
+      ),
     );
   }
 
-  /// Undecided scans still inside their decide-by time, newest first. One
-  /// past it goes at once, without waiting for the server's sweep; one with
-  /// no decide-by (the server always sets it) is left out.
-  static List<ScanJob> _liveCards(List<ScanJob> jobs, DateTime at) {
-    final live = [
-      for (final j in jobs)
-        if (j.decideBy != null && j.decideBy!.isAfter(at)) j,
-    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return live;
+  /// Pull to refresh: refetches the undecided list (a scan finished on
+  /// another device, say). A failure only hides the section.
+  static Future<void> _refreshUndecided(WidgetRef ref) async {
+    ref.invalidate(undecidedScansProvider);
+    try {
+      await ref.read(undecidedScansProvider.future);
+    } catch (e) {
+      debugPrint('[COLLECTION] Undecided refresh failed: ${e.runtimeType}');
+    }
   }
 }
 
-/// Rebuilds [builder] every minute with the time from [now], so the
-/// countdowns tick and an expired card drops out.
+/// Undecided scans still inside their decide-by time, newest first. One
+/// past it goes at once, without waiting for the server's sweep; one with
+/// no decide-by (the server always sets it) is left out.
+List<ScanJob> _liveCards(List<ScanJob> jobs, DateTime at) {
+  final live = [
+    for (final j in jobs)
+      if (j.decideBy != null && j.decideBy!.isAfter(at)) j,
+  ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  return live;
+}
+
+/// Builds the live undecided cards ([_liveCards] of [jobs] at [now]) and
+/// rebuilds every minute while at least one is live, so the countdowns tick
+/// and an expired card drops out. With no live card the timer is off, so an
+/// empty My Plants never rebuilds on its own.
 class _MinuteClock extends StatefulWidget {
-  const _MinuteClock({required this.now, required this.builder});
+  const _MinuteClock({
+    required this.now,
+    required this.jobs,
+    required this.builder,
+  });
 
   final DateTime Function() now;
-  final Widget Function(BuildContext context, DateTime now) builder;
+  final List<ScanJob> jobs;
+  final Widget Function(BuildContext context, List<ScanJob> cards) builder;
 
   @override
   State<_MinuteClock> createState() => _MinuteClockState();
 }
 
 class _MinuteClockState extends State<_MinuteClock> {
-  late final Timer _timer;
+  Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) setState(() {});
-    });
+    _syncTimer();
+  }
+
+  @override
+  void didUpdateWidget(_MinuteClock old) {
+    super.didUpdateWidget(old);
+    _syncTimer();
+  }
+
+  /// Runs the timer only while a card is live.
+  void _syncTimer() {
+    final live = _liveCards(widget.jobs, widget.now()).isNotEmpty;
+    if (live && _timer == null) {
+      _timer = Timer.periodic(const Duration(minutes: 1), (_) {
+        if (!mounted) return;
+        setState(() {});
+        _syncTimer();
+      });
+    } else if (!live) {
+      _timer?.cancel();
+      _timer = null;
+    }
   }
 
   @override
   void dispose() {
-    _timer.cancel();
+    _timer?.cancel();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => widget.builder(context, widget.now());
+  Widget build(BuildContext context) =>
+      widget.builder(context, _liveCards(widget.jobs, widget.now()));
 }
 
 /// One undecided scan in My Plants: View opens the full result, Dismiss

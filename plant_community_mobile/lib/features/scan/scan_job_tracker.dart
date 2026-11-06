@@ -605,6 +605,9 @@ class ScanJobTracker extends _$ScanJobTracker {
         job: job,
         lastCapture: capture,
       );
+      // A finished scan is a new undecided card in My Plants, which stays
+      // mounted (an indexed-stack tab) and would not refetch on its own.
+      if (ref.mounted) ref.invalidate(undecidedScansProvider);
       unawaited(_clearAfterFinish(job, gen));
     } else if (job.status == ScanJobStatus.failed) {
       state = ScanTrackerState(

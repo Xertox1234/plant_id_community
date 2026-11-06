@@ -62,6 +62,11 @@ class _FakeDecisions extends ScanDecisions {
 var _calls = <String>[];
 Object? _decisionError;
 
+/// How often the undecided list was fetched, and what the next fetch
+/// returns instead of the pumped list (when set).
+var _undecidedFetches = 0;
+List<ScanJob>? _nextUndecided;
+
 /// No undecided scans, so the screen never reaches the network.
 final _noUndecided = undecidedScansProvider.overrideWith(
   (ref) async => const <ScanJob>[],
@@ -107,6 +112,8 @@ Future<FakeScanJobTracker> _pumpScreen(
 }) async {
   _calls = <String>[];
   _decisionError = null;
+  _undecidedFetches = 0;
+  _nextUndecided = null;
   final fakeTracker = FakeScanJobTracker(tracker);
   final overrides = <Override>[
     currentUserIdProvider.overrideWithValue('test-uid'),
@@ -114,8 +121,9 @@ Future<FakeScanJobTracker> _pumpScreen(
       'test-uid',
     ).overrideWith((ref) => Stream.value(PlantsSnapshot(plants: plants))),
     undecidedScansProvider.overrideWith((ref) async {
+      _undecidedFetches++;
       if (undecidedError != null) throw undecidedError;
-      return undecided;
+      return _nextUndecided ?? undecided;
     }),
     scanJobTrackerProvider.overrideWith(() => fakeTracker),
     scanDecisionsProvider.overrideWith(_FakeDecisions.new),
@@ -204,6 +212,23 @@ void main() {
 
     expect(find.byType(ShortScanCard), findsNothing);
     expect(find.text('No plants yet'), findsOneWidget);
+  });
+
+  testWidgets('pull to refresh refetches the undecided list', (tester) async {
+    await _pumpScreen(tester, plants: [_plant('1', 'Monstera')]);
+    expect(_undecidedFetches, 1);
+    expect(find.byType(ShortScanCard), findsNothing);
+
+    _nextUndecided = [_undecided('fresh', 'Pothos', createdAt: _now)];
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 400),
+      1000,
+    );
+    await tester.pumpAndSettle();
+
+    expect(_undecidedFetches, 2);
+    expect(find.text('Pothos'), findsOneWidget);
   });
 
   testWidgets('count shows kept plants only', (tester) async {

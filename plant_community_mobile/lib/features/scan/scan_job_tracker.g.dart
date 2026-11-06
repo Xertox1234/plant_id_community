@@ -71,7 +71,7 @@ final class ScanJobTrackerProvider
   }
 }
 
-String _$scanJobTrackerHash() => r'd4a3ef919e480319eca1017c4dc5da04ac35b1b0';
+String _$scanJobTrackerHash() => r'73a02f231dd91ed4ddb090b8ed23d3fc95d5825a';
 
 /// The one background scan job of this device: uploads it, polls it every
 /// [scanJobPollInterval]. It never writes a finished scan to My Collection:

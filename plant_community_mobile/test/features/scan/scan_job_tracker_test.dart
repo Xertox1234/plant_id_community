@@ -1014,6 +1014,31 @@ void main() {
       h.container.dispose();
     });
 
+    testWidgets('a finished job refreshes the undecided list', (tester) async {
+      final h = _Harness();
+      await h.tracker.restored;
+      h.container.listen(undecidedScansProvider, (_, _) {});
+      await h.container.read(undecidedScansProvider.future);
+      expect(h.api.undecidedCalls, 1);
+
+      h.api.gets.add(_job(ScanJobStatus.processing));
+      await h.tracker.submit(_capture);
+      await h.tick(tester);
+      await h.container.read(undecidedScansProvider.future);
+      expect(h.api.undecidedCalls, 1, reason: 'a running job changes nothing');
+
+      h.api.gets
+        ..clear()
+        ..add(_job(ScanJobStatus.done));
+      await h.tick(tester);
+      expect(h.state.phase, TrackerPhase.ready);
+      await tester.pump();
+      await h.container.read(undecidedScansProvider.future);
+
+      expect(h.api.undecidedCalls, 2);
+      h.container.dispose();
+    });
+
     testWidgets('retry of a degraded job refreshes the undecided list', (
       tester,
     ) async {
@@ -1026,6 +1051,10 @@ void main() {
       h.api.gets.add(_job(ScanJobStatus.degraded));
       await h.tracker.submit(_capture);
       await h.tick(tester);
+      // The finished job's own refresh; the retry must add one more.
+      await tester.pump();
+      await h.container.read(undecidedScansProvider.future);
+      final afterFinish = h.api.undecidedCalls;
       h.api.createJob = _job(ScanJobStatus.pending, id: _otherJobId);
       h.api.gets
         ..clear()
@@ -1035,7 +1064,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1));
       await h.container.read(undecidedScansProvider.future);
 
-      expect(h.api.undecidedCalls, 2);
+      expect(h.api.undecidedCalls, afterFinish + 1);
       h.container.dispose();
     });
 
