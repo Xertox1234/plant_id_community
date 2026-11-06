@@ -494,3 +494,31 @@ def test_retry_of_other_users_job_ignored(create_env):
 def test_retry_of_garbage_ignored_201(create_env):
     response = _post_create(_client(_owner()), retry_of="not-a-uuid")
     assert response.status_code == 201
+
+
+@pytest.mark.django_db
+def test_retry_of_degraded_diagnosis_with_diagnose_retry(
+    create_env, django_capture_on_commit_callbacks
+):
+    user = _owner()
+    job = _api_job(user, mode="diagnose", status="degraded", charged_as="identify")
+    client = _client(user)
+    before = client.get(BASE + "allowance/").data
+    data = {
+        "mode": "diagnose",
+        "problem": _upload("problem"),
+        "leaf": _upload("leaf"),
+        "retry_of": str(job.uuid),
+    }
+    with django_capture_on_commit_callbacks(execute=True):
+        response = client.post(
+            BASE, data, format="multipart", HTTP_X_SCAN_DECISIONS="1"
+        )
+    assert response.status_code == 201
+    job.refresh_from_db()
+    assert job.decision == "dismissed"
+    assert job.charged_as == ""
+    assert ScanJobImage.objects.filter(job=job).count() == 0
+    after = client.get(BASE + "allowance/").data
+    assert after["identify"]["remaining"] == before["identify"]["remaining"] + 1
+    assert after["diagnose"]["remaining"] == before["diagnose"]["remaining"] - 1
