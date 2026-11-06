@@ -51,6 +51,7 @@ dependencies:
   # Image Handling
   image_picker: ^1.2.0
   cached_network_image: ^3.4.1
+  flutter_cache_manager: ^3.4.1  # Private scan-photo cache, emptied on sign-out (scan-2 audit M7)
 
   # HTTP
   dio: ^5.8.1
