@@ -293,39 +293,6 @@ class ScanJobViewSet(GenericViewSet):
         offset = request.query_params.get("utc_offset_minutes")
         return Response(allowance_for(request.user, offset))
 
-    @extend_schema(
-        request={"multipart/form-data": ScanJobCreateSerializer},
-        responses={
-            201: ScanJobSerializer,
-            400: ERROR_INVALID,
-            409: ERROR_IN_PROGRESS,
-            429: ERROR_CREATE_429,
-            503: ERROR_BUSY,
-        },
-        examples=[
-            OpenApiExample(
-                "Diagnose with two photos",
-                value={
-                    "mode": "diagnose",
-                    "utc_offset_minutes": -300,
-                    "problem": "example-spotted-leaf.jpg",
-                    "leaf": "example-monstera-leaf.jpg",
-                },
-                description="Attach each photo as a file part named by its role.",
-                request_only=True,
-                media_type="multipart/form-data",
-            )
-        ],
-    )
-    @method_decorator(
-        ratelimit(
-            group="plant_identification.scan_create",
-            key="user",
-            rate=SCAN_CREATE_RATE,
-            method="POST",
-            block=True,
-        )
-    )
     def _refusal(self, request: Request, user, mode: str) -> Response | None:
         """The 409/429/503 that stops this create, or None to go ahead."""
         expire_stale_jobs(user.pk)  # a stuck job must not 409 forever
@@ -362,6 +329,39 @@ class ScanJobViewSet(GenericViewSet):
             )
         return None
 
+    @extend_schema(
+        request={"multipart/form-data": ScanJobCreateSerializer},
+        responses={
+            201: ScanJobSerializer,
+            400: ERROR_INVALID,
+            409: ERROR_IN_PROGRESS,
+            429: ERROR_CREATE_429,
+            503: ERROR_BUSY,
+        },
+        examples=[
+            OpenApiExample(
+                "Diagnose with two photos",
+                value={
+                    "mode": "diagnose",
+                    "utc_offset_minutes": -300,
+                    "problem": "example-spotted-leaf.jpg",
+                    "leaf": "example-monstera-leaf.jpg",
+                },
+                description="Attach each photo as a file part named by its role.",
+                request_only=True,
+                media_type="multipart/form-data",
+            )
+        ],
+    )
+    @method_decorator(
+        ratelimit(
+            group="plant_identification.scan_create",
+            key="user",
+            rate=SCAN_CREATE_RATE,
+            method="POST",
+            block=True,
+        )
+    )
     def create(self, request: Request) -> Response:
         """Start a scan. The photos are form files named by role.
 
