@@ -19,8 +19,15 @@ our servers.
 2. **Dismiss** deletes the scan immediately.
 3. **Add** keeps it in My Plants until the user removes it.
 4. Until the user chooses, the scan **still shows in My Plants**, marked as
-   undecided. The marking is mockup **B**: a dashed card with a countdown
-   ("Keep it? 18 h left") and the Add and Dismiss buttons on the card itself.
+   undecided, as a **short card** (revised mockup B): a dashed card with the
+   photo, the plant's name, the confidence score, the diagnosis in one line,
+   the time left ("Deletes in 18 h"), and two buttons, **View** and
+   **Dismiss**. The card carries **no description**. View opens the full
+   result (description, care steps), which is the only place **Add to My
+   Collection** appears, so nobody keeps a plant without seeing it in full.
+   Mockups: <https://claude.ai/artifact/4Gv7HKquwA4N5E1Mh5YekU> (private).
+4a. Tapping the "scan ready" push or the in-app pill opens **the short card**,
+   not the full result.
 5. If nothing is chosen within **24 hours**, the scan is deleted. There is no
    reminder, modal or coach message. If the user ignores it, it is gone.
 6. **Plants already in collections stay as they are**: normal kept plants, no
@@ -93,7 +100,7 @@ our servers.
   the builder's call. Put the 24 h in `constants.py` with the other scan
   windows.
 - **Undecided list:** `GET scans/?decision=undecided` returns the user's undecided
-  jobs (newest first) with `cover_photo`, the name fields and a
+  jobs (newest first) with `cover_photo`, the name fields, the confidence, a one-line diagnosis summary and a
   `decide_by` timestamp (`finished_at` + 24 h). *(My call)* The server is the
   source of truth for undecided scans. Firestore only ever holds kept plants,
   so the expiry needs no Firestore access.
@@ -121,9 +128,17 @@ our servers.
   finishes, and `viewed()` no longer saves either. The stored-job id
   bookkeeping that exists only to retry the save goes with it, if nothing
   else needs it.
-- **Result screen** (`features/scan/scan_result_screen.dart` →
-  `ResultsScreen`): an undecided job shows **Add to My Collection** and
-  **Dismiss**.
+- **Short card.** One widget, used in two places: in the My Plants grid, and
+  on its own when the push or the pill opens a finished scan (decision 4a;
+  *my call*: `/scans/<id>` shows the short card on a plain screen, and View
+  moves on to the full result). It shows the cover photo, name, confidence
+  as a percentage, the diagnosis in one line ("Identified only" for an
+  identify scan, "Health check didn't run" for a half-result, *my wording*),
+  the countdown, and View / Dismiss. A half-result's card also offers Try
+  again while the capture is still on the phone.
+- **Full result** (`features/scan/scan_result_screen.dart` →
+  `ResultsScreen`, reached from View): an undecided job shows **Add to My
+  Collection** and **Dismiss**.
   - Add: call keep, then write the Firestore plant exactly as the tracker does
     today (same doc id = job uuid, `imageUrl` = cover photo, timestamp = job
     creation). The screen then shows "In My Collection".
@@ -131,10 +146,10 @@ our servers.
   - A kept job shows "In My Collection". A dismissed or expired job (an old
     push opened late) shows "This scan was deleted".
 - **My Plants** (`features/collection/collection_screen.dart`): undecided
-  scans from the undecided list appear in the same grid as **dashed cards** with
-  the countdown and Add / Dismiss on the card (mockup B), ahead of kept plants
-  *(my call: undecided first, newest first)*. Tapping the card body opens the
-  result screen. The countdown reads from `decide_by`; under an hour it shows
+  scans from the undecided list appear in the same grid as **short cards**
+  (above), ahead of kept plants *(my call: undecided first, newest first)*.
+  A short card may span the grid's full width, since it carries more than a
+  kept plant's card; the builder's call. The countdown reads from `decide_by`; under an hour it shows
   minutes. When it runs out, the card goes away without waiting for the sweep.
   The "N PLANTS IDENTIFIED" count covers kept plants only *(my call)*.
 - **Remove:** a kept plant gets a Remove action (on its detail screen, or a
