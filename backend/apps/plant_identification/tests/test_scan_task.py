@@ -234,13 +234,21 @@ def test_finished_job_is_not_reclaimed(user, fcm, django_capture_on_commit_callb
 
 @pytest.mark.django_db
 def test_stale_processing_job_expires(user):
+    # One active job per user (L5 constraint): the fresh one has its own user.
+    other = get_user_model().objects.create_user(
+        username="fresh", email="fresh@example.com", password="x" * 16
+    )
     job = _job(user)
-    fresh = _job(user)
+    fresh = _job(other)
     ScanJob.objects.filter(pk=job.pk).update(
         status="processing", created_at=timezone.now() - timedelta(minutes=11)
     )
+    ScanJob.objects.filter(pk=fresh.pk).update(
+        created_at=timezone.now() - timedelta(minutes=9)
+    )
 
     assert expire_stale_jobs(user.pk) == 1
+    assert expire_stale_jobs(other.pk) == 0
 
     job.refresh_from_db()
     fresh.refresh_from_db()
@@ -436,7 +444,11 @@ def test_stale_sweep_fails_every_users_stuck_jobs_and_pushes(
     )
     stuck = _job(user)
     stuck_other = _job(other)
-    fresh = _job(user)
+    fresh = _job(
+        get_user_model().objects.create_user(
+            username="fresh", email="fresh@example.com", password="x" * 16
+        )
+    )
     ScanJob.objects.filter(pk__in=[stuck.pk, stuck_other.pk]).update(
         status="processing", created_at=timezone.now() - timedelta(minutes=11)
     )
@@ -479,3 +491,16 @@ def test_stale_sweep_is_scheduled():
 
     entry = settings.CELERY_BEAT_SCHEDULE["scan-stale-sweep"]
     assert entry["task"] == "apps.plant_identification.tasks.expire_stale_scan_jobs"
+
+
+@pytest.mark.django_db
+def test_a_second_active_job_for_one_user_is_refused_by_the_db(user):
+    """L5: the invariant holds for writers that skip the create view's lock."""
+    from django.db import IntegrityError, transaction
+
+    _job(user)
+    with pytest.raises(IntegrityError), transaction.atomic():
+        ScanJob.objects.create(user=user, mode="identify", local_date=date(2026, 11, 2))
+    # A finished job does not block a new one.
+    ScanJob.objects.filter(user=user).update(status="done", charged_as="diagnose")
+    ScanJob.objects.create(user=user, mode="identify", local_date=date(2026, 11, 2))

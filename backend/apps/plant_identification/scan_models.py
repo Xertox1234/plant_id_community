@@ -51,6 +51,16 @@ class ScanJob(models.Model):
             models.Index(fields=["user", "local_date"], name="scanjob_user_date_idx"),
             models.Index(fields=["user", "status"], name="scanjob_user_status_idx"),
         ]
+        constraints = [
+            # The create view's row lock is what serializes creates; this
+            # makes "one running scan per user" hold for every other writer
+            # too (admin, shell, a future endpoint) (scan-2 audit L5).
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(status__in=("pending", "processing")),
+                name="scanjob_one_active_per_user",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"ScanJob {self.uuid} ({self.mode}, {self.status})"
