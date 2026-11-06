@@ -14,7 +14,7 @@
 
 - Decision values, exactly: `undecided`, `kept`, `dismissed`, `expired`, `removed`. "Erased" means `dismissed`, `expired` or `removed`.
 - Decide window: **24 hours** from `finished_at` (`SCAN_DECISION_WINDOW_HOURS = 24` in `constants.py`). The sweep runs every **15 minutes**.
-- New-client header on `POST scans/`: `X-Scan-Decisions: 1`. A job created **without** it starts `kept` (old TestFlight builds 17/18 auto-save). A job created with it starts `undecided`.
+- New-client header on `POST scans/`: `X-Scan-Decisions: 1`. A job created **without** it starts `kept` (old TestFlight builds 17/18 auto-save). A job created with it starts `undecided`. The field's **default is `kept`**, so a job an old build started before or during the deploy never becomes undecided.
 - **Dismiss and expiry never refund.** `status` and `charged_as` are left untouched. The only refund is `retry_of` on a `degraded` + `undecided` job owned by the caller: erased as `dismissed` and `charged_as=""`.
 - Erased jobs answer **404** (`code: not_found`) on retrieve and photos. They never answer 410.
 - Failed and cancelled scans: their photos are deleted when the job ends. Fails stay free (todo 698, no change).
@@ -52,7 +52,7 @@
 
 - Produces:
   - `ScanJob.DECISION_CHOICES`, `ScanJob.ERASED_DECISIONS = ("dismissed", "expired", "removed")`.
-  - Fields `decision = CharField(max_length=16, choices=…, default="undecided")` and `decided_at = DateTimeField(null=True, blank=True)`.
+  - Fields `decision = CharField(max_length=16, choices=…, default="kept")` and `decided_at = DateTimeField(null=True, blank=True)`.
   - Index `scanjob_user_decision_idx` on `(user, decision)`.
   - `constants.SCAN_DECISION_WINDOW_HOURS = 24`.
   - Serializer fields `decision` (read-only choice) and `decide_by` (ISO datetime or null: `finished_at + 24 h` only while `undecided` with `status in ("done","degraded")`).
@@ -60,13 +60,13 @@
 - [ ] **Step 1: Write failing tests.**
   - `test_decide_by_is_finished_plus_24h_for_undecided_done`: assert `data["decide_by"] == (finished_at + timedelta(hours=24))` in ISO form, and `data["decision"] == "undecided"`.
   - `test_decide_by_null_when_kept_or_failed`.
-  - Migration test `test_existing_finished_jobs_become_kept`: before 0032, create jobs with status `done`, `degraded`, `failed`, `pending`. After it, assert done → `kept`, degraded → `kept`, failed → `undecided`, pending → `undecided`.
+  - Migration test `test_existing_finished_jobs_become_kept`: before 0032, create jobs with status `done`, `degraded`, `failed`, `pending`. After it, assert that every one of them is `kept`, including a `pending` job, which an old build created and will auto-save.
 - [ ] **Step 2: Run them and see them fail.**
   Run: `venv/bin/python -m pytest apps/plant_identification/tests/test_scan_decisions.py apps/plant_identification/tests/test_scanjob_decision_migration.py -q`
   Expected: FAIL (`decision` unknown).
 - [ ] **Step 3: Implement.**
   - Add the fields and the index.
-  - Migration 0032: AddField and AddIndex, then a `RunPython` with `.filter(status__in=("done","degraded")).update(decision="kept")`. Reverse is a noop. No raw SQL.
+  - Migration 0032: AddField and AddIndex, with the `kept` default filling every existing row. No `RunPython` is needed. No raw SQL.
   - Add the serializer fields to `Meta.fields`.
 - [ ] **Step 4: Run Step 2 again, plus `makemigrations --check`.**
   Run: `venv/bin/python manage.py makemigrations --check --dry-run`
@@ -87,7 +87,7 @@
 - Produces:
   - `erase_scan(job_id: int, decision: str, *, from_decisions: tuple[str, ...], refund: bool = False) -> bool` in `scan_jobs.py`.
     - It runs in `transaction.atomic()`.
-    - It does a conditional `filter(pk=job_id, decision__in=from_decisions).update(decision=decision, decided_at=now, result=None, **({"charged_as": ""} if refund else {}))`.
+    - It does a conditional `filter(pk=job_id, decision__in=from_decisions, status__in=("done","degraded")).update(decision=decision, decided_at=now, result=None, **({"charged_as": ""} if refund else {}))`.
     - If the update hit no row, it returns False.
     - Otherwise it deletes `ScanJobImage.objects.filter(job_id=job_id)` one by one (`for img in qs: img.delete()`), so the existing `post_delete` signal removes each file on commit. Then it returns True.
   - `delete_scan_photos(job_ids: Iterable[int]) -> None`: the same per-row delete, with no decision change.
@@ -128,6 +128,7 @@
     - It calls `erase_scan(pk, "dismissed", from_decisions=("undecided",))`.
     - A job already erased is a 204 no-op.
     - A `kept` job answers 409 `code: "already_kept"`.
+    - A job that is not `done`/`degraded` answers 409 `code: "not_finished"`; the same goes for remove.
   - `POST scans/{uuid}/remove/` → 204.
     - It calls `erase_scan(pk, "removed", from_decisions=("kept","undecided"))`.
     - A job already erased is a 204 no-op.
@@ -142,6 +143,8 @@
   - `test_keep_after_dismiss_is_404` (an erased job is outside the queryset; assert 404 and the decision is still `dismissed`).
   - `test_dismiss_after_keep_is_409`.
   - `test_dismiss_twice_is_204`.
+  - `test_dismiss_processing_job_is_409` and `test_remove_processing_job_is_409` (`code: "not_finished"`; the photos are untouched).
+  - `test_dismiss_degraded_without_retry_keeps_identify_charge`: a plain dismiss of a half-result leaves `identify.remaining` unchanged.
   - `test_dismiss_leaves_allowance_remaining_unchanged`: the `GET scans/allowance/` `identify.remaining` / `diagnose.remaining` is equal before and after.
   - `test_dismissed_job_retrieve_and_photo_404`.
   - `test_remove_kept_erases_photos`.
@@ -254,6 +257,8 @@
 - Consumes: `ScanJobApi.create(..., retryOf:)` (Task 6).
 - Produces:
   - `_saveThenClear` becomes `_clearAfterFinish(ScanJob job, int gen)`, which only does the stored-id bookkeeping. The tracker no longer reads `firestoreServiceProvider`.
+  - **`ScanJobTracker.dismiss()` is unchanged and never calls the server.** It only forgets the job and hides the pill (the pill's X uses it). The only server dismiss is `ScanDecisions.dismiss` (Task 8). Do not wire one to the other.
+  - After `retry()` creates the new job, it invalidates `undecidedScansProvider` (Task 8), so the half-result's card leaves My Plants.
   - `retry()` passes `retryOf: state.job?.id` when the state is `ready` + `degraded`, and null when it is `failed`.
   - `submit(CaptureResult r, {String? retryOf})`.
 
@@ -283,7 +288,7 @@
       - Then it invalidates `undecidedScansProvider`.
     - `Future<void> dismiss(String jobId)`: the API dismiss, then it invalidates the list.
     - `Future<void> removePlant(Plant plant)`:
-      - It calls `deletePlant` first.
+      - It calls the API remove first, and stops on any error other than 404, so nothing changes offline. Only then does it call `deletePlant`. A plant with no scan job id skips the API step.
       - Then, if `jobIdFromPhotoUrl(plant.imageUrl) ?? plant.id` is a scan job id (that is, the URL matched), it calls the API remove.
       - It ignores a 404 from remove.
   - An `ApiException` from the server step propagates unchanged; the UI shows it.
@@ -291,7 +296,8 @@
 - [ ] **Step 1: Write failing tests.**
   - `keep calls api then firestore in that order`.
   - `keep does not write firestore when api keep fails`.
-  - `removePlant on a scan plant calls deletePlant and api remove`.
+  - `removePlant on a scan plant calls api remove then deletePlant in that order`.
+  - `removePlant does not delete the doc when api remove fails`.
   - `removePlant on a legacy plant calls only deletePlant`.
   - `dismiss invalidates the undecided list`.
 - [ ] **Step 2: Run them, see them fail. Step 3: Implement. Step 4: Run them, see them pass. Step 5: Commit** `feat(mobile): scan decisions provider (8/11)`.
@@ -351,6 +357,7 @@
 
 **What it does:**
 
+- A half-result's card passes `onTryAgain` (calling `ScanJobTracker.retry`) when the tracker is `ready` with that job id, `degraded`, and still holding `lastCapture`. Use the same predicate as `scan_result_screen.dart`'s `canRetry`.
 - Undecided cards render as full-width `ShortScanCard`s in a sliver above the grid, newest first, and View pushes `/scans/:id/full`.
 - A card whose `decideBy` has passed is filtered out at build time. A 1-minute `Timer.periodic` in a small `StatefulWidget` wrapper rebuilds the countdown and drops expired cards.
 - A list fetch error hides the section; the kept grid still shows.
@@ -374,8 +381,8 @@
 - Modify: `CLAUDE.md`.
   - `SCAN_DIAGNOSE_DAILY_*` row: add "a dismissed or expired scan still counts; Try again on a half-result hands its identification back".
   - `SCAN_JOB_STALE_MINUTES` row: name the new `scan-decision-sweep` (15 min, 24 h window).
-- Move: `todos/698-pending-p2-scan-free-plant-id-spend-rule.md`. Set it to complete with the resolution "no change, owner decision 2026-11-06: fails are free", and archive it the way `completing-todos` does (check `todos/` for the archive folder convention).
-- Move: `todos/699-…`. Set it to complete with the resolution "done by keep-or-dismiss (dismiss/expiry erase, failed/cancelled erase at end)".
+- Move: `todos/698-pending-p2-scan-free-plant-id-spend-rule.md`. `git mv` it to `todos/archive/698-completed-p2-scan-free-plant-id-spend-rule.md`. Set `status: completed` and add `owner_decision: "Fails are free: no change (2026-11-06)"` to the frontmatter, matching `todos/archive/697-…`. Append a dated Work Log entry, and run `git add` on the new path after editing (see the `git mv` rule).
+- Move: `todos/699-…`. Archive it the same way, as `todos/archive/699-completed-p2-scan-photo-retention.md`, with `owner_decision: "Retention settled by keep-or-dismiss: dismiss/24 h expiry erase; failed/cancelled erased at end; kept until removed (2026-11-06)"`.
 - Modify: `docs/rules/api.md`, one bullet: "Erasing a scan never deletes its `ScanJob` row before its allowance window passes: the allowance counts rows."
 
 - [ ] **Step 1: Make the doc edits.**
