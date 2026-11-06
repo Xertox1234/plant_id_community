@@ -8,6 +8,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/scan/capture_session.dart';
 import 'package:plant_community_mobile/features/scan/capture_steps.dart';
+import 'package:plant_community_mobile/features/scan/scan_decisions.dart';
 import 'package:plant_community_mobile/features/scan/scan_job_api.dart';
 import 'package:plant_community_mobile/features/scan/scan_job_tracker.dart';
 import 'package:plant_community_mobile/features/scan/shot_files.dart';
@@ -76,6 +77,14 @@ class _FakeScanJobApi extends ScanJobApi {
 
   /// The `retryOf` each `create` call received, in order.
   final retryOfs = <String?>[];
+  int undecidedCalls = 0;
+
+  @override
+  Future<List<ScanJob>> undecided() async {
+    undecidedCalls++;
+    return const [];
+  }
+
   ScanAllowance allowanceValue = _allowance();
   Object? createError;
   Completer<void>? createGate;
@@ -653,8 +662,9 @@ void main() {
     h.container.dispose();
   });
 
-  testWidgets('a locally refused new scan from ready leaves the result shown',
-      (tester) async {
+  testWidgets('a locally refused new scan from ready leaves the result shown', (
+    tester,
+  ) async {
     final h = _Harness();
     await h.tracker.restored;
     h.api.gets.add(_job(ScanJobStatus.done));
@@ -1001,6 +1011,31 @@ void main() {
       await h.tracker.retry();
 
       expect(h.api.retryOfs, [null, _jobId]);
+      h.container.dispose();
+    });
+
+    testWidgets('retry of a degraded job refreshes the undecided list', (
+      tester,
+    ) async {
+      final h = _Harness();
+      await h.tracker.restored;
+      h.container.listen(undecidedScansProvider, (_, _) {});
+      await h.container.read(undecidedScansProvider.future);
+      expect(h.api.undecidedCalls, 1);
+
+      h.api.gets.add(_job(ScanJobStatus.degraded));
+      await h.tracker.submit(_capture);
+      await h.tick(tester);
+      h.api.createJob = _job(ScanJobStatus.pending, id: _otherJobId);
+      h.api.gets
+        ..clear()
+        ..add(_job(ScanJobStatus.processing, id: _otherJobId));
+      await h.tracker.retry();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+      await h.container.read(undecidedScansProvider.future);
+
+      expect(h.api.undecidedCalls, 2);
       h.container.dispose();
     });
 
