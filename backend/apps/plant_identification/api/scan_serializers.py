@@ -130,6 +130,14 @@ class ScanJobCreateSerializer(serializers.Serializer):
         required=False,
         help_text="Minutes east of UTC (-840..840); absent or invalid means UTC.",
     )
+    retry_of = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "UUID of a degraded, undecided scan of yours being retried: it is "
+            "dismissed and its identify charge refunded. Anything else is ignored."
+        ),
+    )
     problem = serializers.ImageField(
         required=False, help_text="Close-up of the problem. Required for diagnose."
     )

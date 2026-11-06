@@ -993,6 +993,7 @@ CORS_ALLOW_HEADERS = [
     # 24h. Caught by web/e2e/forum-image-upload.spec.js (todo 357); jsdom cannot
     # see it because it does not enforce CORS.
     "idempotency-key",
+    "x-scan-decisions",  # Scan keep-or-dismiss opt-in (new clients send "1")
     "x-request-id",  # For distributed tracing (httpClient)
     "x-requested-with",
 ]

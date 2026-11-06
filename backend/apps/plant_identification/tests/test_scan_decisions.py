@@ -376,3 +376,121 @@ def test_other_users_job_keep_dismiss_remove_404(roots, action):
     job.refresh_from_db()
     assert job.decision == "undecided"
     assert job.images.count() == 1
+
+
+# --- Create: new-client header and retry_of (4/11) ---------------------------
+
+from unittest.mock import patch  # noqa: E402
+
+from apps.plant_identification.services.quota_manager import QuotaManager  # noqa: E402
+from django.core.files.uploadedfile import SimpleUploadedFile  # noqa: E402
+
+
+@pytest.fixture(autouse=False)
+def create_env(roots):
+    with (
+        patch.object(QuotaManager, "can_call_plant_id", return_value=True),
+        patch("apps.plant_identification.api.scan_views.validate_image_file"),
+        patch("apps.plant_identification.api.scan_views._enqueue_scan_job"),
+    ):
+        yield
+
+
+def _upload(name="leaf"):
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (40, 120, 40)).save(buf, "JPEG")
+    return SimpleUploadedFile(f"{name}.jpg", buf.getvalue(), content_type="image/jpeg")
+
+
+def _post_create(client, retry_of=None, header=True):
+    data = {"mode": "identify", "leaf": _upload()}
+    if retry_of is not None:
+        data["retry_of"] = str(retry_of)
+    extra = {"HTTP_X_SCAN_DECISIONS": "1"} if header else {}
+    return client.post(BASE, data, format="multipart", **extra)
+
+
+@pytest.mark.django_db
+def test_create_with_header_starts_undecided(create_env):
+    response = _post_create(_client(_owner()))
+    assert response.status_code == 201
+    assert ScanJob.objects.get(uuid=response.data["id"]).decision == "undecided"
+
+
+@pytest.mark.django_db
+def test_create_without_header_starts_kept(create_env):
+    response = _post_create(_client(_owner()), header=False)
+    assert response.status_code == 201
+    assert ScanJob.objects.get(uuid=response.data["id"]).decision == "kept"
+
+
+@pytest.mark.django_db
+def test_retry_of_degraded_refunds_identify_and_erases(
+    create_env, django_capture_on_commit_callbacks
+):
+    user = _owner()
+    job = _api_job(user, status="degraded", charged_as="identify")
+    client = _client(user)
+    before = client.get(BASE + "allowance/").data["identify"]["remaining"]
+    with django_capture_on_commit_callbacks(execute=True):
+        response = _post_create(client, retry_of=job.uuid)
+    assert response.status_code == 201
+    job.refresh_from_db()
+    assert job.decision == "dismissed"
+    assert job.charged_as == ""
+    assert ScanJobImage.objects.filter(job=job).count() == 0
+    # The new scan holds one slot, the degraded one was refunded: net zero,
+    # where a create without retry_of would have lowered it by one.
+    after = client.get(BASE + "allowance/").data["identify"]["remaining"]
+    assert after == before
+
+
+@pytest.mark.django_db
+def test_create_without_retry_lowers_remaining(create_env):
+    user = _owner()
+    _api_job(user, status="degraded", charged_as="identify")
+    client = _client(user)
+    before = client.get(BASE + "allowance/").data["identify"]["remaining"]
+    assert _post_create(client).status_code == 201
+    after = client.get(BASE + "allowance/").data["identify"]["remaining"]
+    assert after == before - 1
+
+
+@pytest.mark.django_db
+def test_retry_of_done_job_ignored(create_env):
+    user = _owner()
+    job = _api_job(user, status="done")
+    response = _post_create(_client(user), retry_of=job.uuid)
+    assert response.status_code == 201
+    job.refresh_from_db()
+    assert job.decision == "undecided"
+    assert job.charged_as == "identify"
+    assert ScanJobImage.objects.filter(job=job).count() == 1
+
+
+@pytest.mark.django_db
+def test_retry_of_already_decided_degraded_ignored(create_env):
+    user = _owner()
+    job = _api_job(user, status="degraded", decision="kept")
+    assert _post_create(_client(user), retry_of=job.uuid).status_code == 201
+    job.refresh_from_db()
+    assert job.decision == "kept"
+    assert job.charged_as == "identify"
+
+
+@pytest.mark.django_db
+def test_retry_of_other_users_job_ignored(create_env):
+    other = _owner("other")
+    job = _api_job(other, status="degraded", charged_as="identify")
+    response = _post_create(_client(_owner()), retry_of=job.uuid)
+    assert response.status_code == 201
+    job.refresh_from_db()
+    assert job.decision == "undecided"
+    assert job.charged_as == "identify"
+    assert ScanJobImage.objects.filter(job=job).count() == 1
+
+
+@pytest.mark.django_db
+def test_retry_of_garbage_ignored_201(create_env):
+    response = _post_create(_client(_owner()), retry_of="not-a-uuid")
+    assert response.status_code == 201

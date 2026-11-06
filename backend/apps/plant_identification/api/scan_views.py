@@ -11,6 +11,7 @@ serialized: the second sees the first's active job (409) or its spent slot
 from __future__ import annotations
 
 import logging
+import uuid as uuid_module
 from datetime import timedelta
 from typing import Any, Dict
 
@@ -392,6 +393,16 @@ class ScanJobViewSet(GenericViewSet):
         if mode not in SCAN_MODE_ROLES:
             raise ValidationError({"mode": ["Must be diagnose or identify."]})
         offset = parse_utc_offset(request.data.get("utc_offset_minutes"))
+        # New clients send the header and decide each scan themselves; an old
+        # build does not, so its scans stay kept and its photos are never swept.
+        decision = (
+            "undecided" if request.headers.get("X-Scan-Decisions") == "1" else "kept"
+        )
+        # retry_of is lenient on purpose: anything unusable is ignored, never a 400.
+        try:
+            retry_of = uuid_module.UUID(str(request.data.get("retry_of", "")))
+        except ValueError:
+            retry_of = None
 
         refused = self._refusal(request, request.user, mode)
         if refused is not None:
@@ -413,7 +424,22 @@ class ScanJobViewSet(GenericViewSet):
                     mode=mode,
                     local_date=local_date_for(offset),
                     utc_offset_minutes=offset,
+                    decision=decision,
                 )
+                if retry_of is not None:
+                    # Try again on a degraded scan: refund its identify charge.
+                    # Inside the lock and after the refusal re-check, so a
+                    # refused create refunds nothing.
+                    target = ScanJob.objects.filter(
+                        user=user, uuid=retry_of, status="degraded"
+                    ).first()
+                    if target is not None:
+                        erase_scan(
+                            target.pk,
+                            "dismissed",
+                            from_decisions=("undecided",),
+                            refund=True,
+                        )
                 for role, photo in photos.items():
                     image = ScanJobImage.objects.create(job=job, role=role, image=photo)
                     if image.image.name:
