@@ -94,6 +94,7 @@ class _FakeScanJobApi extends ScanJobApi {
   @override
   Future<ScanJob> create(
     CaptureResult r, {
+    String? retryOf,
     void Function(double)? onProgress,
   }) async {
     calls.add('create');

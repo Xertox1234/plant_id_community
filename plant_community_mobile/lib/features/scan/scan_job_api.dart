@@ -27,6 +27,22 @@ enum ScanJobStatus {
       this == ScanJobStatus.done || this == ScanJobStatus.degraded;
 }
 
+/// What the user has decided about a finished scan. An unknown or missing
+/// value from the server reads as [kept], so an old server never shows a
+/// countdown.
+enum ScanDecision {
+  undecided,
+  kept,
+  dismissed,
+  expired,
+  removed;
+
+  static ScanDecision parse(Object? raw) => ScanDecision.values.firstWhere(
+    (d) => d.name == raw,
+    orElse: () => ScanDecision.kept,
+  );
+}
+
 /// The health verdict of a diagnose scan. [state] is `found`, `healthy` or
 /// `unavailable` (the health check could not run).
 class ScanDiagnosis {
@@ -94,6 +110,8 @@ class ScanJob {
     required this.photos,
     required this.coverPhoto,
     required this.createdAt,
+    this.decision = ScanDecision.kept,
+    this.decideBy,
   });
 
   final String id;
@@ -109,6 +127,12 @@ class ScanJob {
   final Map<CaptureRole, String> photos;
   final String? coverPhoto;
   final DateTime createdAt;
+
+  /// Whether the user still has to keep or dismiss this scan.
+  final ScanDecision decision;
+
+  /// When an undecided scan expires; null once decided.
+  final DateTime? decideBy;
 
   factory ScanJob.fromJson(Map<String, dynamic> json) {
     final result = json['result'];
@@ -133,6 +157,10 @@ class ScanJob {
       },
       coverPhoto: json['cover_photo'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
+      decision: ScanDecision.parse(json['decision']),
+      decideBy: json['decide_by'] is String
+          ? DateTime.parse(json['decide_by'] as String)
+          : null,
     );
   }
 }
@@ -238,6 +266,7 @@ class ScanJobApi {
   /// [ApiException]. [onProgress] reports the upload as 0..1.
   Future<ScanJob> create(
     CaptureResult r, {
+    String? retryOf,
     void Function(double)? onProgress,
   }) async {
     final form = FormData();
@@ -249,6 +278,7 @@ class ScanJobApi {
           DateTime.now().timeZoneOffset.inMinutes.toString(),
         ),
       );
+    if (retryOf != null) form.fields.add(MapEntry('retry_of', retryOf));
     for (final e in r.shots.entries) {
       form.files.add(
         MapEntry(
@@ -267,6 +297,7 @@ class ScanJobApi {
       final response = await _api.post(
         _base,
         data: form,
+        options: Options(headers: {'X-Scan-Decisions': '1'}),
         receiveTimeout: slowAnalysisReceiveTimeout,
         onSendProgress: onProgress == null
             ? null
@@ -287,6 +318,43 @@ class ScanJobApi {
 
   Future<ScanJob> cancel(String id) async =>
       ScanJob.fromJson(_object(await _api.post('$_base$id/cancel/')));
+
+  Future<ScanJob> keep(String id) async =>
+      ScanJob.fromJson(_object(await _api.post('$_base$id/keep/')));
+
+  Future<void> dismiss(String id) async {
+    await _api.post('$_base$id/dismiss/');
+  }
+
+  Future<void> remove(String id) async {
+    await _api.post('$_base$id/remove/');
+  }
+
+  /// Finished scans still waiting for keep or dismiss.
+  Future<List<ScanJob>> undecided() async {
+    final response = await _api.get(
+      _base,
+      queryParameters: {'decision': 'undecided'},
+    );
+    final data = response.data;
+    if (data is! List) {
+      throw ApiException('The server sent an unexpected response.');
+    }
+    return [for (final j in data) ScanJob.fromJson(j as Map<String, dynamic>)];
+  }
+
+  static final _photoUrlId = RegExp(
+    r'/scans/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/photos/',
+  );
+
+  /// The job uuid in one of our photo URLs, or null for anything else (a
+  /// Firebase Storage URL, null, empty).
+  static String? jobIdFromPhotoUrl(String? url) {
+    if (url == null || url.isEmpty) return null;
+    final path = Uri.tryParse(url)?.path;
+    if (path == null) return null;
+    return _photoUrlId.firstMatch(path)?.group(1);
+  }
 
   /// URL of one stored photo. It needs the bearer token to load.
   String photoUrl(String id, CaptureRole role) =>
