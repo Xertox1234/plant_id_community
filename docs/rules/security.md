@@ -539,3 +539,17 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   either leaks the token or loses the SMTP detail. Check every mail path:
   `send_email`, the newsletter confirmation and the digest each needed it
   (todo 649, PR #1121; `docs/LEARNINGS.md` 2026-10-13).
+- **A tool that deletes "unused" files fails closed on everything it cannot
+  prove.** Three rules, all from one cleanup script (todo 697, PR #1282;
+  `docs/LEARNINGS.md` 2026-11-05):
+  - Compare in-use paths case-insensitively (`casefold()`) on macOS volumes:
+    APFS ignores case and `realpath` keeps a link's own spelling, so `build/G1`
+    and `build/g1` are one folder. A case-exact match calls the in-use one an
+    orphan. Folding can only make more entries live.
+  - An entry whose age or contents cannot be read is never deleted: raise from
+    the walk (`os.walk(..., onerror=…)` that re-raises), report it, skip it.
+    An error reading the in-use list itself (anything but `FileNotFoundError` /
+    `NotADirectoryError`) aborts the whole run with nothing deleted.
+  - A number that gates a delete (minimum age, size, count) rejects `nan`,
+    `inf` and negatives with `math.isfinite` at parse time. `age < nan` is
+    always `False`, so `--min-age nan` made every orphan old enough.

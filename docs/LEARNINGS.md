@@ -7571,3 +7571,28 @@ the tests wins in the main checkout, any worktree and CI alike.
 in a worktree still import the main checkout's copy, so the prefix (and `scripts/todos/slot_env.py`,
 which sets it) still has a job there. The entries above from 2026-07-11 and 2026-07-17 stay true for
 those tools.
+
+## 2026-11-05 — A cleanup script's review found three ways to delete a folder still in use (todo 697, #1282)
+
+**What broke (in review, before merge).** `scripts/clean_build_output.py` deletes folders under
+U34Bolt's `plant_id_community/build/` that no worktree's `build` symlink points to. Review rounds 1
+and 2 found three ways for a live folder to qualify for deletion:
+
+1. **Case.** Liveness compared `realpath` strings exactly. U34Bolt is case-insensitive APFS, and
+   `realpath` keeps a link's own letter case, so a link to `build/G1` did not match the folder
+   listed as `build/g1`; the folder in use read as an orphan.
+2. **Unreadable state read as safe.** A folder the walk could not enter had an unknown newest mtime,
+   so it could look old. A worktree link `lstat` could not read (permission error) dropped that
+   worktree from the in-use list, exposing its folder.
+3. **`nan`.** `--min-age` was a plain float. Every comparison with `nan` is `False`, so
+   `--min-age nan` skipped the 2-day wait.
+
+**Fix.** Casefold both sides before comparing (`_related`). `measure()` walks with an `onerror`
+that re-raises; the entry is reported `unreadable, never deleted`. Any `lstat` error on a link other
+than `FileNotFoundError`/`NotADirectoryError` aborts the run, exit 1, nothing deleted. `--min-age`
+parses through `math.isfinite` and rejects negatives (exit 2). Each fix has a test, and each test was
+mutation-checked (reverting the fix makes it fail).
+
+**Rule.** A deleter is only as safe as its "in use" check: when that check cannot prove an entry is
+unused, the entry is in use. Recorded as a `docs/rules/security.md` bullet. No write-time trigger:
+the lesson has no textual signature (`type=float` alone fires on harmless arguments).
