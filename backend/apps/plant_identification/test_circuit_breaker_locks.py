@@ -34,7 +34,7 @@ def reset_circuit_breaker():
 # claim against the REAL Redis quota counters, and since failed Plant.id calls
 # are counted (scan-2 audit M3) each run left residue there and could cross
 # the 3/day cap mid-run. The claim and refund are no-ops here instead.
-def _ROOMY_QUOTA(cls):
+def _NO_QUOTA_CLAIMS(cls):
     cls = patch.object(
         QuotaManager, "reserve_plant_id", new=lambda self, calls=1, reserve=0: True
     )(cls)
@@ -43,7 +43,7 @@ def _ROOMY_QUOTA(cls):
     )
 
 
-@_ROOMY_QUOTA
+@_NO_QUOTA_CLAIMS
 class CircuitBreakerTests(TestCase):
     """Test circuit breaker behavior in PlantIDAPIService."""
 
@@ -164,7 +164,7 @@ class CircuitBreakerTests(TestCase):
         self.assertIn("reset_timeout", stats)
 
 
-@_ROOMY_QUOTA
+@_NO_QUOTA_CLAIMS
 class DistributedLockTests(TestCase):
     """Test distributed lock implementation for cache stampede prevention."""
 
@@ -334,7 +334,7 @@ class DistributedLockTests(TestCase):
         self.assertGreater(api_call_count["count"], 0)
 
 
-@_ROOMY_QUOTA
+@_NO_QUOTA_CLAIMS
 class IntegrationTests(TestCase):
     """Integration tests for circuit breaker + distributed locks."""
 

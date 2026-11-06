@@ -22,8 +22,13 @@ class LiveTokenFileService extends HttpFileService {
 
   @override
   Future<FileServiceResponse> get(String url, {Map<String, String>? headers}) {
+    // The captured Authorization is never sent: after a sign-out it would be
+    // the previous user's token. Only the token held now goes out, and none
+    // when there is none.
+    final merged = {...?headers}..remove('Authorization');
     final live = ApiImage.headersFor(_api(), url);
-    return super.get(url, headers: {...?headers, ...?live});
+    if (live != null) merged.addAll(live);
+    return super.get(url, headers: merged);
   }
 }
 

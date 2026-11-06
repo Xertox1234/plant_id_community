@@ -159,6 +159,26 @@ void main() {
 
     expect(sent, 'Bearer refreshed');
   });
+  test('after sign-out no token goes out, not even the one captured at '
+      'build', () async {
+    final api = ApiService(baseUrl: '$_origin/api/v1', authToken: null);
+    Map<String, String>? sent;
+    final service = LiveTokenFileService(
+      () => api,
+      httpClient: MockClient((request) async {
+        sent = request.headers;
+        return http.Response('', 401);
+      }),
+    );
+
+    await service.get(
+      '$_origin/api/v1/x/photos/leaf/',
+      headers: {'Authorization': 'Bearer old', 'Accept': 'image/*'},
+    );
+
+    expect(sent!.containsKey('Authorization'), isFalse);
+    expect(sent!['Accept'], 'image/*');
+  });
 }
 
 /// The signed-in user, switchable mid-test.
