@@ -7,6 +7,8 @@ import pytest
 from apps.plant_identification.constants import (
     QUOTA_KEY_PREFIX_PLANT_ID_DAILY,
     QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY,
+    QUOTA_KEY_PREFIX_PLANTNET_DAILY,
+    QUOTA_KEY_PREFIX_PLANTNET_HOURLY,
 )
 from apps.plant_identification.services.plant_id_service import PlantIDAPIService
 from apps.plant_identification.services.quota_manager import QuotaManager
@@ -19,6 +21,7 @@ class FakeRedis:
 
     def __init__(self):
         self.store: dict[str, int] = {}
+        self.ttls: dict[str, int] = {}
 
     def ping(self):
         return True
@@ -30,8 +33,17 @@ class FakeRedis:
         self.store[key] = self.store.get(key, 0) + amount
         return self.store[key]
 
+    def incr(self, key):
+        return self.incrby(key, 1)
+
     def expire(self, key, ttl):
+        self.ttls[key] = ttl
         return True
+
+    def ttl(self, key):
+        if key not in self.store:
+            return -2
+        return self.ttls.get(key, -1)
 
 
 @pytest.fixture
@@ -99,6 +111,37 @@ def test_increment_adds_calls_to_both_counters(quota, redis_fake):
     quota.increment_plant_id(calls=2)
     assert quota.get_plant_id_daily_usage() == 2
     assert quota.get_plant_id_monthly_usage() == 2
+
+
+def test_increment_gives_new_counters_an_expiry(quota, redis_fake):
+    quota.increment_plant_id(calls=2)
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANT_ID_DAILY) > 0
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY) > 0
+
+
+def test_increment_repairs_a_counter_that_lost_its_expiry(quota, redis_fake):
+    # A crash between INCRBY and EXPIRE left a counter that never resets;
+    # the old "set TTL only when count == calls" never repaired it.
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_DAILY] = 1
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY] = 1
+    quota.increment_plant_id(calls=1)
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANT_ID_DAILY) > 0
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY) > 0
+
+
+def test_increment_keeps_an_existing_expiry(quota, redis_fake):
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_DAILY] = 1
+    redis_fake.ttls[QUOTA_KEY_PREFIX_PLANT_ID_DAILY] = 42
+    quota.increment_plant_id(calls=1)
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANT_ID_DAILY) == 42
+
+
+def test_plantnet_increment_repairs_a_counter_that_lost_its_expiry(quota, redis_fake):
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANTNET_HOURLY] = 5
+    redis_fake.store[QUOTA_KEY_PREFIX_PLANTNET_DAILY] = 5
+    quota.increment_plantnet()
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANTNET_HOURLY) == 3600
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANTNET_DAILY) > 0
 
 
 def test_diagnosis_counts_two_calls(service, quota):

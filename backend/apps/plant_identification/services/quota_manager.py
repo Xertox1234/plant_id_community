@@ -94,6 +94,20 @@ class QuotaManager:
             next_month = datetime(now.year, now.month + 1, 1)
         return int((next_month - now).total_seconds())
 
+    def _ensure_ttl(self, key: str, seconds: int) -> None:
+        """Give ``key`` an expiry if it has none.
+
+        Checked after every increment, not only the first: an increment whose
+        EXPIRE never ran (a crash between the two commands, or a Redis error)
+        would otherwise leave a counter that never resets, and the API would
+        stay "over quota" until someone deleted the key by hand. TTL -1 means
+        no expiry. Works on every Redis version (EXPIRE NX needs 7.0).
+        """
+        client = self.redis_client
+        if client is not None and cast(int, client.ttl(key)) < 0:
+            client.expire(key, seconds)
+            logger.info(f"[QUOTA] {key} expiry set ({seconds}s)")
+
     # =========================================================================
     # Plant.id Quota Management
     # =========================================================================
@@ -187,25 +201,17 @@ class QuotaManager:
             daily_count = cast(
                 int, self.redis_client.incrby(QUOTA_KEY_PREFIX_PLANT_ID_DAILY, calls)
             )
-            if daily_count == calls:
-                # First call today - set expiration to midnight
-                ttl = self._seconds_until_midnight()
-                self.redis_client.expire(QUOTA_KEY_PREFIX_PLANT_ID_DAILY, ttl)
-                logger.info(
-                    f"[QUOTA] Plant.id daily counter started (expires in {ttl}s)"
-                )
+            self._ensure_ttl(
+                QUOTA_KEY_PREFIX_PLANT_ID_DAILY, self._seconds_until_midnight()
+            )
 
             # Increment monthly counter
             monthly_count = cast(
                 int, self.redis_client.incrby(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY, calls)
             )
-            if monthly_count == calls:
-                # First call this month - set expiration to end of month
-                ttl = self._seconds_until_month_end()
-                self.redis_client.expire(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY, ttl)
-                logger.info(
-                    f"[QUOTA] Plant.id monthly counter started (expires in {ttl}s)"
-                )
+            self._ensure_ttl(
+                QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY, self._seconds_until_month_end()
+            )
 
             # Log current usage
             logger.info(
@@ -319,24 +325,15 @@ class QuotaManager:
             hourly_count = cast(
                 int, self.redis_client.incr(QUOTA_KEY_PREFIX_PLANTNET_HOURLY)
             )
-            if hourly_count == 1:
-                # First call this hour - set expiration to 1 hour
-                self.redis_client.expire(QUOTA_KEY_PREFIX_PLANTNET_HOURLY, 3600)
-                logger.info(
-                    "[QUOTA] PlantNet hourly counter started (expires in 3600s)"
-                )
+            self._ensure_ttl(QUOTA_KEY_PREFIX_PLANTNET_HOURLY, 3600)
 
             # Increment daily counter
             daily_count = cast(
                 int, self.redis_client.incr(QUOTA_KEY_PREFIX_PLANTNET_DAILY)
             )
-            if daily_count == 1:
-                # First call today - set expiration to midnight
-                ttl = self._seconds_until_midnight()
-                self.redis_client.expire(QUOTA_KEY_PREFIX_PLANTNET_DAILY, ttl)
-                logger.info(
-                    f"[QUOTA] PlantNet daily counter started (expires in {ttl}s)"
-                )
+            self._ensure_ttl(
+                QUOTA_KEY_PREFIX_PLANTNET_DAILY, self._seconds_until_midnight()
+            )
 
             # Log current usage
             logger.info(
