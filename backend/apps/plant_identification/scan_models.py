@@ -29,6 +29,15 @@ class ScanJob(models.Model):
         ("cancelled", "Cancelled"),
     ]
     CHARGED_AS_CHOICES = SCAN_MODE_CHOICES
+    DECISION_CHOICES = [
+        ("undecided", "Undecided"),
+        ("kept", "Kept"),
+        ("dismissed", "Dismissed"),
+        ("expired", "Expired"),
+        ("removed", "Removed"),
+    ]
+    # Decisions after which the scan's photos and result are erased.
+    ERASED_DECISIONS = ("dismissed", "expired", "removed")
 
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     user = models.ForeignKey(
@@ -45,11 +54,17 @@ class ScanJob(models.Model):
     notified_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    # Default "kept": rows written by an old build (which auto-saves every
+    # scan) and by any non-decision writer stay kept; new-flow jobs are
+    # created "undecided" explicitly.
+    decision = models.CharField(max_length=16, choices=DECISION_CHOICES, default="kept")
+    decided_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [
             models.Index(fields=["user", "local_date"], name="scanjob_user_date_idx"),
             models.Index(fields=["user", "status"], name="scanjob_user_status_idx"),
+            models.Index(fields=["user", "decision"], name="scanjob_user_decision_idx"),
         ]
         constraints = [
             # The create view's row lock is what serializes creates; this
