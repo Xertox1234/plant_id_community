@@ -639,3 +639,15 @@ def test_invalid_mode_is_400_even_with_an_active_job():
     response = client.post(BASE, {"mode": "bogus"}, format="multipart")
     assert response.status_code == 400
     assert "mode" in response.data["errors"]
+
+
+@pytest.mark.django_db
+def test_photo_whose_object_is_gone_is_404_not_500(tmp_path):
+    """L1: a row whose stored object was deleted answers the documented 404."""
+    client = _client(_user())
+    job_id = _create(client).data["id"]
+    for path in (tmp_path / "private").rglob("problem.jpg"):
+        path.unlink()
+    response = client.get(f"{BASE}{job_id}/photos/problem/")
+    assert response.status_code == 404
+    assert response.data["code"] == "not_found"

@@ -461,7 +461,16 @@ class ScanJobViewSet(GenericViewSet):
         image = ScanJobImage.objects.filter(job=job, role=role).first()
         if image is None or not image.image.name:
             raise NotFound("No photo for that role.")
-        handle = scan_photo_storage().open(image.image.name, "rb")
+        try:
+            handle = scan_photo_storage().open(image.image.name, "rb")
+        except FileNotFoundError:
+            # The row outlived its object (django-storages maps an S3 404 to
+            # FileNotFoundError, as FileSystemStorage does): the documented
+            # 404, not a 500. Other storage errors still surface (L1).
+            logger.warning(
+                "[SCAN] Photo object missing for job=%s role=%s", job.pk, role
+            )
+            raise NotFound("No photo for that role.") from None
         response = FileResponse(handle, content_type="image/jpeg")
         response["Cache-Control"] = SCAN_PHOTO_CACHE_CONTROL
         return response
