@@ -206,6 +206,25 @@ void main() {
       expect(router.canPop(), isFalse);
     });
 
+    testWidgets('a double tap retries once (L10)', (tester) async {
+      final job = _job(ScanJobStatus.degraded, result: _result);
+      await _pumpPushed(tester, job, tracker: _trackerAt(job));
+
+      await tester.tap(find.byKey(ResultsScreen.retryKey));
+      await tester.pump(); // the pop has started; the button is still there
+      expect(find.byKey(ResultsScreen.retryKey), findsOneWidget);
+      expect(
+        find.byKey(ResultsScreen.retryKey).hitTestable(),
+        findsNothing,
+        reason: 'the popping route ignores pointers',
+      );
+      await tester.tap(find.byKey(ResultsScreen.retryKey), warnIfMissed: false);
+      await _settle(tester);
+
+      expect(_tracker.calls.where((c) => c == 'retry'), hasLength(1));
+      expect(find.text('home-page'), findsOneWidget);
+    });
+
     testWidgets('hidden once the capture is gone (after a kill)', (
       tester,
     ) async {
