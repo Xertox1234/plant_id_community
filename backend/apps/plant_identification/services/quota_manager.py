@@ -14,6 +14,7 @@ Features:
 
 import logging
 from datetime import datetime, time, timedelta
+from datetime import timezone as dt_timezone
 from typing import Any, Dict, Optional, cast
 
 from django.conf import settings
@@ -75,8 +76,10 @@ class QuotaManager:
         Returns:
             Seconds until next midnight UTC
         """
-        now = datetime.utcnow()
-        tomorrow = datetime.combine(now.date() + timedelta(days=1), time.min)
+        now = datetime.now(dt_timezone.utc)
+        tomorrow = datetime.combine(
+            now.date() + timedelta(days=1), time.min, tzinfo=dt_timezone.utc
+        )
         return int((tomorrow - now).total_seconds())
 
     def _seconds_until_month_end(self) -> int:
@@ -86,12 +89,12 @@ class QuotaManager:
         Returns:
             Seconds until end of current month UTC
         """
-        now = datetime.utcnow()
+        now = datetime.now(dt_timezone.utc)
         # Get first day of next month
         if now.month == 12:
-            next_month = datetime(now.year + 1, 1, 1)
+            next_month = datetime(now.year + 1, 1, 1, tzinfo=dt_timezone.utc)
         else:
-            next_month = datetime(now.year, now.month + 1, 1)
+            next_month = datetime(now.year, now.month + 1, 1, tzinfo=dt_timezone.utc)
         return int((next_month - now).total_seconds())
 
     def _ensure_ttl(self, key: str, seconds: int) -> None:

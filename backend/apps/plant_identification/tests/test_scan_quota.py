@@ -276,3 +276,14 @@ def test_failed_health_assessment_still_counts_two_calls(service, quota):
     # both claimed calls are kept, not refunded.
     assert quota.get_plant_id_daily_usage() == 2
     assert quota.get_plant_id_monthly_usage() == 2
+
+
+def test_ttl_helpers_count_to_utc_midnight_and_month_end(quota):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-12-31T23:00:00Z"):
+        assert quota._seconds_until_midnight() == 3600
+        assert quota._seconds_until_month_end() == 3600
+    with freeze_time("2026-11-05T12:00:00Z"):
+        assert quota._seconds_until_midnight() == 12 * 3600
+        assert quota._seconds_until_month_end() == (25 * 24 + 12) * 3600
