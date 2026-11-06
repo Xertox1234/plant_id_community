@@ -522,3 +522,77 @@ def test_retry_of_degraded_diagnosis_with_diagnose_retry(
     after = client.get(BASE + "allowance/").data
     assert after["identify"]["remaining"] == before["identify"]["remaining"] + 1
     assert after["diagnose"]["remaining"] == before["diagnose"]["remaining"] - 1
+
+
+# --- Task 5: expiry beat -------------------------------------------------
+
+from apps.plant_identification.scan_jobs import expire_undecided_jobs  # noqa: E402
+from django.conf import settings as dj_settings  # noqa: E402
+from freezegun import freeze_time  # noqa: E402
+
+
+def _expiry_job(**fields):
+    return _api_job(_owner("expirer"), **fields)
+
+
+@pytest.mark.django_db
+def test_expiry_erases_after_24h(roots, django_capture_on_commit_callbacks):
+    with freeze_time("2026-11-06 10:00:00"):
+        job = _expiry_job()
+    name = job.images.get().image.name
+    storage = job.images.get().image.storage
+    with freeze_time("2026-11-07 10:00:01"):
+        with django_capture_on_commit_callbacks(execute=True):
+            assert expire_undecided_jobs() == 1
+    job.refresh_from_db()
+    assert job.decision == "expired"
+    assert job.result is None
+    assert ScanJobImage.objects.filter(job=job).count() == 0
+    assert not storage.exists(name)
+
+
+@pytest.mark.django_db
+def test_expiry_keeps_at_23h59(roots):
+    with freeze_time("2026-11-06 10:00:00"):
+        job = _expiry_job()
+    with freeze_time("2026-11-07 09:59:00"):
+        assert expire_undecided_jobs() == 0
+    job.refresh_from_db()
+    assert job.decision == "undecided"
+    assert ScanJobImage.objects.filter(job=job).count() == 1
+
+
+@pytest.mark.django_db
+def test_expiry_skips_kept(roots):
+    with freeze_time("2026-11-06 10:00:00"):
+        job = _expiry_job(decision="kept")
+    with freeze_time("2026-11-09 10:00:00"):
+        assert expire_undecided_jobs() == 0
+    job.refresh_from_db()
+    assert job.decision == "kept"
+    assert ScanJobImage.objects.filter(job=job).count() == 1
+
+
+@pytest.mark.django_db
+def test_expiry_leaves_allowance_remaining_unchanged(
+    roots, django_capture_on_commit_callbacks
+):
+    with freeze_time("2026-11-06 10:00:00"):
+        user = _owner("expirer")
+        job = _api_job(user, mode="diagnose", charged_as="diagnose")
+    client = _client(user)
+    with freeze_time("2026-11-07 10:00:01"):
+        before = client.get(BASE + "allowance/").data
+        with django_capture_on_commit_callbacks(execute=True):
+            assert expire_undecided_jobs() == 1
+        after = client.get(BASE + "allowance/").data
+    job.refresh_from_db()
+    assert job.status == "done"
+    assert job.charged_as == "diagnose"
+    assert after["identify"]["remaining"] == before["identify"]["remaining"]
+    assert after["diagnose"]["remaining"] == before["diagnose"]["remaining"]
+
+
+def test_beat_schedule_has_decision_sweep():
+    entry = dj_settings.CELERY_BEAT_SCHEDULE["scan-decision-sweep"]
+    assert entry["task"] == "apps.plant_identification.tasks.expire_undecided_scan_jobs"

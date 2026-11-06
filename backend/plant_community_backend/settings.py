@@ -1476,6 +1476,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.plant_identification.tasks.expire_stale_scan_jobs",
         "schedule": crontab(minute="*/2"),
     },
+    # Keep-or-dismiss: erase finished scans undecided past 24 h as "expired".
+    "scan-decision-sweep": {
+        "task": "apps.plant_identification.tasks.expire_undecided_scan_jobs",
+        "schedule": crontab(minute="*/15"),
+    },
     # Todo 625: email click rows and provider events are kept 90 days.
     "email-feedback-prune": {
         "task": "apps.core.tasks.prune_email_feedback",

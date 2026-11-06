@@ -20,6 +20,7 @@ from django.utils import timezone
 
 from .constants import (
     SCAN_ALLOWANCE_WINDOW_HOURS,
+    SCAN_DECISION_WINDOW_HOURS,
     SCAN_FAILURE_STALE,
     SCAN_SUMMARY_MAX_SUGGESTIONS,
 )
@@ -131,6 +132,34 @@ def summarize_scan_result(
         ],
         "diagnosis": None if mode == "identify" else _diagnosis(results),
     }
+
+
+def expire_undecided_jobs(now: Optional[datetime] = None) -> int:
+    """Erase finished scans left undecided past the decision window.
+
+    Beat sweep: ``done``/``degraded`` jobs still ``undecided`` more than
+    ``SCAN_DECISION_WINDOW_HOURS`` after ``finished_at`` become ``expired``.
+    Never refunds (``status``/``charged_as`` untouched) and never touches a
+    ``kept`` job. ``erase_scan`` is conditional, so a concurrent keep or
+    dismiss wins. Returns the count actually erased.
+    """
+    now = now or timezone.now()
+    cutoff = now - timedelta(hours=SCAN_DECISION_WINDOW_HOURS)
+    job_ids = list(
+        ScanJob.objects.filter(
+            status__in=("done", "degraded"),
+            decision="undecided",
+            finished_at__lt=cutoff,
+        ).values_list("pk", flat=True)
+    )
+    expired = sum(
+        1
+        for job_id in job_ids
+        if erase_scan(job_id, "expired", from_decisions=("undecided",))
+    )
+    if expired:
+        logger.info("[SCAN] Expired %s undecided scan(s)", expired)
+    return expired
 
 
 def expire_stale_jobs(user_id: Optional[int] = None) -> int:
