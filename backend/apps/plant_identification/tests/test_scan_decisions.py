@@ -159,3 +159,220 @@ def test_erase_from_wrong_decision_is_noop(roots, django_capture_on_commit_callb
     assert storage.exists(name)
     assert job.decision == "kept"
     assert job.result == {"x": 1}
+
+
+# --- Keep / dismiss / remove / undecided list endpoints (3/11) ---------------
+
+from rest_framework.test import APIClient  # noqa: E402
+
+BASE = "/api/v1/plant-identification/scans/"
+
+
+def _api_job(user, **fields):
+    defaults = {
+        "user": user,
+        "mode": "identify",
+        "local_date": timezone.now().date(),
+        "status": "done",
+        "decision": "undecided",
+        "charged_as": "identify",
+        "finished_at": timezone.now(),
+        "result": {"x": 1},
+    }
+    defaults.update(fields)
+    job = ScanJob.objects.create(**defaults)
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (40, 120, 40)).save(buf, "JPEG")
+    ScanJobImage.objects.create(
+        job=job,
+        role="whole",
+        image=normalize_scan_photo(ContentFile(buf.getvalue(), name="x.jpg")),
+    )
+    return job
+
+
+def _owner(name="decider"):
+    return get_user_model().objects.create_user(
+        username=name, email=f"{name}@example.com", password="x" * 16
+    )
+
+
+def _client(user):
+    client = APIClient()
+    client.force_authenticate(user)
+    return client
+
+
+def _url(job, action):
+    return f"{BASE}{job.uuid}/{action}/"
+
+
+@pytest.mark.django_db
+def test_keep_sets_kept_and_decided_at(roots):
+    user = _owner()
+    job = _api_job(user)
+    response = _client(user).post(_url(job, "keep"))
+    assert response.status_code == 200
+    assert response.data["decision"] == "kept"
+    job.refresh_from_db()
+    assert job.decision == "kept"
+    assert job.decided_at is not None
+
+
+@pytest.mark.django_db
+def test_keep_twice_is_200(roots):
+    user = _owner()
+    job = _api_job(user)
+    client = _client(user)
+    assert client.post(_url(job, "keep")).status_code == 200
+    again = client.post(_url(job, "keep"))
+    assert again.status_code == 200
+    assert again.data["decision"] == "kept"
+
+
+@pytest.mark.django_db
+def test_keep_after_dismiss_is_404(roots):
+    user = _owner()
+    job = _api_job(user)
+    client = _client(user)
+    assert client.post(_url(job, "dismiss")).status_code == 204
+    response = client.post(_url(job, "keep"))
+    assert response.status_code == 404
+    assert response.data["code"] == "not_found"
+    job.refresh_from_db()
+    assert job.decision == "dismissed"
+
+
+@pytest.mark.django_db
+def test_keep_unfinished_is_409(roots):
+    user = _owner()
+    job = _api_job(user, status="processing", finished_at=None)
+    response = _client(user).post(_url(job, "keep"))
+    assert response.status_code == 409
+    assert response.data["code"] == "not_undecided"
+
+
+@pytest.mark.django_db
+def test_dismiss_after_keep_is_409(roots):
+    user = _owner()
+    job = _api_job(user, decision="kept")
+    response = _client(user).post(_url(job, "dismiss"))
+    assert response.status_code == 409
+    assert response.data["code"] == "already_kept"
+    job.refresh_from_db()
+    assert job.decision == "kept"
+    assert job.images.count() == 1
+
+
+@pytest.mark.django_db
+def test_dismiss_twice_is_204(roots):
+    user = _owner()
+    job = _api_job(user)
+    client = _client(user)
+    assert client.post(_url(job, "dismiss")).status_code == 204
+    assert client.post(_url(job, "dismiss")).status_code == 204
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("action", ["dismiss", "remove"])
+def test_dismiss_and_remove_processing_job_is_409(roots, action):
+    user = _owner()
+    job = _api_job(user, status="processing", finished_at=None)
+    response = _client(user).post(_url(job, action))
+    assert response.status_code == 409
+    assert response.data["code"] == "not_finished"
+    job.refresh_from_db()
+    assert job.decision == "undecided"
+    assert job.images.count() == 1
+
+
+@pytest.mark.django_db
+def test_dismiss_degraded_without_retry_keeps_identify_charge(roots):
+    user = _owner()
+    job = _api_job(user, status="degraded", charged_as="identify", mode="diagnose")
+    client = _client(user)
+    before = client.get(BASE + "allowance/").data["identify"]["remaining"]
+    assert client.post(_url(job, "dismiss")).status_code == 204
+    after = client.get(BASE + "allowance/").data["identify"]["remaining"]
+    assert after == before
+    job.refresh_from_db()
+    assert job.charged_as == "identify"
+
+
+@pytest.mark.django_db
+def test_dismiss_leaves_allowance_remaining_unchanged(roots):
+    user = _owner()
+    job = _api_job(user, mode="diagnose", charged_as="diagnose")
+    client = _client(user)
+    before = client.get(BASE + "allowance/").data
+    assert client.post(_url(job, "dismiss")).status_code == 204
+    after = client.get(BASE + "allowance/").data
+    assert after["identify"]["remaining"] == before["identify"]["remaining"]
+    assert after["diagnose"]["remaining"] == before["diagnose"]["remaining"]
+
+
+@pytest.mark.django_db
+def test_dismissed_job_retrieve_and_photo_404(roots):
+    user = _owner()
+    job = _api_job(user)
+    client = _client(user)
+    assert client.post(_url(job, "dismiss")).status_code == 204
+    detail = client.get(f"{BASE}{job.uuid}/")
+    assert detail.status_code == 404
+    assert detail.data["code"] == "not_found"
+    photo = client.get(f"{BASE}{job.uuid}/photos/whole/")
+    assert photo.status_code == 404
+
+
+@pytest.mark.django_db
+def test_remove_kept_erases_photos(roots, django_capture_on_commit_callbacks):
+    user = _owner()
+    job = _api_job(user, decision="kept")
+    image = job.images.get()
+    name, storage = image.image.name, image.image.storage
+    assert storage.exists(name)
+    with django_capture_on_commit_callbacks(execute=True):
+        response = _client(user).post(_url(job, "remove"))
+    assert response.status_code == 204
+    job.refresh_from_db()
+    assert job.decision == "removed"
+    assert job.result is None
+    assert job.images.count() == 0
+    assert not storage.exists(name)
+
+
+@pytest.mark.django_db
+def test_list_undecided_only_own_recent_finished_newest_first(roots):
+    user = _owner()
+    other = _owner("other")
+    now = timezone.now()
+    old = _api_job(user, finished_at=now - timedelta(hours=3))
+    new = _api_job(user, status="degraded", finished_at=now - timedelta(hours=1))
+    _api_job(user, finished_at=now - timedelta(hours=25))  # outside the window
+    _api_job(user, decision="kept")
+    _api_job(user, decision="dismissed")
+    _api_job(user, status="processing", finished_at=None)
+    _api_job(other)
+    response = _client(user).get(BASE + "?decision=undecided")
+    assert response.status_code == 200
+    assert [r["id"] for r in response.data] == [str(new.uuid), str(old.uuid)]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("query", ["", "?decision=kept", "?decision="])
+def test_list_requires_decision_param(roots, query):
+    response = _client(_owner()).get(BASE + query)
+    assert response.status_code == 400
+    assert response.data["code"] == "invalid"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("action", ["keep", "dismiss", "remove"])
+def test_other_users_job_keep_dismiss_remove_404(roots, action):
+    owner = _owner()
+    job = _api_job(owner)
+    response = _client(_owner("intruder")).post(_url(job, action))
+    assert response.status_code == 404
+    job.refresh_from_db()
+    assert job.decision == "undecided"
+    assert job.images.count() == 1
