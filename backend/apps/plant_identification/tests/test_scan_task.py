@@ -208,7 +208,7 @@ def test_unexpected_error_finalizes_failed(
 def test_cancel_during_run_wins(user, fcm, django_capture_on_commit_callbacks):
     job = _job(user)
 
-    def cancel_then_answer(shots, mode):
+    def cancel_then_answer(shots, mode, **kwargs):
         ScanJob.objects.filter(pk=job.pk).update(status="cancelled")
         return _results("ok")
 
@@ -381,3 +381,44 @@ def test_device_push_soft_time_limit_is_raised_not_retried(user, fcm):
         )
     fcm.assert_called_once()
     retry.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_cancel_before_the_paid_call_skips_plant_id(
+    user, fcm, django_capture_on_commit_callbacks
+):
+    """H1: the task's should_continue sees the cancel and no provider runs."""
+    job = _job(user)
+    plant_id = Mock()
+    plantnet = Mock()
+
+    def init(self):
+        from apps.plant_identification.services.combined_identification_service import (
+            get_executor,
+        )
+
+        self.plant_id = plant_id
+        self.plantnet = plantnet
+        self.executor = get_executor()
+
+    real_read = __import__(
+        "apps.plant_identification.tasks", fromlist=["_read_shots"]
+    )._read_shots
+
+    def read_then_cancel(j):
+        shots = real_read(j)
+        ScanJob.objects.filter(pk=j.pk).update(status="cancelled")
+        return shots
+
+    with (
+        patch.object(CombinedPlantIdentificationService, "__init__", init),
+        patch("apps.plant_identification.tasks._read_shots", read_then_cancel),
+    ):
+        _run(job, django_capture_on_commit_callbacks)
+
+    plant_id.identify_plant.assert_not_called()
+    plantnet.identify_plant.assert_not_called()
+    assert job.status == "cancelled"
+    assert job.charged_as == ""
+    assert job.notified_at is None
+    fcm.assert_not_called()

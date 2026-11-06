@@ -163,6 +163,14 @@ def _cleanup_executor() -> None:
         logger.info("[SHUTDOWN] ThreadPoolExecutor cleanup complete")
 
 
+class ScanAborted(Exception):
+    """The scan's job left ``processing`` before a paid call; nothing was spent.
+
+    Raised by ``scan()`` when its ``should_continue`` check says no, so a
+    cancelled or expired job never makes the Plant.id call (scan-2 audit H1).
+    """
+
+
 class ProviderOutcome(NamedTuple):
     """What one identification provider returned, and if nothing, why.
 
@@ -556,7 +564,12 @@ class CombinedPlantIdentificationService:
             )
             return ProviderOutcome(None, reason)
 
-    def scan(self, shots: Mapping[str, bytes], mode: str) -> Dict[str, Any]:
+    def scan(
+        self,
+        shots: Mapping[str, bytes],
+        mode: str,
+        should_continue: Callable[[], bool] = lambda: True,
+    ) -> Dict[str, Any]:
         """Identify (and in diagnose mode, health-check) a multi-photo scan.
 
         ``shots`` maps a photo role (problem, leaf, whole, flower) to its JPEG
@@ -573,6 +586,11 @@ class CombinedPlantIdentificationService:
           never called. Below it, Plant.id identifies without the health check,
           leaving ``PLANT_ID_DIAGNOSIS_RESERVE`` daily calls for diagnoses; if
           that fails, PlantNet's answer stands.
+
+        ``should_continue`` is asked immediately before any Plant.id call
+        (diagnose: before both providers start; identify: before the
+        fallback). False raises ``ScanAborted`` and Plant.id is not called.
+        A call already in flight is not interrupted.
         """
         start_time = time.time()
         problem = shots.get(SCAN_PROBLEM_ROLE)
@@ -608,6 +626,8 @@ class CombinedPlantIdentificationService:
                 if self.plant_id
                 else None
             )
+            if not should_continue():
+                raise ScanAborted("job left processing before the diagnosis")
             logger.info("[SCAN] Diagnose: Plant.id + PlantNet in parallel")
             plant_id, plantnet = self._run_providers(plant_id_call, plantnet_call)
             return self._build_results(plant_id, plantnet, start_time)
@@ -624,6 +644,8 @@ class CombinedPlantIdentificationService:
             )
             plant_id = ProviderOutcome(None, "skipped", configured=False)
         else:
+            if not should_continue():
+                raise ScanAborted("job left processing before the Plant.id fallback")
             logger.info("[SCAN] Identify: PlantNet unsure, asking Plant.id")
             plant_id_call = (
                 partial(

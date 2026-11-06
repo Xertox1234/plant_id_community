@@ -6,6 +6,7 @@ import pytest
 from apps.plant_identification.scan_jobs import classify_scan, summarize_scan_result
 from apps.plant_identification.services.combined_identification_service import (
     CombinedPlantIdentificationService,
+    ScanAborted,
     get_executor,
 )
 from django.test import override_settings
@@ -269,3 +270,47 @@ def test_gather_still_names_other_thread_errors():
     outcome = service._gather(future, "PlantNet", 5)
     assert outcome.result is None
     assert outcome.reason == classify_provider_failure(RuntimeError("boom"))
+
+
+def test_diagnose_aborts_before_any_provider_when_told_to_stop():
+    plant_id = provider(returns=PLANT_ID_OK)
+    plantnet = provider(returns=plantnet_result(0.4))
+    svc = build(plant_id=plant_id, plantnet=plantnet)
+
+    with pytest.raises(ScanAborted):
+        svc.scan({"problem": PROBLEM}, "diagnose", should_continue=lambda: False)
+
+    plant_id.identify_plant.assert_not_called()
+    plantnet.identify_plant.assert_not_called()
+
+
+@override_settings(SCAN_PLANTNET_CONFIDENCE_FLOOR=0.5)
+def test_identify_aborts_before_the_plant_id_fallback():
+    plant_id = provider(returns=PLANT_ID_OK)
+    plantnet = provider(returns=plantnet_result(0.3))
+    svc = build(plant_id=plant_id, plantnet=plantnet)
+    asked = []
+
+    def should_continue():
+        asked.append(True)
+        return False
+
+    with pytest.raises(ScanAborted):
+        svc.scan({"leaf": LEAF}, "identify", should_continue=should_continue)
+
+    plantnet.identify_plant.assert_called_once()  # free; runs first
+    plant_id.identify_plant.assert_not_called()
+    assert asked == [True]
+
+
+@override_settings(SCAN_PLANTNET_CONFIDENCE_FLOOR=0.5)
+def test_identify_confident_plantnet_never_asks_to_continue():
+    svc = build(
+        plant_id=provider(returns=PLANT_ID_OK),
+        plantnet=provider(returns=plantnet_result(0.8)),
+    )
+
+    def should_continue():
+        raise AssertionError("no paid call, so no check")
+
+    svc.scan({"leaf": LEAF}, "identify", should_continue=should_continue)
