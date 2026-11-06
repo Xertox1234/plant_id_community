@@ -673,3 +673,17 @@ def test_spoofed_photo_400_names_its_role():
     assert response.data["code"] == "invalid"
     assert set(response.data["errors"]) == {"leaf"}
     assert not ScanJob.objects.exists()
+
+
+@pytest.mark.django_db
+def test_retrieve_and_photo_query_counts_are_pinned(django_assert_num_queries):
+    """L8: retrieve and the photo stream reuse get_object's prefetch."""
+    client = _client(_user())
+    job_id = _create(client).data["id"]
+    # retrieve: stale expiry SELECT, job SELECT, images prefetch.
+    with django_assert_num_queries(3):
+        assert client.get(f"{BASE}{job_id}/").status_code == 200
+    # photo: job SELECT, images prefetch.
+    with django_assert_num_queries(2):
+        response = client.get(f"{BASE}{job_id}/photos/problem/")
+        assert response.status_code == 200

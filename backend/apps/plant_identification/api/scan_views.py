@@ -420,7 +420,11 @@ class ScanJobViewSet(GenericViewSet):
     def retrieve(self, request: Request, uuid=None) -> Response:
         """One scan job, with its result once it has finished."""
         expire_stale_jobs(request.user.pk)
-        return self._job_response(self.get_object())
+        # get_object already prefetched the images: no re-fetch (L8).
+        job = self.get_object()
+        return Response(
+            ScanJobSerializer(job, context=self.get_serializer_context()).data
+        )
 
     @extend_schema(
         request=None,
@@ -463,7 +467,8 @@ class ScanJobViewSet(GenericViewSet):
     def photos(self, request: Request, uuid=None, role: str = "") -> FileResponse:
         """Stream one of the job's photos. Private: never served from storage."""
         job = self.get_object()
-        image = ScanJobImage.objects.filter(job=job, role=role).first()
+        # From the prefetched images, not a second query (L8).
+        image = next((i for i in job.images.all() if i.role == role), None)
         if image is None or not image.image.name:
             raise NotFound("No photo for that role.")
         try:
