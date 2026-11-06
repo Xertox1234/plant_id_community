@@ -348,3 +348,44 @@ links to the full audit manifest with detailed findings and resolutions.
     clean.
 - **Commit(s):** `8d44b097`, `b1f3e12d`, `e3ba3bcd`, `dd931dbf`, `66f6ac7a`,
   `c487c328` on branch `audit/web-dead-code`.
+
+### 2026-11-05 — Scan 2.0 Audit (background jobs, allowances, private photos, push)
+
+- **Manifest:** `docs/audits/2026-11-05-scan-2.md`.
+- **Scope:** Scan 2.0 backend (`apps/plant_identification` scan modules,
+  quota, tasks) and mobile (`features/scan`, `ApiImage`, push router). It had
+  never been audited; it shipped after the 2026-06-02 full audit.
+- **Findings:** 1 high, 7 medium, 16 low (24 total). Three agent claims were
+  false positives before numbering.
+- **Resolved:** 18 verified, 3 deferred (H1's residual → todo 698, M6 → todo
+  699, L3 + L15 → todo 700), 3 false-positive or declined (L10 probed false
+  positive; L2 and L7 declined because their fixes would undercut H1/M7),
+  0 open.
+- **Headlines:**
+  - **H1:** cancel freed the user's slot while the worker still made the paid
+    Plant.id call. One free account could exhaust the app-wide 3/day cap for
+    everyone at no cost. The scan now re-checks the job right before any
+    Plant.id call. Residual (late cancels, no-plant diagnoses) → todo 698
+    for the owner's rule.
+  - **M1:** the "local day" came from a client-chosen UTC offset, so flipping
+    it gave 2-3 diagnoses a day. The allowance is now a rolling 24 h (owner
+    choice).
+  - **M3/M4:** the Plant.id cap was check-then-increment, and a counter could
+    lose its TTL and stay "busy" forever. Calls are now reserved before and
+    refunded after (unsent calls refunded), and the TTL is repaired on every
+    increment.
+  - **M7:** private scan photos survived sign-out in the shared image cache.
+    They now use a per-user store emptied when the signed-in user leaves.
+- **Caught by the close run:** M5's refactor had silently moved `create`'s
+  rate-limit and schema decorators onto a helper method. The repo-wide
+  OpenAPI 429 and request-example guards failed on the full run, and it was
+  fixed before the PR. An app-scoped run would not have caught it.
+- **kimi-review:** M4, M3, H1, M2, M1 and M5 passed. From L1 on, OpenRouter
+  answered 402 (credits exhausted); those fixes are recorded "kimi pending"
+  for a batch run before merge (owner choice).
+- **Close baseline:** backend full suite 6504 passed before the guard fix;
+  after it and the review round, `apps/plant_identification` + `apps/core`
+  2604 passed. Flutter 1688 passed; analyze, ruff, mypy, check,
+  makemigrations and spectacular are clean.
+- **Commit(s):** `caaf05f0` … `99719297` (20) on branch
+  `audit/scan-2-2026-11-05`.
