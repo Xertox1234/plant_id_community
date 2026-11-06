@@ -7596,3 +7596,36 @@ mutation-checked (reverting the fix makes it fail).
 **Rule.** A deleter is only as safe as its "in use" check: when that check cannot prove an entry is
 unused, the entry is in use. Recorded as a `docs/rules/security.md` bullet. No write-time trigger:
 the lesson has no textual signature (`type=float` alone fires on harmless arguments).
+
+## 2026-11-06 — Scan 2.0 audit: a refactor moved a rate limit onto a helper (scan-2 audit, `d869d102`)
+
+**What broke (caught before merge).** The M5 fix split the scan create view: a
+new `_refusal` helper was inserted directly above `def create`, under
+`@extend_schema(...)` and `@method_decorator(ratelimit(...))`. Python binds a
+decorator to the next `def`, so the helper got the 100/h rate limit and the
+OpenAPI schema and `POST scans/` lost both. Every scan test still passed.
+
+**How it was caught.** Only the full backend suite: the repo-wide guards
+`apps/core/tests/test_openapi_rate_limit_429.py` ("429 documented on a method
+that is not limited") and `test_schema_request_examples.py` failed. The
+app-scoped run used while fixing (`apps/plant_identification`) was a false
+green, a second data point for the 2026-09-14 lesson.
+
+**Fix.** Helpers go above a decorator stack, never between it and its `def`
+(rule in `docs/rules/api.md`). Run the full suite (or at least
+`apps/core/tests/`) before calling a view refactor done.
+
+**Related lessons from the same audit.**
+
+- *pybreaker:* `CircuitBreakerError` is raised on the call that trips the
+  breaker, after that call ran, so "CircuitBreakerError = no call made"
+  under-counted the paid-API quota by one per trip. Record whether the wrapped
+  function started instead.
+- *Probe before fixing UI races:* the reported "double tap on Try again
+  retries twice" was false. Mid-pop, the button is mounted but not
+  hit-testable (the popping route ignores pointers). A test asserting
+  `find(...).hitTestable()` finds nothing settled it with no code change.
+- *Mutation-check new tests:* two of this audit's new tests first passed with
+  their fix removed: a service stub missing `executor` crashed before any
+  provider, and a push probe (`../forum?x=1`) never matched the route.
+  Reverting the fix with `sed` and re-running is what exposed both.

@@ -4,8 +4,6 @@ priority: p2
 issue_id: "698"
 tags: [scan, plant-id, cost, owner-decision]
 dependencies: []
-source_review: "docs/audits/2026-11-05-scan-2.md"
-source_finding: "H1"
 ---
 
 # Scan 2.0: failed and late-cancelled scans still spend Plant.id for free

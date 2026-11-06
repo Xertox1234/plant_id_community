@@ -4,8 +4,6 @@ priority: p2
 issue_id: "699"
 tags: [scan, privacy, r2, owner-decision]
 dependencies: []
-source_review: "docs/audits/2026-11-05-scan-2.md"
-source_finding: "M6"
 ---
 
 # Scan 2.0: private scan photos are kept forever

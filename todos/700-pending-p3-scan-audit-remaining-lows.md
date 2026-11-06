@@ -4,8 +4,6 @@ priority: p3
 issue_id: "700"
 tags: [scan, plant-id, celery, quota]
 dependencies: []
-source_review: "docs/audits/2026-11-05-scan-2.md"
-source_finding: "L3, L15"
 ---
 
 # Scan 2.0 audit: the two remaining low findings
