@@ -41,7 +41,7 @@ from .constants import (
     SCAN_PUSH_READY,
     SCAN_PUSH_RETRY_DELAY,
 )
-from .scan_jobs import classify_scan, summarize_scan_result
+from .scan_jobs import classify_scan, expire_stale_jobs, summarize_scan_result
 from .scan_models import ScanJob
 from .services.combined_identification_service import (
     CombinedPlantIdentificationService,
@@ -195,6 +195,16 @@ def run_scan_job(self, job_id: int) -> None:
         result=summary,
         failure_reason=SCAN_FAILURE_NO_RESULT if status == "failed" else "",
     )
+
+
+@shared_task(ignore_result=True)
+def expire_stale_scan_jobs() -> int:
+    """Beat: fail every scan job stuck past the stale limit (scan-2 audit M2).
+
+    The per-user expiry only runs when that user asks again; a job whose
+    worker died would otherwise stay active, unnotified, until they do.
+    """
+    return expire_stale_jobs()
 
 
 @shared_task(

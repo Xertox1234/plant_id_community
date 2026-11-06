@@ -10,9 +10,11 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
+from functools import partial
 from typing import Any, Dict, Optional, Tuple
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -90,23 +92,44 @@ def summarize_scan_result(
     }
 
 
-def expire_stale_jobs(user_id: int) -> int:
-    """Fail this user's jobs still active past ``SCAN_JOB_STALE_MINUTES``.
+def expire_stale_jobs(user_id: Optional[int] = None) -> int:
+    """Fail jobs still active past ``SCAN_JOB_STALE_MINUTES``; one user's, or all.
 
-    One conditional UPDATE. A worker that finishes later finds the job no
-    longer ``processing`` and its finalize matches nothing. Returns the count.
+    A conditional UPDATE: a worker that finishes later finds the job no longer
+    ``processing`` and its finalize matches nothing. Each expired job gets its
+    "couldn't check" push after the commit, or at once outside a transaction
+    (the notify task's own claim makes a duplicate a no-op). ``None`` is the periodic sweep (scan-2 audit M2): a
+    job orphaned by a dead worker is failed even if its owner never asks
+    again. Returns the count.
     """
     now = timezone.now()
     cutoff = now - timedelta(minutes=settings.SCAN_JOB_STALE_MINUTES)
+    stale = ScanJob.objects.filter(
+        status__in=ScanJob.ACTIVE_STATUSES, created_at__lt=cutoff
+    )
+    if user_id is not None:
+        stale = stale.filter(user_id=user_id)
+    job_ids = list(stale.values_list("pk", flat=True))
+    if not job_ids:
+        return 0
     expired: int = ScanJob.objects.filter(
-        user_id=user_id,
-        status__in=ScanJob.ACTIVE_STATUSES,
-        created_at__lt=cutoff,
+        pk__in=job_ids, status__in=ScanJob.ACTIVE_STATUSES
     ).update(status="failed", failure_reason=SCAN_FAILURE_STALE, finished_at=now)
     if expired:
         logger.warning(
-            "[SCAN] Expired %s stale scan job(s) for user=%s", expired, user_id
+            "[SCAN] Expired %s stale scan job(s) (user=%s)",
+            expired,
+            user_id if user_id is not None else "all",
         )
+        # Local import: tasks imports this module.
+        from .tasks import _enqueue_notify
+
+        # Only the rows this UPDATE failed: one that finished between the two
+        # queries already has its own push.
+        for job_id in ScanJob.objects.filter(
+            pk__in=job_ids, failure_reason=SCAN_FAILURE_STALE, finished_at=now
+        ).values_list("pk", flat=True):
+            transaction.on_commit(partial(_enqueue_notify, job_id))
     return expired
 
 

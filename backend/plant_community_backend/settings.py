@@ -1469,6 +1469,12 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.core.tasks.reconcile_deliveries",
         "schedule": crontab(minute="*/5"),
     },
+    # Scan-2 audit M2: fail scan jobs stuck past SCAN_JOB_STALE_MINUTES (10)
+    # even when their owner never polls again, and send the failed push.
+    "scan-stale-sweep": {
+        "task": "apps.plant_identification.tasks.expire_stale_scan_jobs",
+        "schedule": crontab(minute="*/2"),
+    },
     # Todo 625: email click rows and provider events are kept 90 days.
     "email-feedback-prune": {
         "task": "apps.core.tasks.prune_email_feedback",
