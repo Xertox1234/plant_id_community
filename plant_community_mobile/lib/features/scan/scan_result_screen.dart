@@ -24,14 +24,6 @@ import 'scan_job_api.dart';
 import 'scan_job_tracker.dart';
 import 'widgets/short_scan_card.dart';
 
-/// One scan job, fetched fresh by id (the tracker's copy is gone after a
-/// restart or a push tap). No automatic retry: a failure shows the error
-/// screen at once rather than spinning through Riverpod's backoff.
-final scanJobProvider = FutureProvider.autoDispose.family<ScanJob, String>(
-  (ref, id) => ref.watch(scanJobApiProvider).get(id),
-  retry: (_, _) => null,
-);
-
 /// A scan the server no longer has, or one past its decide-by time.
 bool _isGone(ScanJob job) => switch (job.decision) {
   ScanDecision.dismissed ||
@@ -102,7 +94,10 @@ class ScanResultScreen extends ConsumerWidget {
     });
     final canRetry = watchCanRetryScan(ref, jobId);
     final job = ref.watch(scanJobProvider(jobId));
+    // skipError: a failed refetch (after Add invalidates the job) keeps the
+    // result already on screen; only a first-load error shows the error.
     return job.when(
+      skipError: true,
       loading: () =>
           const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (error, _) => _errorScreen(error),
@@ -255,7 +250,9 @@ class ScanFullResultScreen extends ConsumerWidget {
     // leaves this screen stacked over the scan it replaces.
     return ref
         .watch(scanJobProvider(jobId))
+        // A failed refetch keeps the result on screen (see ScanResultScreen).
         .when(
+          skipError: true,
           loading: () =>
               const Scaffold(body: Center(child: CircularProgressIndicator())),
           error: (error, _) => _errorScreen(error),
@@ -309,6 +306,8 @@ class _ScanDecisionBarState extends ConsumerState<ScanDecisionBar> {
     setState(() => _busy = _Busy.adding);
     try {
       await decisions.keep(widget.job);
+      // The "ready" pill must not outlive the decision.
+      clearTrackedScanPill(container, widget.job.id);
       // The short card under this screen must not keep counting down.
       container.invalidate(scanJobProvider(widget.job.id));
       if (!mounted) return;

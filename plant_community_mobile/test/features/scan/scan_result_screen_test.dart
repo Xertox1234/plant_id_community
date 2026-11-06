@@ -38,6 +38,29 @@ class _FakeApi extends ScanJobApi {
   }
 }
 
+/// Answers `get` with [jobs] in turn (the last one repeats); an [Exception]
+/// in the list is thrown instead. [dismissError] is thrown by dismiss.
+class _SequenceApi extends ScanJobApi {
+  _SequenceApi(this.jobs, {this.dismissError})
+    : super(ApiService(baseUrl: 'https://a.test'));
+  final List<Object> jobs;
+  final Object? dismissError;
+  int gets = 0;
+
+  @override
+  Future<ScanJob> get(String id) async {
+    final next = jobs[gets < jobs.length ? gets : jobs.length - 1];
+    gets++;
+    if (next is ScanJob) return next;
+    throw next;
+  }
+
+  @override
+  Future<void> dismiss(String id) async {
+    if (dismissError != null) throw dismissError!;
+  }
+}
+
 /// Records keep/dismiss without the API or Firestore. Configured through
 /// [_decisionError] and [_keepGate] because the provider builds lazily, on
 /// the first tap; both are reset by every pump.
@@ -136,6 +159,7 @@ Future<_FakeApi> _pump(
   ScanJob job, {
   Object? error,
   ScanTrackerState tracker = const ScanTrackerState(),
+  ScanJobApi? sequence,
 }) async {
   final api = _FakeApi(job, error: error);
   _resetDecisions();
@@ -143,7 +167,7 @@ Future<_FakeApi> _pump(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        scanJobApiProvider.overrideWithValue(api),
+        scanJobApiProvider.overrideWithValue(sequence ?? api),
         scanJobTrackerProvider.overrideWith(() => _tracker),
         scanDecisionsProvider.overrideWith(_FakeDecisions.new),
         ..._userOverrides,
@@ -162,6 +186,8 @@ Future<GoRouter> _pumpPushed(
   WidgetTester tester,
   ScanJob job, {
   required ScanTrackerState tracker,
+  ScanJobApi? api,
+  bool realDecisions = false,
 }) async {
   _tracker = FakeScanJobTracker(tracker);
   _resetDecisions();
@@ -191,9 +217,10 @@ Future<GoRouter> _pumpPushed(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        scanJobApiProvider.overrideWithValue(_FakeApi(job)),
+        scanJobApiProvider.overrideWithValue(api ?? _FakeApi(job)),
         scanJobTrackerProvider.overrideWith(() => _tracker),
-        scanDecisionsProvider.overrideWith(_FakeDecisions.new),
+        if (!realDecisions)
+          scanDecisionsProvider.overrideWith(_FakeDecisions.new),
         ..._userOverrides,
       ],
       child: MaterialApp.router(
@@ -588,6 +615,110 @@ void main() {
       await tester.tap(find.byKey(ShortScanCard.dismissKey));
       await _settle(tester);
       expect(_decisionCalls, ['dismiss:job-9']);
+      expect(_tracker.calls, isNot(contains('dismiss')));
+    });
+    testWidgets('a 409 already_kept on Dismiss ends with In My Collection', (
+      tester,
+    ) async {
+      // Phone B: the scan was added on phone A after this screen loaded.
+      final api = _SequenceApi(
+        [
+          _undecided(ScanJobStatus.done),
+          _job(ScanJobStatus.done, result: _result),
+        ],
+        dismissError: ApiException(
+          'This scan is already in My Collection.',
+          statusCode: 409,
+          code: 'already_kept',
+        ),
+      );
+      await _pumpPushed(
+        tester,
+        _undecided(ScanJobStatus.done),
+        tracker: const ScanTrackerState(),
+        api: api,
+        realDecisions: true,
+      );
+      await tester.tap(find.text('View'));
+      await _settle(tester);
+      await tester.tap(find.byKey(ScanDecisionBar.dismissKey));
+      await _settle(tester);
+      expect(
+        find.text('This scan is already in My Collection.'),
+        findsOneWidget,
+      );
+      expect(api.gets, 2, reason: 'the job is fetched again');
+      expect(find.byKey(ScanDecisionBar.keptKey), findsOneWidget);
+      expect(find.text('In My Collection'), findsOneWidget);
+      expect(find.byKey(ScanDecisionBar.dismissKey), findsNothing);
+    });
+
+    testWidgets('a failed refetch after Add keeps the result on screen', (
+      tester,
+    ) async {
+      final api = _SequenceApi([
+        _undecided(ScanJobStatus.done),
+        Exception('offline'),
+      ]);
+      await _pumpPushed(
+        tester,
+        _undecided(ScanJobStatus.done),
+        tracker: const ScanTrackerState(),
+        api: api,
+      );
+      await tester.tap(find.text('View'));
+      await _settle(tester);
+      await tester.tap(find.text('Add to My Collection'));
+      await _settle(tester);
+      expect(api.gets, 2, reason: 'Add refetches the job, which fails');
+      expect(find.byType(ErrorScreen), findsNothing);
+      expect(find.byType(ResultsScreen), findsOneWidget);
+      expect(find.text('In My Collection'), findsOneWidget);
+    });
+
+    testWidgets('a failed refetch after re-Add keeps /scans/:id on screen', (
+      tester,
+    ) async {
+      final kept = _job(ScanJobStatus.done, result: _result);
+      final api = _SequenceApi([kept, Exception('offline')]);
+      await _pump(tester, kept, sequence: api);
+      _collection = [_savedPlant('another-plant')];
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(find.text('Add to My Collection'));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+      expect(api.gets, 2, reason: 'Add refetches the job, which fails');
+      expect(find.byType(ErrorScreen), findsNothing);
+      expect(find.byType(ResultsScreen), findsOneWidget);
+      expect(find.text('In My Collection'), findsOneWidget);
+    });
+
+    testWidgets('Add from the full result clears the tracker pill', (
+      tester,
+    ) async {
+      final job = _undecided(ScanJobStatus.done);
+      await _pumpPushed(tester, job, tracker: _trackerAt(job));
+      await tester.tap(find.text('View'));
+      await _settle(tester);
+      await tester.tap(find.text('Add to My Collection'));
+      await _settle(tester);
+      expect(_decisionCalls, ['keep:job-9']);
+      expect(_tracker.calls, contains('dismiss'));
+    });
+
+    testWidgets('Add leaves the pill of another job alone', (tester) async {
+      await _pumpPushed(
+        tester,
+        _undecided(ScanJobStatus.done),
+        tracker: _trackerAt(fakeScanJob(status: ScanJobStatus.done)),
+      );
+      await tester.tap(find.text('View'));
+      await _settle(tester);
+      await tester.tap(find.text('Add to My Collection'));
+      await _settle(tester);
+      expect(_decisionCalls, ['keep:job-9']);
       expect(_tracker.calls, isNot(contains('dismiss')));
     });
   });

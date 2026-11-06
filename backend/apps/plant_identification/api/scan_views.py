@@ -482,9 +482,14 @@ class ScanJobViewSet(GenericViewSet):
     def cancel(self, request: Request, uuid=None) -> Response:
         """Cancel a scan that is still running. A cancelled scan costs nothing."""
         job = self.get_object()
-        cancelled = ScanJob.objects.filter(
-            pk=job.pk, status__in=ScanJob.ACTIVE_STATUSES
-        ).update(status="cancelled", finished_at=timezone.now())
+        # One transaction: a crash between the UPDATE and the photo delete
+        # must not leave a cancelled job with its photos (files go on commit).
+        with transaction.atomic():
+            cancelled = ScanJob.objects.filter(
+                pk=job.pk, status__in=ScanJob.ACTIVE_STATUSES
+            ).update(status="cancelled", finished_at=timezone.now())
+            if cancelled:
+                delete_scan_photos([job.pk])
         if not cancelled:
             return _error(
                 request,
@@ -492,7 +497,6 @@ class ScanJobViewSet(GenericViewSet):
                 "not_active",
                 "This scan has already finished.",
             )
-        delete_scan_photos([job.pk])
         logger.info("[SCAN] job=%s cancelled by user=%s", job.pk, request.user.pk)
         return self._job_response(job)
 

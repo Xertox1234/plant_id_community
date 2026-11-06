@@ -7,9 +7,13 @@ import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/firestore_service.dart';
+import 'package:plant_community_mobile/shared/widgets/api_image.dart';
+
+import '../../support/private_photo_cache.dart';
 
 const _uid = 'user-1';
 const _jobId = '11111111-2222-3333-4444-555555555555';
+const _otherJob = '99999999-8888-7777-6666-555555555555';
 
 ScanJob _job({bool withResult = true}) => ScanJob(
   id: _jobId,
@@ -38,6 +42,13 @@ class _FakeApi extends ScanJobApi {
   final List<String> calls;
   Object? error;
   int undecidedCalls = 0;
+  int getCalls = 0;
+
+  @override
+  Future<ScanJob> get(String id) async {
+    getCalls++;
+    return _job();
+  }
 
   @override
   Future<ScanJob> keep(String id) async {
@@ -91,11 +102,19 @@ class _Rig {
         scanJobApiProvider.overrideWithValue(api),
         currentUserIdProvider.overrideWith((ref) => uid),
         firestoreServiceProvider.overrideWith(() => store),
+        privatePhotoCacheManagerProvider.overrideWithValue(photos),
       ],
     );
   }
 
   final calls = <String>[];
+  final photos = FakePhotoCache(
+    stored: [
+      '$_uid|https://api.test/api/v1/plant-identification/scans/$_jobId/photos/whole/',
+      '$_uid|https://api.test/api/v1/plant-identification/scans/$_jobId/photos/leaf/',
+      '$_uid|https://api.test/api/v1/plant-identification/scans/$_otherJob/photos/whole/',
+    ],
+  );
   late final _FakeApi api;
   late final _FakeStore store;
   late final ProviderContainer container;
@@ -113,7 +132,30 @@ Plant _plant({String id = 'p1', String? imageUrl}) => Plant(
   timestamp: DateTime.utc(2026, 11, 2),
 );
 
+/// Watches the undecided list and the job, loads both once, then runs
+/// [refused] (which must throw [err]) and reports whether both reloaded.
+Future<void> _expectRefusedRefreshes(
+  _Rig rig,
+  ApiException err,
+  Future<void> Function() refused,
+) async {
+  rig.container.listen(undecidedScansProvider, (_, _) {});
+  rig.container.listen(scanJobProvider(_jobId), (_, _) {});
+  await rig.container.read(undecidedScansProvider.future);
+  await rig.container.read(scanJobProvider(_jobId).future);
+  expect(rig.api.undecidedCalls, 1);
+  expect(rig.api.getCalls, 1);
+  rig.api.error = err;
+  await expectLater(refused(), throwsA(same(err)));
+  await rig.container.read(undecidedScansProvider.future);
+  await rig.container.read(scanJobProvider(_jobId).future);
+  expect(rig.api.undecidedCalls, 2, reason: 'the list reloads');
+  expect(rig.api.getCalls, 2, reason: 'the job reloads');
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('undecidedScansProvider is empty while signed out', () async {
     final container = ProviderContainer(
       overrides: [currentUserIdProvider.overrideWith((ref) => null)],
@@ -218,5 +260,74 @@ void main() {
       _plant(imageUrl: 'https://firebasestorage.googleapis.com/x.jpg'),
     );
     expect(rig.calls, ['fs.delete:$_uid:p1']);
+  });
+  test('keep refused with 404 refreshes the list and the job', () async {
+    final rig = _Rig();
+    addTearDown(rig.container.dispose);
+    await _expectRefusedRefreshes(
+      rig,
+      ApiException('Not found.', statusCode: 404),
+      () => rig.decisions.keep(_job()),
+    );
+    expect(rig.calls, ['api.keep:$_jobId'], reason: 'no Firestore write');
+  });
+
+  test('dismiss refused with 409 refreshes the list and the job', () async {
+    final rig = _Rig();
+    addTearDown(rig.container.dispose);
+    await _expectRefusedRefreshes(
+      rig,
+      ApiException('Already kept.', statusCode: 409, code: 'already_kept'),
+      () => rig.decisions.dismiss(_jobId),
+    );
+    expect(
+      rig.photos.removed,
+      isEmpty,
+      reason: 'a refused dismiss erased nothing',
+    );
+  });
+
+  test('keep failing with 500 does not reload the job', () async {
+    final rig = _Rig();
+    addTearDown(rig.container.dispose);
+    rig.container.listen(scanJobProvider(_jobId), (_, _) {});
+    await rig.container.read(scanJobProvider(_jobId).future);
+    final err = ApiException('boom', statusCode: 500);
+    rig.api.error = err;
+    await expectLater(rig.decisions.keep(_job()), throwsA(same(err)));
+    await rig.container.read(scanJobProvider(_jobId).future);
+    expect(rig.api.getCalls, 1);
+  });
+
+  test('dismiss evicts every cached photo of that scan, and only it', () async {
+    final rig = _Rig();
+    addTearDown(rig.container.dispose);
+    await rig.decisions.dismiss(_jobId);
+    expect(rig.photos.removed, hasLength(2));
+    expect(
+      rig.photos.removed,
+      everyElement(contains('/scans/$_jobId/photos/')),
+    );
+    expect(rig.photos.stored.single, contains(_otherJob));
+  });
+
+  test('removePlant on a scan plant evicts its photos', () async {
+    final rig = _Rig();
+    addTearDown(rig.container.dispose);
+    await rig.decisions.removePlant(_plant(imageUrl: scanUrl));
+    expect(rig.photos.removed, hasLength(2));
+    expect(
+      rig.photos.removed,
+      everyElement(contains('/scans/$_jobId/photos/')),
+    );
+  });
+
+  test('removePlant on a legacy plant evicts nothing', () async {
+    final rig = _Rig();
+    addTearDown(rig.container.dispose);
+    await rig.decisions.removePlant(
+      _plant(imageUrl: 'https://firebasestorage.googleapis.com/x.jpg'),
+    );
+    expect(rig.photos.removed, isEmpty);
   });
 }
