@@ -35,6 +35,12 @@ void main() {
         GoRoute(
           path: '/scans/:id',
           builder: (_, s) => Text('scan-${s.pathParameters['id']}'),
+          routes: [
+            GoRoute(
+              path: 'full',
+              builder: (_, s) => Text('full-${s.pathParameters['id']}'),
+            ),
+          ],
         ),
       ],
     );
@@ -181,6 +187,23 @@ void main() {
 
     router.pop();
     router.pop();
+    await tester.pumpAndSettle();
+    expect(find.text(ScanJobPill.readyCopy), findsOneWidget);
+  });
+
+  testWidgets('the pill hides on the tracked job\'s full result too', (
+    tester,
+  ) async {
+    await pump(tester, at(TrackerPhase.ready));
+    router.push('/scans/job-1');
+    await tester.pumpAndSettle();
+    router.push('/scans/job-1/full');
+    await tester.pumpAndSettle();
+    expect(find.text('full-job-1'), findsOneWidget);
+    expect(find.text(ScanJobPill.readyCopy), findsNothing);
+
+    // Another job's full result does not hide it.
+    router.push('/scans/job-2/full');
     await tester.pumpAndSettle();
     expect(find.text(ScanJobPill.readyCopy), findsOneWidget);
   });

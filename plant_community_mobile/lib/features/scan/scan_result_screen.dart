@@ -12,6 +12,8 @@ import '../../core/routing/error_screen.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../models/plant.dart';
 import '../../services/api_service.dart';
+import '../../services/auth_service.dart';
+import '../../services/firestore_service.dart';
 import '../../shared/widgets/clay_button.dart';
 import '../profile/forum_notification_settings_card.dart' show apiErrorMessage;
 import '../results/results_screen.dart';
@@ -243,6 +245,7 @@ class _ShortCardPage extends ConsumerWidget {
 
   Future<void> _dismiss(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
+    final container = ProviderScope.containerOf(context, listen: false);
     try {
       await ref.read(scanDecisionsProvider).dismiss(job.id);
     } catch (e) {
@@ -252,11 +255,21 @@ class _ShortCardPage extends ConsumerWidget {
       );
       return;
     }
+    _clearTrackedPill(container, job.id);
     if (context.mounted) _closeResult(context);
   }
 }
 
 const _dismissFailed = "Couldn't dismiss the scan. Try again.";
+
+/// After a server dismiss: drops the tracker's pill when it is showing this
+/// scan, so it stops offering View and Try again for an erased scan (its
+/// `retry_of` would be ignored and the retry charged as a new scan). The
+/// tracker's dismiss is local-only.
+void _clearTrackedPill(ProviderContainer container, String jobId) {
+  if (container.read(scanJobTrackerProvider).job?.id != jobId) return;
+  container.read(scanJobTrackerProvider.notifier).dismiss();
+}
 
 /// `/scans/<id>/full`: the whole result, with Add to My Collection and
 /// Dismiss while the scan is undecided, or "In My Collection" once kept.
@@ -292,7 +305,8 @@ class ScanFullResultScreen extends ConsumerWidget {
 }
 
 /// Under a full result: Add to My Collection and Dismiss for an undecided
-/// scan, "In My Collection" for a kept one.
+/// scan, "In My Collection" for a kept one, and Add alone for a kept scan
+/// missing from the user's plants.
 ///
 /// While Add runs both buttons are off and Add shows progress; the app bar's
 /// back still works (the Firestore write can stay pending offline after the
@@ -348,6 +362,7 @@ class _ScanDecisionBarState extends ConsumerState<ScanDecisionBar> {
     final decisions = ref.read(scanDecisionsProvider);
     final router = GoRouter.maybeOf(context);
     final messenger = ScaffoldMessenger.maybeOf(context);
+    final container = ProviderScope.containerOf(context, listen: false);
     setState(() => _busy = _Busy.dismissing);
     try {
       await decisions.dismiss(widget.job.id);
@@ -359,15 +374,31 @@ class _ScanDecisionBarState extends ConsumerState<ScanDecisionBar> {
       if (mounted) setState(() => _busy = _Busy.none);
       return;
     }
+    _clearTrackedPill(container, widget.job.id);
     // A tab root: `go`, never `push` (docs/rules/flutter.md).
     router?.go(AppRoutes.collection);
+  }
+
+  /// Whether a scan the server has kept is also a saved plant. Only a
+  /// collection that has loaded and lacks it says no, so Add never flashes
+  /// while the plants stream loads or after it fails.
+  bool _inCollection() {
+    final uid = ref.watch(currentUserIdProvider);
+    if (uid == null) return true;
+    final plants = ref.watch(plantsStreamProvider(uid)).value?.plants;
+    return plants == null || plants.any((p) => p.id == widget.job.id);
   }
 
   @override
   Widget build(BuildContext context) {
     final ext = context.canopy;
     final theme = Theme.of(context);
-    if (_kept || widget.job.decision == ScanDecision.kept) {
+    final serverKept = widget.job.decision == ScanDecision.kept;
+    // Kept on the server but missing from Firestore (the write never
+    // landed): offer Add again. Keep is a no-op on the server for a kept
+    // scan, then writes the same plant doc.
+    final readd = serverKept && !_kept && !_inCollection();
+    if (!readd && (_kept || serverKept)) {
       return Semantics(
         container: true,
         child: ConstrainedBox(
@@ -408,18 +439,20 @@ class _ScanDecisionBarState extends ConsumerState<ScanDecisionBar> {
             onPressed: idle ? _add : null,
           ),
         ),
-        const SizedBox(height: AppSpacing.sm),
-        ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 48),
-          child: ClayButton(
-            key: ScanDecisionBar.dismissKey,
-            label: 'Dismiss',
-            fullWidth: true,
-            variant: ClayButtonVariant.outline,
-            loading: _busy == _Busy.dismissing,
-            onPressed: idle ? _dismiss : null,
+        if (!readd) ...[
+          const SizedBox(height: AppSpacing.sm),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: ClayButton(
+              key: ScanDecisionBar.dismissKey,
+              label: 'Dismiss',
+              fullWidth: true,
+              variant: ClayButtonVariant.outline,
+              loading: _busy == _Busy.dismissing,
+              onPressed: idle ? _dismiss : null,
+            ),
           ),
-        ),
+        ],
       ],
     );
   }

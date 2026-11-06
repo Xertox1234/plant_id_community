@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:plant_community_mobile/core/routing/error_screen.dart';
@@ -14,7 +15,10 @@ import 'package:plant_community_mobile/features/scan/scan_job_api.dart';
 import 'package:plant_community_mobile/features/scan/scan_job_tracker.dart';
 import 'package:plant_community_mobile/features/scan/scan_result_screen.dart';
 import 'package:plant_community_mobile/features/scan/widgets/short_scan_card.dart';
+import 'package:plant_community_mobile/models/plant.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
+import 'package:plant_community_mobile/services/auth_service.dart';
+import 'package:plant_community_mobile/services/firestore_service.dart';
 import 'package:plant_community_mobile/shared/widgets/clay_button.dart';
 
 import 'fake_scan_job_tracker.dart';
@@ -63,11 +67,33 @@ Object? _decisionError;
 /// Holds a keep open while set.
 Completer<void>? _keepGate;
 
+/// The signed-in user's saved plants, as the plants stream reports them.
+/// Holds the scan by default, so a kept scan reads as in the collection.
+var _collection = <Plant>[];
+
+Plant _savedPlant(String id) => Plant(
+  id: id,
+  name: 'Monstera',
+  scientificName: 'Monstera deliciosa',
+  description: '',
+  care: const [],
+  timestamp: DateTime.utc(2026, 11, 2),
+);
+
 void _resetDecisions() {
   _decisionCalls = <String>[];
   _decisionError = null;
   _keepGate = null;
+  _collection = [_savedPlant('job-9')];
 }
+
+/// Signed in as `user-1`, with [_collection] as the saved plants.
+List<Override> get _userOverrides => [
+  currentUserIdProvider.overrideWithValue('user-1'),
+  plantsStreamProvider(
+    'user-1',
+  ).overrideWith((ref) => Stream.value(PlantsSnapshot(plants: _collection))),
+];
 
 ScanJob _job(
   ScanJobStatus status, {
@@ -120,6 +146,7 @@ Future<_FakeApi> _pump(
         scanJobApiProvider.overrideWithValue(api),
         scanJobTrackerProvider.overrideWith(() => _tracker),
         scanDecisionsProvider.overrideWith(_FakeDecisions.new),
+        ..._userOverrides,
       ],
       child: MaterialApp(
         theme: AppTheme.build(Brightness.light, AppDensity.cozy),
@@ -167,6 +194,7 @@ Future<GoRouter> _pumpPushed(
         scanJobApiProvider.overrideWithValue(_FakeApi(job)),
         scanJobTrackerProvider.overrideWith(() => _tracker),
         scanDecisionsProvider.overrideWith(_FakeDecisions.new),
+        ..._userOverrides,
       ],
       child: MaterialApp.router(
         theme: AppTheme.build(Brightness.light, AppDensity.cozy),
@@ -502,6 +530,65 @@ void main() {
       );
       expect(find.byType(ShortScanCard), findsOneWidget);
       expect(find.text('Try again'), findsNothing);
+    });
+
+    testWidgets('kept job missing from collection offers Add again', (
+      tester,
+    ) async {
+      await _pump(tester, _job(ScanJobStatus.done, result: _result));
+      _collection = [_savedPlant('another-plant')];
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(ResultsScreen), findsOneWidget);
+      expect(find.text('In My Collection'), findsNothing);
+      expect(find.text('Add to My Collection'), findsOneWidget);
+      // A kept scan cannot be dismissed, only written again.
+      expect(find.byKey(ScanDecisionBar.dismissKey), findsNothing);
+
+      await tester.tap(find.text('Add to My Collection'));
+      await tester.pump();
+      await tester.pump();
+      expect(_decisionCalls, ['keep:job-9']);
+      expect(find.text('In My Collection'), findsOneWidget);
+    });
+
+    testWidgets('dismissing a half-result clears the tracker pill', (
+      tester,
+    ) async {
+      final job = _undecided(ScanJobStatus.degraded);
+      await _pumpPushed(tester, job, tracker: _trackerAt(job));
+      await tester.tap(find.byKey(ShortScanCard.dismissKey));
+      await _settle(tester);
+      expect(_decisionCalls, ['dismiss:job-9']);
+      expect(_tracker.calls, contains('dismiss'));
+      expect(find.text('home-page'), findsOneWidget);
+    });
+
+    testWidgets('dismissing from the full result clears the tracker pill', (
+      tester,
+    ) async {
+      final job = _undecided(ScanJobStatus.degraded);
+      await _pumpPushed(tester, job, tracker: _trackerAt(job));
+      await tester.tap(find.text('View'));
+      await _settle(tester);
+      await tester.tap(find.byKey(ScanDecisionBar.dismissKey));
+      await _settle(tester);
+      expect(_tracker.calls, contains('dismiss'));
+      expect(find.text('my-plants-page'), findsOneWidget);
+    });
+
+    testWidgets('dismissing leaves the pill of another job alone', (
+      tester,
+    ) async {
+      await _pumpPushed(
+        tester,
+        _undecided(ScanJobStatus.degraded),
+        tracker: _trackerAt(fakeScanJob(status: ScanJobStatus.degraded)),
+      );
+      await tester.tap(find.byKey(ShortScanCard.dismissKey));
+      await _settle(tester);
+      expect(_decisionCalls, ['dismiss:job-9']);
+      expect(_tracker.calls, isNot(contains('dismiss')));
     });
   });
 }
