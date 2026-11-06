@@ -71,7 +71,7 @@ final class ScanJobTrackerProvider
   }
 }
 
-String _$scanJobTrackerHash() => r'cb3e1b789e67849c79de61d197df2bb50fdb2c48';
+String _$scanJobTrackerHash() => r'734bc897b473c2b1a76497a819b064e0c104fa1d';
 
 /// The one background scan job of this device: uploads it, polls it every
 /// [scanJobPollInterval], and saves a finished plant to My Collection once.

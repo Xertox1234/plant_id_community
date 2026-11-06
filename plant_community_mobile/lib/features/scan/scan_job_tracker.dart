@@ -15,6 +15,14 @@ import 'scan_job_api.dart';
 
 part 'scan_job_tracker.g.dart';
 
+/// [ScanJobTracker.submit] while a scan is already running or submitting.
+///
+/// Its own type (still a [StateError]) so a caller can show the running job
+/// without also swallowing every other [StateError] (scan-2 audit L12).
+class ScanAlreadyRunning extends StateError {
+  ScanAlreadyRunning() : super('A scan is already running.');
+}
+
 /// Secure-storage key holding the id of the job still being tracked, so a
 /// scan survives the app being killed.
 const scanJobPendingIdKey = 'scan_job.pending_id';
@@ -122,7 +130,7 @@ class ScanJobTracker extends _$ScanJobTracker {
   Future<void> submit(CaptureResult r) async {
     await restored;
     if (_submitting || _isActive(state.phase)) {
-      throw StateError('A scan is already running.');
+      throw ScanAlreadyRunning();
     }
     _submitting = true;
     try {

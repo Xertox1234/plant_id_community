@@ -320,6 +320,28 @@ void main() {
     expect(find.byKey(const Key('fake-preview')), findsNothing);
   });
 
+  testWidgets('a scan already running switches to the status view (L12)', (
+    tester,
+  ) async {
+    await pump(tester);
+    tracker.submitError = ScanAlreadyRunning();
+    await shootAndDone(tester);
+    await settle(tester);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(find.byKey(ScanScreen.statusViewKey), findsOneWidget);
+  });
+
+  testWidgets('any other StateError is a failure, not a running scan (L12)', (
+    tester,
+  ) async {
+    await pump(tester);
+    tracker.submitError = StateError('something else broke');
+    await shootAndDone(tester);
+    await settle(tester);
+    expect(find.byKey(ScanScreen.statusViewKey), findsNothing);
+    expect(find.text("Couldn't start the check. Try again."), findsOneWidget);
+  });
+
   testWidgets('another failure shows a SnackBar and keeps the shots', (
     tester,
   ) async {

@@ -336,7 +336,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           allowance: ref.read(scanAllowanceProvider).value,
         ),
       );
-    } on StateError {
+    } on ScanAlreadyRunning {
       // The tracker already has a scan running: show that one.
       if (mounted) _showStatusView();
     } catch (e) {
