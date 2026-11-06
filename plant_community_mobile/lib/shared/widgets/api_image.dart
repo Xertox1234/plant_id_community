@@ -46,7 +46,12 @@ final privatePhotoCacheManagerProvider = Provider<BaseCacheManager>(
 final privatePhotoCacheProvider = Provider<BaseCacheManager>((ref) {
   final manager = ref.watch(privatePhotoCacheManagerProvider);
   ref.listen<String?>(currentUserIdProvider, (previous, next) {
-    if (previous != next) unawaited(clearPrivatePhotos(manager));
+    // A signed-in user leaving (sign-out, account switch). Not null -> uid:
+    // that is the session restoring at launch, and the per-user key already
+    // keeps another account's files unreachable.
+    if (previous != null && previous != next) {
+      unawaited(clearPrivatePhotos(manager));
+    }
   });
   return manager;
 });

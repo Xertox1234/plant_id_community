@@ -124,8 +124,14 @@ void main() {
     await tester.pump();
     expect(cache.emptied, 1);
 
-    container.read(uid.notifier).set('user-b'); // next account
-    // Flush as Riverpod's scheduler would (see scan_job_tracker_test).
+    // Signing in from signed-out is not a user leaving: no clear (it is
+    // also the cold-start restore).
+    container.read(uid.notifier).set('user-b');
+    container.read(currentUserIdProvider);
+    await tester.pump();
+    expect(cache.emptied, 1);
+
+    container.read(uid.notifier).set('user-c'); // direct account switch
     container.read(currentUserIdProvider);
     await tester.pump();
     expect(cache.emptied, 2);

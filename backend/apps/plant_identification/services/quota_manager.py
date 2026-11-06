@@ -239,6 +239,15 @@ class QuotaManager:
         try:
             client.decrby(QUOTA_KEY_PREFIX_PLANT_ID_DAILY, calls)
             client.decrby(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY, calls)
+            # A key that expired between claim and refund comes back from
+            # DECRBY negative and without an expiry: give it one, so the
+            # extra headroom ends at the next reset.
+            self._ensure_ttl(
+                QUOTA_KEY_PREFIX_PLANT_ID_DAILY, self._seconds_until_midnight()
+            )
+            self._ensure_ttl(
+                QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY, self._seconds_until_month_end()
+            )
         except Exception as e:
             logger.error(f"[QUOTA] Error releasing Plant.id quota: {e}")
 

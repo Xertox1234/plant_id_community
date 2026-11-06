@@ -418,6 +418,7 @@ class ScanJobTracker extends _$ScanJobTracker {
   /// A push said [jobId] finished: re-read it now when it is ours.
   Future<void> onPush(String jobId) async {
     if (jobId != _pendingId) return;
+    _resetBackoff(); // a push proves the server is reachable: ask now
     await _poll();
   }
 
@@ -541,8 +542,11 @@ class ScanJobTracker extends _$ScanJobTracker {
     _fetchingGen = gen;
     try {
       final job = await _api.get(id);
+      // Only this job's polls move the backoff: a stale one finishing after
+      // a cancel or a new submit must not delay the next job's first poll.
+      if (!_current(gen)) return;
       _resetBackoff();
-      if (_current(gen)) _apply(job, gen);
+      _apply(job, gen);
     } on ApiException catch (e) {
       if (!_current(gen) || _handledReadError(e)) return;
       debugPrint('[SCAN_JOB] Poll failed: $e');
@@ -550,8 +554,9 @@ class ScanJobTracker extends _$ScanJobTracker {
       _markSlowIfDue(state.job);
     } catch (e) {
       debugPrint('[SCAN_JOB] Poll failed: $e');
+      if (!_current(gen)) return;
       _backOff();
-      if (_current(gen)) _markSlowIfDue(state.job);
+      _markSlowIfDue(state.job);
     } finally {
       if (_fetchingGen == gen) _fetchingGen = null;
     }

@@ -25,6 +25,7 @@ from django.conf import settings
 from django.core.cache import cache
 from pybreaker import CircuitBreakerError
 from redis import Redis
+from urllib3.exceptions import NewConnectionError
 
 from ..circuit_monitoring import create_monitored_circuit
 from ..constants import (
@@ -62,6 +63,22 @@ def get_lock_id() -> str:
     pid = os.getpid()
     thread_id = threading.get_ident()
     return f"{CACHE_LOCK_ID_PREFIX}-{hostname}-{pid}-{thread_id}"
+
+
+def _never_reached_plant_id(exc: BaseException) -> bool:
+    """True when the request failed before Plant.id could receive (and bill) it.
+
+    A connect timeout, or a connection error whose cause is a refused
+    connection or a failed DNS lookup. Anything else (a read timeout, a reset
+    mid-response, an HTTP error) may have reached Plant.id and is counted.
+    """
+    if isinstance(exc, requests.exceptions.ConnectTimeout):
+        return True
+    if isinstance(exc, requests.exceptions.ConnectionError) and exc.args:
+        inner = exc.args[0]
+        reason = getattr(inner, "reason", inner)
+        return isinstance(reason, NewConnectionError)
+    return False
 
 
 class PlantIDAPIService:
@@ -219,24 +236,36 @@ class PlantIDAPIService:
                 )
 
             spent = 0
+            # None: the call never ran (open circuit). "unsent": it failed
+            # before reaching Plant.id. "sent": the identification POST was
+            # made and then something failed.
+            failure: Optional[str] = None
+
+            def counted_call(*args: Any) -> Dict[str, Any]:
+                nonlocal failure
+                try:
+                    return self._call_plant_id_api(*args)
+                except Exception as exc:
+                    failure = "unsent" if _never_reached_plant_id(exc) else "sent"
+                    raise
 
             def call_api() -> Dict[str, Any]:
                 nonlocal spent
                 try:
                     out: Dict[str, Any] = self.circuit.call(
-                        self._call_plant_id_api,
+                        counted_call,
                         id_images,
                         hl_images,
                         cache_key,
                         image_hash,
                         include_diseases,
                     )
-                except CircuitBreakerError:
-                    raise  # open circuit: no call was made
                 except Exception:
-                    # The identification POST was attempted; a failed one
-                    # never reaches the health assessment.
-                    spent = 1
+                    # Includes the CircuitBreakerError pybreaker raises on the
+                    # call that trips it: that call did run, so ``failure``
+                    # (not the exception type) says whether it was spent. A
+                    # failed identification never reaches the health POST.
+                    spent = 1 if failure == "sent" else 0
                     raise
                 spent = reserved
                 return out

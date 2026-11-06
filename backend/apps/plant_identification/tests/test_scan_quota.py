@@ -287,3 +287,84 @@ def test_ttl_helpers_count_to_utc_midnight_and_month_end(quota):
     with freeze_time("2026-11-05T12:00:00Z"):
         assert quota._seconds_until_midnight() == 12 * 3600
         assert quota._seconds_until_month_end() == (25 * 24 + 12) * 3600
+
+
+def _post_raising(exc):
+    def post(url, **kwargs):
+        raise exc
+
+    return post
+
+
+@pytest.mark.parametrize(
+    "make_exc",
+    [
+        lambda: __import__("requests").exceptions.ConnectTimeout("connect"),
+        lambda: __import__("requests").exceptions.ConnectionError(
+            __import__("urllib3").exceptions.MaxRetryError(
+                None,
+                "https://plant.id/",
+                reason=__import__("urllib3").exceptions.NewConnectionError(
+                    None, "refused"
+                ),
+            )
+        ),
+    ],
+    ids=["connect-timeout", "refused"],
+)
+def test_a_call_that_never_reached_plant_id_is_refunded(service, quota, make_exc):
+    """Review round: an outage must not burn the 3/day cap on unsent calls."""
+    exc = make_exc()
+    with (
+        override_settings(PLANT_ID_DAILY_QUOTA=10),
+        patch.object(service.session, "post", side_effect=_post_raising(exc)),
+        pytest.raises(type(exc)),
+    ):
+        service.identify_plant(b"x", include_diseases=True)
+    assert quota.get_plant_id_daily_usage() == 0
+    assert quota.get_plant_id_monthly_usage() == 0
+
+
+def test_a_read_timeout_is_counted(service, quota):
+    """The request reached Plant.id, so it may be billed: kept."""
+    import requests
+
+    exc = requests.exceptions.ReadTimeout("read")
+    with (
+        override_settings(PLANT_ID_DAILY_QUOTA=10),
+        patch.object(service.session, "post", side_effect=_post_raising(exc)),
+        pytest.raises(requests.exceptions.ReadTimeout),
+    ):
+        service.identify_plant(b"x", include_diseases=False)
+    assert quota.get_plant_id_daily_usage() == 1
+
+
+def test_the_call_that_trips_the_circuit_is_counted(service, quota):
+    """pybreaker raises CircuitBreakerError on the tripping call, which ran."""
+    from apps.plant_identification.constants import PLANT_ID_CIRCUIT_FAIL_MAX
+    from apps.plant_identification.services.plant_id_service import ExternalAPIError
+
+    def failing(url, **kwargs):
+        resp = Mock()
+        resp.raise_for_status.side_effect = RuntimeError("500")
+        return resp
+
+    with (
+        override_settings(PLANT_ID_DAILY_QUOTA=100),
+        patch.object(service.session, "post", side_effect=failing),
+    ):
+        for i in range(PLANT_ID_CIRCUIT_FAIL_MAX):
+            with pytest.raises((RuntimeError, ExternalAPIError)):
+                service.identify_plant(f"img-{i}".encode(), include_diseases=False)
+        # Now open: this one never runs and costs nothing.
+        with pytest.raises(ExternalAPIError):
+            service.identify_plant(b"after", include_diseases=False)
+    assert quota.get_plant_id_daily_usage() == PLANT_ID_CIRCUIT_FAIL_MAX
+
+
+def test_a_refund_after_the_counter_expired_gives_it_an_expiry(quota, redis_fake):
+    """Review round: DECRBY on an expired key recreates it with no TTL."""
+    quota.release_plant_id(2)
+    assert redis_fake.store[QUOTA_KEY_PREFIX_PLANT_ID_DAILY] == -2
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANT_ID_DAILY) > 0
+    assert redis_fake.ttl(QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY) > 0

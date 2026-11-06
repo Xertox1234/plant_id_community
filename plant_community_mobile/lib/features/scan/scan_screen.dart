@@ -14,6 +14,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/app_typography.dart';
 import '../../services/api_service.dart';
 import 'capture_session.dart';
+import 'shot_files.dart';
 import 'capture_steps.dart';
 import 'frame_quality.dart';
 import 'hint_stabilizer.dart';
@@ -262,13 +263,19 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     if (camera == null || !_ready || _capturing) return;
     setState(() => _capturing = true);
     unawaited(HapticFeedback.lightImpact());
+    // Read before the await: ref is unusable once the screen is disposed.
+    final deleteFiles = ref.read(shotFileDeleterProvider);
     String? path;
     try {
       path = await camera.takePicture();
     } catch (_) {
       path = null;
     }
-    if (!mounted) return;
+    if (!mounted) {
+      // The session is gone with the screen: nobody else will delete it.
+      if (path != null) deleteFiles([path]);
+      return;
+    }
     setState(() => _capturing = false);
     // A shot that landed just before a teardown is still a good shot.
     if (path != null) {

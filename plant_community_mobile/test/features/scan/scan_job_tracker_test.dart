@@ -1103,4 +1103,27 @@ void main() {
     expect(h.getCount, recovered + 1);
     h.container.dispose();
   });
+
+  testWidgets('a push during the poll backoff asks at once (review round)', (
+    tester,
+  ) async {
+    final h = _Harness();
+    await h.tracker.restored;
+    h.api.gets.add(_job(ScanJobStatus.processing));
+    await h.tracker.submit(_capture);
+    h.api.getError = ApiException('Server error', statusCode: 503);
+    await h.tick(tester); // fails: backing off
+    final before = h.getCount;
+
+    h.api.getError = null;
+    h.api.gets
+      ..clear()
+      ..add(_job(ScanJobStatus.done));
+    await h.tracker.onPush(_jobId);
+    await tester.pump();
+
+    expect(h.getCount, before + 1);
+    expect(h.state.phase, TrackerPhase.ready);
+    h.container.dispose();
+  });
 }
