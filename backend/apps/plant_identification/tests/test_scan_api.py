@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from apps.plant_identification.scan_jobs import local_date_for
-from apps.plant_identification.scan_models import ScanJob
+from apps.plant_identification.scan_models import ScanJob, ScanJobImage
 from apps.plant_identification.services.combined_identification_service import (
     CombinedPlantIdentificationService,
 )
@@ -589,3 +589,53 @@ def test_photo_404s_stay_404_with_image_accept(accept):
     foreign = other.get(f"{BASE}{job_id}/photos/problem/", HTTP_ACCEPT=accept)
     assert foreign.status_code == 404
     assert foreign.json()["code"] == "not_found"
+
+
+@pytest.mark.django_db
+def test_exhausted_user_forces_no_photo_decode():
+    """M5: the unlocked pre-check refuses before any PIL decode/re-encode."""
+    client = _client(_user())
+    _finish(_create(client), "done", "diagnose")
+    with patch(
+        "apps.plant_identification.api.scan_views.normalize_scan_photo"
+    ) as normalize:
+        refused = _create(client)
+    assert refused.status_code == 429
+    normalize.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_failed_photo_save_leaves_no_orphaned_file(roots, tmp_path):
+    """M5: a rolled-back create deletes the photos it already wrote."""
+    real_create = ScanJobImage.objects.create
+    calls = []
+
+    def create_then_fail(**kwargs):
+        calls.append(kwargs["role"])
+        if len(calls) == 2:
+            raise RuntimeError("storage hiccup")
+        return real_create(**kwargs)
+
+    client = _client(_user())
+    client.raise_request_exception = False
+    with patch(
+        "apps.plant_identification.api.scan_views.ScanJobImage.objects.create",
+        side_effect=create_then_fail,
+    ):
+        response = _create(client)
+
+    assert response.status_code == 500
+    assert len(calls) == 2
+    assert not ScanJob.objects.exists()
+    assert not ScanJobImage.objects.exists()
+    written = [p for p in (tmp_path / "private").rglob("*") if p.is_file()]
+    assert written == []
+
+
+@pytest.mark.django_db
+def test_invalid_mode_is_400_even_with_an_active_job():
+    client = _client(_user())
+    assert _create(client).status_code == 201
+    response = client.post(BASE, {"mode": "bogus"}, format="multipart")
+    assert response.status_code == 400
+    assert "mode" in response.data["errors"]

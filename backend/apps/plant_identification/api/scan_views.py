@@ -321,61 +321,92 @@ class ScanJobViewSet(GenericViewSet):
             block=True,
         )
     )
+    def _refusal(self, request: Request, user, mode: str) -> Response | None:
+        """The 409/429/503 that stops this create, or None to go ahead."""
+        expire_stale_jobs(user.pk)  # a stuck job must not 409 forever
+        active = (
+            ScanJob.objects.filter(user=user, status__in=ScanJob.ACTIVE_STATUSES)
+            .order_by("-created_at")
+            .first()
+        )
+        if active is not None:
+            return _error(
+                request,
+                status.HTTP_409_CONFLICT,
+                "scan_in_progress",
+                "Another scan is still running.",
+                job_id=str(active.uuid),
+            )
+        allowance = allowance_for(user)
+        if allowance[mode]["remaining"] <= 0:
+            return _error(
+                request,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "allowance_exhausted",
+                "No scans of this kind left for now.",
+                kind=mode,
+                limit=allowance[mode]["limit"],
+                resets_at=resets_at_for(user, mode),
+            )
+        if mode == "diagnose" and not allowance["plant_id_available"]:
+            return _error(
+                request,
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "plant_id_busy",
+                "Plant health checks are busy right now. Try again later.",
+            )
+        return None
+
     def create(self, request: Request) -> Response:
-        """Start a scan. The photos are form files named by role."""
+        """Start a scan. The photos are form files named by role.
+
+        The photos are decoded and re-encoded BEFORE the user row is locked
+        (scan-2 audit M5): a cheap unlocked check first refuses a user who
+        would be refused anyway, so an exhausted user forces no decode, and
+        the lock is held only for the authoritative re-check and the inserts.
+        """
         mode = str(request.data.get("mode", ""))
+        if mode not in SCAN_MODE_ROLES:
+            raise ValidationError({"mode": ["Must be diagnose or identify."]})
         offset = parse_utc_offset(request.data.get("utc_offset_minutes"))
+
+        refused = self._refusal(request, request.user, mode)
+        if refused is not None:
+            return refused
+        photos = _validated_photos(request, mode)
+
         User = get_user_model()
-        with transaction.atomic():
-            user = User.objects.select_for_update().get(pk=request.user.pk)
-            expire_stale_jobs(user.pk)
+        written: list[str] = []
+        try:
+            with transaction.atomic():
+                user = User.objects.select_for_update().get(pk=request.user.pk)
+                # Authoritative: a concurrent create may have won meanwhile.
+                refused = self._refusal(request, user, mode)
+                if refused is not None:
+                    return refused
 
-            active = (
-                ScanJob.objects.filter(user=user, status__in=ScanJob.ACTIVE_STATUSES)
-                .order_by("-created_at")
-                .first()
-            )
-            if active is not None:
-                return _error(
-                    request,
-                    status.HTTP_409_CONFLICT,
-                    "scan_in_progress",
-                    "Another scan is still running.",
-                    job_id=str(active.uuid),
+                job = ScanJob.objects.create(
+                    user=user,
+                    mode=mode,
+                    local_date=local_date_for(offset),
+                    utc_offset_minutes=offset,
                 )
-
-            photos = _validated_photos(request, mode)
-
-            allowance = allowance_for(user, offset)
-            if allowance[mode]["remaining"] <= 0:
-                return _error(
-                    request,
-                    status.HTTP_429_TOO_MANY_REQUESTS,
-                    "allowance_exhausted",
-                    "No scans of this kind left for now.",
-                    kind=mode,
-                    limit=allowance[mode]["limit"],
-                    resets_at=resets_at_for(user, mode),
-                )
-
-            if mode == "diagnose" and not allowance["plant_id_available"]:
-                return _error(
-                    request,
-                    status.HTTP_503_SERVICE_UNAVAILABLE,
-                    "plant_id_busy",
-                    "Plant health checks are busy right now. Try again later.",
-                )
-
-            job = ScanJob.objects.create(
-                user=user,
-                mode=mode,
-                local_date=local_date_for(offset),
-                utc_offset_minutes=offset,
-            )
-            for role, photo in photos.items():
-                ScanJobImage.objects.create(job=job, role=role, image=photo)
-            job_id = job.pk
-            transaction.on_commit(lambda: _enqueue_scan_job(job_id))
+                for role, photo in photos.items():
+                    image = ScanJobImage.objects.create(job=job, role=role, image=photo)
+                    if image.image.name:
+                        written.append(image.image.name)
+                job_id = job.pk
+                transaction.on_commit(lambda: _enqueue_scan_job(job_id))
+        except Exception:
+            # The rows rolled back, but photos already written to storage did
+            # not, and with no row nothing would ever delete them.
+            storage = scan_photo_storage()
+            for name in written:
+                try:
+                    storage.delete(name)
+                except Exception:
+                    logger.exception("[SCAN] Could not delete orphaned photo %s", name)
+            raise
 
         logger.info("[SCAN] job=%s created mode=%s user=%s", job.pk, mode, user.pk)
         return self._job_response(job, status.HTTP_201_CREATED)
