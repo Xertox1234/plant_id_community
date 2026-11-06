@@ -252,18 +252,19 @@ void main() {
   testWidgets('allowance exhausted for premium names the daily limit', (
     tester,
   ) async {
-    await pump(
-      tester,
-      allowance: _allowance(isPremium: true, diagnoseLimit: 4),
-    );
+    final allowance = _allowance(isPremium: true, diagnoseLimit: 4);
+    await pump(tester, allowance: allowance);
     tracker.submitError = const ScanRefused(
       code: 'allowance_exhausted',
       kind: 'diagnose',
     );
     await shootAndDone(tester);
     await settle(tester);
+    // Rolling 24h window (scan-2 audit M1): the time, not "midnight".
     expect(
-      find.text("You've used today's 4 checks. More at midnight."),
+      find.text(
+        "You've used today's 4 checks. More at ${allowance.resetsAtLabel}.",
+      ),
       findsOneWidget,
     );
   });

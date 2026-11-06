@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http_parser/http_parser.dart';
+import 'package:intl/intl.dart';
 
 import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
@@ -136,7 +137,8 @@ class ScanJob {
   }
 }
 
-/// Today's scan allowance for the signed-in user.
+/// The signed-in user's scan allowance: a scan counts for 24 hours after it
+/// was made (a rolling window, not a calendar day).
 class ScanAllowance {
   const ScanAllowance({
     required this.isPremium,
@@ -152,7 +154,12 @@ class ScanAllowance {
 
   final bool isPremium;
   final int diagnoseRemaining, diagnoseLimit, identifyRemaining, identifyLimit;
+
+  /// When the next diagnosis comes back (UTC).
   final DateTime resetsAt;
+
+  /// [resetsAt] as a local clock time, e.g. "3:42 PM".
+  String get resetsAtLabel => DateFormat.jm().format(resetsAt.toLocal());
 
   /// False when Plant.id has no room for a diagnosis right now.
   final bool plantIdAvailable;

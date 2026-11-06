@@ -257,7 +257,7 @@ class _AllowanceLine extends ConsumerWidget {
     final text = n > 0
         ? '$n check${n == 1 ? '' : 's'} left today'
         : allowance.isPremium
-        ? 'More checks at midnight'
+        ? 'More checks at ${allowance.resetsAtLabel}'
         : 'No checks left today · Go premium for '
               '${allowance.premiumDiagnoseLimit}';
     return Padding(

@@ -11,14 +11,18 @@ import logging
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from functools import partial
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from .constants import SCAN_FAILURE_STALE, SCAN_SUMMARY_MAX_SUGGESTIONS
+from .constants import (
+    SCAN_ALLOWANCE_WINDOW_HOURS,
+    SCAN_FAILURE_STALE,
+    SCAN_SUMMARY_MAX_SUGGESTIONS,
+)
 from .scan_models import ScanJob
 from .services.quota_manager import QuotaManager
 
@@ -150,19 +154,13 @@ def parse_utc_offset(raw: Any) -> int:
 
 
 def local_date_for(utc_offset_minutes: Any) -> date:
-    """Today's date at ``utc_offset_minutes`` from UTC."""
+    """Today's date at ``utc_offset_minutes`` from UTC.
+
+    Recorded on each job for reporting only; the allowance is a rolling
+    window (``SCAN_ALLOWANCE_WINDOW_HOURS``) and never reads it.
+    """
     offset = parse_utc_offset(utc_offset_minutes)
     return (timezone.now() + timedelta(minutes=offset)).date()
-
-
-def next_local_midnight(utc_offset_minutes: Any) -> datetime:
-    """The next local midnight at that offset, as an aware UTC datetime."""
-    offset = parse_utc_offset(utc_offset_minutes)
-    tomorrow = local_date_for(offset) + timedelta(days=1)
-    midnight = datetime(
-        tomorrow.year, tomorrow.month, tomorrow.day, tzinfo=dt_timezone.utc
-    )
-    return midnight - timedelta(minutes=offset)
 
 
 def daily_limits(user) -> Dict[str, int]:
@@ -178,44 +176,79 @@ def daily_limits(user) -> Dict[str, int]:
     }
 
 
-def used_today(user, local_date: date, kind: str) -> int:
-    """Scans of ``kind`` this user has spent or reserved on ``local_date``.
+def _window() -> timedelta:
+    return timedelta(hours=SCAN_ALLOWANCE_WINDOW_HOURS)
 
-    An active job reserves its mode's slot; a finished one counts as what it
-    was charged as (a degraded diagnosis counts as an identification). Failed
-    and cancelled jobs have no charge and cost nothing.
+
+def counted_created_at(user, kind: str, now: datetime) -> List[datetime]:
+    """When each scan of ``kind`` still counted against the allowance was made.
+
+    Oldest first. A scan counts for ``SCAN_ALLOWANCE_WINDOW_HOURS`` after it
+    was created. An active job reserves its mode's slot; a finished one
+    counts as what it was charged as (a degraded diagnosis counts as an
+    identification). Failed and cancelled jobs have no charge and cost
+    nothing.
     """
-    used: int = ScanJob.objects.filter(
-        Q(status__in=ScanJob.ACTIVE_STATUSES, mode=kind) | Q(charged_as=kind),
-        user=user,
-        local_date=local_date,
-    ).count()
-    return used
+    return list(
+        ScanJob.objects.filter(
+            Q(status__in=ScanJob.ACTIVE_STATUSES, mode=kind) | Q(charged_as=kind),
+            user=user,
+            created_at__gt=now - _window(),
+        )
+        .order_by("created_at")
+        .values_list("created_at", flat=True)
+    )
 
 
-def allowance_for(user, utc_offset_minutes: Any) -> Dict[str, Any]:
-    """The user's scan allowance for their local day.
+def _slot_back_at(counted: List[datetime], limit: int, now: datetime) -> datetime:
+    """When the next slot comes back: the scan that frees it, plus the window.
+
+    With every slot used that is the scan whose expiry brings ``remaining``
+    to 1; otherwise the oldest counted scan; ``now`` when nothing counts.
+    """
+    if not counted:
+        return now
+    return counted[min(max(0, len(counted) - limit), len(counted) - 1)] + _window()
+
+
+def _utc_iso(moment: datetime) -> str:
+    return moment.astimezone(dt_timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def allowance_for(user, utc_offset_minutes: Any = None) -> Dict[str, Any]:
+    """The user's scan allowance over the rolling window.
 
     Expires the user's stale jobs first, so a stuck job stops reserving.
+    ``utc_offset_minutes`` is accepted for compatibility and ignored: the
+    window is the same at every offset (scan-2 audit M1). ``resets_at`` is
+    when the next diagnosis comes back (``resets_at_for`` gives any kind's).
     """
     expire_stale_jobs(user.pk)
-    offset = parse_utc_offset(utc_offset_minutes)
-    today = local_date_for(offset)
+    now = timezone.now()
     limits = daily_limits(user)
     allowance: Dict[str, Any] = {"is_premium": bool(user.has_premium_access())}
+    resets: Dict[str, str] = {}
     for kind in SCAN_KINDS:
-        used = used_today(user, today, kind)
+        counted = counted_created_at(user, kind, now)
         allowance[kind] = {
             "limit": limits[kind],
-            "used": used,
-            "remaining": max(0, limits[kind] - used),
+            "used": len(counted),
+            "remaining": max(0, limits[kind] - len(counted)),
         }
+        resets[kind] = _utc_iso(_slot_back_at(counted, limits[kind], now))
     allowance.update(
         {
-            "resets_at": next_local_midnight(offset).isoformat().replace("+00:00", "Z"),
+            "resets_at": resets["diagnose"],
             "plant_id_available": bool(QuotaManager().can_call_plant_id(calls=2)),
             "slow_after_seconds": settings.SCAN_SLOW_AFTER_SECONDS,
             "premium_diagnose_limit": settings.SCAN_DIAGNOSE_DAILY_PREMIUM,
         }
     )
     return allowance
+
+
+def resets_at_for(user, kind: str) -> str:
+    """When the next ``kind`` scan comes back for this user (UTC, ``Z``)."""
+    now = timezone.now()
+    limit = daily_limits(user)[kind]
+    return _utc_iso(_slot_back_at(counted_created_at(user, kind, now), limit, now))

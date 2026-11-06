@@ -51,6 +51,7 @@ from ..scan_jobs import (
     expire_stale_jobs,
     local_date_for,
     parse_utc_offset,
+    resets_at_for,
 )
 from ..scan_models import ScanJob, ScanJobImage
 from ..scan_storage import normalize_scan_photo, scan_photo_storage
@@ -76,7 +77,11 @@ ALLOWANCE_SCHEMA = inline_serializer(
         "diagnose": ALLOWANCE_KIND_SCHEMA,
         "identify": ALLOWANCE_KIND_SCHEMA,
         "resets_at": serializers.DateTimeField(
-            help_text="The next local midnight, in UTC."
+            help_text=(
+                "When the next diagnosis comes back, in UTC: a scan counts "
+                "for 24 hours after it was made (a rolling window, not a "
+                "calendar day)."
+            )
         ),
         "plant_id_available": serializers.BooleanField(
             help_text="False when Plant.id has no room for a diagnosis right now."
@@ -120,8 +125,9 @@ ERROR_NOT_ACTIVE = _error_schema(
 )
 ERROR_CREATE_429 = _error_schema(
     "ScanCreateLimitError",
-    "allowance_exhausted: no scans of this kind left today (kind, limit and "
-    "resets_at are set). rate_limit_exceeded: too many requests; the "
+    "allowance_exhausted: no scans of this kind left in the last 24 hours "
+    "(kind, limit and resets_at, when this kind's next scan comes back, are "
+    "set). rate_limit_exceeded: too many requests; the "
     "Retry-After header gives the seconds to wait.",
     kind=serializers.ChoiceField(choices=SCAN_MODE_CHOICES, required=False),
     limit=serializers.IntegerField(required=False),
@@ -137,7 +143,10 @@ UTC_OFFSET_PARAM = OpenApiParameter(
     OpenApiTypes.INT,
     OpenApiParameter.QUERY,
     required=False,
-    description="Minutes east of UTC (-840..840); absent or invalid means UTC.",
+    description=(
+        "Minutes east of UTC (-840..840); absent or invalid means UTC. "
+        "Recorded on the job; it does not move the allowance window."
+    ),
 )
 ROLE_PARAM = OpenApiParameter(
     "role", OpenApiTypes.STR, OpenApiParameter.PATH, enum=list(SCAN_ROLES)
@@ -275,7 +284,7 @@ class ScanJobViewSet(GenericViewSet):
     )
     @action(detail=False, methods=["get"])
     def allowance(self, request: Request) -> Response:
-        """Today's scan allowance for the signed-in user."""
+        """The signed-in user's scan allowance over the last 24 hours."""
         offset = request.query_params.get("utc_offset_minutes")
         return Response(allowance_for(request.user, offset))
 
@@ -343,10 +352,10 @@ class ScanJobViewSet(GenericViewSet):
                     request,
                     status.HTTP_429_TOO_MANY_REQUESTS,
                     "allowance_exhausted",
-                    "No scans of this kind left today.",
+                    "No scans of this kind left for now.",
                     kind=mode,
                     limit=allowance[mode]["limit"],
-                    resets_at=allowance["resets_at"],
+                    resets_at=resets_at_for(user, mode),
                 )
 
             if mode == "diagnose" and not allowance["plant_id_available"]:

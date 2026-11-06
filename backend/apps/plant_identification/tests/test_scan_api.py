@@ -13,7 +13,7 @@ from datetime import timezone as dt_timezone
 from unittest.mock import Mock, patch
 
 import pytest
-from apps.plant_identification.scan_jobs import local_date_for, next_local_midnight
+from apps.plant_identification.scan_jobs import local_date_for
 from apps.plant_identification.scan_models import ScanJob
 from apps.plant_identification.services.combined_identification_service import (
     CombinedPlantIdentificationService,
@@ -208,7 +208,9 @@ def test_active_job_reserves_its_slot():
 
 
 @pytest.mark.django_db
-def test_local_day_uses_offset():
+def test_offset_is_recorded_but_cannot_reach_a_second_day():
+    """M1: flipping utc_offset_minutes used to land on another local date
+    with a fresh slot; the rolling window is the same at every offset."""
     client = _client(_user())
     with freeze_time("2026-11-02T23:30:00Z"):
         response = _create(client, offset=60)
@@ -217,8 +219,41 @@ def test_local_day_uses_offset():
         job.refresh_from_db()
         assert job.local_date == date(2026, 11, 3)
         assert job.utc_offset_minutes == 60
-        allowance = client.get(BASE + "allowance/?utc_offset_minutes=0").data
-    assert allowance["diagnose"]["used"] == 0
+        for offset in (-840, 0, 840):
+            allowance = client.get(
+                BASE + f"allowance/?utc_offset_minutes={offset}"
+            ).data
+            assert allowance["diagnose"]["used"] == 1
+            assert _create(client, offset=offset).status_code == 429
+
+
+@pytest.mark.django_db
+def test_slot_comes_back_24_hours_after_the_scan():
+    client = _client(_user())
+    with freeze_time("2026-11-02T10:00:00Z"):
+        _finish(_create(client), "done", "diagnose")
+    with freeze_time("2026-11-03T09:59:00Z"):
+        refused = _create(client)
+        assert refused.status_code == 429
+        assert refused.data["resets_at"] == "2026-11-03T10:00:00Z"
+        assert client.get(BASE + "allowance/").data["resets_at"] == (
+            "2026-11-03T10:00:00Z"
+        )
+    with freeze_time("2026-11-03T10:00:01Z"):
+        assert _create(client).status_code == 201
+
+
+@pytest.mark.django_db
+def test_exhausted_identify_429_carries_identify_reset():
+    client = _client(_user())
+    with freeze_time("2026-11-02T08:00:00Z"):
+        for _ in range(5):
+            _finish(_create(client, "identify"), "done", "identify")
+    with freeze_time("2026-11-02T12:00:00Z"):
+        refused = _create(client, "identify")
+    assert refused.status_code == 429
+    assert refused.data["kind"] == "identify"
+    assert refused.data["resets_at"] == "2026-11-03T08:00:00Z"
 
 
 @pytest.mark.parametrize(
@@ -398,20 +433,11 @@ def test_allowance_shape():
     assert body["is_premium"] is False
     assert body["diagnose"] == {"limit": 1, "used": 0, "remaining": 1}
     assert body["identify"] == {"limit": 5, "used": 0, "remaining": 5}
-    # Local now is 2026-11-03T00:30+01:00; the next local midnight is
-    # 2026-11-04T00:00+01:00 = 2026-11-03T23:00Z.
-    assert body["resets_at"] == "2026-11-03T23:00:00Z"
+    # Nothing counted: a diagnosis is available now (rolling window, M1).
+    assert body["resets_at"] == "2026-11-02T23:30:00Z"
     assert body["plant_id_available"] is True
     assert body["slow_after_seconds"] == 45
     assert body["premium_diagnose_limit"] == 3
-
-
-def test_next_local_midnight_negative_offset():
-    with freeze_time("2026-11-02T03:00:00Z"):
-        # UTC-5: local 2026-11-01T22:00, next midnight 2026-11-02T05:00Z.
-        assert next_local_midnight(-300) == datetime(
-            2026, 11, 2, 5, 0, tzinfo=dt_timezone.utc
-        )
 
 
 @pytest.mark.django_db
