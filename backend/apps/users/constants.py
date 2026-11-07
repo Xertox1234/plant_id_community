@@ -62,3 +62,13 @@ GENERATED_USERNAME_ALPHABET = (
 )
 GENERATED_USERNAME_SUFFIX_LENGTH = 8
 GENERATED_USERNAME_ATTEMPTS = 10
+
+# Version of the Privacy Policy and Terms of Service a sign-up accepts. The
+# server stamps it; a client never sends a version. Bump it when either text
+# changes materially.
+LEGAL_POLICY_VERSION = "2026-11-06"
+# Sign-up without an explicit boolean ``true`` consent is refused with HTTP 428.
+CONSENT_REQUIRED_CODE = "consent_required"
+CONSENT_REQUIRED_MESSAGE = (
+    "Please accept the Privacy Policy and Terms of Service to create an account."
+)
