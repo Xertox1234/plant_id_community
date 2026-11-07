@@ -16,8 +16,11 @@ void main() {
   late GoRouter router;
 
   /// The sheet opened from a real router page, as the app root opens it.
-  Future<FakeAuthService> pumpOpener(WidgetTester tester) async {
-    final fake = FakeAuthService(loggedIn: false);
+  Future<FakeAuthService> pumpOpener(
+    WidgetTester tester, {
+    AuthState? initial,
+  }) async {
+    final fake = FakeAuthService(loggedIn: false, initial: initial);
     router = GoRouter(
       routes: [
         GoRoute(
@@ -39,8 +42,12 @@ void main() {
         ),
         GoRoute(
           path: '/other',
-          builder: (context, state) =>
-              const Scaffold(body: Center(child: Text('other page'))),
+          builder: (context, state) => Consumer(
+            builder: (context, ref, _) {
+              ref.watch(authServiceProvider);
+              return const Scaffold(body: Center(child: Text('other page')));
+            },
+          ),
         ),
       ],
     );
@@ -129,18 +136,50 @@ void main() {
     expect(fake.declineTermsCalls, 1);
   });
 
-  testWidgets('removing the page beneath it does not decline', (tester) async {
-    // A navigation (dismissAfterAuth, a deep link) closes the sheet with
-    // its page. Declining deletes the Firebase user: only the user may.
-    final fake = await pumpOpener(tester);
+  group('the page beneath removed (dismissAfterAuth, a deep link)', () {
+    // Removal is not the user's answer: declining deletes the Firebase user,
+    // and dropping the question strands them signed in to Firebase only.
+    const refused = AuthState(consentRequired: true);
 
-    router.go('/other');
-    await tester.pumpAndSettle();
+    testWidgets('re-opens over the new page and does not decline', (
+      tester,
+    ) async {
+      final fake = await pumpOpener(tester, initial: refused);
 
-    expect(find.text('other page'), findsOneWidget);
-    expect(find.text('One more step'), findsNothing);
-    expect(fake.declineTermsCalls, 0);
-    expect(fake.acceptTermsCalls, 0);
+      router.go('/other');
+      await tester.pumpAndSettle();
+
+      expect(find.text('other page'), findsOneWidget);
+      expect(find.text('One more step'), findsOneWidget);
+      expect(fake.declineTermsCalls, 0);
+      expect(fake.acceptTermsCalls, 0);
+    });
+
+    testWidgets('after the re-open, Cancel still declines once', (
+      tester,
+    ) async {
+      final fake = await pumpOpener(tester, initial: refused);
+      router.go('/other');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('One more step'), findsNothing);
+      expect(fake.declineTermsCalls, 1);
+    });
+
+    testWidgets('no re-open once consentRequired is cleared', (tester) async {
+      final fake = await pumpOpener(tester, initial: refused);
+
+      router.go('/other');
+      fake.setAuth(const AuthState()); // cleared before the next frame
+      await tester.pumpAndSettle();
+
+      expect(find.text('other page'), findsOneWidget);
+      expect(find.text('One more step'), findsNothing);
+      expect(fake.declineTermsCalls, 0);
+    });
   });
 
   group('hosted at the app root', () {

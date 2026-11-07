@@ -20,17 +20,22 @@ NavigatorState? _openOn;
 /// two differ in whether that page survives, so a `null` declines only while
 /// it is still in the navigator's pages. Declining deletes the new Firebase
 /// user, so a navigation must never pass for it.
+///
+/// A removal asks again instead: the sheet re-opens over the new page on the
+/// next frame while `consentRequired` still holds, or the user would be left
+/// signed in to Firebase only, with no sheet (the root opens it only when the
+/// flag turns true). Each re-open needs another removal to close it, and an
+/// unmounted Navigator stops it, so it cannot loop.
 Future<void> showConsentSheet(BuildContext context) async {
   final navigator = Navigator.of(context);
   final open = _openOn;
   if (open != null && open.mounted) return;
   _openOn = navigator;
-  final auth = ProviderScope.containerOf(
-    context,
-    listen: false,
-  ).read(authServiceProvider.notifier);
+  final container = ProviderScope.containerOf(context, listen: false);
+  final auth = container.read(authServiceProvider.notifier);
   final pages = navigator.widget.pages;
   final pageKeyBelow = pages.isEmpty ? null : pages.last.key;
+  var reopen = false;
   try {
     final accepted = await showModalBottomSheet<bool>(
       context: navigator.context,
@@ -43,9 +48,18 @@ Future<void> showConsentSheet(BuildContext context) async {
     } else if (accepted == false ||
         _pageSurvived(navigator, pages.isEmpty, pageKeyBelow)) {
       await auth.declineTerms();
+    } else {
+      reopen = navigator.mounted;
     }
   } finally {
     if (identical(_openOn, navigator)) _openOn = null;
+  }
+  if (reopen) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!navigator.mounted) return;
+      if (!container.read(authServiceProvider).consentRequired) return;
+      showConsentSheet(navigator.context);
+    });
   }
 }
 
