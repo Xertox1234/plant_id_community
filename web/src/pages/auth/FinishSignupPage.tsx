@@ -12,7 +12,6 @@ const CREATED_MESSAGE =
   'Your account was created, but we could not sign you in automatically. Please sign in to continue.';
 const GENERIC_MESSAGE = 'Something went wrong. Please try again.';
 
-// `loginLink` adds a Sign in link: the sign-up cannot be retried from here.
 type Failure = { message: string; expired: boolean };
 
 function toFailure(err: unknown): Failure {
