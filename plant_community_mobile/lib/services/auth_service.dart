@@ -167,6 +167,11 @@ class AuthService extends _$AuthService {
   /// for the duration of that call only.
   bool _acceptedTermsPending = false;
 
+  /// The Firebase uid whose exchange the server refused with 428. Only that
+  /// user's Firebase account is deleted by [declineTerms]: the signed-in user
+  /// may have changed since the sheet opened.
+  String? _consentRefusedUid;
+
   /// [acceptTermsAndRetry] is running: a second tap sends nothing.
   bool _consentRetryInFlight = false;
 
@@ -745,6 +750,7 @@ class AuthService extends _$AuthService {
       // A new account without consent: the root's sheet asks for it, so no
       // error SnackBar goes under it.
       final consent = _isConsentRefusal(e);
+      if (consent) _consentRefusedUid = user.uid;
       state = AuthState(
         firebaseUser: _firebaseAuth.currentUser,
         error: consent
@@ -943,6 +949,7 @@ class AuthService extends _$AuthService {
         // As for a 409: stay signed in to Firebase, and let the root's
         // consent sheet ask. Transient for the request that asked.
         if (await _clearJWTWhileCurrent(user, generation)) {
+          _consentRefusedUid = user.uid;
           state = AuthState(firebaseUser: user, consentRequired: true);
         }
       }
@@ -1065,8 +1072,14 @@ class AuthService extends _$AuthService {
   Future<void> declineTerms() async {
     // An exchange still in flight must not sign this user in after all.
     _authGeneration++;
+    final refusedUid = _consentRefusedUid;
+    _consentRefusedUid = null;
     try {
-      await _firebaseAuth.currentUser?.delete();
+      // Only the user the 428 was for: never delete some other signed-in one.
+      final current = _firebaseAuth.currentUser;
+      if (current != null && refusedUid != null && current.uid == refusedUid) {
+        await current.delete();
+      }
     } catch (e) {
       if (kDebugMode) debugPrint('[AUTH] Consent declined; delete failed: $e');
     }

@@ -205,6 +205,26 @@ void main() {
       expect(h.state.consentRequired, isFalse);
     });
 
+    test('a current user other than the refused one is signed out, not '
+        'deleted', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      final u1 = _FakeUser(uid: 'u1', events: h.events);
+      final u2 = _FakeUser(uid: 'u2', events: h.events);
+      h.api.errors.add(consentRefusal());
+      h.read();
+      await h.signIn(u1);
+      expect(h.state.consentRequired, isTrue);
+
+      h.firebaseAuth.currentUser = u2; // the account changed under the sheet
+      await h.notifier.declineTerms();
+
+      expect(h.events, isNot(contains('user.delete')));
+      expect(h.events, contains('firebase.signOut'));
+      expect(h.state.consentRequired, isFalse);
+      expect(h.state.firebaseUser, isNull);
+    });
+
     test('when delete throws, signOut still runs and nothing throws', () async {
       final h = _Harness();
       addTearDown(h.dispose);
