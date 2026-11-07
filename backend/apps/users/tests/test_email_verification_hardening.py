@@ -120,6 +120,7 @@ class WebOAuthFirstLinkTest(TestCase):
         user, _ = get_or_create_user_from_firebase(
             firebase_uid="fb-owner",
             firebase_email="owner@example.com",
+            accepted_terms=True,
             email_verified=True,
             provider="google.com",
         )

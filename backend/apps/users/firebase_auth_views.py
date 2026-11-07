@@ -18,6 +18,12 @@ from apps.core.ratelimit import (  # rate-preserving wrapper (Retry-After)
 )
 from apps.plant_identification.constants import RATE_LIMITS
 from apps.users.account_links import on_first_provider_link
+from apps.users.consent import (
+    ConsentRequired,
+    consent_required_response,
+    is_accepted,
+    record_policy_acceptance,
+)
 from apps.users.email_verification import (
     get_account_by_email,
     is_address_verified,
@@ -278,6 +284,12 @@ def _error_body(name: str) -> serializers.Serializer:
             _error_body("FirebaseTokenExchangeUnverified"),
             description="The token's email is not verified.",
         ),
+        428: OpenApiResponse(
+            _error_body("FirebaseTokenExchangeConsentRequired"),
+            description="A new account needs `accepted_terms: true` in the "
+            "body; `code` is `consent_required`. Never sent for an existing "
+            "account.",
+        ),
         409: OpenApiResponse(
             _error_body("FirebaseTokenExchangeConflict"),
             description="Account linking conflict; `code` is "
@@ -337,8 +349,13 @@ def firebase_token_exchange(request: Request) -> Response:
 
     Request Body:
         {
-            "firebase_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6..."
+            "firebase_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6...",
+            "accepted_terms": true   // optional; see 428 below
         }
+
+    ``accepted_terms`` counts only as the JSON boolean ``true`` and is read
+    only when this exchange would create a new account; an existing account
+    signs in without it and is never stamped.
 
     Note: only the Firebase ID token is trusted. Any client-supplied identity
     fields (email, display_name) are ignored — identity is read from the verified
@@ -373,6 +390,14 @@ def firebase_token_exchange(request: Request) -> Response:
 
     Response (409 Conflict): the account cannot be linked; ``code`` is
     ``unverified_account`` or ``account_conflict``.
+
+    Response (428 Precondition Required): a new account without
+    ``accepted_terms: true``. No user is created. Checked after the 403
+    above, so an unverified email sees "verify your email" first.
+        {
+            "error": "Please accept the Privacy Policy and Terms of Service to create an account.",
+            "code": "consent_required"
+        }
 
     Response (429 Too Many Requests): the per-IP rate limit, with
     ``Retry-After``. The mobile client keeps the session and retries.
@@ -486,6 +511,7 @@ def firebase_token_exchange(request: Request) -> Response:
             display_name=decoded_token.get("name"),
             email_verified=email_verified,
             provider=sign_in_provider,
+            accepted_terms=is_accepted(request.data.get("accepted_terms")),
         )
 
         if created:
@@ -514,6 +540,11 @@ def firebase_token_exchange(request: Request) -> Response:
             },
             status=status.HTTP_200_OK,
         )
+
+    except ConsentRequired:
+        # Before ValueError/Exception: a new account without acceptance.
+        # 428, not 403: the app reads a JSON 403 here as "email not verified".
+        return consent_required_response()
 
     except ValueError as e:
         # Account-linking conflict (e.g., the email is already bound to a different
@@ -598,6 +629,7 @@ def get_or_create_user_from_firebase(
     display_name: Optional[str] = None,
     email_verified: bool = False,
     provider: str = "firebase",
+    accepted_terms: bool = False,
 ) -> Tuple[User, bool]:
     """
     Get or create a Django user from Firebase credentials.
@@ -617,10 +649,16 @@ def get_or_create_user_from_firebase(
             Required before linking/backfilling a UID onto an existing email
             account — prevents account takeover via an unverified email.
 
+        accepted_terms: Whether the sign-up consent was given. Only read
+            when a new account would be created; an existing or linked
+            account never needs it and is never stamped.
+
     Returns:
         Tuple of (User instance, created boolean)
 
     Raises:
+        ConsentRequired: A new account would be created without
+            ``accepted_terms``. Raised before any row is written.
         ValueError: If email is invalid, already bound to a different Firebase
             UID, unverified when linking to an existing account, or linked
             elsewhere by a concurrent first sign-in.
@@ -718,6 +756,11 @@ def get_or_create_user_from_firebase(
         )
         raise ValueError("Email is verified on another account")
 
+    # Every refusal above has run. A new account needs the sign-up consent;
+    # raised here so no User row or side effect exists yet.
+    if not accepted_terms:
+        raise ConsentRequired()
+
     # User doesn't exist - create one. The username is public in the forum, so
     # it is random, never the email's local part.
     username = generate_username()
@@ -733,6 +776,7 @@ def get_or_create_user_from_firebase(
         )
         if email_verified:
             mark_email_verified(user)
+        record_policy_acceptance(user)
         # Shared signup side-effects — Firebase users previously did NOT get the
         # default "My Plants" collection that registration/OAuth create (M7).
         create_default_plant_collection(user)

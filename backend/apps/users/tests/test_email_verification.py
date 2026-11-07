@@ -372,6 +372,7 @@ class FirebaseGuardTest(TestCase):
         user, created = get_or_create_user_from_firebase(
             firebase_uid="new-uid",
             firebase_email="new@example.com",
+            accepted_terms=True,
             email_verified=True,
         )
 
