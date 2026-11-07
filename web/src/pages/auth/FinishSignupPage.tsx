@@ -8,8 +8,11 @@ import { logger } from '../../utils/logger';
 
 const EXPIRED_MESSAGE = 'Your sign-up expired. Please sign in again.';
 const RATE_LIMITED_MESSAGE = 'Too many attempts. Please wait a moment and try again.';
+const CREATED_MESSAGE =
+  'Your account was created, but we could not sign you in automatically. Please sign in to continue.';
 const GENERIC_MESSAGE = 'Something went wrong. Please try again.';
 
+// `loginLink` adds a Sign in link: the sign-up cannot be retried from here.
 type Failure = { message: string; expired: boolean };
 
 function toFailure(err: unknown): Failure {
@@ -35,22 +38,37 @@ export default function FinishSignupPage() {
   const { refreshUser } = useAuth();
   const [accepted, setAccepted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [created, setCreated] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!accepted || isSubmitting) return;
+    if (!accepted || isSubmitting || created) return;
     setFailure(null);
     setIsSubmitting(true);
     try {
       await finishOAuthSignup();
-      await refreshUser();
-      navigate('/', { replace: true });
     } catch (err) {
       logger.error('[FinishSignupPage] Finish failed', { error: err });
       setFailure(toFailure(err));
       setIsSubmitting(false);
+      return;
     }
+    // The account exists and the cookies are set. If the user cannot be read
+    // back, retrying would hit signup_expired (the parked session is spent), so
+    // send them to sign in instead of home looking signed out.
+    try {
+      const user = await refreshUser();
+      if (user) {
+        navigate('/', { replace: true });
+        return;
+      }
+    } catch (err) {
+      logger.error('[FinishSignupPage] Could not read the new session', { error: err });
+    }
+    setCreated(true);
+    setIsSubmitting(false);
+    setFailure({ message: CREATED_MESSAGE, expired: true });
   };
 
   return (
@@ -90,7 +108,7 @@ export default function FinishSignupPage() {
               variant="primary"
               size="md"
               loading={isSubmitting}
-              disabled={!accepted || isSubmitting}
+              disabled={!accepted || isSubmitting || created}
               className="w-full"
             >
               Finish signing up

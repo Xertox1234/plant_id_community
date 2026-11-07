@@ -63,6 +63,19 @@ describe('FinishSignupPage', () => {
     expect(mockRefreshUser).toHaveBeenCalledTimes(1);
   });
 
+  it('sends the user to sign in, not home, when the account exists but refreshUser returns null', async () => {
+    mockFinish.mockResolvedValue(undefined);
+    mockRefreshUser.mockResolvedValue(null);
+    renderPage();
+    tick();
+    finish();
+    expect(await screen.findByText(/your account was created/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /sign in/i })).toHaveAttribute('href', '/login');
+    expect(mockNavigate).not.toHaveBeenCalled();
+    // The spent sign-up cannot be retried.
+    expect(screen.getByRole('button', { name: 'Finish signing up' })).toBeDisabled();
+  });
+
   it.each(['signup_expired', 'signup_failed'])(
     'shows the expired message with a sign-in link on %s',
     async (code) => {

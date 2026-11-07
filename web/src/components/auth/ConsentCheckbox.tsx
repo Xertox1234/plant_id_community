@@ -23,7 +23,6 @@ export default function ConsentCheckbox({
   return (
     <div className="flex min-h-11 items-start gap-3">
       <input
-        id={id}
         aria-labelledby={`${id}-text`}
         type="checkbox"
         checked={checked}
@@ -43,13 +42,7 @@ export default function ConsentCheckbox({
         className="text-sm text-ink-2 cursor-pointer"
       >
         I am 13 or older, and I have read and accept the{' '}
-        <a
-          href="/privacy"
-          target="_blank"
-          rel="noopener"
-
-          className={linkClass}
-        >
+        <a href="/privacy" target="_blank" rel="noopener" className={linkClass}>
           Privacy Policy
         </a>{' '}
         and{' '}
