@@ -22,10 +22,23 @@ then the three policy texts. Taken on 2026-11-06.
 - **Newsletter.** The subscription.
 - **Push tokens.** FCM/APNs on mobile and web push.
 - **Email.** Delivery and bounce records (90 days), click records (90 days),
-  and a hashed suppression marker kept indefinitely.
-- **Blog page views.** IP, user agent and referrer, for 90 days.
+  and a hashed suppression marker kept indefinitely. Purpose: delivering email,
+  and knowing which links in our emails are used.
+- **Blog page views.** IP, user agent and referrer, for 90 days. Purpose: site
+  statistics and abuse prevention.
 - **Rate limiting.** IP addresses held briefly in memory.
-- **Audit log.** Changes to garden data. 90 days.
+- **Audit log** (django-auditlog). 90 days. Purpose: security, and a record of
+  changes to investigate problems. Records changes to:
+  - account and profile: username, email, first/last name, bio, location,
+    hardiness zone, profile visibility, show-email, trust level, active/staff
+    flags, groups/permissions, following (never the password), plus plant
+    collections and activity entries (`backend/apps/users/auditlog.py`);
+  - plant identification requests and results, disease results, saved plants
+    and care instructions (`backend/apps/plant_identification/auditlog.py`);
+  - garden data (`backend/apps/garden_calendar/auditlog.py`).
+- **Crash reports** (Sentry). Purpose: finding and fixing errors. On the web,
+  about 10% of sessions and every session with an error are recorded, with
+  text masked.
 
 ## Processors
 
@@ -59,11 +72,16 @@ decisions 9–12).
   photos; Firestore saved plants and the Firebase login; push tokens; the
   newsletter subscription; block and mute lists; the address in the email log.
   Forum posts: the body, images and edit history go, and a "[deleted]"
-  placeholder keeps each post's place.
+  placeholder keeps each post's place. Audit-log entries are removed within
+  90 days by the regular clean-up.
+- **Where deletion is offered:** the app's settings, the website's settings,
+  and the public `/delete-account` page.
 - **Kept:**
-  - a record that the account existed and was deleted, with a hashed email;
-  - addresses deleted by staff for abuse, or because the user was under 13,
-    are blocked from signing up again (self-deleted addresses are not);
+  - a record that the account existed and was deleted, with a hashed email.
+    Purpose: addresses deleted by staff for abuse, or because the user was
+    under 13, are blocked from signing up again by this hash. For a
+    self-deleted account the hash is only the record that the account was
+    deleted; it does not block sign-up;
   - the hashed "don't email this address" marker;
   - moderation records;
   - posts under an open abuse report, until the report is closed;

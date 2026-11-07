@@ -49,7 +49,8 @@ configuración de la App Store o de Google Play.
 ## Cierre de su cuenta
 
 Puede eliminar su cuenta en cualquier momento, en la configuración de la
-aplicación o en [/delete-account](/delete-account). Podemos cerrar las cuentas
+aplicación, en la configuración del sitio web o en
+[/delete-account](/delete-account). Podemos cerrar las cuentas
 que infrinjan estos términos.
 
 ## Sin garantías, responsabilidad limitada

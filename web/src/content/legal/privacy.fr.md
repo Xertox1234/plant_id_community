@@ -58,17 +58,27 @@ vous envoyer les notifications que vous activez.
 **Registres de courriels.** Quand nous vous envoyons un courriel, nous
 enregistrons s'il a été livré ou s'il a été refusé, et sur quels liens vous
 avez cliqué. Si une adresse ne doit plus recevoir de courriels, nous en
-conservons une marque hachée pour ne plus lui écrire.
+conservons une marque hachée pour ne plus lui écrire. Ces registres servent à
+livrer les courriels et à savoir quels liens de nos courriels sont utilisés.
 
 **Consultation du blogue.** Quand vous consultez une page du blogue, nous
 enregistrons votre adresse IP, votre navigateur (agent utilisateur) et la page
-d'où vous venez (référent).
+d'où vous venez (référent). Ces données servent aux statistiques du site
+et à prévenir les abus.
 
 **Limitation du débit.** Nous gardons brièvement les adresses IP en mémoire
 pour prévenir les abus, comme un trop grand nombre de requêtes.
 
-**Journal d'audit.** Un registre des modifications apportées aux données de
-jardin.
+**Journal d'audit.** Un registre des modifications apportées à votre compte et
+à votre profil (votre mot de passe n'y figure jamais), à vos identifications et
+collections de plantes, et à vos données de jardin. Il sert à la sécurité et à
+enquêter sur les problèmes.
+
+**Rapports de plantage.** Quand l'application ou le site Web rencontre une
+erreur, un rapport de plantage est envoyé à Sentry. Sur le site Web, environ
+10 % des sessions, et toutes les sessions comportant une erreur, sont
+enregistrées, avec le texte masqué. Ces rapports servent à trouver et à
+corriger les erreurs.
 
 **Achats.** Si vous achetez Premium dans l'application, nous recevons l'état de
 votre achat d'Apple ou de Google, à partir du reçu de la boutique. L'achat
@@ -135,13 +145,17 @@ courriels. Vos messages du forum sont effacés : le texte, les images et
 l'historique des modifications sont retirés, et une mention « [deleted] »
 garde la place de chaque message pour que les discussions restent lisibles.
 
+Les entrées du journal d'audit qui concernent votre compte sont retirées dans
+un délai de 90 jours par notre nettoyage régulier.
+
 **Ce qui est conservé :**
 
 - Un registre indiquant que le compte a existé et a été supprimé, avec une
-  copie hachée de l'adresse courriel.
-- Si notre équipe a supprimé le compte pour abus, ou parce que son titulaire
-  avait moins de 13 ans, cette adresse courriel ne peut plus servir à
-  s'inscrire. Un compte que vous supprimez vous-même n'est pas bloqué.
+  copie hachée de l'adresse courriel. Si notre équipe a supprimé le compte pour
+  abus, ou parce que son titulaire avait moins de 13 ans, ce hachage sert à
+  empêcher cette adresse de s'inscrire de nouveau. Si vous avez supprimé le
+  compte vous-même, le hachage est conservé seulement comme registre de la
+  suppression du compte, et il ne vous empêche pas de vous réinscrire.
 - La marque hachée « ne pas écrire ».
 - Les registres de modération.
 - Les messages visés par un signalement d'abus ouvert, jusqu'à la fermeture du
@@ -158,7 +172,8 @@ Vous pouvez demander :
 - d'**accéder** aux renseignements personnels que nous détenons sur vous;
 - de les **rectifier**;
 - de les **supprimer**. Vous pouvez supprimer vous-même votre compte dans les
-  paramètres de l'application, ou à [/delete-account](/delete-account);
+  paramètres de l'application, dans les paramètres du site Web, ou à
+  [/delete-account](/delete-account);
 - d'en **recevoir une copie** dans un format portable;
 - de **retirer votre consentement**.
 

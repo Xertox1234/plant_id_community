@@ -32,8 +32,8 @@ devez pas :
 - publier du contenu illégal;
 - divulguer les renseignements privés d'autres personnes.
 
-Vous pouvez signaler un message, et vous pouvez bloquer d'autres utilisateurs
-ou les mettre en sourdine. Les modérateurs examinent les signalements et
+Vous pouvez signaler un message du forum ou un message privé, et vous pouvez
+bloquer d'autres utilisateurs ou les mettre en sourdine. Les modérateurs examinent les signalements et
 peuvent retirer le contenu qui enfreint ces règles.
 
 ## Votre contenu
@@ -52,7 +52,8 @@ abonnement : annulez-le dans les réglages de l'App Store ou de Google Play.
 ## Fermeture de votre compte
 
 Vous pouvez supprimer votre compte en tout temps, dans les paramètres de
-l'application ou à [/delete-account](/delete-account). Nous pouvons fermer les
+l'application, dans les paramètres du site Web ou à
+[/delete-account](/delete-account). Nous pouvons fermer les
 comptes qui enfreignent ces conditions.
 
 ## Aucune garantie, responsabilité limitée

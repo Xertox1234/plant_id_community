@@ -52,16 +52,23 @@ Messaging o Apple Push Notification service) o de su navegador web.
 
 **Registros de correo.** Cuando le enviamos un correo, registramos si se entregó
 o rebotó, y en qué enlaces hizo clic. Si una dirección ya no debe recibir
-correos, guardamos una huella (hash) de ella para no volver a escribirle.
+correos, guardamos una huella (hash) de ella para no volver a escribirle. Usamos estos registros
+para entregar los correos y para saber qué enlaces de nuestros correos se usan.
 
 **Visitas al blog.** Cuando visita una página del blog, registramos su dirección
-IP, su navegador (agente de usuario) y la página de la que viene (referente).
+IP, su navegador (agente de usuario) y la página de la que viene (referente). Usamos estos datos para
+las estadísticas del sitio y para prevenir abusos.
 
 **Limitación de solicitudes.** Guardamos brevemente las direcciones IP en
 memoria.
 
-**Registro de auditoría.** Un registro de los cambios hechos a los datos del
-jardín.
+**Registro de auditoría.** Un registro de los cambios hechos a su cuenta y a su
+perfil (nunca incluye su contraseña), a sus identificaciones y colecciones de
+plantas, y a sus datos del jardín.
+
+**Informes de fallos.** Cuando la aplicación o el sitio web tiene un error, se
+envía un informe de fallo a Sentry. En el sitio web se graban cerca del 10 % de
+las sesiones, y todas las sesiones con un error, con el texto oculto.
 
 **Compras.** Si compra Premium en la aplicación, recibimos el estado de su
 compra de Apple o Google, a partir del recibo de la tienda. La compra dentro de
@@ -81,8 +88,14 @@ Son necesarias para el servicio que usted solicita:
 - llevar el seguimiento de su jardín y de sus plantas guardadas;
 - operar y moderar el foro;
 - enviarle las notificaciones push que active;
-- enviarle correos del servicio y saber si se entregaron;
-- prevenir abusos, como un exceso de solicitudes;
+- enviarle correos del servicio, saber si se entregaron y saber qué enlaces de
+  nuestros correos se usan;
+- prevenir abusos, como un exceso de solicitudes, y elaborar estadísticas de
+  las visitas al blog;
+- proteger la seguridad del servicio y conservar un registro de cambios para
+  investigar problemas;
+- encontrar y corregir errores mediante informes de fallos y grabaciones de
+  sesiones del sitio web;
 - reconocer su compra de Premium.
 
 ### Finalidades secundarias
@@ -147,13 +160,17 @@ borran: el texto, las imágenes y el historial de ediciones se eliminan, y una
 marca "[deleted]" conserva el lugar de cada publicación para que las
 conversaciones se sigan entendiendo.
 
+Las entradas del registro de auditoría sobre su cuenta se eliminan en un plazo
+de 90 días mediante nuestra limpieza periódica.
+
 **Lo que se conserva:**
 
 - Un registro de que la cuenta existió y fue eliminada, con una huella
-  (hash) del correo electrónico.
-- Si nuestro equipo eliminó la cuenta por abuso, o porque su titular tenía menos
-  de 13 años, ese correo no puede volver a registrarse. Una cuenta que usted
-  elimina por su cuenta no queda bloqueada.
+  (hash) del correo electrónico. Si nuestro equipo eliminó la cuenta por abuso,
+  o porque su titular tenía menos de 13 años, usamos esa huella para impedir que
+  ese correo vuelva a registrarse. Si usted eliminó la cuenta, la huella se
+  conserva solo como registro de que la cuenta fue eliminada, y no le impide
+  volver a registrarse.
 - La huella (hash) de "no enviar correos".
 - Los registros de moderación.
 - Las publicaciones con un reporte de abuso abierto, hasta que se cierre el
@@ -170,7 +187,8 @@ Usted tiene derecho a:
 - **Acceso:** conocer qué datos personales tenemos sobre usted;
 - **Rectificación:** corregirlos;
 - **Cancelación:** eliminarlos. Puede eliminar su cuenta usted mismo en la
-  configuración de la aplicación, o en [/delete-account](/delete-account);
+  configuración de la aplicación, en la configuración del sitio web, o en
+  [/delete-account](/delete-account);
 - **Oposición:** oponerse a su uso para un fin determinado.
 
 También puede pedir una copia de sus datos en un formato portable.

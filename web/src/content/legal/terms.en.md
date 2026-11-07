@@ -46,8 +46,8 @@ App Store or Google Play settings.
 
 ## Closing your account
 
-You can delete your account at any time, in the app's settings or at
-[/delete-account](/delete-account). We may close accounts that break these
+You can delete your account at any time, in the app's settings, in the
+website's settings, or at [/delete-account](/delete-account). We may close accounts that break these
 terms.
 
 ## No warranty, limited liability
