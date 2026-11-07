@@ -74,7 +74,6 @@ dependencies:
   path: ^1.9.1  # Path manipulation
 
   # Location services (for weather data)
-  geolocator: ^14.0.2  # GPS location
   geocoding: ^4.0.0  # Reverse geocoding
 
   # Permissions
