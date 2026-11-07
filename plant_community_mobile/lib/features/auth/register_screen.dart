@@ -47,7 +47,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   }
 
   Future<void> _submit() async {
-    if (_submitting) return;
+    if (_submitting || !_acceptedTerms) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() {

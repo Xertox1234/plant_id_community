@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 
 import '../legal/legal_links.dart';
 
@@ -63,6 +64,14 @@ class _ConsentCheckboxState extends State<ConsentCheckbox> {
       checked: widget.value,
       label: ConsentCheckbox.copy,
       onTap: () => widget.onChanged(!widget.value),
+      // The links have no semantic nodes of their own (the row is one labelled
+      // checkbox), so screen-reader users reach the documents from here.
+      customSemanticsActions: {
+        CustomSemanticsAction(label: 'Open Privacy Policy'): () =>
+            _open(LegalDoc.privacy),
+        CustomSemanticsAction(label: 'Open Terms of Service'): () =>
+            _open(LegalDoc.terms),
+      },
       child: ExcludeSemantics(
         child: InkWell(
           onTap: () => widget.onChanged(!widget.value),
