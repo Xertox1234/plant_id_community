@@ -363,7 +363,8 @@ def oauth_finish_signup(request):
             {"error": SIGNUP_EXPIRED_MESSAGE, "code": SIGNUP_EXPIRED_CODE},
             status=status.HTTP_400_BAD_REQUEST,
         )
-    if not is_accepted(request.data.get("accepted_terms")):
+    body = request.data if isinstance(request.data, dict) else {}
+    if not is_accepted(body.get("accepted_terms")):
         # Kept, so the user can tick the box and send again.
         return consent_required_response()
 

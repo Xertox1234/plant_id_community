@@ -1319,7 +1319,7 @@ class FirebaseExchangeConsentTestCase(TestCase):
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_flag_must_be_boolean_true(self, mock_verify):
-        for value in ("true", "True", 1, None):
+        for value in ("true", "True", "false", 1, None, False):
             with self.subTest(value=value):
                 response = self._post(mock_verify, accepted_terms=value)
                 self.assertEqual(response.status_code, 428)

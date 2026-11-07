@@ -350,6 +350,17 @@ class WebOAuthConsentTest(TestCase):
         self.assertFalse(User.objects.filter(email="newbie@example.com").exists())
         self.assertIn("oauth_pending_signup", self.client.session)
 
+    def test_finish_with_non_object_body_428_keeps_pending(self):
+        self._seed_pending()
+
+        for body in ([], ["accepted_terms"], "true"):
+            response = self._finish(body)
+            self.assertEqual(response.status_code, 428, body)
+            self.assertEqual(response.json()["code"], "consent_required")
+
+        self.assertFalse(User.objects.filter(email="newbie@example.com").exists())
+        self.assertIn("oauth_pending_signup", self.client.session)
+
     def test_finish_expired_pending_refused(self):
         self._seed_pending(age_seconds=901)
 

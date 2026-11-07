@@ -151,6 +151,8 @@ class RegistrationConsentTest(TestCase):
             ("missing", {}),
             ("string", {"accepted_terms": "true"}),
             ("false", {"accepted_terms": False}),
+            ("false_string", {"accepted_terms": "false"}),
+            ("null", {"accepted_terms": None}),
             ("int", {"accepted_terms": 1}),
         ]:
             with self.subTest(label):
