@@ -8,12 +8,14 @@ import 'config/density_notifier.dart';
 import 'config/theme_provider.dart';
 import 'core/constants/app_brand.dart';
 import 'core/routing/app_router.dart';
+import 'features/auth/consent_sheet.dart';
 import 'features/auth/password_reset_link.dart';
 import 'features/scan/widgets/scan_job_pill.dart';
 import 'features/forum/services/forum_link_launcher.dart';
 import 'services/auth_service.dart';
 import 'services/push_foreground_presenter.dart';
 import 'services/push_message_router_service.dart';
+import 'shared/root_navigator.dart';
 import 'shared/root_scaffold_messenger.dart';
 
 void main() async {
@@ -83,6 +85,16 @@ class MyApp extends ConsumerWidget {
     // Foreground pushes: in-app banner + data refresh (todo 621).
     ref.watch(pushForegroundPresenterProvider);
     ref.listen<AuthState>(authServiceProvider, (previous, next) {
+      // The exchange's 428: this new account needs the sign-up consent.
+      // Opened over whatever screen is up; showConsentSheet ignores a second
+      // call while one is open.
+      if (next.consentRequired && previous?.consentRequired != true) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final navigatorContext = rootNavigatorKey.currentContext;
+          if (navigatorContext != null) showConsentSheet(navigatorContext);
+        });
+      }
+
       final error = next.error;
       if (error == null || error == previous?.error) {
         // The conflict SnackBar has an action, so it persists until closed.
