@@ -106,6 +106,9 @@ def oauth_login(request, provider):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    # A new attempt supersedes a parked sign-up: its profile must not outlive
+    # the next OAuth start (data minimisation).
+    request.session.pop(OAUTH_PENDING_SIGNUP_KEY, None)
     # Only the sign-up page sends this, and only the exact "1" counts. A login
     # without it clears a flag left by an earlier, abandoned sign-up.
     if request.GET.get("accepted_terms") == "1":

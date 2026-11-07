@@ -25,6 +25,7 @@ from django.core.cache import cache
 from django.http import HttpResponseRedirect
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
+from rest_framework.test import APIClient
 
 User = get_user_model()
 
@@ -364,6 +365,61 @@ class WebOAuthConsentTest(TestCase):
         )
         self.assertFalse(User.objects.filter(email="newbie@example.com").exists())
         self.assertNotIn("oauth_pending_signup", self.client.session)
+
+    def test_finish_without_csrf_token_is_refused_and_consumes_nothing(self):
+        client = APIClient(enforce_csrf_checks=True)
+        session = client.session
+        session["oauth_pending_signup"] = {
+            "provider": "google",
+            "user_data": dict(_GOOGLE_PROFILE),
+            "created_at": int(time.time()),
+        }
+        session.save()
+
+        response = client.post(
+            reverse("v1:users:oauth_finish_signup"),
+            {"accepted_terms": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(User.objects.filter(email="newbie@example.com").exists())
+        self.assertIn("oauth_pending_signup", client.session)
+
+    def test_finish_with_csrf_token_succeeds(self):
+        # Positive control for the 403 above: the same client with the token.
+        client = APIClient(enforce_csrf_checks=True)
+        csrf = client.get("/api/v1/auth/csrf/").cookies["csrftoken"].value
+        session = client.session
+        session["oauth_pending_signup"] = {
+            "provider": "google",
+            "user_data": dict(_GOOGLE_PROFILE),
+            "created_at": int(time.time()),
+        }
+        session.save()
+
+        response = client.post(
+            reverse("v1:users:oauth_finish_signup"),
+            {"accepted_terms": True},
+            format="json",
+            HTTP_X_CSRFTOKEN=csrf,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(User.objects.filter(email="newbie@example.com").exists())
+
+    def test_oauth_login_drops_a_parked_signup(self):
+        for provider, query in (("google", {}), ("github", {"accepted_terms": "1"})):
+            self._seed_pending()
+            with patch.object(
+                oauth_views, "_provider_settings", return_value=_PROVIDER_SETTINGS
+            ):
+                self.client.get(
+                    reverse("v1:users:oauth_login", kwargs={"provider": provider}),
+                    query,
+                )
+
+            self.assertNotIn("oauth_pending_signup", self.client.session, provider)
 
     def test_finish_without_pending_refused(self):
         response = self._finish({"accepted_terms": True})

@@ -90,13 +90,73 @@ class AllauthSignupClosedTest(TestCase):
         self.assertFalse(User.objects.filter(username="sidedoor").exists())
         self.assertNotEqual(response.status_code, 302)
 
-    def test_social_signup_is_unchanged(self):
-        # allauth's social default defers to the (now closed) account adapter.
+    def test_social_signup_is_closed(self):
+        # Accounts are created only by the consent-gated paths (Plan A task 4).
         request = RequestFactory().get("/accounts/google/login/callback/")
 
-        self.assertTrue(
+        self.assertFalse(
             CustomSocialAccountAdapter().is_open_for_signup(request, MagicMock())
         )
+
+
+def _social_request():
+    request = RequestFactory().get("/accounts/google/login/callback/")
+    # process_request never calls get_response, so a stub stands in for it.
+    SessionMiddleware(lambda r: None).process_request(request)  # type: ignore[arg-type]
+    MessageMiddleware(lambda r: None).process_request(request)  # type: ignore[arg-type]
+    request.user = AnonymousUser()
+    return request
+
+
+def _google_sociallogin(request, uid, email):
+    account = SocialAccount(provider="google", uid=uid, extra_data={"email": email})
+    return SocialLogin(
+        account=account,
+        user=User(email=email),
+        email_addresses=[EmailAddress(email=email, verified=True, primary=True)],
+        # A provider-started login carries its provider; allauth's email
+        # lookup reads its settings.
+        provider=account.get_provider(request),
+    )
+
+
+class AllauthSocialSignupConsentTest(TestCase):
+    """Driven through ``complete_social_login``: a new identity creates no
+    account, while existing accounts keep signing in."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_new_social_identity_creates_no_user(self):
+        request = _social_request()
+        before = User.objects.count()
+
+        with context.request_context(request):
+            complete_social_login(
+                request,
+                _google_sociallogin(request, "g-stranger", "stranger@example.com"),
+            )
+
+        self.assertEqual(User.objects.count(), before)
+        self.assertFalse(User.objects.filter(email="stranger@example.com").exists())
+        self.assertFalse(SocialAccount.objects.filter(uid="g-stranger").exists())
+        self.assertFalse(request.user.is_authenticated)
+
+    def test_new_identity_for_an_existing_verified_user_connects_and_logs_in(self):
+        user = User.objects.create_user("owner", "owner@example.com", PASSWORD)
+        mark_email_verified(user)
+        request = _social_request()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            with context.request_context(request):
+                response = complete_social_login(
+                    request,
+                    _google_sociallogin(request, "g-owner", "owner@example.com"),
+                )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(request.user, user)
+        self.assertTrue(SocialAccount.objects.filter(uid="g-owner", user=user).exists())
 
 
 class SocialLoginRedirectTest(TestCase):
