@@ -18,12 +18,8 @@ from apps.core.ratelimit import (  # rate-preserving wrapper (Retry-After)
 )
 from apps.plant_identification.constants import RATE_LIMITS
 from apps.users.account_links import on_first_provider_link
-from apps.users.consent import (
-    ConsentRequired,
-    consent_required_response,
-    is_accepted,
-    record_policy_acceptance,
-)
+from apps.users.consent import ConsentRequired, consent_required_response, is_accepted
+from apps.users.constants import LEGAL_POLICY_VERSION
 from apps.users.email_verification import (
     get_account_by_email,
     is_address_verified,
@@ -38,6 +34,7 @@ from apps.users.signup import (
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from django.utils import timezone
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiResponse,
@@ -253,7 +250,10 @@ def _error_body(name: str) -> serializers.Serializer:
 @extend_schema(
     request=inline_serializer(
         "FirebaseTokenExchange",
-        {"firebase_token": serializers.CharField()},
+        {
+            "firebase_token": serializers.CharField(),
+            "accepted_terms": serializers.BooleanField(required=False),
+        },
     ),
     responses={
         200: inline_serializer(
@@ -773,10 +773,13 @@ def get_or_create_user_from_firebase(
             first_name=display_name or "",
             is_active=True,
             firebase_uid=firebase_uid,
+            # One INSERT: a separate stamp could fail and leave a committed
+            # user with null acceptance, read as a legacy account forever.
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            policy_accepted_at=timezone.now(),
         )
         if email_verified:
             mark_email_verified(user)
-        record_policy_acceptance(user)
         # Shared signup side-effects — Firebase users previously did NOT get the
         # default "My Plants" collection that registration/OAuth create (M7).
         create_default_plant_collection(user)
