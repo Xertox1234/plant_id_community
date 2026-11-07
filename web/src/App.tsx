@@ -28,6 +28,7 @@ const MyPlantsPage = lazy(() => import('./pages/MyPlantsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const DiseaseDiagnosePage = lazy(() => import('./pages/diagnosis/DiseaseDiagnosePage'));
 const GoogleCallbackPage = lazy(() => import('./pages/auth/GoogleCallbackPage'));
+const FinishSignupPage = lazy(() => import('./pages/auth/FinishSignupPage'));
 const UnsubscribePage = lazy(() => import('./pages/UnsubscribePage'));
 const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'));
 const ThemePreviewPage = lazy(() => import('./pages/debug/ThemePreviewPage'));
@@ -60,6 +61,9 @@ function App() {
           {/* OAuth landing page — public: the backend redirect arrives here
               before SPA auth state exists, so it must not sit behind ProtectedLayout. */}
           <Route path="/auth/google/callback" element={<GoogleCallbackPage />} />
+
+          {/* Google sign-up consent step — public: the visitor has no account yet. */}
+          <Route path="/signup/finish" element={<FinishSignupPage />} />
 
           {/* Email unsubscribe link (todo 408) — public: the signed token in
               the URL is the credential, so it must work signed out. */}

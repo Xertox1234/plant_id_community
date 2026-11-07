@@ -21,6 +21,8 @@ import {
   getCurrentUser,
   getStoredUser,
   getGoogleOAuthUrl,
+  finishOAuthSignup,
+  OAuthFinishError,
 } from './authService';
 import { clearCsrfToken } from '../utils/csrf';
 import { clearAllDrafts } from '../utils/forumDrafts';
@@ -65,6 +67,7 @@ describe('authService', () => {
     last_name: 'User',
     email: 'test@example.com',
     password: 'testpassword123',
+    accepted_terms: true,
   };
 
   const mockAuthResponse: AuthResponse = {
@@ -411,6 +414,14 @@ describe('authService', () => {
         })
       );
       expect(sessionStorageMock.setItem).toHaveBeenCalledWith('user', JSON.stringify(mockUser));
+    });
+
+    it('sends accepted_terms as a JSON boolean true, not a string', async () => {
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => mockAuthResponse });
+      await signup(mockSignupData);
+      const init = fetchMock.mock.calls[0][1];
+      expect(init.headers['Content-Type']).toBe('application/json');
+      expect(JSON.parse(init.body).accepted_terms).toBe(true);
     });
 
     it('should validate CSRF token is present', async () => {
@@ -888,6 +899,68 @@ describe('authService', () => {
 
       // Act & Assert
       await expect(getGoogleOAuthUrl()).rejects.toThrow(/unavailable/i);
+    });
+
+    it('appends ?accepted_terms=1 only when acceptedTerms is true', async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ oauth_url: 'https://g/x' }) });
+      await getGoogleOAuthUrl({ acceptedTerms: true });
+      expect(fetchMock.mock.calls[0][0]).toMatch(
+        /\/api\/auth\/oauth\/google\/login\/\?accepted_terms=1$/
+      );
+      await getGoogleOAuthUrl();
+      expect(fetchMock.mock.calls[1][0]).toMatch(/\/api\/auth\/oauth\/google\/login\/$/);
+      await getGoogleOAuthUrl({ acceptedTerms: false });
+      expect(fetchMock.mock.calls[2][0]).toMatch(/\/api\/auth\/oauth\/google\/login\/$/);
+    });
+  });
+
+  describe('finishOAuthSignup', () => {
+    it('posts JSON accepted_terms true with CSRF and cookies', async () => {
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) });
+      await expect(finishOAuthSignup()).resolves.toBeUndefined();
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/api/v1/auth/oauth/finish/'),
+        expect.objectContaining({
+          method: 'POST',
+          credentials: 'include',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            'X-CSRFToken': 'test-csrf-token',
+          }),
+          body: JSON.stringify({ accepted_terms: true }),
+        })
+      );
+    });
+
+    it.each([
+      [400, 'signup_expired'],
+      [400, 'signup_failed'],
+      [428, 'consent_required'],
+    ])('throws OAuthFinishError carrying the %s %s code', async (status, code) => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status,
+        json: async () => ({ error: 'Nope', code }),
+      });
+      const err = await finishOAuthSignup().catch((e) => e);
+      expect(err).toBeInstanceOf(OAuthFinishError);
+      expect(err.code).toBe(code);
+      expect(err.status).toBe(status);
+      expect(err.message).toBe('Nope');
+    });
+
+    it('keeps the status on a non-JSON error body', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        json: async () => {
+          throw new Error('not json');
+        },
+      });
+      const err = await finishOAuthSignup().catch((e) => e);
+      expect(err).toBeInstanceOf(OAuthFinishError);
+      expect(err.status).toBe(429);
+      expect(err.code).toBeUndefined();
     });
   });
 });

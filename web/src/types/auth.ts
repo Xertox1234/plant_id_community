@@ -109,6 +109,8 @@ export interface SignupData {
   email: string;
   password: string;
   confirmPassword?: string; // Optional for frontend validation
+  /** Age and policy consent; the backend refuses sign-up unless this is JSON `true`. */
+  accepted_terms: true;
 }
 
 /**

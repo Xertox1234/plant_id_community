@@ -303,6 +303,7 @@ describe('AuthContext', () => {
         last_name: 'User',
         email: 'new@example.com',
         password: 'password123',
+        accepted_terms: true,
       };
       const mockUser: User = { id: 2, email: 'new@example.com', name: 'New User' };
 
@@ -337,6 +338,7 @@ describe('AuthContext', () => {
         last_name: 'User',
         email: 'existing@example.com',
         password: 'password123',
+        accepted_terms: true,
       };
       const error = new Error('Email already exists');
 
@@ -372,6 +374,7 @@ describe('AuthContext', () => {
         last_name: 'User',
         email: 'test@example.com',
         password: 'pass',
+        accepted_terms: true,
       };
       const mockUser: User = { id: 1, email: 'test@example.com' };
 
@@ -696,6 +699,7 @@ describe('AuthContext', () => {
           last_name: 'User',
           email: 'test@example.com',
           password: 'password',
+          accepted_terms: true,
         });
       });
 

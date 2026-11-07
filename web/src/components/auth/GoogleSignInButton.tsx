@@ -7,6 +7,8 @@ interface GoogleSignInButtonProps {
   label?: string;
   /** Disable the button (e.g. while a sibling form is submitting). */
   disabled?: boolean;
+  /** Sign-up page only: marks the OAuth run as consented. The login page omits it. */
+  acceptedTerms?: boolean;
 }
 
 /**
@@ -45,6 +47,7 @@ function GoogleLogo() {
 export default function GoogleSignInButton({
   label = 'Sign in with Google',
   disabled = false,
+  acceptedTerms = false,
 }: GoogleSignInButtonProps) {
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +56,7 @@ export default function GoogleSignInButton({
     setError(null);
     setIsRedirecting(true);
     try {
-      const oauthUrl = await getGoogleOAuthUrl();
+      const oauthUrl = await getGoogleOAuthUrl({ acceptedTerms });
       // Full-page navigation hands off to Google; no state reset needed.
       window.location.assign(oauthUrl);
     } catch (err) {
