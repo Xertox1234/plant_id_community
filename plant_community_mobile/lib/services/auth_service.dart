@@ -323,7 +323,8 @@ class AuthService extends _$AuthService {
   /// reads `GIDClientID` from `Info.plist`, which is populated from the
   /// committed `GoogleService-Info.plist`. Passing it here as well would
   /// duplicate a value that already has one home.
-  Future<void> signInWithGoogle() async {
+  /// [acceptedTerms] is accepted but unused here; Task 9 gives it behaviour.
+  Future<void> signInWithGoogle({bool acceptedTerms = false}) async {
     try {
       state = state.copyWith(isLoading: true, error: null);
 

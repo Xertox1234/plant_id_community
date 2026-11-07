@@ -7,6 +7,7 @@ import '../../core/routing/app_router.dart';
 import '../../shared/widgets/canopy_notice.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../services/auth_service.dart';
+import 'consent_checkbox.dart';
 import 'login_screen.dart'
     show GoogleSignInButton, dismissAfterAuth, validateEmail, validatePassword;
 import 'verify_email_screen.dart';
@@ -33,6 +34,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   bool _obscurePassword = true;
   bool _submitting = false;
   bool _awaitingVerification = false;
+  bool _acceptedTerms = false;
   String? _error;
 
   @override
@@ -179,9 +181,17 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                             SizedBox(height: ext.gapY),
                             _RegisterErrorBanner(message: _error!),
                           ],
-                          SizedBox(height: ext.gapY * 2),
+                          SizedBox(height: ext.gapY),
+                          ConsentCheckbox(
+                            value: _acceptedTerms,
+                            onChanged: (v) =>
+                                setState(() => _acceptedTerms = v),
+                          ),
+                          SizedBox(height: ext.gapY),
                           FilledButton(
-                            onPressed: _submitting ? null : _submit,
+                            onPressed: (_submitting || !_acceptedTerms)
+                                ? null
+                                : _submit,
                             child: _submitting
                                 ? const SizedBox(
                                     height: 20,
@@ -196,7 +206,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                           // Offered here too: Google needs no verification mail,
                           // so it signs in at once. See
                           // AuthService.signInWithGoogle.
-                          GoogleSignInButton(enabled: !_submitting),
+                          GoogleSignInButton(
+                            enabled: !_submitting && _acceptedTerms,
+                            acceptedTerms: _acceptedTerms,
+                          ),
                           SizedBox(height: ext.gapY),
                           TextButton(
                             onPressed: _submitting

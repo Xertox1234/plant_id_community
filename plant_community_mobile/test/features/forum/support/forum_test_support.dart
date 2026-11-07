@@ -1414,7 +1414,7 @@ class FakeAuthService extends AuthService {
   AuthException? googleSignInError;
 
   @override
-  Future<void> signInWithGoogle() async {
+  Future<void> signInWithGoogle({bool acceptedTerms = false}) async {
     googleSignInCalls++;
     final error = googleSignInError;
     if (error != null) throw error;

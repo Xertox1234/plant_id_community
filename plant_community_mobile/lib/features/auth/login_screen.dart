@@ -207,9 +207,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 /// signs in at once, with no verification mail to open first. See
 /// [AuthService.signInWithGoogle].
 class GoogleSignInButton extends ConsumerStatefulWidget {
-  const GoogleSignInButton({super.key, this.enabled = true});
+  const GoogleSignInButton({
+    super.key,
+    this.enabled = true,
+    this.acceptedTerms = false,
+  });
 
   final bool enabled;
+
+  /// Whether the user ticked the consent box on this screen (sign-up only).
+  final bool acceptedTerms;
 
   @override
   ConsumerState<GoogleSignInButton> createState() => _GoogleSignInButtonState();
@@ -226,7 +233,9 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
       _error = null;
     });
     try {
-      await ref.read(authServiceProvider.notifier).signInWithGoogle();
+      await ref
+          .read(authServiceProvider.notifier)
+          .signInWithGoogle(acceptedTerms: widget.acceptedTerms);
       if (!mounted) return;
       dismissAfterAuth(context);
     } on AuthException catch (e) {
