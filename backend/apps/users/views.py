@@ -31,6 +31,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from . import view_schemas as vs
 from .authentication import RefreshTokenFromCookie, clear_jwt_cookies, set_jwt_cookies
 from .avatars import avatar_file_names, delete_avatar_files_on_commit
+from .consent import consent_required_response, is_accepted, record_policy_acceptance
 from .constants import RATE_LIMIT_ONBOARDING_EVENT, RATE_LIMIT_PUSH_RESUBSCRIBE
 from .email_verification import (
     VerificationKeyInvalid,
@@ -119,6 +120,11 @@ def register(request: Request) -> Response:
         f"[SIGNUP] Registration attempt for user: {log_safe_username(username)}"
     )
 
+    # Consent is checked before validation: no flag, no account (only the JSON
+    # boolean true counts; the server stamps its own policy version).
+    if not is_accepted(request.data.get("accepted_terms")):
+        return consent_required_response()
+
     serializer = UserRegistrationSerializer(data=request.data)
 
     if serializer.is_valid():
@@ -126,6 +132,7 @@ def register(request: Request) -> Response:
             with transaction.atomic():
                 # Create user
                 user = serializer.save()
+                record_policy_acceptance(user)
 
                 # Shared signup side-effects
                 create_default_plant_collection(user)

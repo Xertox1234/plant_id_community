@@ -142,8 +142,10 @@ def test_a_real_registration_left_alone_for_eight_days_is_deleted(expiry_log):
             "email": "newbie@example.com",
             "password": PASSWORD,
             "confirmPassword": PASSWORD,
+            "accepted_terms": True,
         },
         HTTP_X_CSRFTOKEN=csrf,
+        format="json",
     )
     assert response.status_code == 201, response.content
     user = age(User.objects.get(username="newbie"))

@@ -206,7 +206,7 @@ class SecurityPathListsTests(TestCase):
         # Retrying a signup form (username taken, weak password) must not
         # count toward a brute-force alert.
         response, track = self._post_tracked(
-            "/api/v1/auth/register/", {"username": "x"}
+            "/api/v1/auth/register/", {"username": "x", "accepted_terms": True}
         )
 
         self.assertEqual(response.status_code, 400)

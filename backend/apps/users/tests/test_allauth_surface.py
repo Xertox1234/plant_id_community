@@ -157,8 +157,10 @@ def _register(test, client, username, email):
                 "email": email,
                 "password": PASSWORD,
                 "confirmPassword": PASSWORD,
+                "accepted_terms": True,
             },
             HTTP_X_CSRFTOKEN=csrf,
+            content_type="application/json",
         )
     test.assertEqual(response.status_code, 201)
     return response.cookies["refresh_token"].value

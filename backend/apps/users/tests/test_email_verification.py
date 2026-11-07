@@ -55,8 +55,10 @@ class RegistrationSendsVerificationTest(TestCase):
                     "email": email,
                     "password": PASSWORD,
                     "confirmPassword": PASSWORD,
+                    "accepted_terms": True,
                 },
                 HTTP_X_CSRFTOKEN=csrf,
+                content_type="application/json",
             )
 
     def test_registration_is_unverified_and_emails_a_web_link(self):

@@ -498,8 +498,10 @@ class VerificationCapTest(TestCase):
                     "email": "newbie@example.com",
                     "password": PASSWORD,
                     "confirmPassword": PASSWORD,
+                    "accepted_terms": True,
                 },
                 HTTP_X_CSRFTOKEN=csrf,
+                format="json",
             )
 
         self.assertEqual(response.status_code, 201)

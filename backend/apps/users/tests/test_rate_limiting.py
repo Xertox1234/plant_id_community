@@ -207,8 +207,10 @@ class RegistrationRateLimitingTestCase(TestCase):
                         "email": f"test{i}@example.com",
                         "password": "TestPassword123!",
                         "confirmPassword": "TestPassword123!",
+                        "accepted_terms": True,
                     },
                     HTTP_X_CSRFTOKEN=csrf_token,
+                    format="json",
                 )
                 self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -223,8 +225,10 @@ class RegistrationRateLimitingTestCase(TestCase):
                     "email": "test4@example.com",
                     "password": "TestPassword123!",
                     "confirmPassword": "TestPassword123!",
+                    "accepted_terms": True,
                 },
                 HTTP_X_CSRFTOKEN=csrf_token,
+                format="json",
             )
 
             self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
@@ -248,8 +252,10 @@ class RegistrationRateLimitingTestCase(TestCase):
                         "email": f"test{i}@example.com",
                         "password": "TestPassword123!",
                         "confirmPassword": "TestPassword123!",
+                        "accepted_terms": True,
                     },
                     HTTP_X_CSRFTOKEN=csrf_token,
+                    format="json",
                     REMOTE_ADDR="192.168.1.1",
                 )
 
@@ -264,8 +270,10 @@ class RegistrationRateLimitingTestCase(TestCase):
                     "email": "test_different@example.com",
                     "password": "TestPassword123!",
                     "confirmPassword": "TestPassword123!",
+                    "accepted_terms": True,
                 },
                 HTTP_X_CSRFTOKEN=csrf_token,
+                format="json",
                 REMOTE_ADDR="192.168.1.2",
             )
 
