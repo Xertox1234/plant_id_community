@@ -99,6 +99,7 @@
   - `class SignupBlocked(Exception)`
   - `def signup_blocked_response() -> Response`, the 403 from Global Constraints.
   - The three create paths raise or return the 403 before creating anything. The OAuth callback redirects to its frontend URL with `?error=signup_blocked`.
+  - **Order:** the `signup_blocked` check runs *before* Plan A's consent check at each create path, so a blocked address is never asked to accept the terms. Add a test per path: a blocked email with no `accepted_terms` gets 403 `signup_blocked`, not 428.
   - Add a message for `signup_blocked` to `web/src/pages/auth/GoogleCallbackPage.tsx`'s error map: "This email address can't be used to create an account."
 
 - [ ] **Step 1: Write the failing tests.**
@@ -123,6 +124,7 @@
 - Modify: `backend/apps/forum_host/models.py`. `RagAnswerReport.reporter` changes to `null=True, SET_NULL`.
 - Modify: the DM and report serializers or views that read `sender`, `participant_*` or `reporter`. Find them with `grep -rn "\.sender\b\|participant_a\|participant_b\|\.reporter\b" backend/packages/wagtail_forum/wagtail_forum backend/apps/forum_host --include=*.py | grep -v tests`. A NULL value renders through the existing `_deleted_author()` sentinel (`api/serializers.py:161`) and never raises `AttributeError`.
 - Check: any `UniqueConstraint` or `CheckConstraint` on `(participant_a, participant_b)`. Keep it valid when one side is NULL, and say how in the report.
+- Already verified, no change needed: `Topic.author`, `Topic.last_post_author`, `Post.author` and `Conversation.created_by` are SET_NULL. `ConversationParticipant.user` stays CASCADE (only the deleted user's own membership row goes; the group survives). Before migrating, list every other FK to the user model in `wagtail_forum` and `forum_host` with `on_delete=CASCADE` and confirm each removes only the deleted user's own rows, never another user's content; report the list.
 - Create: migrations in both apps.
 - Test: `backend/packages/wagtail_forum/wagtail_forum/tests/test_account_deletion_schema.py`
 
@@ -157,7 +159,7 @@
     1. **`forum`**, while the user row still exists:
        - each authored post: if it has an open report, set `erase_after = now + FORUM_HELD_POST_DAYS (30)`; otherwise call `erase_post(post)`;
        - each authored topic: title becomes `"[deleted]"` and its revisions are deleted;
-       - Wagtail images with `uploaded_by_user` = this user are deleted;
+       - Wagtail images with `uploaded_by_user` = this user are deleted, **except** images referenced by a held post's body (moderators reviewing the report must still see them). `erase_post` removes those later;
        - notifications whose `actor` is this user are deleted.
     2. **`email`:**
        - delete the user's `EmailNotification` rows (by FK, and by `recipient_email__iexact`);
@@ -171,6 +173,7 @@
        - `user.delete()`. The cascades remove the rest, and the scan photos go through the existing on-commit signal.
     - If the `User` row is already gone, the remaining Django steps are marked done.
   - `def erase_post(post: Post) -> None`:
+    - deletes the Wagtail images its body references that no other post's body references (this is how a held post's images go when it is released);
     - `body = []`;
     - `author = None`;
     - `erase_after = None`;
@@ -189,7 +192,8 @@
     - a search of every model's text and char fields finds neither the email nor the username, except in `DeletedAccount.email` (pending), `EmailSuppression` (hash only), and other users' post bodies (quotes).
 
     Write the search as a helper that walks `apps.get_models()`.
-  - `test_post_with_open_report_is_held`: `erase_after` is set and the body is still intact. The user is still deleted and the author is NULL.
+  - `test_post_with_open_report_is_held`: `erase_after` is set, the body is still intact and its image still exists. The user is still deleted and the author is NULL.
+  - `test_erase_post_deletes_its_images`: after `erase_post` on the released post, its image is gone; an image another post also references is kept.
   - `test_erase_post_removes_body_and_revisions`.
   - `test_topic_title_becomes_deleted_and_replies_remain`: another user's reply still has its body.
   - `test_steps_are_idempotent`: running it twice raises nothing, and `steps_done == ["forum", "email", "django"]`.
@@ -287,7 +291,7 @@
   - **`POST account/delete/request/`.** Public, CSRF-exempt like `register`. Body `{"email": str}`.
     - Rate limits: `ACCOUNT_DELETE_REQUEST_RATE_IP = "5/h"` and `ACCOUNT_DELETE_REQUEST_RATE_EMAIL = "3/h"`. A 429 goes through the project's ratelimit handler.
     - It always answers 200 `{"status": "sent"}`.
-    - If an active account matches, it emails a link to `{SITE_URL}/delete-account/confirm?token=<t>`.
+    - If an active account matches, it emails a link to `{SITE_URL}/delete-account/confirm?token=<t>`. The email is sent from a Celery task (`.delay()`), so the response time doesn't reveal whether the address has an account.
     - The token is `signing.dumps({"u": pk, "n": nonce}, salt="account-delete")`. The nonce is stored in the cache under `account-delete:<pk>` with `ACCOUNT_DELETE_LINK_TTL_SECONDS = 3600`.
   - **`POST account/delete/confirm/`.** Public. Body `{"token": str}`.
     - It verifies the signature, `max_age=3600`, and that the cache nonce matches. It deletes the nonce first, so the token is single-use.
@@ -326,10 +330,12 @@
 - Produces:
   - Admin actions "Delete account (staff)", "Delete account (abuse — blocks re-sign-up)" and "Delete account (under 13 — blocks re-sign-up)". Each calls `request_account_deletion(user, reason)` per selected user and reports the count.
   - The default delete is disabled for `User` (`has_delete_permission` returns False, and the bulk delete action is removed), so staff cannot bypass the erase job.
+  - **`DeletedAccount` admin, read-only**, so a stuck deletion is visible: list `id`, `reason`, `status`, `steps_done`, `requested_at`, `deleted_at`, filterable by `status`. No add, change or delete. The plain `email` is not shown in the list. One action, "Retry erase", re-queues `delete_account_task` for each selected `pending` row.
 
 - [ ] **Step 1: Write the failing tests.**
   - The abuse action creates a `DeletedAccount` with reason `abuse`, and `is_signup_blocked(email)` becomes true.
   - The admin delete view for a user returns 403, or the delete action is not offered.
+  - "Retry erase" on a pending row queues the task once; on a done row it queues nothing.
 - [ ] **Step 2:** Run `venv/bin/pytest apps/users/tests/test_admin_account_deletion.py -q`. Expected: FAIL.
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** Run the same pytest. Expected: PASS.
@@ -350,8 +356,9 @@
   - `def prune_retention(now: datetime | None = None) -> dict[str, int]`. It deletes `BlogPostView`, `EmailNotification` and auditlog `LogEntry` rows older than `PRIVACY_RETENTION_DAYS = 90`, in batches. Copy `_delete_in_batches` from `apps.core.tasks`.
   - `def release_held_posts(now: datetime | None = None) -> int`. It calls `erase_post` on each post where `erase_after` is set and either `erase_after <= now` or there is no Report with `status="open"`.
   - `def prune_orphan_firebase_users(now: datetime | None = None, dry_run: bool = False) -> int`.
-    - It pages `auth.list_users()` and collects users with `user_metadata.creation_timestamp` older than `ORPHAN_FIREBASE_USER_DAYS = 7` whose uid matches no `User.firebase_uid` and no pending `DeletedAccount.firebase_uid`.
+    - It pages `auth.list_users()` and collects users with `user_metadata.creation_timestamp` older than `ORPHAN_FIREBASE_USER_DAYS = 7` whose uid matches no `User.firebase_uid` and no pending `DeletedAccount.firebase_uid`, **and** whose email (case-insensitive) matches no `User.email`. A uid mismatch alone is not enough: an account whose uid was never stored must not lose its login.
     - If there are more than `ORPHAN_FIREBASE_DELETE_CAP = 50`, it logs `[SECURITY]`, calls `sentry_sdk.capture_message`, and returns 0 without deleting.
+    - **Ships log-only.** Unless `settings.ORPHAN_FIREBASE_PRUNE_ENABLED` is `True` (env var, default `False`), it behaves as `dry_run=True`: it logs the count and the uids (never emails) and deletes nothing. Add the variable to the env table in root `CLAUDE.md` and declare it `preserve()` in `.railway/railway.ts` only if that file declares the others this way; otherwise leave Railway untouched and say so.
     - Otherwise it deletes each one (one by one, not in a batch) and returns the count.
     - When Firebase is unconfigured, it returns 0 and logs.
   - `@shared_task privacy_retention_prune()` calls all three and logs the counts.
@@ -368,6 +375,8 @@
     - an 8-day-old uid that has a `User` is kept;
     - a 6-day-old orphan is kept;
     - `test_orphan_prune_aborts_over_cap`: 51 orphans give 0 deleted, and Sentry is called;
+    - an 8-day-old Firebase user with an unmatched uid but an email matching a `User` is kept;
+    - with `ORPHAN_FIREBASE_PRUNE_ENABLED=False` (the default), an 8-day-old orphan is logged, not deleted;
     - dry-run deletes nothing.
 - [ ] **Step 2:** Run `venv/bin/pytest apps/users/tests/test_retention.py -q`. Expected: FAIL.
 - [ ] **Step 3:** Implement.
@@ -468,3 +477,5 @@
 
 - Enter `https://houseplant-md.com/delete-account` as the account-deletion URL in Google Play Console (Data safety).
 - Deploy order: backend first (migrations), then the web, then a new TestFlight build.
+- The orphan Firebase prune ships log-only. After a few nightly runs, read the logged uids (or run `manage.py privacy_prune --dry-run` on prod), confirm none is a real account (check the simtest accounts), then set `ORPHAN_FIREBASE_PRUNE_ENABLED=True` on Railway.
+- After a deletion, check the `DeletedAccount` admin for rows stuck in `pending`; "Retry erase" re-queues them.

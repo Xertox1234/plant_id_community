@@ -100,6 +100,7 @@
 
 - Consumes: T1 helpers.
 - Produces: `get_or_create_user_from_firebase(..., accepted_terms: bool = False)`. It raises `ConsentRequired` at the point where it would create a user, after every existing refusal check and before `User.objects.create`. With `accepted_terms=True`, it calls `record_policy_acceptance` on the new user. The exchange view reads `is_accepted(request.data.get("accepted_terms"))`, passes it in, and maps `ConsentRequired` to `consent_required_response()`. That `except` must come before the generic `except ValueError` and `except Exception`.
+  - **The check order is deliberate; don't simplify it.** The existing unverified-email 403 runs before the consent check. On mobile, the listener-triggered exchange can fire before `accepted_terms_uid` is written, and for an email sign-up it must hit "verify your email" first, not a consent refusal.
 
 - [ ] **Step 1: Write the failing tests.** Mock token verification the way the file already does.
   - `test_new_firebase_user_without_flag_gets_428_and_no_user`: a fresh uid and a verified email, with no flag. Expect 428 `consent_required`, no `User` row, and no default collection created.
@@ -140,6 +141,7 @@
   - `test_finish_without_flag_428_keeps_pending`.
   - `test_finish_expired_pending_refused`: with `created_at` 901 s ago, expect 400 `signup_expired`, no user, and the key removed.
   - `test_finish_without_pending_refused`: 400 `signup_expired`.
+  - `test_github_callback_new_user_also_gated`: the backend supports GitHub OAuth (`SUPPORTED_PROVIDERS`) even though the web has no GitHub button. A new GitHub user without consent is redirected to `/signup/finish` the same way.
 - [ ] **Step 2:** Run `venv/bin/pytest apps/users/tests/test_oauth_google.py -q`. Expected: the new tests fail.
 - [ ] **Step 3:** Implement as stated in Interfaces. Remember `get_permissions` / `@permission_classes([AllowAny])` the way `register` does it, and `@extend_schema` for spectacular.
 - [ ] **Step 4:** Run `venv/bin/pytest apps/users -q` and the spectacular check from T3. Expected: PASS.
@@ -391,5 +393,5 @@
 
 ## Owner follow-ups (not tasks)
 
-- Fill in the `[[…]]` blanks once the company is registered. Get a lawyer review of the English, and fluent reviews of the French and Spanish. Then remove the DRAFT lines and set `LEGAL_PUBLISH=1` in the Cloudflare build.
+- Fill in the `[[…]]` blanks once the company is registered. Get a lawyer review of the English, and fluent reviews of the French and Spanish. Then remove the DRAFT lines and set `LEGAL_PUBLISH=1` in the Cloudflare build. **Not before Plan B is live in prod:** the policy describes in-app deletion and `/delete-account`, which Plan B builds.
 - Enter `https://houseplant-md.com/privacy` as the Privacy Policy URL in App Store Connect and Google Play Console.
