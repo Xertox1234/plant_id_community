@@ -27,7 +27,13 @@ urlpatterns = [
         firebase_auth_views.firebase_token_exchange,
         name="firebase_token_exchange",
     ),
-    # OAuth endpoints
+    # OAuth endpoints. POST oauth/finish/ completes a sign-up parked for
+    # consent; a literal path, so "finish" is never read as a provider.
+    path(
+        "oauth/finish/",
+        oauth_views.oauth_finish_signup,
+        name="oauth_finish_signup",
+    ),
     path("oauth/<str:provider>/login/", oauth_views.oauth_login, name="oauth_login"),
     path(
         "oauth/<str:provider>/callback/",

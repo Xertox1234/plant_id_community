@@ -13,6 +13,7 @@ from apps.core.openapi import RATE_LIMITED
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
+    OpenApiParameter,
     OpenApiResponse,
     extend_schema,
     inline_serializer,
@@ -540,6 +541,17 @@ TRACK_ONBOARDING_EVENT_SCHEMA = extend_schema(
 )
 
 OAUTH_LOGIN_SCHEMA = extend_schema(
+    parameters=[
+        OpenApiParameter(
+            "accepted_terms",
+            OpenApiTypes.STR,
+            OpenApiParameter.QUERY,
+            required=False,
+            description="`1` from the sign-up page: the user accepted the "
+            "Privacy Policy and Terms, so a new account may be created at the "
+            "callback. Any other value, or none, is not acceptance.",
+        )
+    ],
     responses={
         200: inline_serializer(
             "OAuthLoginUrl",
@@ -556,9 +568,42 @@ OAUTH_CALLBACK_SCHEMA = extend_schema(
     responses={
         302: OpenApiResponse(
             description="Redirect to the web app; on success it carries the "
-            "JWT cookies, on failure an `error` query parameter."
+            "JWT cookies, on failure an `error` query parameter. A new user "
+            "whose login did not carry `accepted_terms=1` is sent to "
+            "`/signup/finish` instead, with no account created yet."
         ),
         400: _SIMPLE_ERROR,
         429: RATE_LIMITED,
     },
+)
+
+_CODED_ERROR = inline_serializer(
+    "AuthCodedError",
+    {"error": serializers.CharField(), "code": serializers.CharField()},
+)
+
+OAUTH_FINISH_SIGNUP_SCHEMA = extend_schema(
+    request=inline_serializer(
+        "OAuthFinishSignupRequest",
+        {"accepted_terms": serializers.BooleanField()},
+    ),
+    responses={
+        200: inline_serializer(
+            "OAuthFinishSignupResponse", {"success": serializers.BooleanField()}
+        ),
+        400: OpenApiResponse(
+            _CODED_ERROR,
+            description="`signup_expired`: no pending sign-up in this session, "
+            "or it is older than 15 minutes. `signup_failed`: the account "
+            "could not be created.",
+        ),
+        428: OpenApiResponse(
+            _CODED_ERROR,
+            description="`consent_required`: `accepted_terms` was not the JSON "
+            "boolean `true`. The pending sign-up is kept.",
+        ),
+        429: RATE_LIMITED,
+    },
+    description="Finish a web OAuth sign-up that the callback parked for consent; on success it sets the JWT cookies.",
+    examples=[_example("Finish sign-up", {"accepted_terms": True})],
 )

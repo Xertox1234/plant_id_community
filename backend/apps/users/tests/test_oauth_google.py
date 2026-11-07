@@ -11,16 +11,20 @@ reachable code paths:
    auto-links a social login to an existing local account by email.
 """
 
+import time
 from unittest.mock import MagicMock, patch
 
 from allauth.account.models import EmailAddress
 from allauth.core.exceptions import ImmediateHttpResponse
 from apps.users import oauth_views
+from apps.users.constants import LEGAL_POLICY_VERSION
 from apps.users.email_verification import mark_email_verified
 from apps.users.oauth_adapters import CustomSocialAccountAdapter
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.http import HttpResponseRedirect
 from django.test import RequestFactory, TestCase
+from django.urls import reverse
 
 User = get_user_model()
 
@@ -181,3 +185,207 @@ class PreSocialLoginVerifiedEmailTest(TestCase):
         self.adapter.pre_social_login(self.request, sociallogin)
 
         sociallogin.connect.assert_called_once_with(self.request, existing)
+
+
+_PROVIDER_SETTINGS = {
+    "APP": {
+        "client_id": "test-client-id",
+        "secret": "test-secret",  # pragma: allowlist secret
+    },
+    "SCOPE": ["email"],
+}
+_GOOGLE_PROFILE = {
+    "id": "g-new-1",
+    "email": "newbie@example.com",
+    "verified_email": True,
+    "given_name": "New",
+    "family_name": "Bie",
+}
+_GITHUB_PROFILE = {
+    "id": 4242,
+    "email": "octo@example.com",
+    "name": "Octo Cat",
+}
+
+
+class WebOAuthConsentTest(TestCase):
+    """Web OAuth sign-up waits for consent (Plan A task 4).
+
+    A new account is created only when the sign-up page started the flow with
+    ``?accepted_terms=1``, or when the user finishes on ``/signup/finish``.
+    An existing account signs in without the flag and is never stamped.
+    """
+
+    def setUp(self):
+        cache.clear()  # the oauth views are IP-keyed and rate limited
+
+    def _seed_state(self, **extra):
+        session = self.client.session
+        session["oauth_state"] = "test-state"
+        for key, value in extra.items():
+            session[key] = value
+        session.save()
+
+    def _callback(self, provider="google", profile=None):
+        handler = f"_handle_{provider}_callback"
+        profile = dict(
+            profile or (_GOOGLE_PROFILE if provider == "google" else _GITHUB_PROFILE)
+        )
+        with patch.object(oauth_views, handler, return_value=profile):
+            return self.client.get(
+                reverse("v1:users:oauth_callback", kwargs={"provider": provider}),
+                {"code": "abc", "state": "test-state"},
+            )
+
+    def _seed_pending(self, *, age_seconds=0, profile=None):
+        session = self.client.session
+        session["oauth_pending_signup"] = {
+            "provider": "google",
+            "user_data": dict(profile or _GOOGLE_PROFILE),
+            "created_at": int(time.time()) - age_seconds,
+        }
+        session.save()
+
+    def _finish(self, body):
+        return self.client.post(
+            reverse("v1:users:oauth_finish_signup"),
+            body,
+            content_type="application/json",
+        )
+
+    def test_callback_new_user_without_consent_redirects_to_finish(self):
+        self._seed_state()
+
+        response = self._callback()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].endswith("/signup/finish"))
+        self.assertFalse(User.objects.filter(email="newbie@example.com").exists())
+        pending = self.client.session["oauth_pending_signup"]
+        self.assertEqual(pending["provider"], "google")
+        self.assertEqual(pending["user_data"]["email"], "newbie@example.com")
+
+    def test_login_with_accepted_terms_then_callback_creates_user(self):
+        with patch.object(
+            oauth_views, "_provider_settings", return_value=_PROVIDER_SETTINGS
+        ):
+            login = self.client.get(
+                reverse("v1:users:oauth_login", kwargs={"provider": "google"}),
+                {"accepted_terms": "1"},
+            )
+        self.assertEqual(login.status_code, 200)
+        self.assertIs(self.client.session["oauth_accepted_terms"], True)
+        session = self.client.session
+        session["oauth_state"] = "test-state"
+        session.save()
+
+        response = self._callback()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("success=true", response["Location"])
+        user = User.objects.get(email="newbie@example.com")
+        self.assertEqual(user.policy_version_accepted, LEGAL_POLICY_VERSION)
+        self.assertIsNotNone(user.policy_accepted_at)
+        self.assertNotIn("oauth_accepted_terms", self.client.session)
+
+    def test_login_without_accepted_terms_clears_a_stale_flag(self):
+        session = self.client.session
+        session["oauth_accepted_terms"] = True
+        session.save()
+        with patch.object(
+            oauth_views, "_provider_settings", return_value=_PROVIDER_SETTINGS
+        ):
+            self.client.get(
+                reverse("v1:users:oauth_login", kwargs={"provider": "google"}),
+                {"accepted_terms": "true"},  # only the exact "1" counts
+            )
+
+        self.assertNotIn("oauth_accepted_terms", self.client.session)
+
+    def test_callback_existing_user_logs_in_without_consent(self):
+        existing = User.objects.create_user(
+            username="old_hand", email="newbie@example.com"
+        )
+        mark_email_verified(existing)
+        self._seed_state()
+
+        response = self._callback()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            response["Location"].endswith("/auth/google/callback?success=true")
+        )
+        self.assertIn("access_token", response.cookies)
+        existing.refresh_from_db()
+        self.assertIsNone(existing.policy_version_accepted)
+        self.assertIsNone(existing.policy_accepted_at)
+        self.assertNotIn("oauth_pending_signup", self.client.session)
+
+    def test_finish_with_flag_creates_user_and_sets_cookies(self):
+        self._seed_pending()
+
+        response = self._finish({"accepted_terms": True})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"success": True})
+        user = User.objects.get(email="newbie@example.com")
+        self.assertEqual(user.policy_version_accepted, LEGAL_POLICY_VERSION)
+        self.assertIsNotNone(user.policy_accepted_at)
+        self.assertIn("access_token", response.cookies)
+        self.assertIn("refresh_token", response.cookies)
+        self.assertNotIn("oauth_pending_signup", self.client.session)
+
+    def test_finish_without_flag_428_keeps_pending(self):
+        self._seed_pending()
+
+        for body in ({}, {"accepted_terms": "true"}, {"accepted_terms": 1}):
+            response = self._finish(body)
+            self.assertEqual(response.status_code, 428, body)
+            self.assertEqual(response.json()["code"], "consent_required")
+
+        self.assertFalse(User.objects.filter(email="newbie@example.com").exists())
+        self.assertIn("oauth_pending_signup", self.client.session)
+
+    def test_finish_expired_pending_refused(self):
+        self._seed_pending(age_seconds=901)
+
+        response = self._finish({"accepted_terms": True})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {
+                "error": "Your sign-up expired. Please sign in again.",
+                "code": "signup_expired",
+            },
+        )
+        self.assertFalse(User.objects.filter(email="newbie@example.com").exists())
+        self.assertNotIn("oauth_pending_signup", self.client.session)
+
+    def test_finish_without_pending_refused(self):
+        response = self._finish({"accepted_terms": True})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "signup_expired")
+
+    def test_pending_signup_stores_no_provider_tokens(self):
+        self._seed_state()
+        profile = {**_GOOGLE_PROFILE, "access_token": "leak", "picture": "x"}
+
+        self._callback(profile=profile)
+
+        stored = self.client.session["oauth_pending_signup"]["user_data"]
+        self.assertNotIn("access_token", stored)
+        self.assertNotIn("picture", stored)
+
+    def test_github_callback_new_user_also_gated(self):
+        self._seed_state()
+
+        response = self._callback(provider="github")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].endswith("/signup/finish"))
+        self.assertFalse(User.objects.filter(email="octo@example.com").exists())
+        self.assertEqual(
+            self.client.session["oauth_pending_signup"]["provider"], "github"
+        )

@@ -72,3 +72,28 @@ CONSENT_REQUIRED_CODE = "consent_required"
 CONSENT_REQUIRED_MESSAGE = (
     "Please accept the Privacy Policy and Terms of Service to create an account."
 )
+
+# Web OAuth sign-up that came back without consent waits in the session for the
+# user to accept on the web app's /signup/finish page, for this long.
+OAUTH_PENDING_SIGNUP_TTL_SECONDS = 900
+SIGNUP_EXPIRED_CODE = "signup_expired"
+SIGNUP_EXPIRED_MESSAGE = "Your sign-up expired. Please sign in again."
+# The finish step could not create or find the account (the provider identity
+# is linked elsewhere, or the email now belongs to another account).
+SIGNUP_FAILED_CODE = "signup_failed"
+SIGNUP_FAILED_MESSAGE = "We couldn't finish your sign-up. Please sign in again."
+# POST auth/oauth/finish/, per client IP. Looser than register's 3/h: a 428
+# (box not ticked) is a retry, not a new sign-up.
+RATE_LIMIT_OAUTH_FINISH = "10/h"
+# The only provider-profile keys the pending sign-up keeps: the ones
+# oauth_views._find_or_create_user reads. Never a token.
+OAUTH_PENDING_SIGNUP_USER_DATA_KEYS = (
+    "id",
+    "email",
+    "given_name",
+    "family_name",
+    "name",
+    "bio",
+    "blog",
+    "location",
+)

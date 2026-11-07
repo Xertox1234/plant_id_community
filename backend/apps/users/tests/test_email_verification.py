@@ -250,7 +250,9 @@ class WebOAuthGuardTest(TestCase):
 
     def test_created_account_is_verified_so_the_next_login_matches(self):
         first = oauth_views._find_or_create_user(
-            "google", {"email": "fresh@example.com", "id": "g-fresh", "given_name": "F"}
+            "google",
+            {"email": "fresh@example.com", "id": "g-fresh", "given_name": "F"},
+            accepted_terms=True,
         )
         self.assertTrue(is_email_verified(first))
 
