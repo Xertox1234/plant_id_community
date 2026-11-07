@@ -42,6 +42,22 @@ quitar los datos EXIF.
 registra, y las plantas que guarda en la aplicación (almacenadas en Google
 Firebase).
 
+**Revisiones de salud.** Al solicitar una revisión de salud, puede escribir una
+nota sobre dónde está la planta (por ejemplo, "ventana orientada al este"). Es
+texto libre que usted decide escribir, de hasta 200 caracteres. Lo guardamos
+con su solicitud y solo usted puede verlo. Lo usamos para conservar su
+historial de diagnósticos.
+
+**Eventos comunitarios.** Si crea un evento, puede escribir el lugar, la
+dirección, las coordenadas (latitud y longitud) y un correo electrónico y un
+teléfono de contacto. Son datos que usted decide escribir; no los tomamos de su
+dispositivo. Usted elige quién puede ver el evento (cualquier persona, las
+personas de su zona o zona de rusticidad, las personas a las que sigue, o solo
+usted). Quien pueda ver el evento verá lo que usted escribió, incluidos la
+dirección y los datos de contacto; en un evento público, esto incluye a los
+visitantes que no han iniciado sesión. Los usamos para publicar el evento y
+para que otras personas puedan encontrarlo y contactarle.
+
 **Foro.** Sus publicaciones, temas, mensajes privados, los reportes que hace y
 las personas que bloquea o silencia.
 
@@ -74,6 +90,9 @@ las sesiones, y todas las sesiones con un error, con el texto oculto.
 compra de Apple o Google, a partir del recibo de la tienda. La compra dentro de
 la aplicación se está desarrollando antes del lanzamiento.
 
+No recabamos la ubicación de su dispositivo. Cualquier lugar o dirección que
+aparezca en este aviso es un dato que usted mismo escribe.
+
 **Lo que no hacemos.** No mostramos anuncios. No usamos herramientas de
 analítica ni de rastreo. No vendemos sus datos.
 
@@ -86,6 +105,9 @@ Son necesarias para el servicio que usted solicita:
 - crear y administrar su cuenta y mostrar su perfil;
 - identificar plantas y revisar su salud a partir de sus fotos;
 - llevar el seguimiento de su jardín y de sus plantas guardadas;
+- guardar la nota de ubicación de sus revisiones de salud y publicar los
+  eventos comunitarios que usted crea, con el lugar, la dirección y los datos
+  de contacto que escribe;
 - operar y moderar el foro;
 - enviarle las notificaciones push que active;
 - enviarle correos del servicio, saber si se entregaron y saber qué enlaces de

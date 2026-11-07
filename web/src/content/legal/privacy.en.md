@@ -40,6 +40,20 @@ the photos to our plant identification providers to get a result.
 plants you save in the app (stored in Google Firebase). We use this to run your
 garden tracking.
 
+**Plant health checks.** When you ask for a health check, you can type a note
+about where the plant is (for example "east-facing window"). It is free text
+you choose to enter, up to 200 characters. We store it with your health check
+request, and only you can see it. We use it to keep your diagnosis history.
+
+**Community events.** If you create an event, you can enter its venue, street
+address, map coordinates (latitude and longitude), and a contact email and
+phone number. These are details you choose to type in; we do not read them from
+your device. You choose who can see the event (anyone, people in your area or
+hardiness zone, people you follow, or only you). Everyone who can see the event
+sees what you entered, including the address and contact details, and for a
+public event that includes visitors who are not signed in. We use them to list
+the event and let people find and contact you about it.
+
 **Forum.** Your posts, topics, private messages, the reports you make, and the
 people you block or mute. We use this to run the forum and to moderate it.
 
@@ -72,6 +86,9 @@ an error, are recorded, with text masked. We use these to find and fix errors.
 **Purchases.** If you buy Premium in the app, we receive your purchase status
 from Apple or Google, based on the store receipt. In-app purchase is being
 built before launch.
+
+We do not collect your device's location. Any place or address in this policy
+is something you type in yourself.
 
 **What we do not do.** We show no ads. We use no analytics or tracking SDKs. We
 do not sell your data.

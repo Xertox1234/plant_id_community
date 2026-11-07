@@ -45,6 +45,24 @@ récoltes que vous enregistrez, ainsi que les plantes que vous sauvegardez dans
 l'application (conservées dans Google Firebase). Elles servent au suivi de
 votre jardin.
 
+**Vérifications de santé.** Lorsque vous demandez une vérification de santé,
+vous pouvez écrire une note sur l'emplacement de la plante (par exemple « fenêtre
+orientée à l'est »). C'est un texte libre que vous choisissez de saisir, d'au
+plus 200 caractères. Nous le conservons avec votre demande, et vous seul(e) pouvez
+le voir. Il sert à tenir l'historique de vos diagnostics.
+
+**Événements communautaires.** Si vous créez un événement, vous pouvez indiquer
+le lieu, l'adresse postale, les coordonnées géographiques (latitude et
+longitude), ainsi qu'une adresse courriel et un numéro de téléphone de contact.
+Ce sont des renseignements que vous choisissez de saisir; nous ne les lisons pas
+dans votre appareil. Vous choisissez qui peut voir l'événement (tout le monde,
+les gens de votre région ou de votre zone de rusticité, les personnes que vous
+suivez, ou vous seul(e)). Toute personne qui peut voir l'événement voit ce que
+vous avez saisi, y compris l'adresse et les coordonnées de contact; pour un
+événement public, cela comprend les visiteurs qui ne sont pas connectés. Ils
+servent à publier l'événement et à permettre aux gens de vous joindre à son
+sujet.
+
 **Forum.** Vos messages, sujets, messages privés, les signalements que vous
 faites, et les personnes que vous bloquez ou mettez en sourdine. Ces
 renseignements servent à faire fonctionner le forum et à le modérer.
@@ -83,6 +101,10 @@ corriger les erreurs.
 **Achats.** Si vous achetez Premium dans l'application, nous recevons l'état de
 votre achat d'Apple ou de Google, à partir du reçu de la boutique. L'achat
 intégré est en cours de développement avant le lancement.
+
+Nous ne recueillons pas la position de votre appareil. Tout lieu ou toute
+adresse mentionné dans cette politique est un renseignement que vous saisissez
+vous-même.
 
 **Ce que nous ne faisons pas.** Nous n'affichons aucune publicité. Nous
 n'utilisons aucun outil d'analyse ni de suivi. Nous ne vendons pas vos

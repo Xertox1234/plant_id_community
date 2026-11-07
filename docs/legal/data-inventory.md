@@ -18,6 +18,21 @@ then the three policy texts. Taken on 2026-11-06.
   account is deleted. Results go to Plant.id/Kindwise and PlantNet.
 - **Garden data** (beds, plants, care tasks, harvests), and Firestore saved
   plants (`users/{uid}/identified_plants`).
+- **Disease-diagnosis location note.** An optional free-text `location` (max
+  200 characters, e.g. "east-facing window") on a plant health check
+  (`PlantDiseaseRequest.location`). Typed by the user, not device location.
+  Stored with the request and visible only to its owner (the viewset filters
+  by user). Not in the audit log.
+- **Community events** (`CommunityEvent`, `/api/v1/calendar/events/`). An
+  organizer may enter a venue name, street `address`, `latitude`/`longitude`,
+  `contact_email` and `contact_phone`, all typed by the user, not device
+  location. The organizer picks the visibility (`public`, `local`, `zone`,
+  `friends`, `private`; default `local`). Anyone who can see an event gets the
+  detail fields, address and contact details included; the code does no
+  masking (the model help text says "masked", but nothing implements it), and
+  a `public` event is readable by signed-out visitors.
+- **Garden data** (beds, plants, care tasks, harvests), and Firestore saved
+  plants (`users/{uid}/identified_plants`).
 - **Forum.** Posts, topics, private messages, reports, blocks and mutes.
 - **Newsletter.** The subscription.
 - **Push tokens.** FCM/APNs on mobile and web push.
