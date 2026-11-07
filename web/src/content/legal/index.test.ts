@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { pickLanguage, getLegalMarkdown, type LegalDoc, type LegalLang } from './index';
+import {
+  pickLanguage,
+  getLegalMarkdown,
+  getLegalVersion,
+  type LegalDoc,
+  type LegalLang,
+} from './index';
 
 describe('pickLanguage', () => {
   it.each([
@@ -26,4 +32,14 @@ describe('getLegalMarkdown', () => {
       });
     }
   }
+});
+
+describe('getLegalVersion', () => {
+  it('reads the version comment of a document', () => {
+    expect(getLegalVersion(getLegalMarkdown('privacy', 'en'))).toBe('2026-11-06');
+  });
+
+  it('returns null when there is no version comment', () => {
+    expect(getLegalVersion('# Title')).toBeNull();
+  });
 });

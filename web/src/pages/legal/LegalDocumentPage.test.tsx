@@ -58,4 +58,15 @@ describe('LegalDocumentPage', () => {
     expect(container.querySelector('script')).toBeNull();
     expect(screen.getByText('Safe text')).toBeInTheDocument();
   });
+
+  it('shows the policy version in a footer line', () => {
+    renderAt('/privacy?lang=en');
+    expect(screen.getByText('Version 2026-11-06')).toBeInTheDocument();
+  });
+
+  it('omits the footer when the document has no version comment', () => {
+    override = '# Hi';
+    renderAt('/privacy?lang=en');
+    expect(screen.queryByText(/^Version /)).toBeNull();
+  });
 });

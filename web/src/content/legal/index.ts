@@ -34,3 +34,10 @@ export function pickLanguage(
 export function getLegalMarkdown(doc: LegalDoc, lang: LegalLang): string {
   return DOCS[doc][lang];
 }
+
+const VERSION_COMMENT = /<!--\s*version:\s*([^\s>]+)\s*-->/;
+
+/** The `<!-- version: … -->` stamp at the top of a legal document, or null. */
+export function getLegalVersion(md: string): string | null {
+  return VERSION_COMMENT.exec(md)?.[1] ?? null;
+}
