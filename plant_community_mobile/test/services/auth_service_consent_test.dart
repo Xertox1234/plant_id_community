@@ -243,6 +243,33 @@ void main() {
       expect(body['accepted_terms'], isTrue);
     });
 
+    test('an exchange that finishes before signInWithCredential returns '
+        'keeps its JWT', () async {
+      // The fake runs the listener's exchange to completion first.
+      final h = _Harness();
+      addTearDown(h.dispose);
+      h.read();
+      h.firebaseAuth.credentialUser = _FakeUser(uid: 'g1');
+
+      await h.notifier.signInWithGoogle();
+
+      expect(h.state.isAuthenticated, isTrue);
+      expect(h.state.isLoading, isFalse);
+    });
+
+    test('... and keeps its consent refusal for a new user', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      h.api.errors.add(consentRefusal());
+      h.read();
+      h.firebaseAuth.credentialUser = _FakeUser(uid: 'g1');
+
+      await h.notifier.signInWithGoogle();
+
+      expect(h.state.consentRequired, isTrue);
+      expect(h.state.isLoading, isFalse);
+    });
+
     test('google sign-in without acceptedTerms sends no flag', () async {
       final h = _Harness();
       addTearDown(h.dispose);

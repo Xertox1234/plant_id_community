@@ -391,7 +391,13 @@ class AuthService extends _$AuthService {
       }
 
       // Auth state listener handles the token exchange, as for email/password.
-      state = AuthState(firebaseUser: result.user, isLoading: false);
+      // It can finish before this line: then its JWT or its consent refusal
+      // stands, and only the spinner goes.
+      if (state.isAuthenticated || state.consentRequired) {
+        state = _notLoading(state);
+      } else {
+        state = AuthState(firebaseUser: result.user, isLoading: false);
+      }
     } on GoogleSignInException catch (e) {
       // A cancel is a normal outcome, not a failure: leaving an error on state
       // would surface a red banner via main.dart's root listener for a user who
@@ -1005,6 +1011,17 @@ class AuthService extends _$AuthService {
     final accepted = pending || _acceptedTermsPending || storedUid == user.uid;
     return {'firebase_token': token, if (accepted) 'accepted_terms': true};
   }
+
+  /// [s] with `isLoading` false and every other field kept ([AuthState.copyWith]
+  /// drops the flags and the error).
+  static AuthState _notLoading(AuthState s) => AuthState(
+    firebaseUser: s.firebaseUser,
+    jwtToken: s.jwtToken,
+    error: s.error,
+    unverifiedAccountConflict: s.unverifiedAccountConflict,
+    emailVerificationRequired: s.emailVerificationRequired,
+    consentRequired: s.consentRequired,
+  );
 
   static bool _isConsentRefusal(ApiException e) =>
       e.statusCode == 428 && e.code == 'consent_required';

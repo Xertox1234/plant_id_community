@@ -90,6 +90,8 @@ class MyApp extends ConsumerWidget {
       // call while one is open.
       if (next.consentRequired && previous?.consentRequired != true) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
+          // Cleared within the frame (a retry, a sign-out): nothing to ask.
+          if (!ref.read(authServiceProvider).consentRequired) return;
           final navigatorContext = rootNavigatorKey.currentContext;
           if (navigatorContext != null) showConsentSheet(navigatorContext);
         });
