@@ -31,6 +31,8 @@ const GoogleCallbackPage = lazy(() => import('./pages/auth/GoogleCallbackPage'))
 const UnsubscribePage = lazy(() => import('./pages/UnsubscribePage'));
 const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'));
 const ThemePreviewPage = lazy(() => import('./pages/debug/ThemePreviewPage'));
+const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'));
+const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 /**
@@ -73,6 +75,10 @@ function App() {
             path="/newsletter/unsubscribe"
             element={<NewsletterLinkPage key="unsubscribe" action="unsubscribe" />}
           />
+
+          {/* Legal documents — public; the mobile app opens them in-app with ?lang= */}
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
 
           {/* Non-critical routes (lazy loaded) */}
           <Route path="/identify" element={<IdentifyPage />} />
