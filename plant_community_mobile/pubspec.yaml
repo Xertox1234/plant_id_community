@@ -74,7 +74,7 @@ dependencies:
   path: ^1.9.1  # Path manipulation
 
   # Permissions
-  permission_handler: ^12.0.1  # For notification and location permissions
+  permission_handler: ^12.0.1  # For opening app settings (notification and camera permissions)
   google_sign_in: ^7.2.0
 
   # Icons — the web uses lucide-react; this is the same icon set as a Flutter

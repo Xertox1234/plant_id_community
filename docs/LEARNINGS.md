@@ -7629,3 +7629,22 @@ green, a second data point for the 2026-09-14 lesson.
   their fix removed: a service stub missing `executor` crashed before any
   provider, and a push probe (`../forum?x=1`) never matched the route.
   Reverting the fix with `sed` and re-running is what exposed both.
+
+## 2026-11-07 — Sign-up consent: three places a gate on the obvious endpoints is not enough (legal-policies)
+
+**What nearly slipped through.** Requiring `accepted_terms` on `register/` and the Firebase token
+exchange is not "every sign-up". Three non-obvious things surfaced during the build:
+
+1. **allauth was a second, unguarded account-creating path.** With `SOCIALACCOUNT_AUTO_SIGNUP=True`
+   and `is_open_for_signup` returning True, a social login created a `User` without ever touching
+   our consent code. Fix: close it (`CustomSocialAccountAdapter.is_open_for_signup` returns False)
+   and create web OAuth users only through our own finish step.
+2. **Multipart bodies carry booleans as strings.** DRF multipart delivers `True` as `"True"`, so an
+   `is True` consent check refuses it. Tests posting to a boolean-gated endpoint must post JSON.
+3. **Flutter: a modal bottom sheet closed by navigation completes with `null`.** When `router.go`
+   removes the page beneath it, the pageless sheet route completes with `null`, which looks exactly
+   like a drag-dismiss. Treat `null` as a decline only after checking the page beneath survived,
+   otherwise a navigation records a refusal the user never made.
+
+**Rule.** When adding a gate on "every path that does X", enumerate the creators of X from the
+library side too (adapters, signals, auto-signup settings), not only our own endpoints.
