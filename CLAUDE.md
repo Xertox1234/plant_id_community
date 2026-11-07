@@ -46,7 +46,7 @@ See the `lsp-intelligence` skill for the full operation catalogue.
 
 ## Critical Gotchas
 
-Eight non-obvious bugs that have already caused real failures:
+Non-obvious bugs and rules that have already caused real failures:
 
 **1. ViewSet `get_permissions()` must call `super()` for `@action` endpoints**
 → Enforced write-time by `docs/rules/triggers.json`; full detail in `backend/docs/patterns/architecture/viewsets.md`.
@@ -73,7 +73,7 @@ the exact line/character where the symbol is defined. Always get position from
 count characters from the start of the line for `character`, or pass `documentSymbol`
 results through directly).
 
-**8. Every path that creates a `User` must require `accepted_terms`** — a new user without it gets 428 `consent_required` (see `apps/users/consent.py`); existing users are never asked. allauth social sign-up is closed for this reason (`CustomSocialAccountAdapter.is_open_for_signup`).
+**8. Every public sign-up path that creates a `User` must require `accepted_terms`** — a new user without it gets 428 `consent_required` (see `apps/users/consent.py`); existing users are never asked. allauth social sign-up is closed for this reason (`CustomSocialAccountAdapter.is_open_for_signup`).
 
 ## Working Conventions
 
