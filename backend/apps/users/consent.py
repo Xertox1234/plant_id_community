@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import functools
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 from rest_framework import status
@@ -15,6 +17,8 @@ from .constants import (
 )
 
 if TYPE_CHECKING:
+    from rest_framework.request import Request
+
     from .models import User
 
 
@@ -39,3 +43,21 @@ def consent_required_response() -> Response:
         {"error": CONSENT_REQUIRED_MESSAGE, "code": CONSENT_REQUIRED_CODE},
         status=status.HTTP_428_PRECONDITION_REQUIRED,
     )
+
+
+def require_consent(view: Callable[..., Any]) -> Callable[..., Any]:
+    """Refuse with 428 unless the body's ``accepted_terms`` is JSON ``true``.
+
+    Stack it ABOVE ``@ratelimit`` (it then runs first), so a refusal does not
+    use up the caller's sign-up quota: a stale client that never sends the flag
+    would otherwise be locked out by its own 428s.
+    """
+
+    @functools.wraps(view)
+    def wrapped(request: Request, *args: Any, **kwargs: Any) -> Any:
+        body = request.data if isinstance(request.data, dict) else {}
+        if not is_accepted(body.get("accepted_terms")):
+            return consent_required_response()
+        return view(request, *args, **kwargs)
+
+    return wrapped

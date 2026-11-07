@@ -166,6 +166,16 @@ class SecurityPathListsTests(TestCase):
             with self.subTest(path=path):
                 self.assertTrue(_is_real_route(path))
 
+    def test_every_signup_path_is_security_sensitive(self):
+        middleware = SecurityMetricsMiddleware(get_response=lambda r: None)
+        for path in (
+            "/api/v1/auth/register/",
+            "/api/v1/auth/firebase-token-exchange/",
+            "/api/v1/auth/oauth/finish/",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(middleware._is_security_sensitive_endpoint(path))
+
     def test_v1_login_is_security_sensitive(self):
         middleware = SecurityMetricsMiddleware(get_response=lambda r: None)
         self.assertTrue(

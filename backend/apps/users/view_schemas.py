@@ -81,13 +81,39 @@ CSRF_TOKEN_SCHEMA = extend_schema(
     description="Sets the csrftoken cookie for later unsafe requests.",
 )
 
+_CODED_ERROR = inline_serializer(
+    "AuthCodedError",
+    {"error": serializers.CharField(), "code": serializers.CharField()},
+)
+
+_CONSENT_REQUIRED = OpenApiResponse(
+    _CODED_ERROR,
+    description="`consent_required`: `accepted_terms` was not the JSON boolean "
+    "`true`. No account was created.",
+)
+
+
+class RegisterSerializer(UserRegistrationSerializer):
+    """The register body as documented: the serializer plus the consent flag,
+    which the view reads itself (``consent.require_consent``)."""
+
+    accepted_terms = serializers.BooleanField(
+        help_text="Must be the JSON boolean true: the user accepted the "
+        "Privacy Policy and Terms of Service and is 13 or older."
+    )
+
+    class Meta(UserRegistrationSerializer.Meta):
+        fields = [*UserRegistrationSerializer.Meta.fields, "accepted_terms"]
+
+
 REGISTER_SCHEMA = extend_schema(
-    request=UserRegistrationSerializer,
+    request=RegisterSerializer,
     responses={
         201: _MESSAGE_AND_USER,
         400: OpenApiResponse(
             OpenApiTypes.OBJECT, description="Field errors, keyed by field name."
         ),
+        428: _CONSENT_REQUIRED,
         429: RATE_LIMITED,
         500: ERROR_ENVELOPE,
     },
@@ -102,6 +128,7 @@ REGISTER_SCHEMA = extend_schema(
                 "first_name": "Example",
                 "last_name": "Gardener",
                 "gardening_experience": "beginner",
+                "accepted_terms": True,
             },
         )
     ],
@@ -575,11 +602,6 @@ OAUTH_CALLBACK_SCHEMA = extend_schema(
         400: _SIMPLE_ERROR,
         429: RATE_LIMITED,
     },
-)
-
-_CODED_ERROR = inline_serializer(
-    "AuthCodedError",
-    {"error": serializers.CharField(), "code": serializers.CharField()},
 )
 
 OAUTH_FINISH_SIGNUP_SCHEMA = extend_schema(
