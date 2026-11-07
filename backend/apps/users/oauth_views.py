@@ -272,6 +272,9 @@ def oauth_callback(request, provider):
         except ConsentRequired:
             # A new user who never ticked the box: no account yet. Park the
             # profile in THIS session for the finish step, never a token.
+            # New session key first: a key fixed in this browser before the
+            # OAuth round trip must not be able to finish this identity.
+            request.session.cycle_key()
             request.session[OAUTH_PENDING_SIGNUP_KEY] = {
                 "provider": provider,
                 "user_data": _pending_user_data(user_data),

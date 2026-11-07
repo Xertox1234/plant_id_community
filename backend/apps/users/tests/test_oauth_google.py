@@ -255,6 +255,7 @@ class WebOAuthConsentTest(TestCase):
 
     def test_callback_new_user_without_consent_redirects_to_finish(self):
         self._seed_state()
+        key_before = self.client.session.session_key
 
         response = self._callback()
 
@@ -264,6 +265,8 @@ class WebOAuthConsentTest(TestCase):
         pending = self.client.session["oauth_pending_signup"]
         self.assertEqual(pending["provider"], "google")
         self.assertEqual(pending["user_data"]["email"], "newbie@example.com")
+        # The pending entry never lives under the pre-OAuth session key.
+        self.assertNotEqual(self.client.session.session_key, key_before)
 
     def test_login_with_accepted_terms_then_callback_creates_user(self):
         with patch.object(
