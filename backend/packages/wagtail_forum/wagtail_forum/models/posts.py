@@ -52,6 +52,9 @@ class Post(
     # Denormalized per-type reaction counts, e.g. {"like": 3, "thanks": 1}.
     reaction_counts = models.JSONField(default=dict, blank=True, editable=False)
 
+    # Account-deletion retention: when set, a scheduled job erases this
+    # post's content once the date passes (Plan B). NULL = never scheduled.
+    erase_after = models.DateTimeField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

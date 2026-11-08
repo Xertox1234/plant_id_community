@@ -407,8 +407,12 @@ def _send_to_conversation(request, conversation, cache_key, payload_fp):
             # Conservative policy (todo 350): any block pair in the room
             # refuses the send — explicit 403, never a silent drop.
             raise PermissionDenied(_("You cannot message this group."))
-    elif conversation.other_participant_id(user) in blocked_ids:
-        raise PermissionDenied(_("You cannot message this user."))
+    else:
+        other_id = conversation.other_participant_id(user)
+        # The other side's account is gone (SET_NULL): nobody is left to read
+        # a new message, so refuse rather than write into a one-person thread.
+        if other_id is None or other_id in blocked_ids:
+            raise PermissionDenied(_("You cannot message this user."))
     serializer = MessageSendSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     body = serializer.validated_data["body"]
