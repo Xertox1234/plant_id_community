@@ -67,7 +67,7 @@ def test_abuse_action_blocks_resignup(
     assert record.reason == DELETED_ACCOUNT_REASON_ABUSE
     assert is_signup_blocked("target7@example.test")
     delay.assert_called_once_with(record.pk)
-    assert any("1 account" in m and "scheduled" in m for m in _messages(resp))
+    assert "1 account(s) scheduled for deletion (Abuse)." in _messages(resp)
 
 
 def test_under_13_and_staff_actions_use_their_reason(
@@ -134,13 +134,16 @@ def test_wagtail_bulk_delete_is_not_available(admin_client, target):
     from wagtail.admin.views.bulk_action.registry import bulk_action_registry
 
     cls = bulk_action_registry.get_bulk_action_class("users", "user", "delete")
-    assert not cls.execute_action.__module__.startswith("wagtail.")
+    assert cls.__module__ == "apps.users.wagtail_hooks"
     resp = admin_client.post(
         reverse("wagtail_bulk_action", args=("users", "user", "delete"))
         + f"?id={target.pk}"
     )
     assert User.objects.filter(pk=target.pk).exists()
     assert resp.status_code in (200, 302, 403)
+    # Even a direct execute deletes nothing.
+    assert cls.execute_action([target], model=User) == (0, 0)
+    assert User.objects.filter(pk=target.pk).exists()
 
 
 # --- request_account_deletion (R14) ---------------------------------------
@@ -176,6 +179,7 @@ def test_pending_abuse_is_not_downgraded(target, delay):
 def _record(user_id, status):
     return DeletedAccount.objects.create(
         user_id=user_id,
+        firebase_uid="uid-secret-7",
         email="gone@example.test",
         email_hash="h" * 64,
         reason=DELETED_ACCOUNT_REASON_SELF,
@@ -219,7 +223,7 @@ def test_retry_erase_queues_only_pending(admin_client, delay):
     assert delay.call_count == 2
     queued = sorted(c.args[0] for c in delay.call_args_list)
     assert queued == sorted([p1.pk, p2.pk])
-    assert any("2" in m for m in _messages(resp))
+    assert "2 erase job(s) re-queued (pending rows only)." in _messages(resp)
 
 
 def test_retry_erase_on_done_row_queues_nothing(admin_client, delay):
@@ -230,3 +234,20 @@ def test_retry_erase_on_done_row_queues_nothing(admin_client, delay):
         follow=True,
     )
     delay.assert_not_called()
+
+
+def test_deleted_account_detail_hides_email_and_uid(admin_client):
+    rec = _record(1, DELETED_ACCOUNT_STATUS_PENDING)
+    resp = admin_client.get(reverse("admin:users_deletedaccount_change", args=[rec.pk]))
+    assert resp.status_code == 200
+    assert b"gone@example.test" not in resp.content
+    assert b"uid-secret-7" not in resp.content
+
+
+def test_action_counts_user_deleted_meanwhile(admin_client, target, delay):
+    with patch(
+        "apps.users.admin.request_account_deletion", side_effect=User.DoesNotExist
+    ):
+        resp = _run_action(admin_client, "delete_account_staff", [target.pk])
+    assert resp.status_code == 200
+    assert "1 account(s) already deleted." in _messages(resp)

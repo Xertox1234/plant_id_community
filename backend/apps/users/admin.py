@@ -125,19 +125,30 @@ class UserAdmin(BaseUserAdmin):
 
     def _delete_accounts(self, request, queryset, reason):
         scheduled = 0
+        already_gone = 0
         refused = []
+        label = dict(DeletedAccount.REASON_CHOICES)[reason]
         for user in queryset:
             try:
                 request_account_deletion(user, reason)
             except DeletionRefused:
                 refused.append(user.username)
+            except User.DoesNotExist:
+                # The erase job removed the row since the list was rendered.
+                already_gone += 1
             else:
                 scheduled += 1
         if scheduled:
             self.message_user(
                 request,
-                f"{scheduled} account(s) scheduled for deletion ({reason}).",
+                f"{scheduled} account(s) scheduled for deletion ({label}).",
                 messages.SUCCESS,
+            )
+        if already_gone:
+            self.message_user(
+                request,
+                f"{already_gone} account(s) already deleted.",
+                messages.INFO,
             )
         if refused:
             self.message_user(
@@ -274,6 +285,8 @@ class DeletedAccountAdmin(admin.ModelAdmin):
     )
     list_filter = ("status",)
     actions = ("retry_erase",)
+    # The view-only detail page would otherwise show these for pending rows.
+    exclude = ("email", "firebase_uid")
 
     def has_add_permission(self, request):
         return False
