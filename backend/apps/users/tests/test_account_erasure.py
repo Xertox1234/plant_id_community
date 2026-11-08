@@ -8,8 +8,10 @@ so a crashed run resumes where it stopped.
 import io
 from datetime import date, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from apps.users import deletion
 from apps.users.constants import (
     DELETED_ACCOUNT_REASON_SELF,
     DELETED_TOPIC_TITLE,
@@ -218,6 +220,7 @@ def test_erasure_leaves_no_identifying_rows(
         UserPlantCollection,
     )
     from auditlog import get_logentry_model
+    from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
     from rest_framework_simplejwt.tokens import RefreshToken
     from wagtail_forum.models import ForumProfile
 
@@ -334,6 +337,22 @@ def test_erasure_leaves_no_identifying_rows(
     other_post.refresh_from_db()
     assert other_post.reaction_counts == {}
     assert Message.objects.filter(conversation=conversation).count() == 1
+
+    # Rows that carry no username or email text, so the walk below cannot
+    # see them: they must be gone by count.
+    uid = record.user_id
+    assert PushDevice.objects.filter(user_id=uid).count() == 0
+    assert PushDevice.objects.filter(token="device-token-1").count() == 0
+    assert PushSubscription.objects.filter(user_id=uid).count() == 0
+    assert ScanJob.objects.filter(user_id=uid).count() == 0
+    assert ScanJobImage.objects.filter(job_id=job.pk).count() == 0
+    assert GardenBed.objects.filter(pk=bed.pk).count() == 0
+    assert Plant.objects.filter(owner_id=uid).count() == 0
+    assert OutstandingToken.objects.filter(user_id=uid).count() == 0
+    assert BlogPostView.objects.filter(user_id=uid).count() == 0
+    assert BlogPostView.objects.filter(ip_address="203.0.113.7").count() == 0
+    assert OnboardingAnalytics.objects.filter(ip_address="198.51.100.4").count() == 0
+    assert ForumProfile.objects.filter(user_id=uid).count() == 0
 
     kept = {reply.pk}
     assert _unexpected(_rows_naming(USERNAME), kept_post_pks=kept) == []
@@ -502,3 +521,92 @@ def test_erasure_writes_no_new_audit_rows(target, django_capture_on_commit_callb
         .objects.filter(action=get_logentry_model().Action.DELETE)
         .exists()
     )
+
+
+def test_an_upload_used_elsewhere_survives_without_its_uploader(
+    roots, target, other, board, django_capture_on_commit_callbacks
+):
+    topic = _topic(board, other)
+    shared = _image(target, "shared upload")
+    shared_path = Path(shared.file.path)
+    _post(topic, target, [("image", {"image": shared, "alt_text": ""})])
+    _post(topic, other, [("image", {"image": shared, "alt_text": ""})])
+    # Uploaded but referenced by nothing at all: still goes.
+    orphan = _image(target, "orphan upload")
+
+    with django_capture_on_commit_callbacks(execute=True):
+        erase_django_data(_record(target))
+
+    shared.refresh_from_db()
+    assert shared.uploaded_by_user_id is None
+    assert shared_path.exists()
+    assert not get_image_model().objects.filter(pk=orphan.pk).exists()
+
+
+def test_an_upload_a_blog_page_uses_survives(roots, target, other, board):
+    from wagtail.models import ReferenceIndex
+
+    image = _image(target, "blog hero")
+    page = _blog_post(other)
+    page.featured_image = image
+    page.save()
+    assert ReferenceIndex.get_references_to(image).exists()
+
+    erase_django_data(_record(target))
+
+    image.refresh_from_db()
+    assert image.uploaded_by_user_id is None
+
+
+def test_a_failed_step_resumes_without_redoing_earlier_steps(target, other, board):
+    topic = _topic(board, other)
+    held = _post(topic, target, [("quote", "rude words")])
+    Report.objects.create(post=held, reporter=other, reason=Report.ABUSE)
+    record = _record(target)
+    real_email = deletion._erase_email
+    calls = {"email": 0}
+
+    def flaky_email(user):
+        calls["email"] += 1
+        if calls["email"] == 1:
+            raise RuntimeError("mail store down")
+        real_email(user)
+
+    with (
+        patch.object(deletion, "_erase_email", side_effect=flaky_email),
+        patch.object(deletion, "_erase_forum", wraps=deletion._erase_forum) as forum,
+    ):
+        with pytest.raises(RuntimeError):
+            erase_django_data(record)
+        record.refresh_from_db()
+        assert record.steps_done == ["forum"]
+        assert User.objects.filter(pk=target.pk).exists()
+        held.refresh_from_db()
+        first_hold = held.erase_after
+        assert first_hold is not None
+
+        erase_django_data(record)
+
+    record.refresh_from_db()
+    assert record.steps_done == ["forum", "email", "django"]
+    assert forum.call_count == 1
+    assert calls["email"] == 2
+    held.refresh_from_db()
+    assert held.erase_after == first_hold
+    assert not User.objects.filter(pk=target.pk).exists()
+
+
+def test_a_stale_record_copy_does_not_redo_or_overwrite_steps(target, board):
+    topic = _topic(board, target)
+    _post(topic, target, [("quote", "hello")], opening=True)
+    first = _record(target)
+    stale = DeletedAccount.objects.get(pk=first.pk)  # read before any step ran
+
+    erase_django_data(first)
+    with patch.object(deletion, "_erase_forum") as forum:
+        erase_django_data(stale)
+
+    forum.assert_not_called()
+    first.refresh_from_db()
+    assert first.steps_done == ["forum", "email", "django"]
+    assert stale.steps_done == ["forum", "email", "django"]

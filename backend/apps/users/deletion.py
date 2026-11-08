@@ -113,20 +113,29 @@ def erase_django_data(record: DeletedAccount) -> None:
     user_model = get_user_model()
     with disable_auditlog():
         for name, step in steps:
-            if name in record.steps_done:
-                continue
             with transaction.atomic():
+                # Decide from the LOCKED row, never the caller's copy: a
+                # concurrent run waits here, then sees this step recorded and
+                # skips it instead of redoing it and overwriting the list.
+                locked = DeletedAccount.objects.select_for_update().get(pk=record.pk)
+                if name in locked.steps_done:
+                    record.steps_done = list(locked.steps_done)
+                    continue
                 user = (
                     user_model._base_manager.select_for_update()
-                    .filter(pk=record.user_id)
+                    .filter(pk=locked.user_id)
                     .first()
-                    if record.user_id is not None
+                    if locked.user_id is not None
                     else None
                 )
                 if user is not None:
                     step(user)
-                record.steps_done = [*record.steps_done, name]
-                record.save(update_fields=["steps_done"])
+                done = [*locked.steps_done, name]
+                locked.steps_done = done
+                locked.save(update_fields=["steps_done"])
+            # Only once the step has committed: a failed step or save leaves
+            # the caller's record without it.
+            record.steps_done = done
             logger.info(
                 "[ACCOUNT DELETE] account %s: %s step %s",
                 record.user_id,
@@ -144,7 +153,6 @@ def erase_post(post: Post) -> None:
     with a plain ``save()``, which creates no revision.
     """
     from wagtail.images import get_image_model
-    from wagtail.models import ReferenceIndex
 
     image_ids = _body_image_ids(post)
     with transaction.atomic():
@@ -157,9 +165,29 @@ def erase_post(post: Post) -> None:
         # Saving refreshes the post's ReferenceIndex rows, so the check below
         # no longer sees this post's own (now removed) image references.
         post.save()
-        for image in get_image_model().objects.filter(pk__in=image_ids):
-            if not ReferenceIndex.get_references_to(image).exists():
-                image.delete()
+        _delete_unreferenced_images(
+            get_image_model().objects.filter(pk__in=image_ids), clear_uploader=False
+        )
+
+
+def _delete_unreferenced_images(images: QuerySet[Any], *, clear_uploader: bool) -> None:
+    """Delete each of ``images`` that nothing references any more; keep the
+    rest, with ``uploaded_by_user`` cleared when ``clear_uploader`` is set.
+
+    Relies on Wagtail refreshing the ReferenceIndex inside ``save()``. That
+    holds under django-tasks' synchronous ImmediateBackend, the project
+    default (no ``TASKS`` setting). A queued tasks backend would let the
+    index lag behind a save, and this check could then delete an image that
+    a just-saved object references.
+    """
+    from wagtail.models import ReferenceIndex
+
+    for image in images:
+        if not ReferenceIndex.get_references_to(image).exists():
+            image.delete()
+        elif clear_uploader and image.uploaded_by_user_id is not None:
+            image.uploaded_by_user = None
+            image.save(update_fields=["uploaded_by_user"])
 
 
 def _body_image_ids(post: Post) -> set[int]:
@@ -208,9 +236,15 @@ def _erase_forum(user: User) -> None:
         topic.title = DELETED_TOPIC_TITLE
         topic.save()
 
-    images = get_image_model().objects.filter(uploaded_by_user=user)
-    for image in images.exclude(pk__in=held_image_ids):
-        image.delete()
+    # The user's own erased posts no longer reference anything (their bodies
+    # are empty and re-indexed above), so an upload still referenced now is
+    # used by someone else's post or a page: it stays, without an uploader.
+    _delete_unreferenced_images(
+        get_image_model()
+        .objects.filter(uploaded_by_user=user)
+        .exclude(pk__in=held_image_ids),
+        clear_uploader=True,
+    )
 
     Notification.objects.filter(actor=user).delete()
 
