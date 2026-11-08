@@ -367,12 +367,16 @@ def oauth_finish_signup(request):
             {"error": SIGNUP_EXPIRED_MESSAGE, "code": SIGNUP_EXPIRED_CODE},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    provider, user_data = pending
+    # A blocked address is refused before it is asked for consent.
+    if is_signup_blocked(user_data.get("email") or ""):
+        request.session.pop(OAUTH_PENDING_SIGNUP_KEY, None)
+        return signup_blocked_response()
     body = request.data if isinstance(request.data, dict) else {}
     if not is_accepted(body.get("accepted_terms")):
         # Kept, so the user can tick the box and send again.
         return consent_required_response()
 
-    provider, user_data = pending
     request.session.pop(OAUTH_PENDING_SIGNUP_KEY, None)
     try:
         user = _find_or_create_user(provider, user_data, accepted_terms=True)

@@ -4,7 +4,6 @@ import time
 from unittest.mock import patch
 
 import pytest
-from apps.core.email_feedback import address_hash
 from apps.users import oauth_views
 from apps.users.deletion import (
     SignupBlocked,
@@ -28,9 +27,15 @@ def _deleted(email, reason, uid):
     )
 
 
-def test_email_hash_matches_suppression_normaliser():
-    assert email_hash(" Foo@Example.com ") == address_hash(" Foo@Example.com ")
-    assert email_hash("foo@example.com") == email_hash(" Foo@Example.com ")
+@pytest.mark.django_db
+def test_email_hash_matches_real_suppression_row():
+    from apps.core.email_feedback import _suppress
+    from apps.core.models import EmailSuppression
+
+    _suppress([" Foo@Example.com "], EmailSuppression.Reason.HARD_BOUNCE, "svix-1")
+    stored = EmailSuppression.objects.get().address_hash
+    assert email_hash(" Foo@Example.com ") == stored
+    assert email_hash("foo@example.com") == stored
 
 
 @pytest.mark.django_db
@@ -47,7 +52,10 @@ def test_is_signup_blocked_by_reason(reason, blocked):
 def test_signup_blocked_response_shape():
     r = signup_blocked_response()
     assert r.status_code == 403
-    assert r.data["code"] == "signup_blocked"
+    assert r.data == {
+        "error": "This email address can't be used to create an account.",
+        "code": "signup_blocked",
+    }
     assert issubclass(SignupBlocked, Exception)
 
 
@@ -170,6 +178,26 @@ def test_oauth_finish_blocked_is_403_and_creates_nothing(client):
     r = client.post(
         reverse("v1:users:oauth_finish_signup"),
         {"accepted_terms": True},
+        content_type="application/json",
+    )
+    assert r.status_code == 403
+    assert r.json()["code"] == "signup_blocked"
+    assert User.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_oauth_finish_blocked_without_consent_is_403_not_428(client):
+    _deleted(BLOCKED, "abuse", 8)
+    session = client.session
+    session["oauth_pending_signup"] = {
+        "provider": "google",
+        "user_data": dict(GOOGLE),
+        "created_at": int(time.time()),
+    }
+    session.save()
+    r = client.post(
+        reverse("v1:users:oauth_finish_signup"),
+        {},
         content_type="application/json",
     )
     assert r.status_code == 403

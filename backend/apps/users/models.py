@@ -14,6 +14,15 @@ from imagekit.models import ImageSpecField
 from imagekit.processors import ResizeToFill
 from taggit.managers import TaggableManager
 
+from .constants import (
+    DELETED_ACCOUNT_REASON_ABUSE,
+    DELETED_ACCOUNT_REASON_SELF,
+    DELETED_ACCOUNT_REASON_STAFF,
+    DELETED_ACCOUNT_REASON_UNDER_13,
+    DELETED_ACCOUNT_STATUS_DONE,
+    DELETED_ACCOUNT_STATUS_PENDING,
+)
+
 
 # The stubs plugin cannot resolve the reverse manager that wagtail's BlogPostPage.author
 # adds (Page multi-table inheritance), so it reports the class itself.
@@ -820,12 +829,15 @@ class DeletedAccount(models.Model):
     """
 
     REASON_CHOICES = [
-        ("self", "Self-service"),
-        ("staff", "Staff"),
-        ("abuse", "Abuse"),
-        ("under_13", "Under 13"),
+        (DELETED_ACCOUNT_REASON_SELF, "Self-service"),
+        (DELETED_ACCOUNT_REASON_STAFF, "Staff"),
+        (DELETED_ACCOUNT_REASON_ABUSE, "Abuse"),
+        (DELETED_ACCOUNT_REASON_UNDER_13, "Under 13"),
     ]
-    STATUS_CHOICES = [("pending", "Pending"), ("done", "Done")]
+    STATUS_CHOICES = [
+        (DELETED_ACCOUNT_STATUS_PENDING, "Pending"),
+        (DELETED_ACCOUNT_STATUS_DONE, "Done"),
+    ]
 
     user_id = models.BigIntegerField(null=True, unique=True)
     email = models.CharField(max_length=254, blank=True)
@@ -833,7 +845,9 @@ class DeletedAccount(models.Model):
     firebase_uid = models.CharField(max_length=128, blank=True)
     reason = models.CharField(max_length=16, choices=REASON_CHOICES)
     policy_version = models.CharField(max_length=32, blank=True)
-    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="pending")
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=DELETED_ACCOUNT_STATUS_PENDING
+    )
     steps_done = models.JSONField(default=list)
     requested_at = models.DateTimeField(auto_now_add=True)
     deleted_at = models.DateTimeField(null=True)
