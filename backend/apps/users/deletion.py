@@ -13,6 +13,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from apps.core.email_feedback import address_hash
+from apps.core.firebase_config import get_firestore_client, initialize_firebase
 from auditlog import get_logentry_model
 from auditlog.context import disable_auditlog
 from auditlog.registry import auditlog
@@ -31,6 +32,8 @@ from .constants import (
     ERASE_LOGENTRY_CHUNK_SIZE,
     ERASE_STEP_DJANGO,
     ERASE_STEP_EMAIL,
+    ERASE_STEP_FIREBASE_AUTH,
+    ERASE_STEP_FIRESTORE,
     ERASE_STEP_FORUM,
     FORUM_HELD_POST_DAYS,
     SIGNUP_BLOCKED_CODE,
@@ -113,14 +116,8 @@ def erase_django_data(record: DeletedAccount) -> None:
     user_model = get_user_model()
     with disable_auditlog():
         for name, step in steps:
-            with transaction.atomic():
-                # Decide from the LOCKED row, never the caller's copy: a
-                # concurrent run waits here, then sees this step recorded and
-                # skips it instead of redoing it and overwriting the list.
-                locked = DeletedAccount.objects.select_for_update().get(pk=record.pk)
-                if name in locked.steps_done:
-                    record.steps_done = list(locked.steps_done)
-                    continue
+
+            def work(locked: DeletedAccount, step=step) -> bool:
                 user = (
                     user_model._base_manager.select_for_update()
                     .filter(pk=locked.user_id)
@@ -130,18 +127,91 @@ def erase_django_data(record: DeletedAccount) -> None:
                 )
                 if user is not None:
                     step(user)
-                done = [*locked.steps_done, name]
-                locked.steps_done = done
-                locked.save(update_fields=["steps_done"])
-            # Only once the step has committed: a failed step or save leaves
-            # the caller's record without it.
-            record.steps_done = done
-            logger.info(
-                "[ACCOUNT DELETE] account %s: %s step %s",
-                record.user_id,
-                name,
-                "done" if user is not None else "skipped (no user row)",
-            )
+                return user is not None
+
+            _run_erase_step(record, name, work, skipped_note="no user row")
+
+
+def _run_erase_step(
+    record: DeletedAccount,
+    name: str,
+    work: Callable[[DeletedAccount], bool],
+    *,
+    skipped_note: str,
+) -> None:
+    """Run one resumable erase step and record it in ``steps_done``.
+
+    ``work`` receives the locked ``DeletedAccount`` and returns whether it did
+    anything (False is logged as skipped; the step is recorded either way). It
+    runs inside the same transaction as the record, so if it or the save
+    raises, the step is not recorded and a retry runs it again.
+    """
+    with transaction.atomic():
+        # Decide from the LOCKED row, never the caller's copy: a concurrent
+        # run waits here, then sees this step recorded and skips it instead of
+        # redoing it and overwriting the list.
+        locked = DeletedAccount.objects.select_for_update().get(pk=record.pk)
+        if name in locked.steps_done:
+            record.steps_done = list(locked.steps_done)
+            return
+        performed = work(locked)
+        done = [*locked.steps_done, name]
+        locked.steps_done = done
+        locked.save(update_fields=["steps_done"])
+    # Only once the step has committed: a failed step or save leaves the
+    # caller's record without it.
+    record.steps_done = done
+    logger.info(
+        "[ACCOUNT DELETE] account %s: %s step %s",
+        record.user_id,
+        name,
+        "done" if performed else f"skipped ({skipped_note})",
+    )
+
+
+def erase_firebase_data(record: DeletedAccount) -> None:
+    """Run the ``firestore`` and ``firebase_auth`` erase steps for ``record``.
+
+    Recorded exactly like ``erase_django_data``. With no ``firebase_uid`` (a
+    web-only account) both steps are recorded without any call. A configured
+    Firebase is required otherwise: when it is missing this raises
+    ``RuntimeError`` so the task retries and alerts instead of passing
+    silently. Both Firebase calls are idempotent, so a retry after a failure
+    between the call and the save is safe.
+    """
+    steps = (
+        (ERASE_STEP_FIRESTORE, _erase_firestore),
+        (ERASE_STEP_FIREBASE_AUTH, _erase_firebase_auth),
+    )
+    for name, step in steps:
+
+        def work(locked: DeletedAccount, step=step) -> bool:
+            if not locked.firebase_uid:
+                return False
+            step(locked.firebase_uid)
+            return True
+
+        _run_erase_step(record, name, work, skipped_note="no firebase uid")
+
+
+def _erase_firestore(uid: str) -> None:
+    """Step ``firestore``: ``users/<uid>`` and everything beneath it."""
+    client = get_firestore_client()
+    if client is None:
+        raise RuntimeError("Firebase is not configured: cannot erase Firestore data")
+    client.recursive_delete(client.collection("users").document(uid))
+
+
+def _erase_firebase_auth(uid: str) -> None:
+    """Step ``firebase_auth``: the Firebase login. Already gone counts as done."""
+    from firebase_admin import auth as firebase_auth
+
+    if not initialize_firebase():
+        raise RuntimeError("Firebase is not configured: cannot delete the login")
+    try:
+        firebase_auth.delete_user(uid)
+    except firebase_auth.UserNotFoundError:
+        pass
 
 
 def erase_post(post: Post) -> None:

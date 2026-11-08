@@ -125,5 +125,7 @@ DELETED_TOPIC_TITLE = "[deleted]"
 ERASE_STEP_FORUM = "forum"
 ERASE_STEP_EMAIL = "email"
 ERASE_STEP_DJANGO = "django"
+ERASE_STEP_FIRESTORE = "firestore"
+ERASE_STEP_FIREBASE_AUTH = "firebase_auth"
 # Audit-log rows deleted per statement while erasing.
 ERASE_LOGENTRY_CHUNK_SIZE = 500
