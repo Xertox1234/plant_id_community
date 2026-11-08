@@ -32,6 +32,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import override_settings
 from django.utils import timezone
+from firebase_admin import auth as firebase_auth
+from firebase_admin import exceptions as firebase_exceptions
 from wagtail_forum.models import Post, Report, Topic
 from wagtail_forum.tests.factories import make_forum
 
@@ -170,7 +172,7 @@ def test_retention_deletes_rows_older_than_90_days(member, reporter):
         assert type(row).objects.filter(pk=row.pk).exists()
     assert counts["email_notifications"] == 1
     assert counts["blog_post_views"] == 1
-    assert counts["audit_log_entries"] >= 1
+    assert counts["audit_log_entries"] == 1
 
 
 def test_retention_leaves_deletion_records_and_reports(member, reporter, board):
@@ -460,3 +462,160 @@ def test_command_dry_run_changes_nothing_and_prints_counts(board, reporter):
     assert "held posts (would erase): 1" in text
     assert "stale deletions (would re-queue): 1" in text
     assert "orphaned Firebase logins (would delete): 0" in text
+
+
+# --- cap boundary and Firebase error paths ----------------------------------
+
+
+@override_settings(ORPHAN_FIREBASE_PRUNE_ENABLED=True)
+def test_exactly_the_cap_of_orphans_is_deleted():
+    users = [
+        _fb_user(f"orphan-{n}", age=8 * DAY, email=f"n{n}@example.org")
+        for n in range(ORPHAN_FIREBASE_DELETE_CAP)
+    ]
+
+    with patch("apps.users.retention.sentry_sdk.capture_message") as capture:
+        result, delete_user = _run_orphans(users)
+
+    assert result == ORPHAN_FIREBASE_DELETE_CAP
+    assert delete_user.call_count == ORPHAN_FIREBASE_DELETE_CAP
+    capture.assert_not_called()
+
+
+def test_list_users_failure_returns_0_and_logs(caplog):
+    logger = logging.getLogger("apps.users.retention")
+    logger.addHandler(caplog.handler)
+    try:
+        with (
+            caplog.at_level(logging.WARNING, logger="apps.users.retention"),
+            patch("apps.users.retention.initialize_firebase", return_value=True),
+            patch(
+                "firebase_admin.auth.list_users",
+                side_effect=firebase_exceptions.UnavailableError("down"),
+            ),
+            patch("firebase_admin.auth.delete_user") as delete_user,
+        ):
+            assert retention.prune_orphan_firebase_users() == 0
+    finally:
+        logger.removeHandler(caplog.handler)
+
+    delete_user.assert_not_called()
+    assert "listing Firebase users failed (UnavailableError)" in caplog.text
+
+
+@override_settings(ORPHAN_FIREBASE_PRUNE_ENABLED=True)
+def test_delete_user_errors_skip_only_that_uid():
+    users = [
+        _fb_user("gone-uid", age=8 * DAY, email="gone@example.net"),
+        _fb_user("flaky-uid", age=8 * DAY, email="flaky@example.net"),
+        _fb_user("fine-uid", age=8 * DAY, email="fine@example.net"),
+    ]
+
+    def delete(uid):
+        if uid == "gone-uid":
+            raise firebase_auth.UserNotFoundError("no such user")
+        if uid == "flaky-uid":
+            raise firebase_exceptions.UnavailableError("try later")
+
+    init, listing, _ = _firebase(users)
+    with (
+        init,
+        listing,
+        patch("firebase_admin.auth.delete_user", side_effect=delete) as d,
+    ):
+        result = retention.prune_orphan_firebase_users()
+
+    # Already gone counts as done; the failed one is skipped, not fatal.
+    assert result == 2
+    assert [c.args[0] for c in d.call_args_list] == [
+        "gone-uid",
+        "flaky-uid",
+        "fine-uid",
+    ]
+
+
+# --- part isolation ---------------------------------------------------------
+
+
+@override_settings(ORPHAN_FIREBASE_PRUNE_ENABLED=True)
+def test_a_failing_retention_part_still_lets_requeue_and_orphans_run():
+    stale = _deleted_account(2 * timedelta(hours=1))
+    init, listing, delete = _firebase(
+        [_fb_user("orphan-uid", age=8 * DAY, email="nobody@example.org")]
+    )
+
+    with (
+        init,
+        listing,
+        delete as delete_user,
+        patch("apps.users.tasks.delete_account_task.delay") as delay,
+        patch.object(retention, "prune_retention", side_effect=RuntimeError("boom")),
+        patch("apps.users.retention.sentry_sdk.capture_exception") as capture,
+        pytest.raises(RuntimeError),
+    ):
+        retention.run_privacy_prune()
+
+    delay.assert_called_once_with(stale.pk)
+    delete_user.assert_called_once_with("orphan-uid")
+    capture.assert_called_once()
+
+
+def test_a_failing_part_lets_the_later_parts_run_then_reraises(board, reporter):
+    post = _held_post(board, reporter, erase_in=-DAY, report_status=Report.OPEN)
+    old = _notification(91 * DAY)
+
+    with (
+        patch("apps.users.retention.initialize_firebase", return_value=False),
+        patch.object(
+            retention, "requeue_stale_deletions", side_effect=RuntimeError("broker")
+        ),
+        patch("apps.users.retention.sentry_sdk.capture_exception"),
+        pytest.raises(RuntimeError, match="broker"),
+    ):
+        retention.run_privacy_prune()
+
+    post.refresh_from_db()
+    assert len(post.body) == 0
+    assert not EmailNotification.objects.filter(pk=old.pk).exists()
+
+
+def test_one_failing_erase_still_erases_the_other_held_post(board, reporter):
+    bad = _held_post(board, reporter, erase_in=-DAY, report_status=Report.OPEN)
+    good = _held_post(board, reporter, erase_in=-DAY, report_status=Report.OPEN)
+    real_erase = retention.erase_post
+
+    def erase(post):
+        if post.pk == bad.pk:
+            raise OSError("storage down")
+        real_erase(post)
+
+    with (
+        patch.object(retention, "erase_post", side_effect=erase),
+        patch("apps.users.retention.sentry_sdk.capture_exception") as capture,
+    ):
+        assert retention.release_held_posts() == 1
+
+    bad.refresh_from_db()
+    good.refresh_from_db()
+    assert len(bad.body) == 1
+    assert bad.erase_after is not None
+    assert len(good.body) == 0
+    capture.assert_called_once()
+
+
+def test_one_failing_enqueue_still_queues_the_other_row():
+    first = _deleted_account(2 * timedelta(hours=1))
+    second = _deleted_account(3 * timedelta(hours=1))
+
+    def delay(pk):
+        if pk == first.pk:
+            raise ConnectionError("broker down")
+
+    with (
+        patch("apps.users.tasks.delete_account_task.delay", side_effect=delay) as d,
+        patch("apps.users.retention.sentry_sdk.capture_exception") as capture,
+    ):
+        assert retention.requeue_stale_deletions() == 1
+
+    assert sorted(c.args[0] for c in d.call_args_list) == sorted([first.pk, second.pk])
+    capture.assert_called_once()

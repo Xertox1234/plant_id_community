@@ -23,6 +23,7 @@ does no harm.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -30,6 +31,7 @@ import sentry_sdk
 from apps.core.firebase_config import initialize_firebase
 from auditlog import get_logentry_model
 from auditlog.context import disable_auditlog
+from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import Exists, OuterRef, Q, QuerySet
@@ -54,14 +56,43 @@ _LOOKUP_CHUNK = 500
 
 
 def run_privacy_prune(dry_run: bool = False) -> dict[str, Any]:
-    """Run every part once; return their counts."""
+    """Run every part once; return their counts.
+
+    Cheapest and most compliance-relevant first: the deletion re-queue, the
+    held-post release, the orphan prune, then retention (the slowest, which
+    can run into the time limit on a large backlog). Each part is isolated:
+    a part that raises is logged and sent to Sentry, its count is ``-1``,
+    and the next part still runs. Once every part has run, the first
+    failure is re-raised, so the task (and the command) shows as failed and
+    a database ``OperationalError`` still triggers the task's autoretry,
+    which is safe because every part is idempotent. A soft time limit is
+    re-raised at once: the hard kill follows within a minute.
+    """
     now = timezone.now()
-    return {
-        "retention": prune_retention(now, dry_run=dry_run),
-        "held_posts": release_held_posts(now, dry_run=dry_run),
-        "stale_deletions": requeue_stale_deletions(now, dry_run=dry_run),
-        "orphan_firebase_logins": prune_orphan_firebase_users(now, dry_run=dry_run),
-    }
+    parts: tuple[tuple[str, Callable[[], Any]], ...] = (
+        ("stale_deletions", lambda: requeue_stale_deletions(now, dry_run=dry_run)),
+        ("held_posts", lambda: release_held_posts(now, dry_run=dry_run)),
+        (
+            "orphan_firebase_logins",
+            lambda: prune_orphan_firebase_users(now, dry_run=dry_run),
+        ),
+        ("retention", lambda: prune_retention(now, dry_run=dry_run)),
+    )
+    counts: dict[str, Any] = {}
+    failures: list[Exception] = []
+    for name, part in parts:
+        try:
+            counts[name] = part()
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception as exc:
+            logger.error("[PRIVACY PRUNE] %s failed: %s", name, type(exc).__name__)
+            sentry_sdk.capture_exception(exc)
+            counts[name] = -1
+            failures.append(exc)
+    if failures:
+        raise failures[0]
+    return counts
 
 
 # --- retention ---------------------------------------------------------------
@@ -109,7 +140,9 @@ def _delete_in_batches(queryset: QuerySet[Any]) -> int:
 
 def release_held_posts(now: datetime | None = None, dry_run: bool = False) -> int:
     """Erase each held post whose hold is over: its ``erase_after`` has
-    passed, or no report on it is still in the moderation queue."""
+    passed, or no report on it is still in the moderation queue. A post
+    whose erase fails is logged and sent to Sentry and keeps its hold (the
+    erase is atomic), and the others are still erased."""
     from wagtail_forum.models import Post, Report
 
     now = now or timezone.now()
@@ -126,7 +159,18 @@ def release_held_posts(now: datetime | None = None, dry_run: bool = False) -> in
     released = 0
     with disable_auditlog():
         for post in due:
-            erase_post(post)
+            try:
+                erase_post(post)
+            except SoftTimeLimitExceeded:
+                raise
+            except Exception as exc:
+                logger.error(
+                    "[PRIVACY PRUNE] held post %s erase failed: %s",
+                    post.pk,
+                    type(exc).__name__,
+                )
+                sentry_sdk.capture_exception(exc)
+                continue
             released += 1
     if released:
         logger.info("[PRIVACY PRUNE] released %s held forum posts", released)
@@ -139,7 +183,9 @@ def release_held_posts(now: datetime | None = None, dry_run: bool = False) -> in
 def requeue_stale_deletions(now: datetime | None = None, dry_run: bool = False) -> int:
     """Queue ``delete_account_task`` again for each deletion still pending
     ``ACCOUNT_DELETE_STALE_HOURS`` after it was requested. Safe while a job
-    is still running: the job locks the record and skips recorded steps."""
+    is still running: the job locks the record and skips recorded steps.
+    A row whose enqueue fails (a broker error) is logged and sent to Sentry,
+    and the rest are still queued; it is tried again the next night."""
     from .tasks import delete_account_task
 
     cutoff = (now or timezone.now()) - timedelta(hours=ACCOUNT_DELETE_STALE_HOURS)
@@ -152,13 +198,26 @@ def requeue_stale_deletions(now: datetime | None = None, dry_run: bool = False) 
     )
     if dry_run:
         return len(pks)
+    queued = []
     for pk in pks:
-        delete_account_task.delay(pk)
-    if pks:
+        try:
+            delete_account_task.delay(pk)
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception as exc:
+            logger.error(
+                "[ACCOUNT DELETE] re-queue of deletion %s failed: %s",
+                pk,
+                type(exc).__name__,
+            )
+            sentry_sdk.capture_exception(exc)
+            continue
+        queued.append(pk)
+    if queued:
         logger.warning(
-            "[ACCOUNT DELETE] re-queued %s stalled deletions: %s", len(pks), pks
+            "[ACCOUNT DELETE] re-queued %s stalled deletions: %s", len(queued), queued
         )
-    return len(pks)
+    return len(queued)
 
 
 # --- orphaned Firebase logins -----------------------------------------------
@@ -238,7 +297,7 @@ def prune_orphan_firebase_users(
         try:
             firebase_auth.delete_user(uid)
         except firebase_auth.UserNotFoundError:
-            continue
+            pass  # already gone: done
         except firebase_exceptions.FirebaseError as exc:
             logger.warning(
                 "[PRIVACY PRUNE] could not delete Firebase login %s (%s)",
