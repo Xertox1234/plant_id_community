@@ -31,6 +31,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from . import view_schemas as vs
 from .authentication import RefreshTokenFromCookie, clear_jwt_cookies, set_jwt_cookies
 from .avatars import avatar_file_names, delete_avatar_files_on_commit
+from .consent import record_policy_acceptance, require_consent
 from .constants import RATE_LIMIT_ONBOARDING_EVENT, RATE_LIMIT_PUSH_RESUBSCRIBE
 from .email_verification import (
     VerificationKeyInvalid,
@@ -100,6 +101,8 @@ def get_csrf_token(request: Request) -> Response:
 @api_view(["POST"])
 @permission_classes([permissions.AllowAny])
 @csrf_protect  # SECURITY: Enforce CSRF protection for registration
+# Consent before the rate limit: a refused request costs no sign-up quota.
+@require_consent
 @ratelimit(
     key=client_ip_key,
     rate=RATE_LIMITS["auth_endpoints"]["register"],
@@ -119,6 +122,8 @@ def register(request: Request) -> Response:
         f"[SIGNUP] Registration attempt for user: {log_safe_username(username)}"
     )
 
+    # Consent was checked by @require_consent, before validation and before
+    # the rate limit; the server stamps its own policy version.
     serializer = UserRegistrationSerializer(data=request.data)
 
     if serializer.is_valid():
@@ -126,6 +131,7 @@ def register(request: Request) -> Response:
             with transaction.atomic():
                 # Create user
                 user = serializer.save()
+                record_policy_acceptance(user)
 
                 # Shared signup side-effects
                 create_default_plant_collection(user)

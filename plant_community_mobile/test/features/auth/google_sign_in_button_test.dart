@@ -82,4 +82,19 @@ void main() {
 
     expect(fake.googleSignInCalls, 0);
   });
+
+  testWidgets('on the login screen it is enabled with no checkbox', (
+    tester,
+  ) async {
+    await pumpButton(tester);
+    expect(find.byType(Checkbox), findsNothing);
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.widgetWithText(OutlinedButton, 'Continue with Google'),
+          )
+          .onPressed,
+      isNotNull,
+    );
+  });
 }

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../core/theme/theme_preview_screen.dart';
 import '../../features/splash/splash_screen.dart';
+import '../../shared/root_navigator.dart';
 import '../../features/home/home_page.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
@@ -129,6 +130,7 @@ GoRouter appRouter(Ref ref) {
   const authOnlyRoutes = {AppRoutes.login, AppRoutes.register};
 
   return GoRouter(
+    navigatorKey: rootNavigatorKey,
     initialLocation: AppRoutes.splash,
     debugLogDiagnostics: kDebugMode,
     refreshListenable: authChanged,

@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import GoogleSignInButton from '../../components/auth/GoogleSignInButton';
+import ConsentCheckbox from '../../components/auth/ConsentCheckbox';
 import Divider from '../../components/ui/Divider';
 import { getEmailError, getPasswordError, getPasswordConfirmError } from '../../utils/validation';
 import { sanitizeInput, sanitizeError } from '../../utils/sanitize';
@@ -55,6 +56,7 @@ export default function SignupPage() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   /**
    * Handle input changes and clear field-specific errors
@@ -129,6 +131,10 @@ export default function SignupPage() {
     e.preventDefault();
     setServerError(null);
 
+    if (!acceptedTerms) {
+      return;
+    }
+
     // Validate form
     if (!validateForm()) {
       return;
@@ -144,6 +150,7 @@ export default function SignupPage() {
         email: formData.email,
         password: formData.password,
         confirmPassword: formData.confirmPassword,
+        accepted_terms: true,
       });
 
       if (result.success) {
@@ -273,13 +280,19 @@ export default function SignupPage() {
               disabled={isSubmitting}
             />
 
+            <ConsentCheckbox
+              checked={acceptedTerms}
+              onChange={setAcceptedTerms}
+              disabled={isSubmitting}
+            />
+
             {/* Submit Button */}
             <Button
               type="submit"
               variant="primary"
               size="md"
               loading={isSubmitting}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !acceptedTerms}
               className="w-full"
             >
               {isSubmitting ? 'Creating account...' : 'Create account'}
@@ -289,7 +302,11 @@ export default function SignupPage() {
           <Divider label="or" />
 
           {/* Google OAuth */}
-          <GoogleSignInButton label="Sign up with Google" disabled={isSubmitting} />
+          <GoogleSignInButton
+            label="Sign up with Google"
+            disabled={isSubmitting || !acceptedTerms}
+            acceptedTerms={acceptedTerms}
+          />
 
           {/* Login Link */}
           <div className="mt-6 text-center text-sm">
@@ -302,13 +319,6 @@ export default function SignupPage() {
             </Link>
           </div>
         </div>
-
-        {/* Terms Notice */}
-        <p className="mt-6 text-xs text-center text-ink-3">
-          By creating an account, you agree to our{' '}
-          <span className="text-ink-2">Terms of Service</span> and{' '}
-          <span className="text-ink-2">Privacy Policy</span>
-        </p>
       </div>
     </div>
   );

@@ -1414,11 +1414,28 @@ class FakeAuthService extends AuthService {
   AuthException? googleSignInError;
 
   @override
-  Future<void> signInWithGoogle() async {
+  Future<void> signInWithGoogle({bool acceptedTerms = false}) async {
     googleSignInCalls++;
     final error = googleSignInError;
     if (error != null) throw error;
     state = const AuthState(jwtToken: 'test-jwt');
+  }
+
+  /// Consent-sheet answers, recorded rather than performed: the inherited
+  /// ones reach Firebase and secure storage.
+  int acceptTermsCalls = 0;
+  int declineTermsCalls = 0;
+
+  @override
+  Future<void> acceptTermsAndRetry() async {
+    acceptTermsCalls++;
+    state = const AuthState();
+  }
+
+  @override
+  Future<void> declineTerms() async {
+    declineTermsCalls++;
+    state = const AuthState();
   }
 
   @override

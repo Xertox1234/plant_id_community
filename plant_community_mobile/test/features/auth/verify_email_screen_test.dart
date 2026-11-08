@@ -96,6 +96,10 @@ void main() {
       find.widgetWithText(TextFormField, 'Confirm password'),
       'secret1',
     );
+    // Sign-up is gated on the consent box.
+    await tester.ensureVisible(find.byType(Checkbox));
+    await tester.tap(find.byType(Checkbox));
+    await tester.pump();
     await tester.ensureVisible(
       find.widgetWithText(FilledButton, 'Create account'),
     );

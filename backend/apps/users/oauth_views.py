@@ -5,6 +5,7 @@ Custom OAuth views for handling social authentication with JWT token generation.
 import logging
 import re
 import secrets
+import time
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -14,6 +15,7 @@ from django.conf import settings
 from django.contrib.auth import login as django_login
 from django.db import IntegrityError, transaction
 from django.http import HttpResponse, HttpResponseRedirect
+from django.views.decorators.csrf import csrf_protect
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -22,7 +24,22 @@ from rest_framework.response import Response
 from . import view_schemas as vs
 from .account_links import on_first_provider_link
 from .authentication import set_jwt_cookies
-from .constants import OAUTH_PROVIDER_TIMEOUT_SECONDS
+from .consent import (
+    ConsentRequired,
+    consent_required_response,
+    is_accepted,
+    record_policy_acceptance,
+)
+from .constants import (
+    OAUTH_PENDING_SIGNUP_TTL_SECONDS,
+    OAUTH_PENDING_SIGNUP_USER_DATA_KEYS,
+    OAUTH_PROVIDER_TIMEOUT_SECONDS,
+    RATE_LIMIT_OAUTH_FINISH,
+    SIGNUP_EXPIRED_CODE,
+    SIGNUP_EXPIRED_MESSAGE,
+    SIGNUP_FAILED_CODE,
+    SIGNUP_FAILED_MESSAGE,
+)
 from .email_verification import (
     get_account_by_email,
     is_address_verified,
@@ -51,13 +68,28 @@ SUPPORTED_PROVIDERS = frozenset({"google", "github"})
 _OAUTH_ERROR_CODE = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 
 
+# Session keys of the consent hand-off (Plan A task 4). The sign-up page starts
+# the flow with ?accepted_terms=1; a new user who arrives without it waits in
+# OAUTH_PENDING_SIGNUP_KEY until they accept on the web app's /signup/finish.
+OAUTH_ACCEPTED_TERMS_KEY = "oauth_accepted_terms"
+OAUTH_PENDING_SIGNUP_KEY = "oauth_pending_signup"
+
+
+def _frontend_base():
+    """The web app's origin every OAuth redirect goes back to."""
+    return getattr(settings, "FRONTEND_BASE_URL", "http://localhost:3000")
+
+
 def get_oauth_redirect_url(provider):
     """
     Get the OAuth redirect URL for the frontend.
     """
-    # Use configured frontend base URL
-    frontend_base = getattr(settings, "FRONTEND_BASE_URL", "http://localhost:3000")
-    return f"{frontend_base}/auth/{provider}/callback"
+    return f"{_frontend_base()}/auth/{provider}/callback"
+
+
+def get_signup_finish_url():
+    """The web page where a new OAuth user accepts the policies."""
+    return f"{_frontend_base()}/signup/finish"
 
 
 @vs.OAUTH_LOGIN_SCHEMA
@@ -73,6 +105,16 @@ def oauth_login(request, provider):
             {"error": "Provider not supported"},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    # A new attempt supersedes a parked sign-up: its profile must not outlive
+    # the next OAuth start (data minimisation).
+    request.session.pop(OAUTH_PENDING_SIGNUP_KEY, None)
+    # Only the sign-up page sends this, and only the exact "1" counts. A login
+    # without it clears a flag left by an earlier, abandoned sign-up.
+    if request.GET.get("accepted_terms") == "1":
+        request.session[OAUTH_ACCEPTED_TERMS_KEY] = True
+    else:
+        request.session.pop(OAUTH_ACCEPTED_TERMS_KEY, None)
 
     try:
         state = secrets.token_urlsafe(32)
@@ -166,6 +208,9 @@ def oauth_callback(request, provider):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    # Read once, whatever the outcome: the flag belongs to this one attempt.
+    accepted_terms = request.session.pop(OAUTH_ACCEPTED_TERMS_KEY, None) is True
+
     try:
         # Get authorization code from query params
         code = request.GET.get("code")
@@ -221,10 +266,25 @@ def oauth_callback(request, provider):
 
         # Find or create user
         try:
-            user = _find_or_create_user(provider, user_data)
+            user = _find_or_create_user(
+                provider, user_data, accepted_terms=accepted_terms
+            )
         except UnverifiedLocalAccount:
             frontend_url = get_oauth_redirect_url(provider)
             return HttpResponseRedirect(f"{frontend_url}?error=account_unverified")
+        except ConsentRequired:
+            # A new user who never ticked the box: no account yet. Park the
+            # profile in THIS session for the finish step, never a token.
+            # New session key first: a key fixed in this browser before the
+            # OAuth round trip must not be able to finish this identity.
+            request.session.cycle_key()
+            request.session[OAUTH_PENDING_SIGNUP_KEY] = {
+                "provider": provider,
+                "user_data": _pending_user_data(user_data),
+                "created_at": int(time.time()),
+            }
+            logger.info(f"[AUTH] {provider} sign-up waits for policy consent")
+            return HttpResponseRedirect(get_signup_finish_url())
 
         if not user:
             logger.error(f"[AUTH] Failed to create/find user for {provider}")
@@ -233,6 +293,8 @@ def oauth_callback(request, provider):
 
         # Log the user in with explicit backend
         django_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        # A sign-up abandoned earlier in this browser is moot once signed in.
+        request.session.pop(OAUTH_PENDING_SIGNUP_KEY, None)
 
         # Set httpOnly cookies with JWT tokens and redirect to frontend without exposing tokens in URL
         # Cookies are scoped to the host (localhost), not the port; they'll be sent with API requests to backend
@@ -250,6 +312,82 @@ def oauth_callback(request, provider):
         logger.error(f"[AUTH] OAuth callback error for {provider}: {str(e)}")
         frontend_url = get_oauth_redirect_url(provider)
         return HttpResponseRedirect(f"{frontend_url}?error=callback_failed")
+
+
+def _pending_user_data(user_data):
+    """The provider profile keys account creation reads; nothing else."""
+    return {
+        key: user_data[key]
+        for key in OAUTH_PENDING_SIGNUP_USER_DATA_KEYS
+        if key in user_data
+    }
+
+
+def _read_pending_signup(session):
+    """The unexpired pending sign-up in ``session`` as (provider, user_data),
+    or None. A malformed or expired entry is dropped."""
+    pending = session.get(OAUTH_PENDING_SIGNUP_KEY)
+    if not isinstance(pending, dict):
+        session.pop(OAUTH_PENDING_SIGNUP_KEY, None)
+        return None
+    provider = pending.get("provider")
+    user_data = pending.get("user_data")
+    created_at = pending.get("created_at")
+    if (
+        provider not in SUPPORTED_PROVIDERS
+        or not isinstance(user_data, dict)
+        or not isinstance(created_at, int)
+        or time.time() - created_at > OAUTH_PENDING_SIGNUP_TTL_SECONDS
+    ):
+        session.pop(OAUTH_PENDING_SIGNUP_KEY, None)
+        return None
+    return provider, user_data
+
+
+@vs.OAUTH_FINISH_SIGNUP_SCHEMA
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@csrf_protect
+@ratelimit(key=client_ip_key, rate=RATE_LIMIT_OAUTH_FINISH, method="POST", block=True)
+def oauth_finish_signup(request):
+    """
+    Create the account a web OAuth sign-up parked for consent.
+
+    Reads only this session's pending entry (the callback that wrote it is the
+    one that checked the provider's state), so one browser cannot finish
+    another's identity. The session key is cycled by ``django_login``.
+    """
+    pending = _read_pending_signup(request.session)
+    if pending is None:
+        return Response(
+            {"error": SIGNUP_EXPIRED_MESSAGE, "code": SIGNUP_EXPIRED_CODE},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    body = request.data if isinstance(request.data, dict) else {}
+    if not is_accepted(body.get("accepted_terms")):
+        # Kept, so the user can tick the box and send again.
+        return consent_required_response()
+
+    provider, user_data = pending
+    request.session.pop(OAUTH_PENDING_SIGNUP_KEY, None)
+    try:
+        user = _find_or_create_user(provider, user_data, accepted_terms=True)
+    except UnverifiedLocalAccount:
+        user = None
+    if not user:
+        logger.warning(f"[AUTH] {provider} sign-up finish could not create the user")
+        return Response(
+            {"error": SIGNUP_FAILED_MESSAGE, "code": SIGNUP_FAILED_CODE},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    django_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    response: HttpResponse = Response({"success": True})
+    response = set_jwt_cookies(response, user)
+    logger.info(
+        f"[AUTH] Finished OAuth sign-up for {log_safe_user_context(user)} via {provider}"
+    )
+    return response
 
 
 def _handle_google_callback(request, code):
@@ -471,9 +609,13 @@ def _record_provider_link(provider, user_data, user) -> bool:
     return True
 
 
-def _find_or_create_user(provider, user_data):
+def _find_or_create_user(provider, user_data, accepted_terms: bool = False):
     """
     Find existing user or create new user from OAuth data.
+
+    Raises ``ConsentRequired`` instead of creating an account when
+    ``accepted_terms`` is False, after every other refusal. An existing
+    account is returned whatever the flag, and never stamped.
     """
     from apps.users.signup import (
         create_default_plant_collection,
@@ -535,6 +677,9 @@ def _find_or_create_user(provider, user_data):
             )
             return None
 
+        if not accepted_terms:
+            raise ConsentRequired()
+
         # Create new user. The username is public in the forum, so it is
         # random, never the email's local part or the provider login.
         username = generate_username()
@@ -558,6 +703,7 @@ def _find_or_create_user(provider, user_data):
                 first_name=first_name,
                 last_name=last_name,
             )
+            record_policy_acceptance(user)
 
             # The provider verified this email (unverified ones are stripped
             # upstream), so later sign-ins may match the account by it (todo 446).
@@ -584,7 +730,7 @@ def _find_or_create_user(provider, user_data):
         logger.info(f"[AUTH] Created new {log_safe_user_context(user)} via {provider}")
         return user
 
-    except UnverifiedLocalAccount:
+    except (UnverifiedLocalAccount, ConsentRequired):
         raise
     except Exception as e:
         logger.error(f"[AUTH] User creation error for {provider}: {str(e)}")

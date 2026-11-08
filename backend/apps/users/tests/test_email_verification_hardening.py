@@ -73,7 +73,7 @@ class WebOAuthFirstLinkTest(TestCase):
     def _sign_in(self, email="owner@example.com", uid="g-owner"):
         with self.captureOnCommitCallbacks(execute=True):
             return oauth_views._find_or_create_user(
-                "google", {"email": email, "id": uid}
+                "google", {"email": email, "id": uid}, accepted_terms=True
             )
 
     def test_first_link_to_a_password_account_revokes_and_notifies(self):
@@ -120,6 +120,7 @@ class WebOAuthFirstLinkTest(TestCase):
         user, _ = get_or_create_user_from_firebase(
             firebase_uid="fb-owner",
             firebase_email="owner@example.com",
+            accepted_terms=True,
             email_verified=True,
             provider="google.com",
         )
@@ -498,8 +499,10 @@ class VerificationCapTest(TestCase):
                     "email": "newbie@example.com",
                     "password": PASSWORD,
                     "confirmPassword": PASSWORD,
+                    "accepted_terms": True,
                 },
                 HTTP_X_CSRFTOKEN=csrf,
+                format="json",
             )
 
         self.assertEqual(response.status_code, 201)
@@ -729,7 +732,9 @@ class ProviderLinkRaceTest(TestCase):
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = oauth_views._find_or_create_user(
-                "google", {"email": "new@example.com", "id": "g-new"}
+                "google",
+                {"email": "new@example.com", "id": "g-new"},
+                accepted_terms=True,
             )
 
         self.assertIsNone(result)

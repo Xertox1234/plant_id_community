@@ -108,6 +108,14 @@ function SideFoot({ onNavigate }: SideFootProps) {
           Log in
         </NavLink>
       )}
+      <div className="mt-2 flex gap-3 px-3 text-micro text-ink-3">
+        <Link to="/privacy" onClick={onNavigate} className="hover:text-ink hover:underline">
+          Privacy
+        </Link>
+        <Link to="/terms" onClick={onNavigate} className="hover:text-ink hover:underline">
+          Terms
+        </Link>
+      </div>
     </nav>
   );
 }

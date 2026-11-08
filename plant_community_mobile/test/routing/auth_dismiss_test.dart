@@ -112,6 +112,11 @@ void main() {
     await pumpTo(tester, AppRoutes.register);
     expect(find.byType(RegisterScreen), findsOneWidget);
 
+    // Sign-up consent gates the button on this screen.
+    await tester.ensureVisible(find.byType(Checkbox));
+    await tester.tap(find.byType(Checkbox));
+    await settle(tester);
+    await tester.ensureVisible(find.text('Continue with Google'));
     await tester.tap(find.text('Continue with Google'));
     await settle(tester);
 

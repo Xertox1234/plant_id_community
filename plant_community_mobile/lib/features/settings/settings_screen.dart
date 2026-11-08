@@ -9,6 +9,7 @@ import '../../core/constants/app_brand.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../core/theme/theme_preview_screen.dart';
 import '../../shared/widgets/canopy_label.dart';
+import '../legal/legal_links.dart';
 import 'live_updates_tile.dart';
 import 'notification_status_tile.dart';
 
@@ -110,6 +111,18 @@ class SettingsScreen extends ConsumerWidget {
               leading: const Icon(LucideIcons.stethoscope),
               title: const Text(AppBrand.name),
               subtitle: const Text(AppBrand.tagline),
+            ),
+            ListTile(
+              leading: const Icon(LucideIcons.shieldCheck),
+              title: const Text('Privacy Policy'),
+              trailing: const Icon(LucideIcons.externalLink),
+              onTap: () => openLegalDoc(context, LegalDoc.privacy),
+            ),
+            ListTile(
+              leading: const Icon(LucideIcons.fileText),
+              title: const Text('Terms of Service'),
+              trailing: const Icon(LucideIcons.externalLink),
+              onTap: () => openLegalDoc(context, LegalDoc.terms),
             ),
 
             // Debug

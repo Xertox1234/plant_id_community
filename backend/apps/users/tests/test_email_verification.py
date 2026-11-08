@@ -55,8 +55,10 @@ class RegistrationSendsVerificationTest(TestCase):
                     "email": email,
                     "password": PASSWORD,
                     "confirmPassword": PASSWORD,
+                    "accepted_terms": True,
                 },
                 HTTP_X_CSRFTOKEN=csrf,
+                content_type="application/json",
             )
 
     def test_registration_is_unverified_and_emails_a_web_link(self):
@@ -248,7 +250,9 @@ class WebOAuthGuardTest(TestCase):
 
     def test_created_account_is_verified_so_the_next_login_matches(self):
         first = oauth_views._find_or_create_user(
-            "google", {"email": "fresh@example.com", "id": "g-fresh", "given_name": "F"}
+            "google",
+            {"email": "fresh@example.com", "id": "g-fresh", "given_name": "F"},
+            accepted_terms=True,
         )
         self.assertTrue(is_email_verified(first))
 
@@ -370,6 +374,7 @@ class FirebaseGuardTest(TestCase):
         user, created = get_or_create_user_from_firebase(
             firebase_uid="new-uid",
             firebase_email="new@example.com",
+            accepted_terms=True,
             email_verified=True,
         )
 

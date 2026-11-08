@@ -67,6 +67,10 @@ class User(AbstractUser):  # type: ignore[django-manager-missing]
         editable=False,
         help_text="When this account last rotated a refresh token",
     )
+    # Set at sign-up from the server's LEGAL_POLICY_VERSION; NULL for accounts
+    # that predate the consent step.
+    policy_version_accepted = models.CharField(max_length=20, null=True, blank=True)
+    policy_accepted_at = models.DateTimeField(null=True, blank=True)
 
     # Profile Information
     bio = models.TextField(
