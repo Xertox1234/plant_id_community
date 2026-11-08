@@ -809,3 +809,34 @@ class OnboardingAnalytics(models.Model):
             event_data=event_data or {},
             **kwargs,
         )
+
+
+class DeletedAccount(models.Model):
+    """Record of an account deletion (Plan B).
+
+    Not an FK to User: the user row is gone. ``email`` and ``firebase_uid`` are
+    cleared when the deletion finishes; ``email_hash`` stays so an address
+    deleted for abuse or under-13 cannot sign up again.
+    """
+
+    REASON_CHOICES = [
+        ("self", "Self-service"),
+        ("staff", "Staff"),
+        ("abuse", "Abuse"),
+        ("under_13", "Under 13"),
+    ]
+    STATUS_CHOICES = [("pending", "Pending"), ("done", "Done")]
+
+    user_id = models.BigIntegerField(null=True, unique=True)
+    email = models.CharField(max_length=254, blank=True)
+    email_hash = models.CharField(max_length=64, db_index=True)
+    firebase_uid = models.CharField(max_length=128, blank=True)
+    reason = models.CharField(max_length=16, choices=REASON_CHOICES)
+    policy_version = models.CharField(max_length=32, blank=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="pending")
+    steps_done = models.JSONField(default=list)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(null=True)
+
+    def __str__(self):
+        return f"DeletedAccount {self.user_id} ({self.reason}, {self.status})"

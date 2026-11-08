@@ -20,6 +20,11 @@ from apps.plant_identification.constants import RATE_LIMITS
 from apps.users.account_links import on_first_provider_link
 from apps.users.consent import ConsentRequired, consent_required_response, is_accepted
 from apps.users.constants import LEGAL_POLICY_VERSION
+from apps.users.deletion import (
+    SignupBlocked,
+    is_signup_blocked,
+    signup_blocked_response,
+)
 from apps.users.email_verification import (
     get_account_by_email,
     is_address_verified,
@@ -541,6 +546,9 @@ def firebase_token_exchange(request: Request) -> Response:
             status=status.HTTP_200_OK,
         )
 
+    except SignupBlocked:
+        return signup_blocked_response()
+
     except ConsentRequired:
         # Before ValueError/Exception: a new account without acceptance.
         # 428, not 403: the app reads a JSON 403 here as "email not verified".
@@ -755,6 +763,14 @@ def get_or_create_user_from_firebase(
             f"is verified on another account"
         )
         raise ValueError("Email is verified on another account")
+
+    # A blocked address is refused before it is asked for consent.
+    if is_signup_blocked(firebase_email):
+        logger.warning(
+            f"[SECURITY] Refused signup: {redact_email(firebase_email)} "
+            f"was deleted for abuse or under-13"
+        )
+        raise SignupBlocked()
 
     # Every refusal above has run. A new account needs the sign-up consent;
     # raised here so no User row or side effect exists yet.

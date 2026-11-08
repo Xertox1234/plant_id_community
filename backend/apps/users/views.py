@@ -33,6 +33,7 @@ from .authentication import RefreshTokenFromCookie, clear_jwt_cookies, set_jwt_c
 from .avatars import avatar_file_names, delete_avatar_files_on_commit
 from .consent import record_policy_acceptance, require_consent
 from .constants import RATE_LIMIT_ONBOARDING_EVENT, RATE_LIMIT_PUSH_RESUBSCRIBE
+from .deletion import reject_blocked_signup
 from .email_verification import (
     VerificationKeyInvalid,
     confirm_verification_key,
@@ -101,7 +102,9 @@ def get_csrf_token(request: Request) -> Response:
 @api_view(["POST"])
 @permission_classes([permissions.AllowAny])
 @csrf_protect  # SECURITY: Enforce CSRF protection for registration
-# Consent before the rate limit: a refused request costs no sign-up quota.
+# Blocked address before consent (never shown the terms); both before the
+# rate limit: a refused request costs no sign-up quota.
+@reject_blocked_signup
 @require_consent
 @ratelimit(
     key=client_ip_key,

@@ -97,3 +97,20 @@ OAUTH_PENDING_SIGNUP_USER_DATA_KEYS = (
     "blog",
     "location",
 )
+
+# Account deletion (Plan B). An address deleted for abuse or under-13 cannot
+# sign up again: every create path answers 403 with this code BEFORE it asks
+# for sign-up consent, so a blocked address is never shown the terms.
+SIGNUP_BLOCKED_CODE = "signup_blocked"
+SIGNUP_BLOCKED_MESSAGE = "This email address can't be used to create an account."
+DELETED_ACCOUNT_REASON_SELF = "self"
+DELETED_ACCOUNT_REASON_STAFF = "staff"
+DELETED_ACCOUNT_REASON_ABUSE = "abuse"
+DELETED_ACCOUNT_REASON_UNDER_13 = "under_13"
+DELETED_ACCOUNT_STATUS_PENDING = "pending"
+DELETED_ACCOUNT_STATUS_DONE = "done"
+# Reasons that keep an address from signing up again.
+SIGNUP_BLOCKING_REASONS = (
+    DELETED_ACCOUNT_REASON_ABUSE,
+    DELETED_ACCOUNT_REASON_UNDER_13,
+)
