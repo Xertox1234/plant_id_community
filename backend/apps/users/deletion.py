@@ -1,16 +1,38 @@
-"""Account deletion helpers: blocked re-sign-up (Plan B task 1)."""
+"""Account deletion helpers (Plan B).
+
+Task 1: blocked re-sign-up. Task 3: erasing a deleted account's Django, forum
+and email data in resumable steps (``erase_django_data``).
+"""
 
 from __future__ import annotations
 
 import functools
-from collections.abc import Callable
+import logging
+from collections.abc import Callable, Iterable
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from apps.core.email_feedback import address_hash
+from auditlog import get_logentry_model
+from auditlog.context import disable_auditlog
+from auditlog.registry import auditlog
+from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
+from django.db import router, transaction
+from django.db.models import Exists, OuterRef, QuerySet
+from django.db.models.deletion import Collector
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 
+from .avatars import avatar_file_names, delete_avatar_files_on_commit
 from .constants import (
+    DELETED_TOPIC_TITLE,
+    ERASE_LOGENTRY_CHUNK_SIZE,
+    ERASE_STEP_DJANGO,
+    ERASE_STEP_EMAIL,
+    ERASE_STEP_FORUM,
+    FORUM_HELD_POST_DAYS,
     SIGNUP_BLOCKED_CODE,
     SIGNUP_BLOCKED_MESSAGE,
     SIGNUP_BLOCKING_REASONS,
@@ -19,6 +41,11 @@ from .models import DeletedAccount
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
+    from wagtail_forum.models import Post
+
+    from .models import User
+
+logger = logging.getLogger(__name__)
 
 
 class SignupBlocked(Exception):
@@ -61,3 +88,210 @@ def reject_blocked_signup(view: Callable[..., Any]) -> Callable[..., Any]:
         return view(request, *args, **kwargs)
 
     return wrapped
+
+
+# --- Erasing a deleted account's data (Plan B task 3) ----------------------
+
+
+def erase_django_data(record: DeletedAccount) -> None:
+    """Run the ``forum``, ``email`` and ``django`` erase steps for ``record``.
+
+    Each step runs in its own transaction and is appended to
+    ``record.steps_done`` inside it, so a crash resumes at the step that did
+    not commit and a finished step is never repeated. If the ``User`` row is
+    already gone, every remaining step is recorded as done.
+
+    Everything runs with django-auditlog disabled: ``user.delete()`` and its
+    cascades would otherwise write fresh LogEntry rows (carrying the email)
+    after the ``email`` step deleted the old ones.
+    """
+    steps: tuple[tuple[str, Callable[["User"], None]], ...] = (
+        (ERASE_STEP_FORUM, _erase_forum),
+        (ERASE_STEP_EMAIL, _erase_email),
+        (ERASE_STEP_DJANGO, _erase_django),
+    )
+    user_model = get_user_model()
+    with disable_auditlog():
+        for name, step in steps:
+            if name in record.steps_done:
+                continue
+            with transaction.atomic():
+                user = (
+                    user_model._base_manager.select_for_update()
+                    .filter(pk=record.user_id)
+                    .first()
+                    if record.user_id is not None
+                    else None
+                )
+                if user is not None:
+                    step(user)
+                record.steps_done = [*record.steps_done, name]
+                record.save(update_fields=["steps_done"])
+            logger.info(
+                "[ACCOUNT DELETE] account %s: %s step %s",
+                record.user_id,
+                name,
+                "done" if user is not None else "skipped (no user row)",
+            )
+
+
+def erase_post(post: Post) -> None:
+    """Erase one forum post's content, keeping the row in its thread.
+
+    Deletes the Wagtail images its body references that nothing else
+    references any more, empties the body, clears the author and the
+    ``erase_after`` hold, and deletes the post's revisions. The post is saved
+    with a plain ``save()``, which creates no revision.
+    """
+    from wagtail.images import get_image_model
+    from wagtail.models import ReferenceIndex
+
+    image_ids = _body_image_ids(post)
+    with transaction.atomic():
+        post.revisions.all().delete()
+        post.latest_revision = None
+        post.live_revision = None
+        post.body = []
+        post.author = None
+        post.erase_after = None
+        # Saving refreshes the post's ReferenceIndex rows, so the check below
+        # no longer sees this post's own (now removed) image references.
+        post.save()
+        for image in get_image_model().objects.filter(pk__in=image_ids):
+            if not ReferenceIndex.get_references_to(image).exists():
+                image.delete()
+
+
+def _body_image_ids(post: Post) -> set[int]:
+    """The image pks ``post``'s body references (both image block shapes)."""
+    from wagtail_forum.api.sanitize import image_block_pk
+
+    ids = set()
+    for raw in post.body.raw_data:
+        if raw.get("type") != "image":
+            continue
+        pk = image_block_pk(raw.get("value"))
+        if pk is not None:
+            ids.add(pk)
+    return ids
+
+
+def _erase_forum(user: User) -> None:
+    """Step ``forum``, while the user row still exists.
+
+    A post with a report still in the moderation queue (open or
+    auto-hidden) is held for ``FORUM_HELD_POST_DAYS`` with its body and
+    images intact; every other post is erased now. Topics are retitled and
+    lose their revisions, the user's uploaded images go (except those a
+    held post shows), and notifications the user caused are deleted.
+    """
+    from wagtail.images import get_image_model
+    from wagtail_forum.models import Notification, Post, Report, Topic
+
+    queued = Report.objects.filter(
+        post=OuterRef("pk"), status__in=(Report.OPEN, Report.AUTO_HIDDEN)
+    )
+    held_until = timezone.now() + timedelta(days=FORUM_HELD_POST_DAYS)
+    held_image_ids: set[int] = set()
+    posts = Post.objects.filter(author=user).annotate(held=Exists(queued))
+    for post in posts.order_by("pk"):
+        if post.held:
+            Post.objects.filter(pk=post.pk).update(erase_after=held_until)
+            held_image_ids |= _body_image_ids(post)
+        else:
+            erase_post(post)
+
+    for topic in Topic.objects.filter(author=user).order_by("pk"):
+        topic.revisions.all().delete()
+        topic.latest_revision = None
+        topic.live_revision = None
+        topic.title = DELETED_TOPIC_TITLE
+        topic.save()
+
+    images = get_image_model().objects.filter(uploaded_by_user=user)
+    for image in images.exclude(pk__in=held_image_ids):
+        image.delete()
+
+    Notification.objects.filter(actor=user).delete()
+
+
+def _erase_email(user: User) -> None:
+    """Step ``email``: mail records, blog views, the audit trail, tokens."""
+    from apps.blog.models import BlogNewsletter, BlogPostView
+    from apps.core.models import EmailNotification
+    from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+
+    EmailNotification.objects.filter(user=user).delete()
+    if user.email:
+        EmailNotification.objects.filter(recipient_email__iexact=user.email).delete()
+        BlogNewsletter.objects.filter(email__iexact=user.email).delete()
+    BlogPostView.objects.filter(user=user).delete()
+
+    entries = get_logentry_model().objects
+    user_type = ContentType.objects.get_for_model(get_user_model())
+    # The user row's own history (its object_repr and changes name them).
+    _delete_in_chunks(entries.filter(content_type=user_type, object_pk=str(user.pk)))
+    # Every row the user is the actor of, on any object: each one stores
+    # ``actor_email``.
+    _delete_in_chunks(entries.filter(actor=user))
+
+    # SET_NULL would leave the tokens behind with no user
+    # (expire_unverified_accounts does the same).
+    OutstandingToken.objects.filter(user=user).delete()
+
+
+def _erase_django(user: User) -> None:
+    """Step ``django``: avatar files, push token, then ``user.delete()``."""
+    from wagtail_forum.models import ForumProfile, Post, Reaction
+
+    reacted_post_ids = list(
+        Reaction.objects.filter(user=user).values_list("post_id", flat=True).distinct()
+    )
+    delete_avatar_files_on_commit(user, avatar_file_names(user))
+    ForumProfile.objects.filter(user=user).update(fcm_token="")
+    _delete_owned_audit_rows(user)
+    # The cascades remove the rest. Scan photos go through their on-commit
+    # post_delete receiver; the garden app's User receivers purge its rows.
+    user.delete()
+    # Reaction rows cascade without recounting the posts' denormalized counts.
+    for post in Post.objects.filter(pk__in=reacted_post_ids).order_by("pk"):
+        Reaction.recount(post)
+
+
+def _delete_owned_audit_rows(user: User) -> None:
+    """Delete the LogEntry rows of every audited object ``user.delete()``
+    will cascade to (garden beds and plants, saved plants, collections...).
+
+    Uses Django's own deletion ``Collector`` so the set is exactly what the
+    cascade deletes, however many hops away. An audited model always lands
+    in ``collector.data``, never in ``fast_deletes``: auditlog's
+    ``post_delete`` receiver rules out fast deletion.
+    """
+    collector = Collector(using=router.db_for_write(type(user)))
+    collector.collect([user])
+    entries = get_logentry_model().objects
+    for model, instances in collector.data.items():
+        if model is type(user) or not auditlog.contains(model):
+            continue
+        content_type = ContentType.objects.get_for_model(model)
+        pks = [str(obj.pk) for obj in instances]
+        for chunk in _chunks(pks):
+            _delete_in_chunks(
+                entries.filter(content_type=content_type, object_pk__in=chunk)
+            )
+
+
+def _chunks(items: list[str]) -> Iterable[list[str]]:
+    for start in range(0, len(items), ERASE_LOGENTRY_CHUNK_SIZE):
+        yield items[start : start + ERASE_LOGENTRY_CHUNK_SIZE]
+
+
+def _delete_in_chunks(queryset: QuerySet[Any]) -> None:
+    """Delete ``queryset``'s rows, ``ERASE_LOGENTRY_CHUNK_SIZE`` at a time."""
+    model = queryset.model
+    queryset = queryset.order_by()
+    while True:
+        pks = list(queryset.values_list("pk", flat=True)[:ERASE_LOGENTRY_CHUNK_SIZE])
+        if not pks:
+            return
+        model.objects.filter(pk__in=pks).delete()

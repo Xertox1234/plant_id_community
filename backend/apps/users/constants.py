@@ -114,3 +114,16 @@ SIGNUP_BLOCKING_REASONS = (
     DELETED_ACCOUNT_REASON_ABUSE,
     DELETED_ACCOUNT_REASON_UNDER_13,
 )
+# Erasing a deleted account's data (Plan B task 3). A post of theirs with a
+# report still in the moderation queue keeps its content this long, so a
+# moderator can still review it; the scheduled erase then removes it.
+FORUM_HELD_POST_DAYS = 30
+# What an erased account's topics are titled. The same sentinel the forum
+# shows for a deleted author.
+DELETED_TOPIC_TITLE = "[deleted]"
+# Erase steps, in the order they run and are recorded in steps_done.
+ERASE_STEP_FORUM = "forum"
+ERASE_STEP_EMAIL = "email"
+ERASE_STEP_DJANGO = "django"
+# Audit-log rows deleted per statement while erasing.
+ERASE_LOGENTRY_CHUNK_SIZE = 500
