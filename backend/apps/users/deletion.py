@@ -413,6 +413,15 @@ def _body_image_ids(post: Post) -> set[int]:
     return ids
 
 
+def moderation_queue_statuses() -> tuple[str, str]:
+    """The report statuses still in the moderation queue (ruling R9): open
+    and auto-hidden. A post with such a report is held, not erased; the
+    nightly release (``retention.release_held_posts``) reads the same pair."""
+    from wagtail_forum.models import Report
+
+    return (Report.OPEN, Report.AUTO_HIDDEN)
+
+
 def _erase_forum(user: User) -> None:
     """Step ``forum``, while the user row still exists.
 
@@ -426,7 +435,7 @@ def _erase_forum(user: User) -> None:
     from wagtail_forum.models import Notification, Post, Report, Topic
 
     queued = Report.objects.filter(
-        post=OuterRef("pk"), status__in=(Report.OPEN, Report.AUTO_HIDDEN)
+        post=OuterRef("pk"), status__in=moderation_queue_statuses()
     )
     held_until = timezone.now() + timedelta(days=FORUM_HELD_POST_DAYS)
     held_image_ids: set[int] = set()

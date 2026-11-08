@@ -315,3 +315,31 @@ def delete_account_task(self, record_id: int) -> None:
             )
         raise
     logger.info(f"[ACCOUNT DELETE] deletion {record_id} done")
+
+
+@shared_task(
+    # Every part is idempotent (rows already deleted are not found again,
+    # an erased post loses its hold, the deletion job skips recorded steps),
+    # so a retry after a database error is safe.
+    autoretry_for=(OperationalError,),
+    retry_backoff=60,
+    max_retries=2,
+    soft_time_limit=constants.PRIVACY_PRUNE_SOFT_TIME_LIMIT,
+    time_limit=constants.PRIVACY_PRUNE_TIME_LIMIT,
+    ignore_result=True,
+)
+def privacy_retention_prune() -> None:
+    """Beat entry ``privacy-retention-prune`` (Plan B task 8): 90-day
+    retention, held-post release, stalled-deletion re-queue and the orphaned
+    Firebase login prune (``apps.users.retention``)."""
+    from .retention import run_privacy_prune
+
+    counts = run_privacy_prune()
+    logger.info(
+        "[PRIVACY PRUNE] retention=%s held_posts=%s stale_deletions=%s "
+        "orphan_firebase_logins=%s",
+        counts["retention"],
+        counts["held_posts"],
+        counts["stale_deletions"],
+        counts["orphan_firebase_logins"],
+    )

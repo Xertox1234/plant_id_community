@@ -1,0 +1,282 @@
+"""The nightly privacy prune (Plan B task 8).
+
+``run_privacy_prune`` is what the beat task (``privacy_retention_prune``) and
+``manage.py privacy_prune`` both call. Its parts:
+
+- ``prune_retention``: email records, blog page views and audit-log rows
+  older than ``PRIVACY_RETENTION_DAYS``. ``apps.core.tasks`` already prunes
+  email clicks and provider events (``prune_email_feedback``), so they are
+  not touched here.
+- ``release_held_posts``: forum posts an account deletion held for a report
+  are erased once the report has left the moderation queue or the hold ran
+  out.
+- ``requeue_stale_deletions``: a deletion still pending after
+  ``ACCOUNT_DELETE_STALE_HOURS`` is queued again (ruling R12).
+- ``prune_orphan_firebase_users``: Firebase logins with no account behind
+  them. Log-only unless ``settings.ORPHAN_FIREBASE_PRUNE_ENABLED``.
+
+Every part takes ``dry_run``: it then counts what it would do and changes and
+queues nothing. Every part is idempotent, so an overlapping or retried run
+does no harm.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timedelta
+from typing import Any
+
+import sentry_sdk
+from apps.core.firebase_config import initialize_firebase
+from auditlog import get_logentry_model
+from auditlog.context import disable_auditlog
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models.functions import Lower
+from django.utils import timezone
+
+from .constants import (
+    ACCOUNT_DELETE_STALE_HOURS,
+    DELETED_ACCOUNT_STATUS_PENDING,
+    ORPHAN_FIREBASE_DELETE_CAP,
+    ORPHAN_FIREBASE_USER_DAYS,
+    PRIVACY_PRUNE_BATCH,
+    PRIVACY_RETENTION_DAYS,
+)
+from .deletion import erase_post, moderation_queue_statuses
+from .models import DeletedAccount
+
+logger = logging.getLogger(__name__)
+
+# Uids and addresses looked up per query when matching Firebase logins.
+_LOOKUP_CHUNK = 500
+
+
+def run_privacy_prune(dry_run: bool = False) -> dict[str, Any]:
+    """Run every part once; return their counts."""
+    now = timezone.now()
+    return {
+        "retention": prune_retention(now, dry_run=dry_run),
+        "held_posts": release_held_posts(now, dry_run=dry_run),
+        "stale_deletions": requeue_stale_deletions(now, dry_run=dry_run),
+        "orphan_firebase_logins": prune_orphan_firebase_users(now, dry_run=dry_run),
+    }
+
+
+# --- retention ---------------------------------------------------------------
+
+
+def prune_retention(
+    now: datetime | None = None, dry_run: bool = False
+) -> dict[str, int]:
+    """Delete rows older than ``PRIVACY_RETENTION_DAYS``, in batches.
+
+    Deleting an ``EmailNotification`` cascades to its ``EmailClick`` rows.
+    Audit logging is off while deleting, so the prune writes no new rows.
+    """
+    from apps.blog.models import BlogPostView
+    from apps.core.models import EmailNotification
+
+    cutoff = (now or timezone.now()) - timedelta(days=PRIVACY_RETENTION_DAYS)
+    expired: dict[str, QuerySet[Any]] = {
+        "email_notifications": EmailNotification.objects.filter(created_at__lt=cutoff),
+        "blog_post_views": BlogPostView.objects.filter(viewed_at__lt=cutoff),
+        "audit_log_entries": get_logentry_model().objects.filter(timestamp__lt=cutoff),
+    }
+    if dry_run:
+        return {name: rows.count() for name, rows in expired.items()}
+    with disable_auditlog():
+        return {name: _delete_in_batches(rows) for name, rows in expired.items()}
+
+
+def _delete_in_batches(queryset: QuerySet[Any]) -> int:
+    """Copied from ``apps.core.email_feedback``; counts the model's own rows
+    only, not the rows its deletes cascade to."""
+    model = queryset.model
+    queryset = queryset.order_by()
+    deleted = 0
+    while True:
+        pks = list(queryset.values_list("pk", flat=True)[:PRIVACY_PRUNE_BATCH])
+        if not pks:
+            return deleted
+        _, per_model = model.objects.filter(pk__in=pks).delete()
+        deleted += per_model.get(model._meta.label, 0)
+
+
+# --- held forum posts -------------------------------------------------------
+
+
+def release_held_posts(now: datetime | None = None, dry_run: bool = False) -> int:
+    """Erase each held post whose hold is over: its ``erase_after`` has
+    passed, or no report on it is still in the moderation queue."""
+    from wagtail_forum.models import Post, Report
+
+    now = now or timezone.now()
+    queued = Report.objects.filter(
+        post=OuterRef("pk"), status__in=moderation_queue_statuses()
+    )
+    due = (
+        Post.objects.filter(erase_after__isnull=False)
+        .filter(Q(erase_after__lte=now) | ~Exists(queued))
+        .order_by("pk")
+    )
+    if dry_run:
+        return int(due.count())
+    released = 0
+    with disable_auditlog():
+        for post in due:
+            erase_post(post)
+            released += 1
+    if released:
+        logger.info("[PRIVACY PRUNE] released %s held forum posts", released)
+    return released
+
+
+# --- stalled deletions (ruling R12) ------------------------------------------
+
+
+def requeue_stale_deletions(now: datetime | None = None, dry_run: bool = False) -> int:
+    """Queue ``delete_account_task`` again for each deletion still pending
+    ``ACCOUNT_DELETE_STALE_HOURS`` after it was requested. Safe while a job
+    is still running: the job locks the record and skips recorded steps."""
+    from .tasks import delete_account_task
+
+    cutoff = (now or timezone.now()) - timedelta(hours=ACCOUNT_DELETE_STALE_HOURS)
+    pks = list(
+        DeletedAccount.objects.filter(
+            status=DELETED_ACCOUNT_STATUS_PENDING, requested_at__lt=cutoff
+        )
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+    if dry_run:
+        return len(pks)
+    for pk in pks:
+        delete_account_task.delay(pk)
+    if pks:
+        logger.warning(
+            "[ACCOUNT DELETE] re-queued %s stalled deletions: %s", len(pks), pks
+        )
+    return len(pks)
+
+
+# --- orphaned Firebase logins -----------------------------------------------
+
+
+def prune_orphan_firebase_users(
+    now: datetime | None = None, dry_run: bool = False
+) -> int:
+    """Delete Firebase logins older than ``ORPHAN_FIREBASE_USER_DAYS`` that
+    no account owns.
+
+    A login is an orphan only when its uid is no ``User.firebase_uid`` and no
+    pending ``DeletedAccount.firebase_uid`` (that job deletes it itself) AND
+    its email, case-insensitively, is no ``User.email``: an account whose uid
+    was never stored must not lose its login. A login with no email or no
+    creation time is kept.
+
+    More than ``ORPHAN_FIREBASE_DELETE_CAP`` orphans aborts the run (a
+    ``[SECURITY]`` log and a Sentry message, nothing deleted). Unless
+    ``settings.ORPHAN_FIREBASE_PRUNE_ENABLED`` is on, it runs as ``dry_run``:
+    it logs the count and the uids and deletes nothing. Returns the number
+    deleted, or in a dry run the number it would delete. Emails are never
+    logged.
+    """
+    from firebase_admin import auth as firebase_auth
+    from firebase_admin import exceptions as firebase_exceptions
+
+    if not initialize_firebase():
+        logger.info("[PRIVACY PRUNE] Firebase not configured; orphan check skipped")
+        return 0
+    now = now or timezone.now()
+    cutoff_ms = int(
+        (now - timedelta(days=ORPHAN_FIREBASE_USER_DAYS)).timestamp() * 1000
+    )
+    try:
+        candidates = [
+            (record.uid, record.email)
+            for record in firebase_auth.list_users().iterate_all()
+            if record.email
+            and record.user_metadata is not None
+            and record.user_metadata.creation_timestamp is not None
+            and record.user_metadata.creation_timestamp < cutoff_ms
+        ]
+    except firebase_exceptions.FirebaseError as exc:
+        logger.warning(
+            "[PRIVACY PRUNE] listing Firebase users failed (%s); orphan check skipped",
+            type(exc).__name__,
+        )
+        return 0
+    orphans = _unowned(candidates)
+
+    if len(orphans) > ORPHAN_FIREBASE_DELETE_CAP:
+        logger.error(
+            "[SECURITY] %s orphaned Firebase logins exceeds the cap of %s; "
+            "nothing deleted",
+            len(orphans),
+            ORPHAN_FIREBASE_DELETE_CAP,
+        )
+        sentry_sdk.capture_message(
+            f"Orphaned Firebase login prune aborted: {len(orphans)} over the "
+            f"cap of {ORPHAN_FIREBASE_DELETE_CAP}",
+            level="error",
+        )
+        return 0
+
+    if dry_run or not settings.ORPHAN_FIREBASE_PRUNE_ENABLED:
+        if orphans:
+            logger.info(
+                "[PRIVACY PRUNE] %s orphaned Firebase logins (not deleted): %s",
+                len(orphans),
+                orphans,
+            )
+        return len(orphans)
+
+    deleted = 0
+    for uid in orphans:
+        try:
+            firebase_auth.delete_user(uid)
+        except firebase_auth.UserNotFoundError:
+            continue
+        except firebase_exceptions.FirebaseError as exc:
+            logger.warning(
+                "[PRIVACY PRUNE] could not delete Firebase login %s (%s)",
+                uid,
+                type(exc).__name__,
+            )
+            continue
+        deleted += 1
+        logger.info("[PRIVACY PRUNE] deleted orphaned Firebase login %s", uid)
+    return deleted
+
+
+def _unowned(candidates: list[tuple[str, str]]) -> list[str]:
+    """The uids of ``candidates`` (uid, email) that no account owns."""
+    user_model = get_user_model()
+    owned_uids: set[str | None] = set()
+    owned_emails: set[str] = set()
+    for start in range(0, len(candidates), _LOOKUP_CHUNK):
+        chunk = candidates[start : start + _LOOKUP_CHUNK]
+        uids = [uid for uid, _ in chunk]
+        emails = [email.lower() for _, email in chunk]
+        owned_uids.update(
+            user_model._base_manager.filter(firebase_uid__in=uids).values_list(
+                "firebase_uid", flat=True
+            )
+        )
+        owned_uids.update(
+            DeletedAccount.objects.filter(
+                status=DELETED_ACCOUNT_STATUS_PENDING, firebase_uid__in=uids
+            ).values_list("firebase_uid", flat=True)
+        )
+        owned_emails.update(
+            user_model._base_manager.annotate(email_lower=Lower("email"))
+            .filter(email_lower__in=emails)
+            .values_list("email_lower", flat=True)
+        )
+    return [
+        uid
+        for uid, email in candidates
+        if uid not in owned_uids and email.lower() not in owned_emails
+    ]

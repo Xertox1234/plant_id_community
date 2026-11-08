@@ -170,3 +170,24 @@ ACCOUNT_DELETE_LINK_INVALID_CODE = "link_invalid"
 ACCOUNT_DELETE_LINK_INVALID_MESSAGE = (
     "This link has expired or was already used. Request a new one."
 )
+
+# Nightly privacy prune (Plan B task 8, beat entry ``privacy-retention-prune``).
+# Email records, blog page views and audit-log rows are kept this long.
+PRIVACY_RETENTION_DAYS = 90
+# Rows deleted per statement by the retention prune.
+PRIVACY_PRUNE_BATCH = 5000
+# The prune's own Celery limits: a first run over a large audit-log table
+# outlasts the request-shaped global 90 s. Each batch commits on its own, so a
+# kill loses nothing and the next night carries on.
+PRIVACY_PRUNE_SOFT_TIME_LIMIT = 900
+PRIVACY_PRUNE_TIME_LIMIT = 960
+# A Firebase login with no account behind it is removed once it is this old.
+# The margin covers a sign-up whose Django account is created after its login.
+ORPHAN_FIREBASE_USER_DAYS = 7
+# More orphans than this in one run is treated as a bug (a wrong project, an
+# emptied users table), not cleanup: nothing is deleted and Sentry is told.
+ORPHAN_FIREBASE_DELETE_CAP = 50
+# A deletion still pending this long after it was requested is queued again:
+# delete_account_task's retries span only minutes, and a .delay() that failed
+# at commit leaves the record with no job at all.
+ACCOUNT_DELETE_STALE_HOURS = 1
