@@ -241,6 +241,23 @@ def send_provider_linked_notice_task(self, user_id: int, provider: str) -> None:
         _retry_or_give_up(self, "Sign-in link notice", user_id)
 
 
+@shared_task(**_TASK_OPTIONS)
+def send_account_delete_link_task(self, user_id: int) -> None:
+    """Email the account-deletion confirm link (Plan B task 6). The link is
+    built here, not in the view, so the token never sits in the broker. An
+    account deactivated meanwhile gets nothing. A retry builds a new link,
+    which supersedes the one whose send failed."""
+    from .deletion_links import deliver_deletion_link
+
+    user = _load_user(user_id)
+    if user is None or not user.is_active or not user.email:
+        return
+    if _address_suppressed(user):
+        return
+    if not deliver_deletion_link(user):
+        _retry_or_give_up(self, "Account deletion link", user_id)
+
+
 @shared_task(
     bind=True,
     # Every erase step is recorded once it commits and skipped on a re-run,

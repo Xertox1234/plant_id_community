@@ -137,3 +137,34 @@ ACCOUNT_DELETE_RETRY_BACKOFF_MAX = 3600
 ACCOUNT_DELETED_EMAIL_SUBJECT = "Your Houseplant MD account has been deleted"
 # Audit-log rows deleted per statement while erasing.
 ERASE_LOGENTRY_CHUNK_SIZE = 500
+
+# Deletion endpoints (Plan B task 6). The mobile app proves a fresh sign-in:
+# the Firebase ID token's auth_time may be at most this old.
+ACCOUNT_DELETE_REAUTH_MAX_AGE_SECONDS = 300
+ACCOUNT_DELETE_REAUTH_CODE = "reauth_required"
+ACCOUNT_DELETE_REAUTH_MESSAGE = "Please sign in again to delete your account."
+ACCOUNT_DELETE_SCHEDULED_STATUS = "scheduled"
+# Staff and blog authors (DeletionRefused). [[CONTACT_EMAIL]] is the policy
+# placeholder the owner fills in later; keep it literal until then.
+ACCOUNT_DELETE_CONTACT_SUPPORT_CODE = "contact_support"
+ACCOUNT_DELETE_CONTACT_SUPPORT_MESSAGE = (
+    "This account can't be deleted from the app. Email [[CONTACT_EMAIL]] "
+    "and we'll help."
+)
+# The emailed link (web). POST account/delete/request/ is limited per client
+# IP and per normalised address.
+ACCOUNT_DELETE_REQUEST_RATE_IP = "5/h"
+ACCOUNT_DELETE_REQUEST_RATE_EMAIL = "3/h"
+ACCOUNT_DELETE_REQUEST_SENT_STATUS = "sent"
+ACCOUNT_DELETE_LINK_TTL_SECONDS = 3600
+ACCOUNT_DELETE_LINK_SALT = "account-delete"
+# The link's one-time nonce lives in the cache under this prefix + user pk; a
+# new request replaces it, so only the newest link works.
+ACCOUNT_DELETE_LINK_CACHE_PREFIX = "account-delete:"
+ACCOUNT_DELETE_LINK_NONCE_BYTES = 32
+ACCOUNT_DELETE_LINK_PATH = "/delete-account/confirm"
+ACCOUNT_DELETE_LINK_SUBJECT = "Confirm you want to delete your Houseplant MD account"
+ACCOUNT_DELETE_LINK_INVALID_CODE = "link_invalid"
+ACCOUNT_DELETE_LINK_INVALID_MESSAGE = (
+    "This link has expired or was already used. Request a new one."
+)
