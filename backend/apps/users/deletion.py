@@ -115,11 +115,19 @@ def request_account_deletion(user: User, reason: str) -> DeletedAccount:
     returns the same record and queues nothing. ``delete_account_task`` is
     queued once, after the transaction commits, so the worker always finds
     the record. Raises ``DeletionRefused`` (changing nothing) for staff and
-    blog authors.
+    blog authors, and ``ValueError`` (before any lock) for an unknown
+    ``reason``.
+
+    A pending request whose stored reason does not block re-sign-up is
+    upgraded when staff now ask for ``abuse`` or ``under_13``; a blocking
+    reason is never downgraded.
     """
     from apps.blog.models import BlogAuthorPage, BlogPostPage
 
     from .tasks import delete_account_task
+
+    if reason not in dict(DeletedAccount.REASON_CHOICES):
+        raise ValueError(f"Unknown account deletion reason: {reason!r}")
 
     with transaction.atomic():
         locked = get_user_model()._base_manager.select_for_update().get(pk=user.pk)
@@ -127,6 +135,17 @@ def request_account_deletion(user: User, reason: str) -> DeletedAccount:
             user_id=locked.pk, status=DELETED_ACCOUNT_STATUS_PENDING
         ).first()
         if pending is not None:
+            if (
+                reason in SIGNUP_BLOCKING_REASONS
+                and pending.reason not in SIGNUP_BLOCKING_REASONS
+            ):
+                pending.reason = reason
+                pending.save(update_fields=["reason"])
+                logger.info(
+                    "[ACCOUNT DELETE] deletion %s upgraded to %s",
+                    pending.pk,
+                    reason,
+                )
             return pending
         if (
             locked.is_staff
