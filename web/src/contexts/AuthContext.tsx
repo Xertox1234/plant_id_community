@@ -93,6 +93,11 @@ export interface AuthContextValue {
   isAuthenticated: boolean;
   login: (credentials: LoginCredentials) => Promise<AuthResult>;
   logout: () => Promise<void>;
+  /**
+   * Drop the local session WITHOUT calling the logout endpoint. For flows where
+   * the server has already ended it (account deletion confirm clears the cookies).
+   */
+  clearLocalSession: () => void;
   signup: (userData: SignupData) => Promise<AuthResult>;
   /**
    * Re-read the current user from the backend and sync context state.
@@ -401,6 +406,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
+  /** Local-only logout: the server already cleared the cookies. */
+  const clearLocalSession = (): void => {
+    sessionStorage.removeItem('user');
+    clearAllDrafts();
+    setUser(null);
+    setError(null);
+  };
+
   /**
    * Re-read the current user from the backend and sync context state.
    * The OAuth callback lands here after the backend has already set JWT cookies,
@@ -440,6 +453,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isAuthenticated: !!user,
       login,
       logout,
+      clearLocalSession,
       signup,
       refreshUser,
       revalidateIdentity,

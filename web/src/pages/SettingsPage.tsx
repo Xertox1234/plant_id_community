@@ -11,7 +11,7 @@
  * - Privacy settings — blocked users ← LIVE (todo 284/M9); muted users ← LIVE (todo 347)
  * - Theme preferences (density / dark mode) ← LIVE in Phase A
  * - Language selection
- * - Account deletion
+ * - Account deletion ← LIVE (emails a confirmation link)
  */
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useTheme, type Density } from '../contexts/ThemeContext';
@@ -36,6 +36,7 @@ import Eyebrow from '../components/ui/Eyebrow';
 import Avatar from '../components/ui/Avatar';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import BrowserNotificationsSection from '../components/settings/BrowserNotificationsSection';
+import DeleteAccountSection from '../components/settings/DeleteAccountSection';
 import LiveUpdatesSection from '../components/settings/LiveUpdatesSection';
 import type {
   BlockedUser,
@@ -1265,6 +1266,9 @@ export default function SettingsPage() {
 
       {/* Forum photo library — reuse + self-service delete (todo 374) */}
       <MyForumImagesSection />
+
+      {/* Account deletion — emails a confirmation link */}
+      <DeleteAccountSection />
     </div>
   );
 }

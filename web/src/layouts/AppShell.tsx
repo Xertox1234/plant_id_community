@@ -115,6 +115,9 @@ function SideFoot({ onNavigate }: SideFootProps) {
         <Link to="/terms" onClick={onNavigate} className="hover:text-ink hover:underline">
           Terms
         </Link>
+        <Link to="/delete-account" onClick={onNavigate} className="hover:text-ink hover:underline">
+          Delete account
+        </Link>
       </div>
     </nav>
   );
