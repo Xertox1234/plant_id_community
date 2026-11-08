@@ -127,5 +127,13 @@ ERASE_STEP_EMAIL = "email"
 ERASE_STEP_DJANGO = "django"
 ERASE_STEP_FIRESTORE = "firestore"
 ERASE_STEP_FIREBASE_AUTH = "firebase_auth"
+# Recorded once the "your account has been deleted" email is sent, so a retry
+# never sends a second one.
+ERASE_STEP_NOTIFIED = "notified"
+# delete_account_task's retries (Plan B task 5). retry_backoff=True is
+# Celery's backoff factor 1: about 1 s, 2 s, 4 s ... jittered, capped below.
+ACCOUNT_DELETE_MAX_RETRIES = 8
+ACCOUNT_DELETE_RETRY_BACKOFF_MAX = 3600
+ACCOUNT_DELETED_EMAIL_SUBJECT = "Your Houseplant MD account has been deleted"
 # Audit-log rows deleted per statement while erasing.
 ERASE_LOGENTRY_CHUNK_SIZE = 500

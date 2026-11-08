@@ -1,0 +1,12 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Your {{ site_name }} account has been deleted{% endblock %}
+
+{% block preheader %}Your account and its data have been deleted.{% endblock %}
+
+{% block content %}
+<h1 style="margin: 0 0 24px 0; font-size: 24px; font-weight: 600; color: #2c5f41;">Your account has been deleted</h1>
+<p style="margin: 0; color: #333333;">Your account and its data have been deleted, as described in our Privacy Policy. If you didn't ask for this, reply to this email.</p>
+{% endblock %}
+
+{% block footer %}{% include "emails/_security_footer.html" %}{% endblock %}

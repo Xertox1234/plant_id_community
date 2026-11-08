@@ -22,12 +22,17 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import router, transaction
 from django.db.models import Exists, OuterRef, QuerySet
 from django.db.models.deletion import Collector
+from django.template.loader import render_to_string
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 
+from .account_links import revoke_refresh_tokens
 from .avatars import avatar_file_names, delete_avatar_files_on_commit
 from .constants import (
+    ACCOUNT_DELETED_EMAIL_SUBJECT,
+    DELETED_ACCOUNT_STATUS_DONE,
+    DELETED_ACCOUNT_STATUS_PENDING,
     DELETED_TOPIC_TITLE,
     ERASE_LOGENTRY_CHUNK_SIZE,
     ERASE_STEP_DJANGO,
@@ -35,6 +40,7 @@ from .constants import (
     ERASE_STEP_FIREBASE_AUTH,
     ERASE_STEP_FIRESTORE,
     ERASE_STEP_FORUM,
+    ERASE_STEP_NOTIFIED,
     FORUM_HELD_POST_DAYS,
     SIGNUP_BLOCKED_CODE,
     SIGNUP_BLOCKED_MESSAGE,
@@ -91,6 +97,120 @@ def reject_blocked_signup(view: Callable[..., Any]) -> Callable[..., Any]:
         return view(request, *args, **kwargs)
 
     return wrapped
+
+
+# --- Requesting a deletion (Plan B task 5) ---------------------------------
+
+
+class DeletionRefused(Exception):
+    """The account cannot be deleted by itself: a staff account, or the author
+    of a blog post or blog author page (PROTECT foreign keys). Support has to
+    handle it."""
+
+
+def request_account_deletion(user: User, reason: str) -> DeletedAccount:
+    """Deactivate ``user``, revoke its sessions and schedule the erase.
+
+    Idempotent: a second request for an account already pending deletion
+    returns the same record and queues nothing. ``delete_account_task`` is
+    queued once, after the transaction commits, so the worker always finds
+    the record. Raises ``DeletionRefused`` (changing nothing) for staff and
+    blog authors.
+    """
+    from apps.blog.models import BlogAuthorPage, BlogPostPage
+
+    from .tasks import delete_account_task
+
+    with transaction.atomic():
+        locked = get_user_model()._base_manager.select_for_update().get(pk=user.pk)
+        pending = DeletedAccount.objects.filter(
+            user_id=locked.pk, status=DELETED_ACCOUNT_STATUS_PENDING
+        ).first()
+        if pending is not None:
+            return pending
+        if (
+            locked.is_staff
+            or BlogPostPage.objects.filter(author=locked).exists()
+            or BlogAuthorPage.objects.filter(author=locked).exists()
+        ):
+            raise DeletionRefused()
+
+        locked.is_active = False
+        locked.save(update_fields=["is_active"])
+        revoke_refresh_tokens(locked)
+        record = DeletedAccount.objects.create(
+            user_id=locked.pk,
+            email=locked.email,
+            email_hash=email_hash(locked.email),
+            firebase_uid=locked.firebase_uid or "",
+            reason=reason,
+            policy_version=locked.policy_version_accepted or "",
+        )
+        record_id = record.pk
+        transaction.on_commit(lambda: delete_account_task.delay(record_id))
+    user.is_active = False
+    logger.info(
+        "[ACCOUNT DELETE] deletion %s requested for account %s (%s)",
+        record.pk,
+        record.user_id,
+        reason,
+    )
+    return record
+
+
+def notify_account_deleted(record: DeletedAccount) -> None:
+    """Step ``notified``: email the saved address that the deletion is done.
+
+    The address comes from the record, because the ``User`` row is gone by
+    now. A send that fails raises, so the step is not recorded and the task
+    retries; an address with nothing to send to (none saved, or suppressed
+    after a hard bounce) is recorded as skipped and never retried.
+    """
+
+    def work(locked: DeletedAccount) -> bool:
+        if not locked.email:
+            return False
+        return _send_account_deleted_email(locked.email)
+
+    _run_erase_step(record, ERASE_STEP_NOTIFIED, work, skipped_note="no address")
+
+
+def _send_account_deleted_email(address: str) -> bool:
+    """Send the "account deleted" email. True if sent, False if the address
+    is suppressed; raises on any other failure so the caller retries."""
+    from apps.core.services.email_service import EmailOutcome, EmailService
+
+    service = EmailService()
+    context = {"site_name": service.site_name}
+    text = render_to_string("emails/account_deleted.txt", context)
+    html = render_to_string("emails/account_deleted.html", context)
+    sent = service.send_transactional_email(
+        recipient=address,
+        subject=ACCOUNT_DELETED_EMAIL_SUBJECT,
+        message=text,
+        html_message=html,
+    )
+    if sent:
+        return True
+    if service.last_outcome == EmailOutcome.SUPPRESSED:
+        return False
+    raise RuntimeError("The account-deleted email could not be sent")
+
+
+def finish_deletion(record: DeletedAccount) -> None:
+    """Mark ``record`` done and clear the address and Firebase uid.
+
+    Runs after the ``notified`` step, which needed the address. Only the
+    email hash stays (the blocked re-sign-up check keys on it).
+    """
+    DeletedAccount.objects.filter(
+        pk=record.pk, status=DELETED_ACCOUNT_STATUS_PENDING
+    ).update(
+        status=DELETED_ACCOUNT_STATUS_DONE,
+        deleted_at=timezone.now(),
+        email="",
+        firebase_uid="",
+    )
 
 
 # --- Erasing a deleted account's data (Plan B task 3) ----------------------

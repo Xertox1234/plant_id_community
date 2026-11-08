@@ -15,6 +15,7 @@ failure, so a delivered mail is never sent twice.
 
 import logging
 
+import sentry_sdk
 from celery import shared_task
 from django.contrib.auth import get_user_model
 from django.db import OperationalError
@@ -238,3 +239,62 @@ def send_provider_linked_notice_task(self, user_id: int, provider: str) -> None:
         return
     if not deliver_provider_linked_notice(user, provider):
         _retry_or_give_up(self, "Sign-in link notice", user_id)
+
+
+@shared_task(
+    bind=True,
+    # Every erase step is recorded once it commits and skipped on a re-run,
+    # and the Firebase calls are idempotent, so retrying ANY failure resumes
+    # where it stopped. Without autoretry_for the backoff options are inert:
+    # Task.retry() never reads them.
+    autoretry_for=(Exception,),
+    max_retries=constants.ACCOUNT_DELETE_MAX_RETRIES,
+    retry_backoff=True,
+    retry_backoff_max=constants.ACCOUNT_DELETE_RETRY_BACKOFF_MAX,
+    ignore_result=True,
+)
+def delete_account_task(self, record_id: int) -> None:
+    """Erase a deleted account (Plan B task 5), resumably.
+
+    Runs the Django steps (forum, email, django), the Firebase steps
+    (firestore, firebase_auth), then ``notified`` (the done email to the
+    address saved on the record), and finally marks the record done and
+    clears its address and uid. A re-run skips every recorded step, so a
+    retry never repeats a deletion or sends a second email. On the last
+    retry the failure goes to Sentry before it is re-raised.
+    """
+    from .deletion import (
+        erase_django_data,
+        erase_firebase_data,
+        finish_deletion,
+        notify_account_deleted,
+    )
+    from .models import DeletedAccount
+
+    record = DeletedAccount.objects.filter(pk=record_id).first()
+    if record is None:
+        logger.warning(f"[ACCOUNT DELETE] deletion {record_id} not found; skipped")
+        return
+    if record.status == constants.DELETED_ACCOUNT_STATUS_DONE:
+        return
+    try:
+        erase_django_data(record)
+        erase_firebase_data(record)
+        notify_account_deleted(record)
+        finish_deletion(record)
+    except Exception as exc:
+        if self.request.retries >= self.max_retries:
+            # The record id only: the exception's text could carry the
+            # address or uid.
+            logger.error(
+                f"[ACCOUNT DELETE] deletion {record_id} failed after "
+                f"{self.request.retries + 1} attempts: {type(exc).__name__}"
+            )
+            sentry_sdk.capture_exception(exc)
+        else:
+            logger.warning(
+                f"[ACCOUNT DELETE] deletion {record_id} failed "
+                f"({type(exc).__name__}); retrying"
+            )
+        raise
+    logger.info(f"[ACCOUNT DELETE] deletion {record_id} done")
