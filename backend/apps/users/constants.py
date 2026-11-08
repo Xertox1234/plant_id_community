@@ -141,6 +141,8 @@ ERASE_LOGENTRY_CHUNK_SIZE = 500
 # Deletion endpoints (Plan B task 6). The mobile app proves a fresh sign-in:
 # the Firebase ID token's auth_time may be at most this old.
 ACCOUNT_DELETE_REAUTH_MAX_AGE_SECONDS = 300
+# How far in the future auth_time may be (clock skew) before it is refused.
+ACCOUNT_DELETE_AUTH_TIME_SKEW_SECONDS = 60
 ACCOUNT_DELETE_REAUTH_CODE = "reauth_required"
 ACCOUNT_DELETE_REAUTH_MESSAGE = "Please sign in again to delete your account."
 ACCOUNT_DELETE_SCHEDULED_STATUS = "scheduled"

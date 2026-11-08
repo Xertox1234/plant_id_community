@@ -27,6 +27,7 @@ from django.core import mail
 from django.core.cache import cache
 from django.test import override_settings
 from firebase_admin import auth
+from firebase_admin import exceptions as firebase_exceptions
 from freezegun import freeze_time
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -201,6 +202,59 @@ def test_mobile_revoked_token_needs_reauth(
     assert response.json()["code"] == "reauth_required"
 
 
+def test_mobile_auth_time_in_the_future_needs_reauth(
+    client, user, queued, django_capture_on_commit_callbacks
+):
+    with _verified(age=-61):
+        response = _post(
+            _bearer(client, user),
+            DELETE_URL,
+            {"firebase_token": "fake-id-token"},
+            django_capture_on_commit_callbacks,
+        )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "reauth_required"
+    assert DeletedAccount.objects.count() == 0
+
+
+def test_mobile_auth_time_within_skew_is_fresh(
+    client, user, queued, django_capture_on_commit_callbacks
+):
+    with _verified(age=-30):
+        response = _post(
+            _bearer(client, user),
+            DELETE_URL,
+            {"firebase_token": "fake-id-token"},
+            django_capture_on_commit_callbacks,
+        )
+
+    assert response.status_code == 202
+
+
+def test_mobile_firebase_lookup_failure_is_503(
+    client, user, queued, django_capture_on_commit_callbacks
+):
+    """check_revoked's get_user call failing (outage, or a credential that
+    may not call the Auth API) is on our side: 503, not 500."""
+    with patch.object(
+        auth,
+        "verify_id_token",
+        side_effect=firebase_exceptions.UnavailableError("auth api down"),
+    ):
+        response = _post(
+            _bearer(client, user),
+            DELETE_URL,
+            {"firebase_token": "fake-id-token"},
+            django_capture_on_commit_callbacks,
+        )
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "verifier_unavailable"
+    user.refresh_from_db()
+    assert user.is_active is True
+
+
 def test_mobile_verifier_outage_is_503(
     client, user, queued, django_capture_on_commit_callbacks
 ):
@@ -264,18 +318,18 @@ def test_request_unknown_email_same_response(
             client, REQUEST_URL, {"email": EMAIL}, django_capture_on_commit_callbacks
         )
         mail.outbox.clear()
-        cache.clear()
-        unknown = _post(
-            client,
-            REQUEST_URL,
-            {"email": "nobody.k6@example.test"},
-            django_capture_on_commit_callbacks,
-        )
+        with patch.object(tasks.send_account_delete_link_task, "delay") as delay:
+            unknown = _post(
+                client,
+                REQUEST_URL,
+                {"email": "nobody.k6@example.test"},
+                django_capture_on_commit_callbacks,
+            )
 
     assert unknown.status_code == known.status_code == 200
     assert unknown.json() == known.json() == {"status": "sent"}
     assert mail.outbox == []
-    assert cache.get(f"{ACCOUNT_DELETE_LINK_CACHE_PREFIX}{user.pk}") is None
+    delay.assert_not_called()
 
 
 def test_request_inactive_account_sends_nothing(
@@ -429,6 +483,30 @@ def test_confirm_superseded_link_is_invalid(
     assert response.status_code == 400
     assert response.json()["code"] == "link_invalid"
     queued.assert_not_called()
+
+
+def test_superseded_link_leaves_the_current_one_working(
+    client, user, queued, django_capture_on_commit_callbacks
+):
+    """The compare and delete are one step: a superseded link that loses
+    the compare must not delete the current nonce."""
+    old = _request_link(client, django_capture_on_commit_callbacks)
+    current = _request_link(client, django_capture_on_commit_callbacks)
+    _post(client, CONFIRM_URL, {"token": old}, django_capture_on_commit_callbacks)
+
+    response = _post(
+        client, CONFIRM_URL, {"token": current}, django_capture_on_commit_callbacks
+    )
+
+    assert response.status_code == 202
+
+
+def test_confirm_uses_the_atomic_redis_path():
+    """The run exercises the Lua compare-and-delete, not the fallback."""
+    from django.core.cache import caches
+    from django_redis.cache import RedisCache
+
+    assert isinstance(caches["default"], RedisCache)
 
 
 def test_confirm_expired_token(

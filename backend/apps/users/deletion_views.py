@@ -30,6 +30,7 @@ from drf_spectacular.utils import (
     inline_serializer,
 )
 from firebase_admin import auth as firebase_auth
+from firebase_admin import exceptions as firebase_exceptions
 from rest_framework import permissions, serializers, status
 from rest_framework.decorators import (
     api_view,
@@ -41,6 +42,7 @@ from rest_framework.response import Response
 
 from .authentication import clear_jwt_cookies
 from .constants import (
+    ACCOUNT_DELETE_AUTH_TIME_SKEW_SECONDS,
     ACCOUNT_DELETE_CONTACT_SUPPORT_CODE,
     ACCOUNT_DELETE_CONTACT_SUPPORT_MESSAGE,
     ACCOUNT_DELETE_LINK_INVALID_CODE,
@@ -173,7 +175,12 @@ def delete_account(request: Request) -> Response:
             f"{type(exc).__name__}"
         )
         return _reauth_required()
-    except (firebase_auth.CertificateFetchError, ValueError) as exc:
+    # After the token clauses: UserDisabledError and UserNotFoundError are
+    # FirebaseErrors too. Anything else is on our side, not the token's:
+    # Google's certs unreachable (CertificateFetchError), the Admin app not
+    # set up (ValueError), or check_revoked's user lookup failing (outage, or
+    # a credential that may not call the Auth API).
+    except (firebase_exceptions.FirebaseError, ValueError) as exc:
         logger.error(
             f"[ACCOUNT DELETE] Re-auth could not be checked: {type(exc).__name__}"
         )
@@ -190,6 +197,8 @@ def delete_account(request: Request) -> Response:
         or decoded.get("uid") != uid
         or not isinstance(auth_time, (int, float))
         or time.time() - auth_time > ACCOUNT_DELETE_REAUTH_MAX_AGE_SECONDS
+        # A sign-in "from the future" beyond clock skew is not a fresh one.
+        or auth_time - time.time() > ACCOUNT_DELETE_AUTH_TIME_SKEW_SECONDS
     ):
         logger.info(
             f"[ACCOUNT DELETE] Re-auth refused for account {request.user.pk}: "

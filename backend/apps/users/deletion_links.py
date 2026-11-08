@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core import signing
-from django.core.cache import cache
+from django.core.cache import DEFAULT_CACHE_ALIAS, cache, caches
 from django.template.loader import render_to_string
 from django.utils.crypto import constant_time_compare
 
@@ -76,14 +76,55 @@ def consume_deletion_token(token: object) -> int:
     user_pk, nonce = payload.get("u"), payload.get("n")
     if not isinstance(user_pk, int) or not isinstance(nonce, str):
         raise DeletionLinkInvalid()
-    key = _cache_key(user_pk)
-    stored = cache.get(key)
-    if not isinstance(stored, str) or not constant_time_compare(stored, nonce):
-        raise DeletionLinkInvalid()
-    if not cache.delete(key):
-        # Another confirm removed it first.
+    if not _take_nonce(_cache_key(user_pk), nonce):
         raise DeletionLinkInvalid()
     return user_pk
+
+
+# Delete KEYS[1] only if it still holds ARGV[1], in one step on the server.
+_COMPARE_AND_DELETE = (
+    "if redis.call('GET', KEYS[1]) == ARGV[1] then "
+    "return redis.call('DEL', KEYS[1]) else return 0 end"
+)
+
+
+def _take_nonce(key: str, nonce: str) -> bool:
+    """Delete the stored nonce if it equals ``nonce``; True if this call did.
+
+    On Redis (every deployed environment, and the test run) the compare and
+    the delete are one Lua script, so of two racing confirms only one wins,
+    and a superseded link can never delete, or win against, the current
+    nonce. The value is compared in django-redis's serialised form, which is
+    exactly what ``cache.set`` stored. Any other backend (a local in-memory
+    cache) gets the non-atomic get, compare and delete.
+    """
+    from django_redis.cache import RedisCache
+    from redis.exceptions import RedisError
+
+    backend = caches[DEFAULT_CACHE_ALIAS]
+    if isinstance(backend, RedisCache):
+        client = backend.client
+        try:
+            deleted = client.get_client(write=True).eval(
+                _COMPARE_AND_DELETE,
+                1,
+                client.make_key(key),
+                client.encode(nonce),
+            )
+        except RedisError as exc:
+            # Fail closed, like a cache read that IGNORE_EXCEPTIONS turns
+            # into a miss: the link reads as invalid.
+            logger.error(
+                f"[ACCOUNT DELETE] Could not check a deletion link nonce: "
+                f"{type(exc).__name__}"
+            )
+            return False
+        return bool(deleted)
+
+    stored = backend.get(key)
+    if not isinstance(stored, str) or not constant_time_compare(stored, nonce):
+        return False
+    return bool(backend.delete(key))
 
 
 def deliver_deletion_link(user: User) -> bool:
