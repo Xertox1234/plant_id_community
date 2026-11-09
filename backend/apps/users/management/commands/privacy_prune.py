@@ -15,7 +15,8 @@ class Command(BaseCommand):
     help = (
         "Delete email records, blog views and audit rows past retention, "
         "release held forum posts, re-queue stalled deletions and prune "
-        "orphaned Firebase logins and expired sessions."
+        "orphaned Firebase logins, expired sessions and unreachable "
+        "conversations."
     )
 
     def add_arguments(self, parser: Any) -> None:
@@ -40,3 +41,6 @@ class Command(BaseCommand):
             f"{counts['orphan_firebase_logins']}"
         )
         self.stdout.write(f"expired sessions ({verb} delete): {counts['sessions']}")
+        self.stdout.write(
+            f"unreachable conversations ({verb} delete): {counts['conversations']}"
+        )

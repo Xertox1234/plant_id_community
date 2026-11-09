@@ -43,6 +43,7 @@ from rest_framework.response import Response
 from .authentication import clear_jwt_cookies
 from .constants import (
     ACCOUNT_DELETE_AUTH_TIME_SKEW_SECONDS,
+    ACCOUNT_DELETE_CONFIRM_RATE_IP,
     ACCOUNT_DELETE_CONTACT_SUPPORT_CODE,
     ACCOUNT_DELETE_CONTACT_SUPPORT_MESSAGE,
     ACCOUNT_DELETE_LINK_INVALID_CODE,
@@ -271,8 +272,11 @@ def account_delete_email_key(group: Optional[str], request: HttpRequest) -> str:
 def request_account_deletion_link(request: Request) -> Response:
     """Email a deletion confirm link if an active account holds the address.
 
-    The answer never says whether one does, and the mail is sent from Celery
-    so the response time does not either.
+    The answer never says whether one does. The mail itself is built and
+    sent by Celery, but a known active address still costs one extra broker
+    publish (the task enqueue) that an unknown address does not, so the
+    response time can differ slightly; the per-IP and per-address limits
+    bound how far that can be probed.
     """
     email = _normalised_email(request)
     user = None
@@ -311,6 +315,7 @@ def request_account_deletion_link(request: Request) -> Response:
             "replaced by a newer one; `code` is `link_invalid`.",
         ),
         409: _REFUSED,
+        429: RATE_LIMITED,
     },
     examples=[
         OpenApiExample(
@@ -326,6 +331,13 @@ def request_account_deletion_link(request: Request) -> Response:
 # check, which only guards a session).
 @authentication_classes([])
 @permission_classes([permissions.AllowAny])
+@ratelimit(
+    group="account_delete_confirm_ip",
+    key=client_ip_key,
+    rate=ACCOUNT_DELETE_CONFIRM_RATE_IP,
+    method="POST",
+    block=True,
+)
 def confirm_account_deletion(request: Request) -> Response:
     """Delete the account an emailed link names. The link works once.
 

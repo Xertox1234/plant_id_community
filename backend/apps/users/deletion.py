@@ -20,7 +20,7 @@ from auditlog.registry import auditlog
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.db import router, transaction
-from django.db.models import Exists, OuterRef, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.deletion import Collector
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -578,15 +578,82 @@ def _erase_django(user: User) -> None:
     reacted_post_ids = list(
         Reaction.objects.filter(user=user).values_list("post_id", flat=True).distinct()
     )
+    conversation_ids = _conversation_ids_of(user)
     delete_avatar_files_on_commit(user, avatar_file_names(user))
     ForumProfile.objects.filter(user=user).update(fcm_token="")
     _delete_owned_audit_rows(user)
     # The cascades remove the rest. Scan photos go through their on-commit
     # post_delete receiver; the garden app's User receivers purge its rows.
     user.delete()
+    # A thread the user was the last member of is now unreachable: delete it
+    # with its messages instead of keeping their bodies forever.
+    delete_unreachable_conversations(pk__in=conversation_ids)
     # Reaction rows cascade without recounting the posts' denormalized counts.
     for post in Post.objects.filter(pk__in=reacted_post_ids).order_by("pk"):
         Reaction.recount(post)
+
+
+def _conversation_ids_of(user: User) -> list[int]:
+    """Every conversation ``user`` is in: a membership row (any kind) or a
+    side of a direct pair."""
+    from wagtail_forum.models import Conversation, ConversationParticipant
+
+    member_of = ConversationParticipant.objects.filter(user=user).values(
+        "conversation_id"
+    )
+    return list(
+        Conversation.objects.filter(
+            Q(pk__in=member_of) | Q(participant_a=user) | Q(participant_b=user)
+        ).values_list("pk", flat=True)
+    )
+
+
+def unreachable_conversations(**filters: Any) -> QuerySet[Any]:
+    """Conversations nobody can open any more, narrowed by ``filters``.
+
+    A direct thread with both sides gone (``participant_a`` and
+    ``participant_b`` NULL), or a group with no membership row. Direct
+    threads keep membership rows too, so either test alone would do for
+    them; both are kept to match each kind's own shape.
+
+    A thread with a message whose report is still in the moderation queue
+    (open or auto-hidden) is left alone, like a held forum post (ruling R9):
+    deleting it would cascade the report away. The nightly prune deletes it
+    once the report leaves the queue.
+    """
+    from wagtail_forum.models import (
+        Conversation,
+        ConversationKind,
+        ConversationParticipant,
+        Report,
+    )
+
+    members = ConversationParticipant.objects.filter(conversation=OuterRef("pk"))
+    queued = Report.objects.filter(
+        message__conversation=OuterRef("pk"), status__in=moderation_queue_statuses()
+    )
+    unreachable: QuerySet[Any] = (
+        Conversation.objects.filter(**filters)
+        .filter(
+            Q(
+                kind=ConversationKind.DIRECT,
+                participant_a__isnull=True,
+                participant_b__isnull=True,
+            )
+            | (Q(kind=ConversationKind.GROUP) & ~Exists(members))
+        )
+        .filter(~Exists(queued))
+    )
+    return unreachable
+
+
+def delete_unreachable_conversations(**filters: Any) -> int:
+    """Delete ``unreachable_conversations(**filters)`` with their messages
+    (and memberships) by cascade; return how many conversations went."""
+    from wagtail_forum.models import Conversation
+
+    _, per_model = unreachable_conversations(**filters).delete()
+    return per_model.get(Conversation._meta.label, 0)
 
 
 def _delete_owned_audit_rows(user: User) -> None:

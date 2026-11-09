@@ -20,6 +20,13 @@ from .models import ActivityLog, DeletedAccount, User, UserMessage, UserPlantCol
 logger = logging.getLogger(__name__)
 
 
+def _can_delete_accounts(request) -> bool:
+    """Gate for the account-deletion admin actions: a superuser, or staff
+    holding ``users.delete_user``. View/change on User is not enough."""
+    user = request.user
+    return bool(user.is_superuser or user.has_perm("users.delete_user"))
+
+
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
     """Custom User admin with additional fields."""
@@ -123,6 +130,9 @@ class UserAdmin(BaseUserAdmin):
         # also hides Django's bulk delete_selected (it needs delete permission).
         return False
 
+    def has_delete_account_permission(self, request):
+        return _can_delete_accounts(request)
+
     def _delete_accounts(self, request, queryset, reason):
         scheduled = 0
         already_gone = 0
@@ -138,6 +148,12 @@ class UserAdmin(BaseUserAdmin):
                 already_gone += 1
             else:
                 scheduled += 1
+                logger.info(
+                    "[ACCOUNT DELETE] staff %s requested deletion of account %s (%s)",
+                    request.user.pk,
+                    user.pk,
+                    reason,
+                )
         if scheduled:
             self.message_user(
                 request,
@@ -158,15 +174,21 @@ class UserAdmin(BaseUserAdmin):
                 messages.WARNING,
             )
 
-    @admin.action(description="Delete account (staff)")
+    @admin.action(description="Delete account (staff)", permissions=["delete_account"])
     def delete_account_staff(self, request, queryset):
         self._delete_accounts(request, queryset, DELETED_ACCOUNT_REASON_STAFF)
 
-    @admin.action(description="Delete account (abuse — blocks re-sign-up)")
+    @admin.action(
+        description="Delete account (abuse — blocks re-sign-up)",
+        permissions=["delete_account"],
+    )
     def delete_account_abuse(self, request, queryset):
         self._delete_accounts(request, queryset, DELETED_ACCOUNT_REASON_ABUSE)
 
-    @admin.action(description="Delete account (under 13 — blocks re-sign-up)")
+    @admin.action(
+        description="Delete account (under 13 — blocks re-sign-up)",
+        permissions=["delete_account"],
+    )
     def delete_account_under_13(self, request, queryset):
         self._delete_accounts(request, queryset, DELETED_ACCOUNT_REASON_UNDER_13)
 
@@ -297,7 +319,10 @@ class DeletedAccountAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
-    @admin.action(description="Retry erase")
+    def has_delete_account_permission(self, request):
+        return _can_delete_accounts(request)
+
+    @admin.action(description="Retry erase", permissions=["delete_account"])
     def retry_erase(self, request, queryset):
         from .tasks import delete_account_task
 
@@ -306,10 +331,22 @@ class DeletedAccountAdmin(admin.ModelAdmin):
                 "pk", flat=True
             )
         )
+        failed = 0
         for record_id in ids:
-            delete_account_task.delay(record_id)
+            try:
+                delete_account_task.delay(record_id)
+            except Exception as exc:
+                # A broker error on one row must not hide the rest; the
+                # nightly re-queue of stale pending rows tries it again.
+                failed += 1
+                logger.error(
+                    "[ACCOUNT DELETE] retry of deletion %s could not be queued: %s",
+                    record_id,
+                    type(exc).__name__,
+                )
+        requeued = len(ids) - failed
         self.message_user(
             request,
-            f"{len(ids)} erase job(s) re-queued (pending rows only).",
-            messages.SUCCESS,
+            f"{requeued} re-queued, {failed} failed (pending rows only).",
+            messages.WARNING if failed else messages.SUCCESS,
         )

@@ -16,6 +16,9 @@
   them. Log-only unless ``settings.ORPHAN_FIREBASE_PRUNE_ENABLED``.
 - ``prune_expired_sessions``: expired ``django.contrib.sessions`` rows, like
   ``manage.py clearsessions``.
+- ``prune_unreachable_conversations``: DM threads every member of which has
+  been deleted (the deletion's own ``django`` step removes the ones it
+  creates; this catches older ones and those a queued report held).
 
 Every part takes ``dry_run``: it then counts what it would do and changes and
 queues nothing. Every part is idempotent, so an overlapping or retried run
@@ -48,7 +51,12 @@ from .constants import (
     PRIVACY_PRUNE_BATCH,
     PRIVACY_RETENTION_DAYS,
 )
-from .deletion import erase_post, moderation_queue_statuses
+from .deletion import (
+    delete_unreachable_conversations,
+    erase_post,
+    moderation_queue_statuses,
+    unreachable_conversations,
+)
 from .models import DeletedAccount
 
 logger = logging.getLogger(__name__)
@@ -80,6 +88,7 @@ def run_privacy_prune(dry_run: bool = False) -> dict[str, Any]:
         ),
         ("retention", lambda: prune_retention(now, dry_run=dry_run)),
         ("sessions", lambda: prune_expired_sessions(now, dry_run=dry_run)),
+        ("conversations", lambda: prune_unreachable_conversations(dry_run=dry_run)),
     )
     counts: dict[str, Any] = {}
     failures: list[Exception] = []
@@ -115,6 +124,22 @@ def prune_expired_sessions(now: datetime | None = None, dry_run: bool = False) -
     if not dry_run:
         import_string(f"{settings.SESSION_ENGINE}.SessionStore").clear_expired()
     return count
+
+
+# --- unreachable conversations ----------------------------------------------
+
+
+def prune_unreachable_conversations(dry_run: bool = False) -> int:
+    """Delete conversations nobody can open any more, with their messages
+    (``deletion.unreachable_conversations``). Returns how many were deleted;
+    in a dry run, how many would be."""
+    if dry_run:
+        return int(unreachable_conversations().count())
+    with disable_auditlog():
+        deleted = delete_unreachable_conversations()
+    if deleted:
+        logger.info("[PRIVACY PRUNE] deleted %s unreachable conversations", deleted)
+    return deleted
 
 
 # --- retention ---------------------------------------------------------------

@@ -202,6 +202,46 @@ def test_mobile_revoked_token_needs_reauth(
     assert response.json()["code"] == "reauth_required"
 
 
+@pytest.mark.parametrize("token", [{}, "", None, 42])
+def test_mobile_missing_or_malformed_token_needs_reauth(
+    client, user, queued, django_capture_on_commit_callbacks, token
+):
+    with patch.object(auth, "verify_id_token") as verify:
+        response = _post(
+            _bearer(client, user),
+            DELETE_URL,
+            {"firebase_token": token},
+            django_capture_on_commit_callbacks,
+        )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "reauth_required"
+    verify.assert_not_called()
+    user.refresh_from_db()
+    assert user.is_active is True
+    queued.assert_not_called()
+
+
+def test_mobile_disabled_firebase_user_needs_reauth(
+    client, user, queued, django_capture_on_commit_callbacks
+):
+    with patch.object(
+        auth, "verify_id_token", side_effect=auth.UserDisabledError("disabled")
+    ):
+        response = _post(
+            _bearer(client, user),
+            DELETE_URL,
+            {"firebase_token": "fake-id-token"},
+            django_capture_on_commit_callbacks,
+        )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "reauth_required"
+    user.refresh_from_db()
+    assert user.is_active is True
+    queued.assert_not_called()
+
+
 def test_mobile_auth_time_in_the_future_needs_reauth(
     client, user, queued, django_capture_on_commit_callbacks
 ):
@@ -501,12 +541,55 @@ def test_superseded_link_leaves_the_current_one_working(
     assert response.status_code == 202
 
 
-def test_confirm_uses_the_atomic_redis_path():
-    """The run exercises the Lua compare-and-delete, not the fallback."""
+def test_confirm_uses_the_atomic_redis_path(
+    client, user, queued, django_capture_on_commit_callbacks
+):
+    """The run exercises the Lua compare-and-delete, not the fallback: the
+    confirm goes through the raw Redis client's ``eval``."""
     from django.core.cache import caches
     from django_redis.cache import RedisCache
 
-    assert isinstance(caches["default"], RedisCache)
+    backend = caches["default"]
+    assert isinstance(backend, RedisCache)
+    token = _request_link(client, django_capture_on_commit_callbacks)
+    raw = backend.client.get_client(write=True)
+    with patch.object(raw, "eval", wraps=raw.eval) as spy:
+        response = _post(
+            client, CONFIRM_URL, {"token": token}, django_capture_on_commit_callbacks
+        )
+
+    assert response.status_code == 202
+    spy.assert_called_once()
+    script, numkeys, key, _value = spy.call_args.args
+    assert "redis.call('DEL', KEYS[1])" in script
+    assert numkeys == 1
+    assert key == backend.client.make_key(f"users:account_delete:nonce:{user.pk}")
+
+
+def test_nonce_cache_key_follows_the_project_convention():
+    assert ACCOUNT_DELETE_LINK_CACHE_PREFIX == "users:account_delete:nonce:"
+
+
+def test_confirm_rate_limited_per_ip(client, queued):
+    with freeze_time(datetime.now(timezone.utc)):
+        for _ in range(10):
+            response = client.post(
+                CONFIRM_URL, {"token": "not-a-signed-token"}, format="json"
+            )
+            assert response.status_code == 400
+        response = client.post(
+            CONFIRM_URL, {"token": "not-a-signed-token"}, format="json"
+        )
+        other_ip = client.post(
+            CONFIRM_URL,
+            {"token": "not-a-signed-token"},
+            format="json",
+            REMOTE_ADDR="10.0.0.77",
+        )
+
+    assert response.status_code == 429
+    assert int(response["Retry-After"]) > 0
+    assert other_ip.status_code == 400
 
 
 def test_confirm_expired_token(

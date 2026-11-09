@@ -169,12 +169,17 @@ ACCOUNT_DELETE_CONTACT_SUPPORT_MESSAGE = (
 # IP and per normalised address.
 ACCOUNT_DELETE_REQUEST_RATE_IP = "5/h"
 ACCOUNT_DELETE_REQUEST_RATE_EMAIL = "3/h"
+# POST account/delete/confirm/ is limited per client IP: the signed token
+# cannot be guessed, but a public endpoint still gets a ceiling.
+ACCOUNT_DELETE_CONFIRM_RATE_IP = "10/h"
 ACCOUNT_DELETE_REQUEST_SENT_STATUS = "sent"
 ACCOUNT_DELETE_LINK_TTL_SECONDS = 3600
 ACCOUNT_DELETE_LINK_SALT = "account-delete"
-# The link's one-time nonce lives in the cache under this prefix + user pk; a
-# new request replaces it, so only the newest link works.
-ACCOUNT_DELETE_LINK_CACHE_PREFIX = "account-delete:"
+# The link's one-time nonce lives in the cache under this prefix + user pk
+# (``users:account_delete:nonce:<pk>``: colon-separated, app first, like
+# ``blog:post:v2``; backend/docs/patterns/architecture/caching.md). A new
+# request replaces it, so only the newest link works.
+ACCOUNT_DELETE_LINK_CACHE_PREFIX = "users:account_delete:nonce:"
 ACCOUNT_DELETE_LINK_NONCE_BYTES = 32
 ACCOUNT_DELETE_LINK_PATH = "/delete-account/confirm"
 ACCOUNT_DELETE_LINK_SUBJECT = "Confirm you want to delete your Houseplant MD account"

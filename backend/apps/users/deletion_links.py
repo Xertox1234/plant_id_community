@@ -1,7 +1,7 @@
 """The emailed account-deletion link (Plan B task 6).
 
 A link carries ``signing.dumps({"u": pk, "n": nonce})``. The nonce also sits in
-the cache under ``account-delete:<pk>`` for the link's lifetime, so a link
+the cache under ``users:account_delete:nonce:<pk>`` for the link's lifetime, so a link
 works once (confirming deletes the nonce) and only the newest link works (a
 new request replaces the nonce). The link is built in the Celery worker, so
 the token never travels through the broker.

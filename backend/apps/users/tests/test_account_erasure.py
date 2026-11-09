@@ -679,3 +679,83 @@ def test_forum_avatar_upload_is_deleted(
 
     assert not get_image_model().objects.filter(pk=avatar.pk).exists()
     assert not avatar_path.exists()
+
+
+# --- conversations nobody can reach any more --------------------------------
+
+
+def _erase(user):
+    erase_django_data(_record(user))
+
+
+def test_direct_thread_survives_one_side_and_goes_with_the_last(target, other):
+    from wagtail_forum.models import ConversationParticipant
+
+    thread = Conversation.between(target, other)
+    Message.objects.create(conversation=thread, sender=target, body="first")
+    Message.objects.create(conversation=thread, sender=other, body="reply")
+
+    _erase(target)
+
+    assert Conversation.objects.filter(pk=thread.pk).exists()
+    assert Message.objects.filter(conversation=thread).count() == 2
+
+    _erase(other)
+
+    assert not Conversation.objects.filter(pk=thread.pk).exists()
+    assert not Message.objects.filter(conversation_id=thread.pk).exists()
+    assert not ConversationParticipant.objects.filter(
+        conversation_id=thread.pk
+    ).exists()
+
+
+def test_group_whose_last_member_is_deleted_is_gone(target, other):
+    group = Conversation.create_group(target, "ferns", [other])
+    Message.objects.create(conversation=group, sender=other, body="hello group")
+    _erase(other)
+    assert Conversation.objects.filter(pk=group.pk).exists()
+
+    _erase(target)
+
+    assert not Conversation.objects.filter(pk=group.pk).exists()
+    assert not Message.objects.filter(conversation_id=group.pk).exists()
+
+
+def test_group_with_members_left_stays(target, other):
+    third = User.objects.create_user(
+        username="third7", email="third7@example.org", password="x" * 16
+    )
+    group = Conversation.create_group(target, "ferns", [other, third])
+    Message.objects.create(conversation=group, sender=target, body="from target")
+
+    _erase(target)
+
+    assert Conversation.objects.filter(pk=group.pk).exists()
+    assert group.participant_ids() == {other.pk, third.pk}
+    assert Message.objects.filter(conversation=group).count() == 1
+
+
+def test_only_the_users_own_orphans_go_in_the_django_step(target, other):
+    """The step is limited to the deleted user's conversations: an older
+    orphan elsewhere is left for the nightly prune."""
+    third = User.objects.create_user(
+        username="third7", email="third7@example.org", password="x" * 16
+    )
+    elsewhere = Conversation.between(other, third)
+    other.delete()
+    third.delete()
+
+    _erase(target)
+
+    assert Conversation.objects.filter(pk=elsewhere.pk).exists()
+
+
+def test_orphan_with_a_queued_message_report_is_held(target, other):
+    thread = Conversation.between(target, other)
+    message = Message.objects.create(conversation=thread, sender=target, body="x")
+    Report.objects.create(message=message, reason=Report.SPAM, status=Report.OPEN)
+    other.delete()
+
+    _erase(target)
+
+    assert Conversation.objects.filter(pk=thread.pk).exists()

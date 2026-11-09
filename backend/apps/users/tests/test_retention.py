@@ -674,3 +674,89 @@ def test_a_failing_sessions_part_does_not_stop_the_others_then_reraises():
 
     assert not EmailNotification.objects.filter(pk=old.pk).exists()
     capture.assert_called_once()
+
+
+# --- unreachable conversations ------------------------------------------------
+
+
+def _orphans():
+    from wagtail_forum.models import Conversation, Message
+
+    a = User.objects.create_user(username="dm-a", email="dm-a@example.org")
+    b = User.objects.create_user(username="dm-b", email="dm-b@example.org")
+    c = User.objects.create_user(username="dm-c", email="dm-c@example.org")
+    direct = Conversation.between(b, c)
+    Message.objects.create(conversation=direct, sender=b, body="old dm")
+    group = Conversation.create_group(c, "old group", [])
+    Message.objects.create(conversation=group, sender=c, body="old group msg")
+    # One side (a) still exists: reachable, kept.
+    live = Conversation.between(a, b)
+    # Deleted before the erase step existed: plain deletes, no clean-up.
+    b.delete()
+    c.delete()
+    return direct, group, live
+
+
+def test_nightly_part_deletes_existing_orphans():
+    from wagtail_forum.models import Conversation, Message
+
+    direct, group, live = _orphans()
+
+    with patch("apps.users.retention.initialize_firebase", return_value=False):
+        counts = retention.run_privacy_prune()
+
+    assert counts["conversations"] == 2
+    assert set(Conversation.objects.values_list("pk", flat=True)) == {live.pk}
+    assert not Message.objects.filter(conversation_id__in=[direct.pk, group.pk])
+
+
+def test_nightly_conversations_dry_run_deletes_nothing():
+    from wagtail_forum.models import Conversation
+
+    direct, group, live = _orphans()
+
+    with patch("apps.users.retention.initialize_firebase", return_value=False):
+        counts = retention.run_privacy_prune(dry_run=True)
+
+    assert counts["conversations"] == 2
+    assert (
+        Conversation.objects.filter(pk__in=[direct.pk, group.pk, live.pk]).count() == 3
+    )
+
+
+def test_a_failing_conversations_part_does_not_stop_the_others():
+    old = _notification(91 * DAY)
+
+    with (
+        patch("apps.users.retention.initialize_firebase", return_value=False),
+        patch.object(
+            retention,
+            "prune_unreachable_conversations",
+            side_effect=RuntimeError("dm"),
+        ),
+        patch("apps.users.retention.sentry_sdk.capture_exception") as capture,
+        pytest.raises(RuntimeError, match="dm"),
+    ):
+        retention.run_privacy_prune()
+
+    assert not EmailNotification.objects.filter(pk=old.pk).exists()
+    capture.assert_called_once()
+
+
+def test_task_summary_log_includes_sessions_and_conversations():
+    with (
+        patch("apps.users.retention.initialize_firebase", return_value=False),
+        patch("apps.users.tasks.logger") as logger,
+    ):
+        privacy_retention_prune.apply()
+
+    summary = [
+        c.args
+        for c in logger.info.call_args_list
+        if c.args[0].startswith("[PRIVACY PRUNE] retention=")
+    ]
+    assert len(summary) == 1
+    fmt, *values = summary[0]
+    rendered = fmt % tuple(values)
+    assert "sessions=0" in rendered
+    assert "conversations=0" in rendered
