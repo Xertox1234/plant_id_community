@@ -10,6 +10,7 @@ import '../../core/routing/app_router.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../services/account_deletion_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/firestore_service.dart';
 import '../../services/user_profile_service.dart';
 import '../../shared/widgets/canopy_notice.dart';
 import '../../shared/widgets/canopy_surfaces.dart';
@@ -68,6 +69,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     final profile = ref.exists(userProfileServiceProvider)
         ? ref.read(userProfileServiceProvider.notifier)
         : null;
+    final clearOfflineCache = ref.read(firestoreOfflineCacheClearerProvider);
     final method = auth.reauthMethod;
     if (method == null) {
       await _showError(reauthUnsupportedMessage);
@@ -103,7 +105,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
       case AccountDeletionScheduled():
         // Mounted or not: the account is inactive now, so this device must
         // not stay signed in to it.
-        await _endSession(auth, profile);
+        await _endSession(auth, profile, clearOfflineCache);
         if (!mounted) return;
         await showDialog<void>(
           context: context,
@@ -126,7 +128,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
       case AccountDeletionSignedOut():
         // Already scheduled from another device (ruling R15): the account is
         // inactive, so this session is over. No error to show.
-        await _endSession(auth, profile);
+        await _endSession(auth, profile, clearOfflineCache);
         if (mounted) context.go(AppRoutes.login);
       case AccountDeletionFailed(:final message):
         await _showError(message);
@@ -136,19 +138,30 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
   }
 
   /// Signs out (JWT and Firebase session) through the notifier held since
-  /// the tap, and forgets the account profile, as the Profile logout does.
-  /// Never throws, and needs no `ref`: it runs even after this screen is
-  /// gone. A failed sign-out is not shown: the deletion is already scheduled
-  /// and the account inactive.
+  /// the tap, clears the on-device Firestore offline cache (the deleted
+  /// account's `users/<uid>/identified_plants`), and forgets the account
+  /// profile, as the Profile logout does. Never throws, and needs no `ref`:
+  /// it runs even after this screen is gone. A failed sign-out or cache
+  /// clear is not shown: the deletion is already scheduled and the account
+  /// inactive.
   Future<void> _endSession(
     AuthService auth,
     UserProfileService? profile,
+    Future<void> Function() clearOfflineCache,
   ) async {
     if (mounted) setState(() => _finished = true);
     try {
       await auth.signOut();
     } catch (e) {
       if (kDebugMode) debugPrint('[ACCOUNT DELETE] Sign-out failed: $e');
+    }
+    // After the sign-out, so the signed-in streams are torn down first.
+    try {
+      await clearOfflineCache();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[ACCOUNT DELETE] Offline cache clear failed: $e');
+      }
     }
     try {
       profile?.clear();

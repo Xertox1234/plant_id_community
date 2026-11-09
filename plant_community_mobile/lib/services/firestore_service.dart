@@ -18,6 +18,31 @@ final firebaseFirestoreProvider = Provider<FirebaseFirestore>(
   (ref) => FirebaseFirestore.instance,
 );
 
+/// Drops this device's Firestore offline cache (`users/<uid>/...` documents
+/// persisted for offline use): [FirebaseFirestore.terminate], then
+/// [FirebaseFirestore.clearPersistence], which the SDK only allows on an
+/// instance that is terminated or not yet started.
+///
+/// The app keeps using Firestore afterwards in the same process. The Dart
+/// [FirebaseFirestore] object stays cached, but `terminate` removes the
+/// native instance from the plugin's cache (iOS
+/// `destroyCachedInstanceForFirestore`, Android
+/// `destroyCachedFirebaseFirestoreInstanceForKey`), and the next call
+/// (`clearPersistence` here, then the next sign-in's queries) builds a fresh
+/// native instance with the same settings (cloud_firestore 6.10.2).
+Future<void> clearFirestoreOfflineCache(FirebaseFirestore firestore) async {
+  await firestore.terminate();
+  await firestore.clearPersistence();
+}
+
+/// Seam for [clearFirestoreOfflineCache] on the app's Firestore, so a widget
+/// test can fake it. Resolved lazily: reading the real instance throws when
+/// Firebase is not initialised, and the caller treats that as non-fatal.
+final firestoreOfflineCacheClearerProvider = Provider<Future<void> Function()>(
+  (ref) =>
+      () => clearFirestoreOfflineCache(ref.read(firebaseFirestoreProvider)),
+);
+
 /// Firestore service for offline data persistence and cross-device sync
 ///
 /// This service provides:

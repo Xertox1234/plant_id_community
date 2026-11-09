@@ -11,6 +11,7 @@ import 'package:plant_community_mobile/features/settings/delete_account_screen.d
 import 'package:plant_community_mobile/services/account_deletion_service.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
+import 'package:plant_community_mobile/services/firestore_service.dart';
 
 import '../forum/support/forum_test_support.dart';
 
@@ -85,6 +86,9 @@ class _Harness {
   final List<Uri> launched = [];
   late final GoRouter router;
 
+  /// When set, the offline-cache clear throws it (it must stay non-fatal).
+  Object? clearCacheError;
+
   Widget build() {
     // The screen sits on top of a home page, so a back can pop it.
     router = GoRouter(
@@ -113,6 +117,11 @@ class _Harness {
         externalLinkLauncherProvider.overrideWithValue((uri) async {
           launched.add(uri);
           return true;
+        }),
+        firestoreOfflineCacheClearerProvider.overrideWithValue(() async {
+          events.add('clearCache');
+          final error = clearCacheError;
+          if (error != null) throw error;
         }),
       ],
       child: MaterialApp.router(
@@ -155,7 +164,12 @@ void main() {
 
     await _tapDelete(tester);
 
-    expect(harness.events, ['reauth', 'delete:fresh-token', 'signOut']);
+    expect(harness.events, [
+      'reauth',
+      'delete:fresh-token',
+      'signOut',
+      'clearCache',
+    ]);
     expect(find.text(_finalMessage), findsOneWidget);
 
     await tester.tap(find.text('OK'));
@@ -176,7 +190,12 @@ void main() {
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle();
 
-    expect(harness.events, ['reauth:hunter2', 'delete:fresh-token', 'signOut']);
+    expect(harness.events, [
+      'reauth:hunter2',
+      'delete:fresh-token',
+      'signOut',
+      'clearCache',
+    ]);
   });
 
   testWidgets('cancelling the password dialog sends nothing', (tester) async {
@@ -241,9 +260,33 @@ void main() {
 
     await _tapDelete(tester);
 
-    expect(harness.events, ['reauth', 'delete:fresh-token', 'signOut']);
+    expect(harness.events, [
+      'reauth',
+      'delete:fresh-token',
+      'signOut',
+      'clearCache',
+    ]);
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.text('LOGIN SCREEN'), findsOneWidget);
+  });
+
+  testWidgets('a failing offline-cache clear is not fatal: the final dialog '
+      'still shows', (tester) async {
+    final harness = _Harness();
+    harness.clearCacheError = StateError('firestore not initialised');
+    await tester.pumpWidget(harness.build());
+    await tester.pumpAndSettle();
+
+    await _tapDelete(tester);
+
+    expect(harness.events, [
+      'reauth',
+      'delete:fresh-token',
+      'signOut',
+      'clearCache',
+    ]);
+    expect(find.text(_finalMessage), findsOneWidget);
+    expect(harness.auth.state.isAuthenticated, isFalse);
   });
 
   testWidgets('a user with no supported sign-in method is told so', (
@@ -309,7 +352,12 @@ void main() {
     harness.deletion.gate!.complete();
     await tester.pumpAndSettle();
 
-    expect(harness.events, ['reauth', 'delete:fresh-token', 'signOut']);
+    expect(harness.events, [
+      'reauth',
+      'delete:fresh-token',
+      'signOut',
+      'clearCache',
+    ]);
     expect(tester.takeException(), isNull);
   });
 
