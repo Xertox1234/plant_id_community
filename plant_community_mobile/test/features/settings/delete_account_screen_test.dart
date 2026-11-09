@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -56,9 +58,14 @@ class _FakeDeletion extends AccountDeletionService {
   final List<String> events;
   AccountDeletionResult result = const AccountDeletionScheduled();
 
+  /// When set, the request stays in flight until it completes.
+  Completer<void>? gate;
+
   @override
   Future<AccountDeletionResult> deleteAccount(String firebaseToken) async {
     events.add('delete:$firebaseToken');
+    final g = gate;
+    if (g != null) await g.future;
     return result;
   }
 }
@@ -76,14 +83,22 @@ class _Harness {
   final _FakeAuth auth;
   final _FakeDeletion deletion;
   final List<Uri> launched = [];
+  late final GoRouter router;
 
   Widget build() {
-    final router = GoRouter(
+    // The screen sits on top of a home page, so a back can pop it.
+    router = GoRouter(
       initialLocation: DeleteAccountScreen.routePath,
       routes: [
         GoRoute(
-          path: DeleteAccountScreen.routePath,
-          builder: (_, _) => const DeleteAccountScreen(),
+          path: '/',
+          builder: (_, _) => const Scaffold(body: Text('HOME')),
+          routes: [
+            GoRoute(
+              path: DeleteAccountScreen.routePath.substring(1),
+              builder: (_, _) => const DeleteAccountScreen(),
+            ),
+          ],
         ),
         GoRoute(
           path: '/login',
@@ -240,6 +255,62 @@ void main() {
 
     expect(harness.events, isEmpty);
     expect(find.text(reauthUnsupportedMessage), findsOneWidget);
+  });
+
+  testWidgets('the final dialog does not claim the deletion is done', (
+    tester,
+  ) async {
+    await _pump(tester);
+
+    await _tapDelete(tester);
+
+    expect(find.text('Account deletion started'), findsOneWidget);
+    expect(find.text('Account deleted'), findsNothing);
+  });
+
+  testWidgets('back is blocked while the request runs, and works again '
+      'after', (tester) async {
+    final harness = await _pump(tester);
+    harness.deletion.gate = Completer<void>();
+    harness.deletion.result = const AccountDeletionFailed('Nope.');
+    expect(find.byType(BackButton), findsOneWidget);
+
+    await tester.tap(find.text('Delete my account'));
+    await tester.pump();
+    expect(find.byType(BackButton), findsNothing);
+
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(find.byType(DeleteAccountScreen), findsOneWidget);
+    expect(find.text('HOME'), findsNothing);
+
+    harness.deletion.gate!.complete();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    expect(find.byType(BackButton), findsOneWidget);
+  });
+
+  testWidgets('a 202 that lands after the screen is gone still signs out', (
+    tester,
+  ) async {
+    final harness = await _pump(tester);
+    harness.deletion.gate = Completer<void>();
+
+    await tester.tap(find.text('Delete my account'));
+    await tester.pump();
+    expect(harness.events, ['reauth', 'delete:fresh-token']);
+
+    // Something else navigates away (a push tap): the screen unmounts.
+    harness.router.go('/');
+    await tester.pumpAndSettle();
+    expect(find.byType(DeleteAccountScreen), findsNothing);
+
+    harness.deletion.gate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(harness.events, ['reauth', 'delete:fresh-token', 'signOut']);
+    expect(tester.takeException(), isNull);
   });
 
   for (final (platform, url) in [

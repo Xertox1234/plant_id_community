@@ -9,7 +9,7 @@ class _FakeApi extends ApiService {
 
   Exception? error;
   int status = 202;
-  final List<({String path, Object? data})> posts = [];
+  final List<({String path, Object? data, Options? options})> posts = [];
 
   @override
   Future<Response> post(
@@ -20,7 +20,7 @@ class _FakeApi extends ApiService {
     void Function(int sent, int total)? onSendProgress,
     Duration? receiveTimeout,
   }) async {
-    posts.add((path: path, data: data));
+    posts.add((path: path, data: data, options: options));
     final e = error;
     if (e != null) throw e;
     return Response<dynamic>(
@@ -46,6 +46,16 @@ void main() {
     expect(api.posts, hasLength(1));
     expect(api.posts.single.path, '/auth/account/delete/');
     expect(api.posts.single.data, {'firebase_token': 'fresh-id-token'});
+  });
+
+  test('a refused 401 is not turned into "Your session expired": the '
+      'screen signs out itself, so the expiry flow is skipped, but the token '
+      'refresh still runs', () async {
+    await service.deleteAccount('t');
+
+    final extra = api.posts.single.options?.extra ?? const {};
+    expect(extra[ApiService.skipSessionExpiryKey], isTrue);
+    expect(extra[ApiService.skipAuthRefreshKey], isNot(isTrue));
   });
 
   test('202 is scheduled', () async {
@@ -129,12 +139,29 @@ void main() {
   test('a network failure says the user is offline', () async {
     api.error = ApiException(
       'No internet connection. Please check your network.',
+      connectivity: true,
     );
 
     final result = await service.deleteAccount('t');
 
     expect((result as AccountDeletionFailed).message, offlineMessage);
   });
+
+  for (final (name, error) in [
+    (
+      'a refresh that could not run (session_refresh_unavailable)',
+      ApiException('Could not renew', code: sessionRefreshUnavailableCode),
+    ),
+    ('a cancelled request', ApiException('Request was cancelled')),
+  ]) {
+    test('$name is not "offline"', () async {
+      api.error = error;
+
+      final result = await service.deleteAccount('t');
+
+      expect((result as AccountDeletionFailed).message, tryAgainLaterMessage);
+    });
+  }
 
   test('any other failure is the generic try-later line', () async {
     api.error = ApiException('Bad request', statusCode: 400);

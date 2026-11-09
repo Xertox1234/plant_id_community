@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/constants/app_spacing.dart';
 import '../../core/routing/app_router.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../services/account_deletion_service.dart';
@@ -59,7 +60,14 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
   bool _finished = false;
 
   Future<void> _delete() async {
+    // Everything the flow needs, read before the first await: once the
+    // request is in flight the screen may be gone (something else navigated),
+    // and `ref` is unusable after dispose. The 202 must still sign out.
     final auth = ref.read(authServiceProvider.notifier);
+    final deletion = ref.read(accountDeletionServiceProvider);
+    final profile = ref.exists(userProfileServiceProvider)
+        ? ref.read(userProfileServiceProvider.notifier)
+        : null;
     final method = auth.reauthMethod;
     if (method == null) {
       await _showError(reauthUnsupportedMessage);
@@ -76,15 +84,13 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     }
 
     // Busy only while the requests run: a spinner left spinning under a
-    // dialog would never settle.
+    // dialog would never settle. Back is blocked while busy (PopScope).
     setState(() => _busy = true);
     AccountDeletionResult? result;
     String? reauthError;
     try {
       final token = await auth.freshIdTokenAfterReauth(password: password);
-      result = await ref
-          .read(accountDeletionServiceProvider)
-          .deleteAccount(token);
+      result = await deletion.deleteAccount(token);
     } on ReauthCancelledException {
       // Backed out: nothing sent, nothing to say.
     } on AuthException catch (e) {
@@ -92,30 +98,18 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-    if (!mounted) return;
-    if (reauthError != null) {
-      await _showError(reauthError);
-      return;
-    }
 
     switch (result) {
-      case null:
-        return;
-      case AccountDeletionFailed(:final message):
-        await _showError(message);
-      case AccountDeletionSignedOut():
-        // Already scheduled from another device (ruling R15): the account is
-        // inactive, so this session is over. No error to show.
-        await _endSession();
-        if (mounted) context.go(AppRoutes.login);
       case AccountDeletionScheduled():
-        await _endSession();
+        // Mounted or not: the account is inactive now, so this device must
+        // not stay signed in to it.
+        await _endSession(auth, profile);
         if (!mounted) return;
         await showDialog<void>(
           context: context,
           barrierDismissible: false,
           builder: (dialogContext) => AlertDialog(
-            title: const Text('Account deleted'),
+            title: const Text('Account deletion started'),
             content: const Text(
               "Your account is being deleted. You'll get an email when "
               "it's done.",
@@ -129,21 +123,38 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
           ),
         );
         if (mounted) context.go(AppRoutes.login);
+      case AccountDeletionSignedOut():
+        // Already scheduled from another device (ruling R15): the account is
+        // inactive, so this session is over. No error to show.
+        await _endSession(auth, profile);
+        if (mounted) context.go(AppRoutes.login);
+      case AccountDeletionFailed(:final message):
+        await _showError(message);
+      case null:
+        if (reauthError != null) await _showError(reauthError);
     }
   }
 
-  /// Signs out (JWT and Firebase session) and forgets the account profile,
-  /// as the Profile logout does. A failed sign-out is not shown: the
-  /// deletion is already scheduled and the account inactive.
-  Future<void> _endSession() async {
-    setState(() => _finished = true);
+  /// Signs out (JWT and Firebase session) through the notifier held since
+  /// the tap, and forgets the account profile, as the Profile logout does.
+  /// Never throws, and needs no `ref`: it runs even after this screen is
+  /// gone. A failed sign-out is not shown: the deletion is already scheduled
+  /// and the account inactive.
+  Future<void> _endSession(
+    AuthService auth,
+    UserProfileService? profile,
+  ) async {
+    if (mounted) setState(() => _finished = true);
     try {
-      await ref.read(authServiceProvider.notifier).signOut();
+      await auth.signOut();
     } catch (e) {
       if (kDebugMode) debugPrint('[ACCOUNT DELETE] Sign-out failed: $e');
     }
-    if (mounted && ref.exists(userProfileServiceProvider)) {
-      ref.read(userProfileServiceProvider.notifier).clear();
+    try {
+      profile?.clear();
+    } catch (e) {
+      // Disposed meanwhile: nothing holds a profile to clear.
+      if (kDebugMode) debugPrint('[ACCOUNT DELETE] Profile clear skipped: $e');
     }
   }
 
@@ -190,67 +201,80 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
       authServiceProvider.select((s) => s.isAuthenticated),
     );
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Delete account')),
-      body: SafeArea(
-        child: ListView(
-          padding: EdgeInsets.all(ext.padScreen),
-          children: [
-            if (!signedIn && !_finished)
-              const CanopyNotice(
-                message: 'Sign in to delete your account.',
-                liveRegion: false,
-              )
-            else ...[
-              Text(
-                'This permanently deletes your account, saved plants, '
-                'garden, scans and forum posts. Other people keep their copy '
-                "of messages you sent them. It can't be undone.",
-                style: text.bodyLarge?.copyWith(color: cs.onSurface),
-              ),
-              SizedBox(height: ext.gapY * 2),
-              Semantics(
-                link: true,
-                child: CanopyCard(
-                  onTap: _openSubscriptions,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          "Deleting your account doesn't cancel a Premium "
-                          'subscription. Manage subscriptions in the App '
-                          'Store or Google Play.',
-                          style: text.bodyMedium?.copyWith(color: cs.onSurface),
+    return PopScope(
+      // Leaving mid-request would leave nobody to show the outcome.
+      canPop: !_busy,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Delete account'),
+          automaticallyImplyLeading: !_busy,
+        ),
+        body: SafeArea(
+          child: ListView(
+            padding: EdgeInsets.all(ext.padScreen),
+            children: [
+              if (!signedIn && !_finished)
+                const CanopyNotice(
+                  message: 'Sign in to delete your account.',
+                  liveRegion: false,
+                )
+              else ...[
+                Text(
+                  'This permanently deletes your account, saved plants, '
+                  'garden, scans and forum posts. Other people keep their copy '
+                  "of messages you sent them. It can't be undone.",
+                  style: text.bodyLarge?.copyWith(color: cs.onSurface),
+                ),
+                SizedBox(height: ext.gapY * 2),
+                Semantics(
+                  link: true,
+                  child: CanopyCard(
+                    onTap: _openSubscriptions,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            "Deleting your account doesn't cancel a Premium "
+                            'subscription. Manage subscriptions in the App '
+                            'Store or Google Play.',
+                            style: text.bodyMedium?.copyWith(
+                              color: cs.onSurface,
+                            ),
+                          ),
                         ),
-                      ),
-                      SizedBox(width: ext.gapY),
-                      Icon(LucideIcons.externalLink, size: 18, color: ext.ink2),
-                    ],
+                        SizedBox(width: ext.gapY),
+                        Icon(
+                          LucideIcons.externalLink,
+                          size: AppSpacing.iconSM,
+                          color: ext.ink2,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              SizedBox(height: ext.gapY * 3),
-              FilledButton.icon(
-                onPressed: _busy ? null : _delete,
-                icon: _busy
-                    ? SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: cs.onError,
-                        ),
-                      )
-                    : const Icon(LucideIcons.trash2),
-                label: Text(_busy ? 'Deleting…' : 'Delete my account'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: cs.error,
-                  foregroundColor: cs.onError,
-                  minimumSize: const Size.fromHeight(48),
+                SizedBox(height: ext.gapY * 3),
+                FilledButton.icon(
+                  onPressed: _busy ? null : _delete,
+                  icon: _busy
+                      ? SizedBox.square(
+                          dimension: AppSpacing.iconSM,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: cs.onError,
+                          ),
+                        )
+                      : const Icon(LucideIcons.trash2),
+                  label: Text(_busy ? 'Deleting…' : 'Delete my account'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: cs.error,
+                    foregroundColor: cs.onError,
+                    minimumSize: const Size.fromHeight(48),
+                  ),
                 ),
-              ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -285,7 +309,7 @@ class _PasswordDialogState extends State<_PasswordDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text('Enter your password to delete your account.'),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           TextField(
             controller: _controller,
             obscureText: true,

@@ -613,6 +613,36 @@ void main() {
       );
     });
 
+    test(
+      'a refused Google credential is not called a wrong password',
+      () async {
+        final ada = _FakeUser(
+          uid: 'ada',
+          providerIds: ['google.com'],
+          reauthError: FirebaseAuthException(code: 'invalid-credential'),
+        );
+        final harness = _Harness(
+          currentUser: ada,
+          googleSignIn: _FakeGoogleSignIn(),
+        );
+        addTearDown(harness.dispose);
+        await pumpEventQueue();
+
+        await expectLater(
+          harness.container
+              .read(authServiceProvider.notifier)
+              .freshIdTokenAfterReauth(),
+          throwsA(
+            isA<AuthException>().having(
+              (e) => e.message,
+              'message',
+              reauthNotConfirmedMessage,
+            ),
+          ),
+        );
+      },
+    );
+
     test('with no Firebase user it throws a readable AuthException', () async {
       final harness = _Harness();
       addTearDown(harness.dispose);

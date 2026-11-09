@@ -125,6 +125,10 @@ const reauthWrongPasswordMessage =
 const reauthWrongAccountMessage =
     "That's a different account. Choose the account you're deleting.";
 
+/// Re-auth refused for a reason that is not a wrong password, e.g. a Google
+/// credential Firebase would not accept.
+const reauthNotConfirmedMessage = "Couldn't confirm it's you. Try again.";
+
 /// The signed-in account has no sign-in method re-auth supports.
 const reauthUnsupportedMessage =
     "We couldn't confirm it's you for this sign-in method. Contact support "
@@ -488,8 +492,9 @@ class AuthService extends _$AuthService {
     if (user == null) {
       throw AuthException('Sign in again to delete your account.');
     }
+    final method = reauthMethod;
     final AuthCredential credential;
-    switch (reauthMethod) {
+    switch (method) {
       case ReauthMethod.google:
         credential = await _freshGoogleCredential();
       case ReauthMethod.password:
@@ -518,7 +523,10 @@ class AuthService extends _$AuthService {
     } on FirebaseAuthException catch (e) {
       if (kDebugMode) debugPrint('[AUTH] Re-auth refused: ${e.code}');
       throw AuthException(switch (e.code) {
-        'wrong-password' || 'invalid-credential' => reauthWrongPasswordMessage,
+        'wrong-password' || 'invalid-credential'
+            when method == ReauthMethod.password =>
+          reauthWrongPasswordMessage,
+        'wrong-password' || 'invalid-credential' => reauthNotConfirmedMessage,
         'user-mismatch' => reauthWrongAccountMessage,
         _ => _handleFirebaseAuthException(e),
       });

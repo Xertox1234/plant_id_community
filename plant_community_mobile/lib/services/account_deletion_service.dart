@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart' show Options;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api_service.dart';
@@ -6,7 +7,8 @@ import 'api_service.dart';
 /// different Firebase user than the signed-in account).
 const reauthAgainMessage = "Please confirm it's you again.";
 
-/// No response at all: offline, a timeout, a refused host.
+/// The device could not reach the server: a connection error or a timeout
+/// ([ApiException.connectivity]).
 const offlineMessage = "You're offline. Connect and try again.";
 
 /// The 503 `verifier_unavailable`, and every other failure without a message
@@ -49,6 +51,11 @@ final class AccountDeletionFailed extends AccountDeletionResult {
 /// Goes through [ApiService], so the JWT interceptor attaches the bearer and
 /// an expired access token is refreshed once before a 401 reaches here. Not
 /// retried on a 5xx: a POST is not in the client's safe-retry set.
+///
+/// Sent with [ApiService.skipSessionExpiryKey]: when the refresh is refused
+/// (the account is already inactive, ruling R15), the 401 comes back here
+/// instead of ApiService signing out with "Your session expired", and the
+/// delete screen signs out itself.
 class AccountDeletionService {
   AccountDeletionService(this._api);
 
@@ -58,7 +65,11 @@ class AccountDeletionService {
 
   Future<AccountDeletionResult> deleteAccount(String firebaseToken) async {
     try {
-      await _api.post(path, data: {'firebase_token': firebaseToken});
+      await _api.post(
+        path,
+        data: {'firebase_token': firebaseToken},
+        options: Options(extra: {ApiService.skipSessionExpiryKey: true}),
+      );
       return const AccountDeletionScheduled();
     } on ApiException catch (e) {
       return _failure(e);
@@ -67,7 +78,11 @@ class AccountDeletionService {
 
   static AccountDeletionResult _failure(ApiException e) {
     final status = e.statusCode;
-    if (status == null) return const AccountDeletionFailed(offlineMessage);
+    if (status == null) {
+      return AccountDeletionFailed(
+        e.connectivity ? offlineMessage : tryAgainLaterMessage,
+      );
+    }
     if (status == 401) return const AccountDeletionSignedOut();
     if (status == 403 && e.code == 'reauth_required') {
       return const AccountDeletionFailed(reauthAgainMessage);
