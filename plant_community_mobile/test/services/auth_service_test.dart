@@ -453,6 +453,37 @@ void main() {
       );
     });
 
+    // With email-enumeration protection on, Firebase answers a wrong password
+    // AND an unknown or deleted account with `invalid-credential`; the raw
+    // Firebase text ("malformed or has expired") reached the sign-in screen.
+    test('a wrong password or unknown account shows a readable message, not '
+        "Firebase's raw text", () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      harness.firebaseAuth.signInError = FirebaseAuthException(
+        code: 'invalid-credential',
+        message: 'The supplied auth credential is malformed or has expired.',
+      );
+
+      await expectLater(
+        harness.container
+            .read(authServiceProvider.notifier)
+            .signInWithEmailPassword('ada@example.com', 'wrong'),
+        throwsA(
+          isA<AuthException>().having(
+            (e) => e.message,
+            'message',
+            'Incorrect email or password. Please try again.',
+          ),
+        ),
+      );
+      expect(
+        harness.container.read(authServiceProvider).error,
+        'Incorrect email or password. Please try again.',
+      );
+    });
+
     test('Resend sends the verification mail to the current user', () async {
       final ada = _FakeUser(uid: 'ada', emailVerified: false);
       final harness = _Harness(currentUser: ada);
@@ -2533,6 +2564,9 @@ class _FakeFirebaseAuth implements FirebaseAuth {
   /// The user `signInWithEmailAndPassword` signs in (todo 660).
   User? signInUser;
 
+  /// Thrown by `signInWithEmailAndPassword` instead of signing in.
+  FirebaseAuthException? signInError;
+
   /// The user `createUserWithEmailAndPassword` creates (todo 660).
   User? createdUser;
 
@@ -2542,6 +2576,8 @@ class _FakeFirebaseAuth implements FirebaseAuth {
     required String password,
   }) async {
     _events.add('firebase.signInWithEmailAndPassword');
+    final error = signInError;
+    if (error != null) throw error;
     _currentUser = signInUser;
     return _FakeUserCredential(signInUser);
   }
