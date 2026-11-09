@@ -14,6 +14,7 @@ import '../../features/scan/scan_result_screen.dart';
 import '../../features/scan/scan_screen.dart';
 import '../../features/profile/edit_profile_screen.dart';
 import '../../features/profile/profile_screen.dart';
+import '../../features/settings/delete_account_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/care/care_screen.dart';
 import '../../features/blog/screens/blog_list_screen.dart';
@@ -478,6 +479,18 @@ GoRouter appRouter(Ref ref) {
           context: context,
           state: state,
           child: const SettingsScreen(),
+        ),
+      ),
+      // Deliberately NOT in protectedRoutes: the sign-out after a deletion
+      // would redirect off this page and drop its final dialog. The screen
+      // gates itself (Plan B task 10).
+      GoRoute(
+        path: DeleteAccountScreen.routePath,
+        name: 'deleteAccount',
+        pageBuilder: (context, state) => _buildPageWithTransition(
+          context: context,
+          state: state,
+          child: const DeleteAccountScreen(),
         ),
       ),
       GoRoute(
