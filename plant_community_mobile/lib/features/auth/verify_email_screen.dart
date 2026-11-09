@@ -70,6 +70,9 @@ class _VerifyEmailPanelState extends ConsumerState<VerifyEmailPanel> {
         _dismiss();
         return;
       }
+      // Verified, but the account needs the sign-up consent: the root's
+      // consent sheet is opening, so no "not verified yet" here.
+      if (ref.read(authServiceProvider).consentRequired) return;
       setState(
         () => _error =
             ref.read(authServiceProvider).error ?? emailStillUnverifiedMessage,

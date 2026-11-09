@@ -384,8 +384,12 @@ export async function refreshAccessToken(): Promise<boolean> {
  *
  * Endpoint is unversioned (`/api/auth/oauth/...`), not `/api/v1/...`.
  */
-export async function getGoogleOAuthUrl(): Promise<string> {
-  const response = await fetch(`${API_ORIGIN}/api/auth/oauth/google/login/`, {
+export async function getGoogleOAuthUrl({
+  acceptedTerms = false,
+}: { acceptedTerms?: boolean } = {}): Promise<string> {
+  // Only the sign-up page passes this; the backend counts exactly "1".
+  const query = acceptedTerms ? '?accepted_terms=1' : '';
+  const response = await fetch(`${API_ORIGIN}/api/auth/oauth/google/login/${query}`, {
     method: 'GET',
     headers: {
       'X-Request-ID': getOrCreateRequestId(),
@@ -413,4 +417,54 @@ export async function getGoogleOAuthUrl(): Promise<string> {
   }
 
   return data.oauth_url;
+}
+
+/** A failed OAuth finish call; `code` is the backend's machine-readable reason. */
+export class OAuthFinishError extends Error {
+  readonly code: string | undefined;
+  readonly status: number;
+
+  constructor(code: string | undefined, status: number, message: string) {
+    super(message);
+    this.name = 'OAuthFinishError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
+/**
+ * Create the account for a Google sign-up that arrived without consent.
+ * The consent box was ticked to get here, so the body always carries true.
+ * On success the backend sets the JWT cookies; the caller refreshes the user.
+ */
+export async function finishOAuthSignup(): Promise<void> {
+  const csrfToken = await getCsrfToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Request-ID': getOrCreateRequestId(),
+  };
+  if (csrfToken) {
+    headers['X-CSRFToken'] = csrfToken;
+  }
+
+  const response = await fetch(`${API_ORIGIN}/api/v1/auth/oauth/finish/`, {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+    body: JSON.stringify({ accepted_terms: true }),
+  });
+
+  if (!response.ok) {
+    let code: string | undefined;
+    let message = `Sign-up could not be finished (status ${response.status}).`;
+    try {
+      const data = await response.json();
+      if (typeof data?.code === 'string') code = data.code;
+      if (typeof data?.error === 'string' && data.error) message = data.error;
+    } catch {
+      // Non-JSON body — keep the status-based message.
+    }
+    logger.error('[authService] OAuth finish failed', { status: response.status, code });
+    throw new OAuthFinishError(code, response.status, message);
+  }
 }

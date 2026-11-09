@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:plant_community_mobile/models/user_profile.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
@@ -38,6 +39,12 @@ import '../support/wait_until.dart';
 ///   `_signingOut` boolean in `lib/` and there deliberately isn't one: a flag
 ///   could not cover a 401 arriving after the clear's timeout abandoned the
 ///   request.
+/// Re-auth test passwords, kept out of call sites so the secret scanner's
+/// keyword rule has one line to allowlist.
+const _password = 'hunter2'; // pragma: allowlist secret
+const _wrongPassword = 'nope'; // pragma: allowlist secret
+const _unusedPassword = 'ignored'; // pragma: allowlist secret
+
 void main() {
   setUp(() {
     // In-memory secure storage: the notifier writes/deletes JWTs on nearly
@@ -236,6 +243,28 @@ void main() {
       expect(state.firebaseUser?.uid, 'ada', reason: 'kept, so a retry works');
     });
 
+    test('a 403 signup_blocked shows the server\'s message, not "verify your '
+        'email" (ruling R3)', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.api.postError = ApiException(
+        "This email address can't be used to create an account.",
+        statusCode: 403,
+        code: 'signup_blocked',
+      );
+      harness.container.read(authServiceProvider);
+
+      await harness.signIn(_FakeUser(uid: 'ada'));
+
+      final state = harness.container.read(authServiceProvider);
+      expect(
+        state.error,
+        "This email address can't be used to create an account.",
+      );
+      expect(state.emailVerificationRequired, isFalse);
+      expect(state.isAuthenticated, isFalse);
+    });
+
     test('a proxy\'s HTML 403 is not read as an unverified email', () async {
       final harness = _Harness();
       addTearDown(harness.dispose);
@@ -424,6 +453,37 @@ void main() {
       );
     });
 
+    // With email-enumeration protection on, Firebase answers a wrong password
+    // AND an unknown or deleted account with `invalid-credential`; the raw
+    // Firebase text ("malformed or has expired") reached the sign-in screen.
+    test('a wrong password or unknown account shows a readable message, not '
+        "Firebase's raw text", () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      harness.firebaseAuth.signInError = FirebaseAuthException(
+        code: 'invalid-credential',
+        message: 'The supplied auth credential is malformed or has expired.',
+      );
+
+      await expectLater(
+        harness.container
+            .read(authServiceProvider.notifier)
+            .signInWithEmailPassword('ada@example.com', 'wrong'),
+        throwsA(
+          isA<AuthException>().having(
+            (e) => e.message,
+            'message',
+            'Incorrect email or password. Please try again.',
+          ),
+        ),
+      );
+      expect(
+        harness.container.read(authServiceProvider).error,
+        'Incorrect email or password. Please try again.',
+      );
+    });
+
     test('Resend sends the verification mail to the current user', () async {
       final ada = _FakeUser(uid: 'ada', emailVerified: false);
       final harness = _Harness(currentUser: ada);
@@ -436,6 +496,194 @@ void main() {
           .resendVerificationEmail();
 
       expect(ada.verificationEmailsSent, 1);
+    });
+  });
+
+  group('re-authentication for account deletion (Plan B task 10)', () {
+    test('google.com wins over password when both are linked', () {
+      expect(reauthMethodFor(['password', 'google.com']), ReauthMethod.google);
+      expect(reauthMethodFor(['google.com', 'password']), ReauthMethod.google);
+      expect(reauthMethodFor(['password']), ReauthMethod.password);
+      expect(reauthMethodFor(['apple.com']), isNull);
+      expect(reauthMethodFor(const []), isNull);
+    });
+
+    test('a password user re-authenticates with their email and password '
+        'and gets a FORCED fresh ID token', () async {
+      final ada = _FakeUser(uid: 'ada');
+      final harness = _Harness(currentUser: ada);
+      addTearDown(harness.dispose);
+      await pumpEventQueue(); // the launch exchange
+      ada.idTokenForceRefresh.clear();
+
+      final token = await harness.container
+          .read(authServiceProvider.notifier)
+          .freshIdTokenAfterReauth(password: _password);
+
+      expect(token, 'firebase-id-token');
+      final credential = ada.reauthCredentials.single as EmailAuthCredential;
+      expect(credential.email, 'ada@example.com');
+      expect(credential.password, _password);
+      expect(ada.idTokenForceRefresh, [true]);
+    });
+
+    test('a wrong password throws a readable AuthException and leaves the '
+        'auth state alone', () async {
+      final ada = _FakeUser(
+        uid: 'ada',
+        reauthError: FirebaseAuthException(code: 'invalid-credential'),
+      );
+      final harness = _Harness(currentUser: ada);
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+      final before = harness.container.read(authServiceProvider);
+
+      await expectLater(
+        harness.container
+            .read(authServiceProvider.notifier)
+            .freshIdTokenAfterReauth(password: _wrongPassword),
+        throwsA(
+          isA<AuthException>()
+              .having((e) => e, 'type', isNot(isA<ReauthCancelledException>()))
+              .having((e) => e.message, 'message', reauthWrongPasswordMessage),
+        ),
+      );
+      expect(
+        identical(harness.container.read(authServiceProvider), before),
+        isTrue,
+        reason:
+            'the screen shows the error; a state error would also put '
+            'up the root SnackBar',
+      );
+    });
+
+    test('a password user with no password given is a cancel', () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      await expectLater(
+        harness.container
+            .read(authServiceProvider.notifier)
+            .freshIdTokenAfterReauth(),
+        throwsA(isA<ReauthCancelledException>()),
+      );
+    });
+
+    test(
+      'a Google user re-authenticates with a fresh Google ID token',
+      () async {
+        final ada = _FakeUser(
+          uid: 'ada',
+          providerIds: ['password', 'google.com'],
+        );
+        final google = _FakeGoogleSignIn();
+        final harness = _Harness(currentUser: ada, googleSignIn: google);
+        addTearDown(harness.dispose);
+        await pumpEventQueue();
+
+        final token = await harness.container
+            .read(authServiceProvider.notifier)
+            .freshIdTokenAfterReauth(password: _unusedPassword);
+
+        expect(token, 'firebase-id-token');
+        expect(google.initializeCalls, 1);
+        expect(google.authenticateCalls, 1);
+        final credential = ada.reauthCredentials.single;
+        expect(credential.providerId, 'google.com');
+        expect((credential as OAuthCredential).idToken, 'google-id-token');
+      },
+    );
+
+    test('closing the Google sheet is a cancel, not an error', () async {
+      final ada = _FakeUser(uid: 'ada', providerIds: ['google.com']);
+      final harness = _Harness(
+        currentUser: ada,
+        googleSignIn: _FakeGoogleSignIn(
+          error: const GoogleSignInException(
+            code: GoogleSignInExceptionCode.canceled,
+          ),
+        ),
+      );
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      await expectLater(
+        harness.container
+            .read(authServiceProvider.notifier)
+            .freshIdTokenAfterReauth(),
+        throwsA(isA<ReauthCancelledException>()),
+      );
+      expect(ada.reauthCredentials, isEmpty);
+    });
+
+    test('picking a different Google account says so', () async {
+      final ada = _FakeUser(
+        uid: 'ada',
+        providerIds: ['google.com'],
+        reauthError: FirebaseAuthException(code: 'user-mismatch'),
+      );
+      final harness = _Harness(
+        currentUser: ada,
+        googleSignIn: _FakeGoogleSignIn(),
+      );
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      await expectLater(
+        harness.container
+            .read(authServiceProvider.notifier)
+            .freshIdTokenAfterReauth(),
+        throwsA(
+          isA<AuthException>().having(
+            (e) => e.message,
+            'message',
+            reauthWrongAccountMessage,
+          ),
+        ),
+      );
+    });
+
+    test(
+      'a refused Google credential is not called a wrong password',
+      () async {
+        final ada = _FakeUser(
+          uid: 'ada',
+          providerIds: ['google.com'],
+          reauthError: FirebaseAuthException(code: 'invalid-credential'),
+        );
+        final harness = _Harness(
+          currentUser: ada,
+          googleSignIn: _FakeGoogleSignIn(),
+        );
+        addTearDown(harness.dispose);
+        await pumpEventQueue();
+
+        await expectLater(
+          harness.container
+              .read(authServiceProvider.notifier)
+              .freshIdTokenAfterReauth(),
+          throwsA(
+            isA<AuthException>().having(
+              (e) => e.message,
+              'message',
+              reauthNotConfirmedMessage,
+            ),
+          ),
+        );
+      },
+    );
+
+    test('with no Firebase user it throws a readable AuthException', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+
+      await expectLater(
+        harness.container
+            .read(authServiceProvider.notifier)
+            .freshIdTokenAfterReauth(password: 'x'),
+        throwsA(isA<AuthException>()),
+      );
     });
   });
 
@@ -1929,6 +2177,7 @@ class _Harness {
     bool useRealPushService = false,
     String baseUrl = 'http://fake.local',
     List<Override> overrides = const [],
+    GoogleSignIn? googleSignIn,
   }) {
     firebaseAuth = _FakeFirebaseAuth(events: events, currentUser: currentUser);
     api = _FakeApiService(events: events, baseUrl: baseUrl);
@@ -1943,7 +2192,7 @@ class _Harness {
         apiServiceProvider.overrideWithValue(api),
         pushRegistrationServiceProvider.overrideWithValue(realPush ?? push),
         authServiceProvider.overrideWith(
-          () => _TestableAuthService(firebaseAuth),
+          () => _TestableAuthService(firebaseAuth, googleSignIn),
         ),
         ...overrides,
       ],
@@ -2002,12 +2251,74 @@ class _Harness {
 /// Injects the fake FirebaseAuth through the production `@visibleForTesting`
 /// seam, so no test needs Firebase.initializeApp().
 class _TestableAuthService extends AuthService {
-  _TestableAuthService(this._firebaseAuth);
+  _TestableAuthService(this._firebaseAuth, [this._googleSignIn]);
 
   final FirebaseAuth _firebaseAuth;
+  final GoogleSignIn? _googleSignIn;
 
   @override
   FirebaseAuth get firebaseAuth => _firebaseAuth;
+
+  /// Only the re-auth tests pass one; anything else that reaches Google
+  /// fails on the real plugin, as before.
+  @override
+  GoogleSignIn get googleSignIn => _googleSignIn ?? super.googleSignIn;
+}
+
+/// Plays back one `authenticate()` outcome (Plan B task 10).
+class _FakeGoogleSignIn implements GoogleSignIn {
+  _FakeGoogleSignIn({this.error});
+
+  static const idToken = 'google-id-token';
+  final Exception? error;
+  int initializeCalls = 0;
+  int authenticateCalls = 0;
+
+  @override
+  Future<void> initialize({
+    String? clientId,
+    String? serverClientId,
+    String? nonce,
+    String? hostedDomain,
+  }) async {
+    initializeCalls++;
+  }
+
+  @override
+  Future<GoogleSignInAccount> authenticate({
+    List<String> scopeHint = const <String>[],
+  }) async {
+    authenticateCalls++;
+    final e = error;
+    if (e != null) throw e;
+    return _FakeGoogleAccount(idToken);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeGoogleAccount implements GoogleSignInAccount {
+  _FakeGoogleAccount(this._idToken);
+
+  final String? _idToken;
+
+  @override
+  GoogleSignInAuthentication get authentication =>
+      GoogleSignInAuthentication(idToken: _idToken);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeUserInfo implements UserInfo {
+  _FakeUserInfo(this.providerId);
+
+  @override
+  final String providerId;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// A resolved account profile, held the way a mounted forum screen holds it.
@@ -2253,6 +2564,9 @@ class _FakeFirebaseAuth implements FirebaseAuth {
   /// The user `signInWithEmailAndPassword` signs in (todo 660).
   User? signInUser;
 
+  /// Thrown by `signInWithEmailAndPassword` instead of signing in.
+  FirebaseAuthException? signInError;
+
   /// The user `createUserWithEmailAndPassword` creates (todo 660).
   User? createdUser;
 
@@ -2262,6 +2576,8 @@ class _FakeFirebaseAuth implements FirebaseAuth {
     required String password,
   }) async {
     _events.add('firebase.signInWithEmailAndPassword');
+    final error = signInError;
+    if (error != null) throw error;
     _currentUser = signInUser;
     return _FakeUserCredential(signInUser);
   }
@@ -2297,10 +2613,36 @@ class _FakeUser implements User {
     required this.uid,
     this.getIdTokenOverride,
     this.emailVerified = true,
+    this.providerIds = const ['password'],
+    this.reauthError,
   });
 
   @override
   final String uid;
+
+  /// The sign-in methods linked to the account, as `providerData` lists them.
+  final List<String> providerIds;
+
+  @override
+  List<UserInfo> get providerData => [
+    for (final id in providerIds) _FakeUserInfo(id),
+  ];
+
+  /// Thrown by `reauthenticateWithCredential` when set.
+  final FirebaseAuthException? reauthError;
+
+  /// Every credential `reauthenticateWithCredential` was given.
+  final List<AuthCredential> reauthCredentials = [];
+
+  @override
+  Future<UserCredential> reauthenticateWithCredential(
+    AuthCredential credential,
+  ) async {
+    reauthCredentials.add(credential);
+    final e = reauthError;
+    if (e != null) throw e;
+    return _FakeUserCredential(this);
+  }
 
   /// Defaults to true, the state of every user the older tests sign in: the
   /// exchange forces a token refresh for an unverified one (todo 660).

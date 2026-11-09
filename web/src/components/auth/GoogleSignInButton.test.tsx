@@ -51,6 +51,21 @@ describe('GoogleSignInButton', () => {
     expect(mockGetGoogleOAuthUrl).toHaveBeenCalledTimes(1);
   });
 
+  it('asks for a consented OAuth URL only when acceptedTerms is set', async () => {
+    mockGetGoogleOAuthUrl.mockResolvedValue(OAUTH_URL);
+    const { unmount } = render(<GoogleSignInButton acceptedTerms />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }));
+    await waitFor(() => expect(assignMock).toHaveBeenCalled());
+    expect(mockGetGoogleOAuthUrl).toHaveBeenCalledWith({ acceptedTerms: true });
+    unmount();
+
+    mockGetGoogleOAuthUrl.mockClear();
+    render(<GoogleSignInButton />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }));
+    await waitFor(() => expect(mockGetGoogleOAuthUrl).toHaveBeenCalledTimes(1));
+    expect(mockGetGoogleOAuthUrl).toHaveBeenCalledWith({ acceptedTerms: false });
+  });
+
   it('shows an error and re-enables the button when initiation fails', async () => {
     mockGetGoogleOAuthUrl.mockRejectedValue(new Error('boom'));
     render(<GoogleSignInButton />);

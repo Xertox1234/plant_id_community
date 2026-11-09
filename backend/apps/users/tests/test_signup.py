@@ -13,10 +13,12 @@ permissions apps.forum_host.bootstrap._ensure_forum_image_permissions wires
 up for the "Forum Members" group.
 """
 
+from apps.users.constants import LEGAL_POLICY_VERSION
 from apps.users.models import UserPlantCollection
 from apps.users.signup import create_default_plant_collection, join_forum_members_group
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.core.cache import cache
 from django.test import TestCase
 from rest_framework import status
 
@@ -59,7 +61,9 @@ class RegistrationSignupSideEffectTest(TestCase):
                 "email": "newsignup@example.com",
                 "password": "TestPassword123!",  # pragma: allowlist secret
                 "confirmPassword": "TestPassword123!",  # pragma: allowlist secret
+                "accepted_terms": True,
             },
+            content_type="application/json",
             HTTP_X_CSRFTOKEN=csrf_token,
         )
 
@@ -111,10 +115,56 @@ class RegistrationJoinsForumMembersGroupTest(TestCase):
                 "email": "newforummember@example.com",
                 "password": "TestPassword123!",  # pragma: allowlist secret
                 "confirmPassword": "TestPassword123!",  # pragma: allowlist secret
+                "accepted_terms": True,
             },
+            content_type="application/json",
             HTTP_X_CSRFTOKEN=csrf_token,
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = User.objects.get(username="newforummember")
         self.assertTrue(user.groups.filter(name="Forum Members").exists())
+
+
+class RegistrationConsentTest(TestCase):
+    """POST register/ needs the JSON boolean ``accepted_terms: true``."""
+
+    BODY = {
+        "username": "consentuser",
+        "email": "consentuser@example.com",
+        "password": "TestPassword123!",  # pragma: allowlist secret
+        "confirmPassword": "TestPassword123!",  # pragma: allowlist secret
+    }
+
+    def _post(self, extra):
+        cache.clear()  # registration is rate limited per IP (3/h)
+        csrf_token = self.client.get("/api/v1/auth/csrf/").cookies["csrftoken"].value
+        return self.client.post(
+            "/api/v1/auth/register/",
+            data={**self.BODY, **extra},
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=csrf_token,
+        )
+
+    def test_register_without_accepted_terms_returns_428_and_creates_nothing(self):
+        for label, extra in [
+            ("missing", {}),
+            ("string", {"accepted_terms": "true"}),
+            ("false", {"accepted_terms": False}),
+            ("false_string", {"accepted_terms": "false"}),
+            ("null", {"accepted_terms": None}),
+            ("int", {"accepted_terms": 1}),
+        ]:
+            with self.subTest(label):
+                before = User.objects.count()
+                response = self._post(extra)
+                self.assertEqual(response.status_code, 428)
+                self.assertEqual(response.json()["code"], "consent_required")
+                self.assertEqual(User.objects.count(), before)
+
+    def test_register_with_accepted_terms_records_version(self):
+        response = self._post({"accepted_terms": True})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(username="consentuser")
+        self.assertEqual(user.policy_version_accepted, LEGAL_POLICY_VERSION)
+        self.assertIsNotNone(user.policy_accepted_at)

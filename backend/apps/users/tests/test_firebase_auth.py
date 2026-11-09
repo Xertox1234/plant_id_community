@@ -55,6 +55,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
             self.url,
             {
                 "firebase_token": self.firebase_token,
+                "accepted_terms": True,
             },
             format="json",
         )
@@ -238,7 +239,9 @@ class FirebaseTokenExchangeTestCase(TestCase):
         mock_verify.return_value = {**self.decoded_token, "name": "N" * 151}
 
         response = self.client.post(
-            self.url, {"firebase_token": self.firebase_token}, format="json"
+            self.url,
+            {"firebase_token": self.firebase_token, "accepted_terms": True},
+            format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -247,7 +250,9 @@ class FirebaseTokenExchangeTestCase(TestCase):
 
         User.objects.filter(pk=user.pk).update(first_name="")
         response = self.client.post(
-            self.url, {"firebase_token": self.firebase_token}, format="json"
+            self.url,
+            {"firebase_token": self.firebase_token, "accepted_terms": True},
+            format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -376,7 +381,9 @@ class FirebaseTokenExchangeTestCase(TestCase):
         mock_verify.return_value = {**self.decoded_token, "name": "Test User"}
 
         response = self.client.post(
-            self.url, {"firebase_token": self.firebase_token}, format="json"
+            self.url,
+            {"firebase_token": self.firebase_token, "accepted_terms": True},
+            format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -524,7 +531,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
 
         response = self.client.post(
             self.url,
-            {"firebase_token": self.firebase_token},
+            {"firebase_token": self.firebase_token, "accepted_terms": True},
             format="json",
         )
 
@@ -542,6 +549,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
             self.url,
             {
                 "firebase_token": self.firebase_token,
+                "accepted_terms": True,
                 "email": "test@example.com",
                 "display_name": "Test User",
             },
@@ -574,6 +582,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
             self.url,
             {
                 "firebase_token": self.firebase_token,
+                "accepted_terms": True,
                 "email": "test@example.com",
                 "display_name": "Test User",
             },
@@ -776,7 +785,9 @@ class FirebaseTrustedProviderTestCase(TestCase):
         mock_verify.return_value = self._decoded("google.com", True)
 
         response = self.client.post(
-            self.url, {"firebase_token": self.token}, format="json"
+            self.url,
+            {"firebase_token": self.token, "accepted_terms": True},
+            format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -886,6 +897,7 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
         user, created = get_or_create_user_from_firebase(
             firebase_uid="firebase-uid-123",
             firebase_email="newuser@example.com",
+            accepted_terms=True,
             display_name="New User",
         )
 
@@ -909,6 +921,7 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
         user, created = get_or_create_user_from_firebase(
             firebase_uid="firebase-uid-collection",
             firebase_email="collectionuser@example.com",
+            accepted_terms=True,
             display_name="Collection User",
         )
 
@@ -1014,6 +1027,7 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
         get_or_create_user_from_firebase(
             firebase_uid="owner-uid",
             firebase_email="owner@example.com",
+            accepted_terms=True,
             display_name="Owner",
             email_verified=True,
         )
@@ -1022,6 +1036,7 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
             get_or_create_user_from_firebase(
                 firebase_uid="different-uid",
                 firebase_email="owner@example.com",
+                accepted_terms=True,
                 display_name="Intruder",
                 email_verified=True,
             )
@@ -1040,6 +1055,7 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
                 get_or_create_user_from_firebase(
                     firebase_uid="my-uid",
                     firebase_email="contested@example.com",
+                    accepted_terms=True,
                     email_verified=True,
                 )
 
@@ -1050,6 +1066,7 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
         user, created = get_or_create_user_from_firebase(
             firebase_uid="firebase-uid-999",
             firebase_email="nodisplay@example.com",
+            accepted_terms=True,
             display_name=None,
         )
 
@@ -1065,11 +1082,13 @@ class GetOrCreateUserFromFirebaseTestCase(TestCase):
         user1, created1 = get_or_create_user_from_firebase(
             firebase_uid="firebase-uid-001",
             firebase_email="john@gmail.com",
+            accepted_terms=True,
             display_name="John Gmail",
         )
         user2, created2 = get_or_create_user_from_firebase(
             firebase_uid="firebase-uid-002",
             firebase_email="john@yahoo.com",
+            accepted_terms=True,
             display_name="John Yahoo",
         )
 
@@ -1111,7 +1130,7 @@ class FirebaseTokenExchangeRateLimitTestCase(TestCase):
             "email_verified": True,
             "name": "Rate Limited",
         }
-        payload = {"firebase_token": "fake-but-mocked-token"}
+        payload = {"firebase_token": "fake-but-mocked-token", "accepted_terms": True}
 
         # Freeze time so all 11 requests share one rate-limit window (django-
         # ratelimit's jittered window can otherwise roll over mid-hammer).
@@ -1140,7 +1159,7 @@ class FirebaseTokenExchangeRateLimitTestCase(TestCase):
             "email_verified": True,
             "name": "Per IP",
         }
-        payload = {"firebase_token": "fake-but-mocked-token"}
+        payload = {"firebase_token": "fake-but-mocked-token", "accepted_terms": True}
 
         with freeze_time("2026-06-02 12:00:00"):
             # Exhaust the first IP's window.
@@ -1196,3 +1215,112 @@ class FirebaseInitFailureTestCase(TestCase):
         # endpoint's own handled outage — not a crash, and not a refusal.
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(response.data["code"], "verifier_unavailable")
+
+
+class FirebaseExchangeConsentTestCase(TestCase):
+    """New users must accept the policies; existing users never need to."""
+
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
+    def setUp(self):
+        self.client = APIClient()
+        self.url = reverse("v1:users:firebase_token_exchange")
+        cache.clear()
+        self.decoded = {
+            "uid": "consent-uid-1",
+            "email": "consent@example.com",
+            "email_verified": True,
+        }
+
+    def tearDown(self):
+        cache.clear()
+
+    def _post(self, mock_verify, decoded=None, **extra):
+        mock_verify.return_value = decoded or self.decoded
+        return self.client.post(
+            self.url, {"firebase_token": "tok", **extra}, format="json"
+        )
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_new_firebase_user_without_flag_gets_428_and_no_user(self, mock_verify):
+        from apps.users.models import UserPlantCollection
+
+        response = self._post(mock_verify)
+
+        self.assertEqual(response.status_code, 428)
+        self.assertEqual(response.data["code"], "consent_required")
+        self.assertEqual(
+            response.data["error"],
+            "Please accept the Privacy Policy and Terms of Service to create an account.",
+        )
+        self.assertFalse(User.objects.filter(firebase_uid="consent-uid-1").exists())
+        self.assertFalse(User.objects.filter(email="consent@example.com").exists())
+        self.assertEqual(UserPlantCollection.objects.count(), 0)
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_new_firebase_user_with_flag_is_created_with_version(self, mock_verify):
+        response = self._post(mock_verify, accepted_terms=True)
+
+        self.assertEqual(response.status_code, 200)
+        user = User.objects.get(firebase_uid="consent-uid-1")
+        self.assertEqual(user.policy_version_accepted, "2026-11-06")
+        self.assertIsNotNone(user.policy_accepted_at)
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_existing_user_signs_in_without_flag(self, mock_verify):
+        User.objects.create(
+            username="existing1",
+            email="consent@example.com",
+            firebase_uid="consent-uid-1",
+        )
+
+        response = self._post(mock_verify)
+
+        self.assertEqual(response.status_code, 200)
+        user = User.objects.get(firebase_uid="consent-uid-1")
+        self.assertIsNone(user.policy_version_accepted)
+        self.assertIsNone(user.policy_accepted_at)
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_existing_user_with_flag_is_not_restamped(self, mock_verify):
+        User.objects.create(
+            username="existing2",
+            email="consent@example.com",
+            firebase_uid="consent-uid-1",
+        )
+
+        response = self._post(mock_verify, accepted_terms=True)
+
+        self.assertEqual(response.status_code, 200)
+        user = User.objects.get(firebase_uid="consent-uid-1")
+        self.assertIsNone(user.policy_version_accepted)
+        self.assertIsNone(user.policy_accepted_at)
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_legacy_email_account_links_without_flag(self, mock_verify):
+        """Linking an existing email account is not account creation."""
+        legacy = User.objects.create(username="legacy1", email="consent@example.com")
+        mark_email_verified(legacy)
+
+        response = self._post(mock_verify)
+
+        self.assertEqual(response.status_code, 200)
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.firebase_uid, "consent-uid-1")
+        self.assertIsNone(legacy.policy_version_accepted)
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_unverified_email_still_403_before_consent(self, mock_verify):
+        decoded = {**self.decoded, "email_verified": False}
+
+        response = self._post(mock_verify, decoded=decoded)
+
+        self.assertEqual(response.status_code, 403)
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_flag_must_be_boolean_true(self, mock_verify):
+        for value in ("true", "True", "false", 1, None, False):
+            with self.subTest(value=value):
+                response = self._post(mock_verify, accepted_terms=value)
+                self.assertEqual(response.status_code, 428)
+        self.assertFalse(User.objects.filter(firebase_uid="consent-uid-1").exists())

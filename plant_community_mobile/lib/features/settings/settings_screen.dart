@@ -9,6 +9,9 @@ import '../../core/constants/app_brand.dart';
 import '../../core/theme/green_thumb_extension.dart';
 import '../../core/theme/theme_preview_screen.dart';
 import '../../shared/widgets/canopy_label.dart';
+import '../../services/auth_service.dart';
+import '../legal/legal_links.dart';
+import 'delete_account_screen.dart';
 import 'live_updates_tile.dart';
 import 'notification_status_tile.dart';
 
@@ -30,6 +33,9 @@ class SettingsScreen extends ConsumerWidget {
     final themeNotifier = ref.read(themeModeProvider.notifier);
     final density = ref.watch(densityProvider);
     final densityNotifier = ref.read(densityProvider.notifier);
+    final signedIn = ref.watch(
+      authServiceProvider.select((s) => s.isAuthenticated),
+    );
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -103,6 +109,19 @@ class SettingsScreen extends ConsumerWidget {
             // slice 4). Renders nothing while signed out.
             const LiveUpdatesTile(),
 
+            // Account: self-service deletion (Plan B). Signed in only.
+            if (signedIn) ...[
+              const CanopyLabel('ACCOUNT'),
+              SizedBox(height: ext.gapY),
+              ListTile(
+                leading: const Icon(LucideIcons.userX),
+                title: const Text('Delete account'),
+                trailing: const Icon(LucideIcons.chevronRight),
+                onTap: () => context.push(DeleteAccountScreen.routePath),
+              ),
+              SizedBox(height: ext.gapY * 2),
+            ],
+
             // About
             const CanopyLabel('ABOUT'),
             SizedBox(height: ext.gapY),
@@ -110,6 +129,18 @@ class SettingsScreen extends ConsumerWidget {
               leading: const Icon(LucideIcons.stethoscope),
               title: const Text(AppBrand.name),
               subtitle: const Text(AppBrand.tagline),
+            ),
+            ListTile(
+              leading: const Icon(LucideIcons.shieldCheck),
+              title: const Text('Privacy Policy'),
+              trailing: const Icon(LucideIcons.externalLink),
+              onTap: () => openLegalDoc(context, LegalDoc.privacy),
+            ),
+            ListTile(
+              leading: const Icon(LucideIcons.fileText),
+              title: const Text('Terms of Service'),
+              trailing: const Icon(LucideIcons.externalLink),
+              onTap: () => openLegalDoc(context, LegalDoc.terms),
             ),
 
             // Debug

@@ -8,6 +8,14 @@ import SignupPage from './SignupPage';
 // the vi.mock factory is hoisted above the imports (see LoginPage.test.tsx).
 const { mockSignup } = vi.hoisted(() => ({ mockSignup: vi.fn() }));
 
+vi.mock('../../components/auth/GoogleSignInButton', () => ({
+  default: ({ disabled, acceptedTerms }: { disabled?: boolean; acceptedTerms?: boolean }) => (
+    <button type="button" disabled={disabled} data-accepted={String(!!acceptedTerms)}>
+      Sign up with Google
+    </button>
+  ),
+}));
+
 vi.mock('../../contexts/AuthContext', () => ({
   useAuth: () => ({ signup: mockSignup }),
 }));
@@ -37,9 +45,47 @@ function fillValidForm(password = STRONG_PASSWORD) {
 
 const submit = () => fireEvent.click(screen.getByRole('button', { name: /create account/i }));
 
+const tickConsent = () => fireEvent.click(screen.getByRole('checkbox'));
+
 describe('SignupPage', () => {
   beforeEach(() => {
     mockSignup.mockReset();
+  });
+
+  it('disables Create account and Google sign-up until consent is ticked', () => {
+    renderSignupPage();
+    const create = screen.getByRole('button', { name: /create account/i });
+    const google = screen.getByRole('button', { name: 'Sign up with Google' });
+    expect(screen.getByRole('checkbox')).not.toBeChecked();
+    expect(create).toBeDisabled();
+    expect(google).toBeDisabled();
+    tickConsent();
+    expect(create).toBeEnabled();
+    expect(google).toBeEnabled();
+    expect(google).toHaveAttribute('data-accepted', 'true');
+  });
+
+  it('links the Privacy Policy and Terms, and drops the old plain-text notice', () => {
+    renderSignupPage();
+    expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute(
+      'href',
+      '/privacy'
+    );
+    expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute(
+      'href',
+      '/terms'
+    );
+    expect(screen.queryByText(/by creating an account/i)).not.toBeInTheDocument();
+  });
+
+  it('sends accepted_terms: true when submitting', async () => {
+    mockSignup.mockResolvedValue({ success: true });
+    renderSignupPage();
+    fillValidForm();
+    tickConsent();
+    submit();
+    await waitFor(() => expect(mockSignup).toHaveBeenCalledTimes(1));
+    expect(mockSignup).toHaveBeenCalledWith(expect.objectContaining({ accepted_terms: true }));
   });
 
   // Guards the "[object Object]" fix: the page must render error.message, not the
@@ -55,6 +101,7 @@ describe('SignupPage', () => {
     renderSignupPage();
 
     fillValidForm();
+    tickConsent();
 
     submit();
 
@@ -75,6 +122,7 @@ describe('SignupPage', () => {
     expect(region).toHaveTextContent('');
 
     fillValidForm();
+    tickConsent();
     submit();
 
     await waitFor(() => expect(region).toHaveTextContent('That email is already registered.'));
@@ -88,6 +136,7 @@ describe('SignupPage', () => {
     renderSignupPage();
 
     fillValidForm('shortpw'); // 7 chars
+    tickConsent();
 
     submit();
 

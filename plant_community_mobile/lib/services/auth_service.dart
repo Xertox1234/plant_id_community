@@ -37,6 +37,14 @@ class AuthState {
   /// or a new attempt ends it.
   final bool emailVerificationRequired;
 
+  /// True when the token exchange answered 428 `consent_required`: this
+  /// Firebase account has no Django account yet, and the server creates one
+  /// only with `accepted_terms: true`. The app root shows the consent sheet
+  /// for it ([AuthService.acceptTermsAndRetry], [AuthService.declineTerms]).
+  /// Not the unverified-email 403: the server checks that first. Cleared by
+  /// [copyWith], like the flags above.
+  final bool consentRequired;
+
   const AuthState({
     this.firebaseUser,
     this.jwtToken,
@@ -44,6 +52,7 @@ class AuthState {
     this.error,
     this.unverifiedAccountConflict = false,
     this.emailVerificationRequired = false,
+    this.consentRequired = false,
   });
 
   bool get isAuthenticated => jwtToken != null;
@@ -91,6 +100,39 @@ const emailNotVerifiedMessage =
 const emailStillUnverifiedMessage =
     'Your email is not verified yet. Open the link in the email we sent, '
     'then try again.';
+
+/// How [AuthService.freshIdTokenAfterReauth] proves it is still the account
+/// holder before an account deletion (Plan B task 10).
+enum ReauthMethod { google, password }
+
+/// The re-auth method for an account with these linked sign-in methods
+/// (`User.providerData` provider ids): `google.com` wins over `password`
+/// when both are linked, since it needs no typing and works for an account
+/// whose password the user never set or forgot. `null` for anything else
+/// (no other provider is offered by this app).
+ReauthMethod? reauthMethodFor(Iterable<String> providerIds) {
+  final ids = providerIds.toSet();
+  if (ids.contains(GoogleAuthProvider.PROVIDER_ID)) return ReauthMethod.google;
+  if (ids.contains(EmailAuthProvider.PROVIDER_ID)) return ReauthMethod.password;
+  return null;
+}
+
+/// Re-auth refused: the password did not match.
+const reauthWrongPasswordMessage =
+    'Incorrect password. Please try again.'; // pragma: allowlist secret
+
+/// Re-auth refused: the Google account picked is not this account's.
+const reauthWrongAccountMessage =
+    "That's a different account. Choose the account you're deleting.";
+
+/// Re-auth refused for a reason that is not a wrong password, e.g. a Google
+/// credential Firebase would not accept.
+const reauthNotConfirmedMessage = "Couldn't confirm it's you. Try again.";
+
+/// The signed-in account has no sign-in method re-auth supports.
+const reauthUnsupportedMessage =
+    "We couldn't confirm it's you for this sign-in method. Contact support "
+    'to delete your account.';
 
 /// Current Firebase user id, or `null` when signed out.
 ///
@@ -146,6 +188,25 @@ class AuthService extends _$AuthService {
 
   static const String _jwtKey = 'django_jwt_token';
   static const String _refreshTokenKey = 'django_refresh_token';
+
+  /// The Firebase uid whose owner ticked the sign-up consent box on this
+  /// device. The exchange sends `accepted_terms: true` only for that uid, so
+  /// an email sign-up verified days later still carries its consent. Deleted
+  /// after a successful exchange and by [declineTerms]; never by [_clearJWT].
+  static const String _acceptedTermsKey = 'accepted_terms_uid';
+
+  /// Covers a consenting Google sign-in before its uid is known: the
+  /// listener's exchange can start before [signInWithGoogle] stores it. Set
+  /// for the duration of that call only.
+  bool _acceptedTermsPending = false;
+
+  /// The Firebase uid whose exchange the server refused with 428. Only that
+  /// user's Firebase account is deleted by [declineTerms]: the signed-in user
+  /// may have changed since the sheet opened.
+  String? _consentRefusedUid;
+
+  /// [acceptTermsAndRetry] is running: a second tap sends nothing.
+  bool _consentRetryInFlight = false;
 
   // Store StreamSubscription to prevent memory leak
   StreamSubscription<User?>? _authStateSubscription;
@@ -281,6 +342,8 @@ class AuthService extends _$AuthService {
         await _exchangeFirebaseTokenForJWT(user, forceRefresh: true);
         if (!state.isAuthenticated) {
           if (state.emailVerificationRequired) return true;
+          // The root's consent sheet takes it from here.
+          if (state.consentRequired) return false;
           // Otherwise the screen would dismiss onto a signed-out Profile
           // with the failure unseen (todo 660 review).
           throw AuthException(
@@ -323,7 +386,12 @@ class AuthService extends _$AuthService {
   /// reads `GIDClientID` from `Info.plist`, which is populated from the
   /// committed `GoogleService-Info.plist`. Passing it here as well would
   /// duplicate a value that already has one home.
-  Future<void> signInWithGoogle() async {
+  ///
+  /// [acceptedTerms] is true only from the register screen with the consent
+  /// box ticked. It makes the first exchange send `accepted_terms: true`, so
+  /// a new Google user gets an account without the consent sheet.
+  Future<void> signInWithGoogle({bool acceptedTerms = false}) async {
+    if (acceptedTerms) _acceptedTermsPending = true;
     try {
       state = state.copyWith(isLoading: true, error: null);
 
@@ -348,6 +416,10 @@ class AuthService extends _$AuthService {
 
       final credential = GoogleAuthProvider.credential(idToken: idToken);
       final result = await _firebaseAuth.signInWithCredential(credential);
+      final signedIn = result.user;
+      if (acceptedTerms && signedIn != null) {
+        await _secureStorage.write(key: _acceptedTermsKey, value: signedIn.uid);
+      }
 
       if (kDebugMode) {
         debugPrint(
@@ -357,7 +429,13 @@ class AuthService extends _$AuthService {
       }
 
       // Auth state listener handles the token exchange, as for email/password.
-      state = AuthState(firebaseUser: result.user, isLoading: false);
+      // It can finish before this line: then its JWT or its consent refusal
+      // stands, and only the spinner goes.
+      if (state.isAuthenticated || state.consentRequired) {
+        state = _notLoading(state);
+      } else {
+        state = AuthState(firebaseUser: result.user, isLoading: false);
+      }
     } on GoogleSignInException catch (e) {
       // A cancel is a normal outcome, not a failure: leaving an error on state
       // would surface a red banner via main.dart's root listener for a user who
@@ -380,6 +458,99 @@ class AuthService extends _$AuthService {
       final errorMessage = 'Google sign in failed: $e';
       state = state.copyWith(isLoading: false, error: errorMessage);
       throw AuthException(errorMessage);
+    } finally {
+      _acceptedTermsPending = false;
+    }
+  }
+
+  /// How [freshIdTokenAfterReauth] will re-authenticate the current Firebase
+  /// user, or `null` when signed out or no supported method is linked. The
+  /// delete screen reads it first, to ask for a password only when one is
+  /// needed.
+  ReauthMethod? get reauthMethod {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) return null;
+    return reauthMethodFor(user.providerData.map((info) => info.providerId));
+  }
+
+  /// Re-authenticate the current Firebase user and return a FORCED fresh ID
+  /// token, whose `auth_time` is now: the account-deletion endpoint accepts
+  /// only a sign-in younger than 300 s (Plan B task 10).
+  ///
+  /// Picks the credential with [reauthMethod]: a fresh Google
+  /// `authenticate()` when `google.com` is linked (preferred, [password]
+  /// ignored), else `EmailAuthProvider.credential(email, password)`.
+  ///
+  /// Throws [ReauthCancelledException] when the user backs out (the Google
+  /// sheet closed, no password given), and [AuthException] with a readable
+  /// message for any other failure. It never touches [state]: the delete
+  /// screen shows the error itself, and an error on state would also put up
+  /// main.dart's root SnackBar. Re-authenticating keeps the uid, so no
+  /// auth-state event fires and no token exchange runs.
+  Future<String> freshIdTokenAfterReauth({String? password}) async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) {
+      throw AuthException('Sign in again to delete your account.');
+    }
+    final method = reauthMethod;
+    final AuthCredential credential;
+    switch (method) {
+      case ReauthMethod.google:
+        credential = await _freshGoogleCredential();
+      case ReauthMethod.password:
+        final email = user.email;
+        if (password == null || password.isEmpty) {
+          throw ReauthCancelledException();
+        }
+        if (email == null) throw AuthException(reauthUnsupportedMessage);
+        credential = EmailAuthProvider.credential(
+          email: email,
+          password: password,
+        );
+      case null:
+        throw AuthException(reauthUnsupportedMessage);
+    }
+
+    try {
+      await user.reauthenticateWithCredential(credential);
+      final token = await user.getIdToken(true);
+      if (token == null) {
+        throw AuthException(
+          'Could not confirm your sign-in. Please try again.',
+        );
+      }
+      return token;
+    } on FirebaseAuthException catch (e) {
+      if (kDebugMode) debugPrint('[AUTH] Re-auth refused: ${e.code}');
+      throw AuthException(switch (e.code) {
+        'wrong-password' || 'invalid-credential'
+            when method == ReauthMethod.password =>
+          reauthWrongPasswordMessage,
+        'wrong-password' || 'invalid-credential' => reauthNotConfirmedMessage,
+        'user-mismatch' => reauthWrongAccountMessage,
+        _ => _handleFirebaseAuthException(e),
+      });
+    }
+  }
+
+  /// A Google credential from a fresh account pick, reusing the sign-in's
+  /// one-time `initialize`.
+  Future<AuthCredential> _freshGoogleCredential() async {
+    try {
+      await _ensureGoogleInitialized();
+      final account = await googleSignIn.authenticate();
+      final idToken = account.authentication.idToken;
+      if (idToken == null) {
+        throw AuthException('Google did not return an ID token.');
+      }
+      return GoogleAuthProvider.credential(idToken: idToken);
+    } on GoogleSignInException catch (e) {
+      if (e.code == GoogleSignInExceptionCode.canceled) {
+        throw ReauthCancelledException();
+      }
+      throw AuthException(
+        'Google sign in failed: ${e.description ?? e.code.name}',
+      );
     }
   }
 
@@ -422,6 +593,11 @@ class AuthService extends _$AuthService {
         email: email,
         password: password,
       );
+      // The register screen calls this only with the consent box ticked.
+      final created = credential.user;
+      if (created != null) {
+        await _secureStorage.write(key: _acceptedTermsKey, value: created.uid);
+      }
 
       // Update display name
       await credential.user?.updateDisplayName(displayName);
@@ -601,6 +777,8 @@ class AuthService extends _$AuthService {
         throw AuthException('Failed to get Firebase ID token');
       }
 
+      final body = await _exchangeBody(user, firebaseToken);
+
       if (!_isCurrentExchange(user, exchangeGeneration)) {
         if (kDebugMode) {
           debugPrint('[AUTH] Ignoring token exchange after user changed');
@@ -608,12 +786,13 @@ class AuthService extends _$AuthService {
         return;
       }
 
-      // Call Django backend to exchange token. Send ONLY the Firebase ID token —
-      // the backend derives email/display name from the cryptographically
-      // verified token, never from client-supplied fields.
+      // Call Django backend to exchange token. Send ONLY the Firebase ID token
+      // (plus the consent flag) — the backend derives email/display name from
+      // the cryptographically verified token, never from client-supplied
+      // fields.
       final response = await apiService.post(
         '/auth/firebase-token-exchange/',
-        data: {'firebase_token': firebaseToken},
+        data: body,
         // A 401 here is the Firebase token being refused: refreshing would
         // only repeat this same exchange (todo 462).
         options: Options(extra: {ApiService.skipAuthRefreshKey: true}),
@@ -664,6 +843,8 @@ class AuthService extends _$AuthService {
       if (kDebugMode) {
         debugPrint('[AUTH] JWT token exchange successful');
       }
+      // The account exists now; the consent has done its job.
+      await _forgetAcceptedTerms();
     } on ApiException catch (e) {
       if (!_isCurrentExchange(user, exchangeGeneration)) {
         if (kDebugMode) {
@@ -687,12 +868,25 @@ class AuthService extends _$AuthService {
       // unverified-email 403 that is what lets "I've verified" and a second
       // sign-in retry the exchange (todo 660).
       final unverified = e.statusCode == 409 && e.code == 'unverified_account';
-      // The view's own JSON 403 means an unverified email; a proxy's HTML
-      // 403 says nothing about this account (todo 500 finding 8).
-      final emailUnverified = e.statusCode == 403 && !e.unstructured;
+      // An address blocked from sign-up (ruling R3): the server's own
+      // message says so, and verifying the email would not help.
+      final blocked =
+          e.statusCode == 403 && e.code == 'signup_blocked' && !e.unstructured;
+      // Any other view's own JSON 403 means an unverified email; a proxy's
+      // HTML 403 says nothing about this account (todo 500 finding 8).
+      final emailUnverified =
+          e.statusCode == 403 && !e.unstructured && !blocked;
+      // A new account without consent: the root's sheet asks for it, so no
+      // error SnackBar goes under it.
+      final consent = _isConsentRefusal(e);
+      if (consent) _consentRefusedUid = user.uid;
       state = AuthState(
         firebaseUser: _firebaseAuth.currentUser,
-        error: emailUnverified
+        error: consent
+            ? null
+            : blocked
+            ? e.message
+            : emailUnverified
             ? emailNotVerifiedMessage
             : unverified
             ? accountConflictMessage
@@ -701,6 +895,7 @@ class AuthService extends _$AuthService {
             : 'Failed to connect to server. Some features may be unavailable.',
         unverifiedAccountConflict: unverified,
         emailVerificationRequired: emailUnverified,
+        consentRequired: consent,
       );
     } catch (e) {
       if (!_isCurrentExchange(user, exchangeGeneration)) {
@@ -841,6 +1036,10 @@ class AuthService extends _$AuthService {
     if (firebaseToken == null) {
       throw AuthException('Firebase returned no ID token');
     }
+    final body = await _exchangeBody(user, firebaseToken);
+    if (!_isCurrentExchange(user, generation)) {
+      throw const RefreshSupersededException();
+    }
 
     final Response<dynamic> response;
     try {
@@ -848,7 +1047,7 @@ class AuthService extends _$AuthService {
           .read(apiServiceProvider)
           .post(
             '/auth/firebase-token-exchange/',
-            data: {'firebase_token': firebaseToken},
+            data: body,
             // The exchange IS the refresh: a 401 on it must neither refresh
             // again nor sign out on its own. The original request's refused
             // recovery signs out, exactly once. And it goes out with no
@@ -876,6 +1075,14 @@ class AuthService extends _$AuthService {
       }
       if (e.statusCode == 409) {
         await _surfaceAccountConflict(user, generation, e);
+      }
+      if (_isConsentRefusal(e)) {
+        // As for a 409: stay signed in to Firebase, and let the root's
+        // consent sheet ask. Transient for the request that asked.
+        if (await _clearJWTWhileCurrent(user, generation)) {
+          _consentRefusedUid = user.uid;
+          state = AuthState(firebaseUser: user, consentRequired: true);
+        }
       }
       rethrow;
     }
@@ -915,6 +1122,7 @@ class AuthService extends _$AuthService {
     // holds is still this account's.
     final completesLogin = state.jwtToken == null;
     state = state.copyWith(firebaseUser: user, jwtToken: jwtToken);
+    unawaited(_forgetAcceptedTerms());
     if (completesLogin) {
       _completeLogin(generation);
     }
@@ -922,6 +1130,109 @@ class AuthService extends _$AuthService {
       debugPrint('[AUTH] Access token refreshed');
     }
     return jwtToken;
+  }
+
+  /// The token-exchange body. `accepted_terms` (the JSON boolean `true`, the
+  /// only value the server counts) goes only when this device holds the
+  /// current user's consent: a consenting Google sign-in still in flight, or
+  /// the stored uid matching. An existing user never needs it, and the server
+  /// ignores it for one.
+  Future<Map<String, dynamic>> _exchangeBody(User user, String token) async {
+    // Read before the await: the Google sign-in clears it in `finally`.
+    final pending = _acceptedTermsPending;
+    String? storedUid;
+    try {
+      storedUid = await _secureStorage.read(key: _acceptedTermsKey);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH ERROR] Consent read failed: $e');
+    }
+    final accepted = pending || _acceptedTermsPending || storedUid == user.uid;
+    return {'firebase_token': token, if (accepted) 'accepted_terms': true};
+  }
+
+  /// [s] with `isLoading` false and every other field kept ([AuthState.copyWith]
+  /// drops the flags and the error).
+  static AuthState _notLoading(AuthState s) => AuthState(
+    firebaseUser: s.firebaseUser,
+    jwtToken: s.jwtToken,
+    error: s.error,
+    unverifiedAccountConflict: s.unverifiedAccountConflict,
+    emailVerificationRequired: s.emailVerificationRequired,
+    consentRequired: s.consentRequired,
+  );
+
+  static bool _isConsentRefusal(ApiException e) =>
+      e.statusCode == 428 && e.code == 'consent_required';
+
+  Future<void> _forgetAcceptedTerms() async {
+    try {
+      await _secureStorage.delete(key: _acceptedTermsKey);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH ERROR] Consent delete failed: $e');
+    }
+  }
+
+  /// "Continue" on the consent sheet: record the current user's consent and
+  /// run the exchange again, now with `accepted_terms: true`. A call while
+  /// one is still running sends nothing.
+  Future<void> acceptTermsAndRetry() async {
+    if (_consentRetryInFlight) return;
+    final user = _firebaseAuth.currentUser;
+    if (user == null) return;
+    _consentRetryInFlight = true;
+    try {
+      await _secureStorage.write(key: _acceptedTermsKey, value: user.uid);
+      state = AuthState(firebaseUser: user);
+      await _exchangeFirebaseTokenForJWT(user);
+    } catch (e) {
+      // The exchange catches its own failures; this is the storage write.
+      if (kDebugMode) debugPrint('[AUTH ERROR] Consent retry failed: $e');
+      state = AuthState(
+        firebaseUser: _firebaseAuth.currentUser,
+        error: 'Something went wrong. Please try again.',
+      );
+    } finally {
+      _consentRetryInFlight = false;
+    }
+  }
+
+  /// "Cancel" on the consent sheet, or closing it any other way: no account
+  /// is created, so the Firebase user made for it goes too. `delete()` can
+  /// refuse (`requires-recent-login`, offline); the sign-out still runs.
+  /// Never throws.
+  Future<void> declineTerms() async {
+    // An exchange still in flight must not sign this user in after all.
+    _authGeneration++;
+    final refusedUid = _consentRefusedUid;
+    _consentRefusedUid = null;
+    try {
+      // Only the user the 428 was for: never delete some other signed-in one.
+      final current = _firebaseAuth.currentUser;
+      if (current != null && refusedUid != null && current.uid == refusedUid) {
+        await current.delete();
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH] Consent declined; delete failed: $e');
+    }
+    try {
+      await _firebaseAuth.signOut();
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH ERROR] Firebase sign-out failed: $e');
+    }
+    try {
+      // google_sign_in 7.x: no call before `initialize`.
+      if (_googleInitialized) await googleSignIn.signOut();
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH ERROR] Google sign-out failed: $e');
+    }
+    await _forgetAcceptedTerms();
+    try {
+      ref.read(apiServiceProvider).setAuthToken(null);
+      await _clearJWT();
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH ERROR] Token clear failed: $e');
+    }
+    state = const AuthState();
   }
 
   /// A 409 on the refresh's exchange: keep the user signed in to Firebase
@@ -1059,6 +1370,10 @@ class AuthService extends _$AuthService {
         return 'No account found with this email. Please sign up.';
       case 'wrong-password':
         return 'Incorrect password. Please try again.';
+      case 'invalid-credential':
+        // Email-enumeration protection: Firebase answers a wrong password
+        // and an unknown (or deleted) account alike with this code.
+        return 'Incorrect email or password. Please try again.';
       case 'invalid-email':
         return 'Please enter a valid email address.';
       case 'user-disabled':
@@ -1089,4 +1404,10 @@ class AuthException implements Exception {
 
   @override
   String toString() => 'AuthException: $message';
+}
+
+/// The user backed out of [AuthService.freshIdTokenAfterReauth]: closed the
+/// Google sheet or gave no password. Not an error to show.
+class ReauthCancelledException extends AuthException {
+  ReauthCancelledException() : super('Cancelled.');
 }

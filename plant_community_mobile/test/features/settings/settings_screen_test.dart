@@ -20,10 +20,10 @@ class _FakeDensityNotifier extends DensityNotifier {
   void setDensity(AppDensity density) => state = density;
 }
 
-Widget _wrap(Widget child) => ProviderScope(
+Widget _wrap(Widget child, {bool loggedIn = false}) => ProviderScope(
   overrides: [
     densityProvider.overrideWith(_FakeDensityNotifier.new),
-    authServiceProvider.overrideWith(() => FakeAuthService(loggedIn: false)),
+    authServiceProvider.overrideWith(() => FakeAuthService(loggedIn: loggedIn)),
   ],
   child: MaterialApp(
     theme: AppTheme.build(Brightness.light, AppDensity.cozy),
@@ -54,5 +54,29 @@ void main() {
     expect(find.text('Comfortable'), findsOneWidget);
     expect(find.text('Cozy'), findsOneWidget);
     expect(find.text('Compact'), findsOneWidget);
+  });
+
+  testWidgets('a signed-in user gets an ACCOUNT section with Delete account, '
+      'before ABOUT', (tester) async {
+    await tester.pumpWidget(_wrap(const SettingsScreen(), loggedIn: true));
+
+    final account = find.text('ACCOUNT');
+    final tile = find.text('Delete account');
+    await tester.scrollUntilVisible(tile, 200);
+    expect(account, findsOneWidget);
+    expect(tile, findsOneWidget);
+    final about = find.text('ABOUT');
+    await tester.scrollUntilVisible(about, 200);
+    expect(
+      tester.getTopLeft(about).dy,
+      greaterThan(tester.getTopLeft(tile).dy),
+    );
+  });
+
+  testWidgets('signed out, there is no account section', (tester) async {
+    await tester.pumpWidget(_wrap(const SettingsScreen()));
+
+    expect(find.text('ACCOUNT'), findsNothing);
+    expect(find.text('Delete account'), findsNothing);
   });
 }

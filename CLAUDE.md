@@ -46,7 +46,7 @@ See the `lsp-intelligence` skill for the full operation catalogue.
 
 ## Critical Gotchas
 
-Seven non-obvious bugs that have already caused real failures:
+Non-obvious bugs and rules that have already caused real failures:
 
 **1. ViewSet `get_permissions()` must call `super()` for `@action` endpoints**
 → Enforced write-time by `docs/rules/triggers.json`; full detail in `backend/docs/patterns/architecture/viewsets.md`.
@@ -72,6 +72,8 @@ the exact line/character where the symbol is defined. Always get position from
 `documentSymbol` first, or from a prior `Read` (the line number column is `line`;
 count characters from the start of the line for `character`, or pass `documentSymbol`
 results through directly).
+
+**8. Every public sign-up path that creates a `User` must require `accepted_terms`** — a new user without it gets 428 `consent_required` (see `apps/users/consent.py`); existing users are never asked. allauth social sign-up is closed for this reason (`CustomSocialAccountAdapter.is_open_for_signup`).
 
 ## Working Conventions
 
@@ -102,6 +104,9 @@ caveat in this environment) `git stash push -u -m "<tag>"` over a bare stash.
 (:5174), or anything else doesn't die with the shell or a tool timeout.
 Verification scripts should use absolute paths rather than relying on a `cd`
 persisting across Bash calls.
+
+**Account deletion.** Never `user.delete()` directly — call `request_account_deletion` (`apps/users/deletion.py`).
+One exemption: `expire_unverified_accounts` deletes never-verified, data-less password accounts directly.
 
 **Evidence before claims.** Before stating a fix is applied repo-wide, grep
 for all occurrences and report the count found vs. the count actually changed.
@@ -360,6 +365,7 @@ never commit it).
 | `API_PUBLIC_URL` | `backend/.env` | This API's public origin (`https://api.houseplant-md.com` in prod). Set, reply and digest emails carry an RFC 8058 one-click `List-Unsubscribe` URL on it plus `List-Unsubscribe-Post`; unset (default), the header points at the web `/unsubscribe` page and one-click is off (todo 416). Not the web origin: that is `SITE_URL` |
 | `RESEND_WEBHOOK_SECRET` | `backend/.env` | Signing secret (`whsec_…`) of the Resend webhook at `/api/v1/email/webhooks/resend/` (todo 625): bounces, complaints and deliveries are recorded and bounced/complaining addresses suppressed. Unset = the webhook answers 503 and nothing is recorded. Policy: `docs/operations/notification-baseline.md` |
 | `EMAIL_CLICK_TRACKING_ENABLED` | `backend/.env` | `True` (default) sends forum email content links through a first-party signed click redirect on `API_PUBLIC_URL` (todo 625; 7-day attribution window, 90-day retention). Off when `API_PUBLIC_URL` is unset. Opens are never tracked |
+| `ORPHAN_FIREBASE_PRUNE_ENABLED` | `backend/.env` | `True` lets the nightly `privacy-retention-prune` beat task (Plan B task 8, `apps/users/retention.py`, 03:50) delete Firebase logins older than 7 days that no account owns: no `User.firebase_uid`, no pending `DeletedAccount.firebase_uid`, and no `User.email` matching case-insensitively. Default `False` = log-only: the count and the uids (never emails) are logged and nothing is deleted. More than 50 orphans in one run aborts with a `[SECURITY]` log and a Sentry message whatever the flag says. Set by hand on the `plant_id_community` service (which runs the embedded Celery beat; `False` since 2026-11-09) and declared `preserve()` in `.railway/railway.ts`, so its value lives on Railway, not in code |
 | `VITE_API_URL` | `web/.env` | Backend URL for React app |
 
 ## Cheap-Worker Delegation (Kimi K2.6)

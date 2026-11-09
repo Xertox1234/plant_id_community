@@ -11,6 +11,7 @@ import {
 } from 'react';
 import * as authService from '../services/authService';
 import { resetAllCapabilityLatches } from '../services/capabilityLatch';
+import { releaseBrowserPushOnLogout } from '../services/pushService';
 import { logger } from '../utils/logger';
 import { rotateRequestId } from '../utils/requestId';
 import { clearAllDrafts } from '../utils/forumDrafts';
@@ -93,6 +94,11 @@ export interface AuthContextValue {
   isAuthenticated: boolean;
   login: (credentials: LoginCredentials) => Promise<AuthResult>;
   logout: () => Promise<void>;
+  /**
+   * Drop the local session WITHOUT calling the logout endpoint. For flows where
+   * the server has already ended it (account deletion confirm clears the cookies).
+   */
+  clearLocalSession: () => void;
   signup: (userData: SignupData) => Promise<AuthResult>;
   /**
    * Re-read the current user from the backend and sync context state.
@@ -401,6 +407,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
+  /** Local-only logout: the server already cleared the cookies. */
+  const clearLocalSession = (): void => {
+    // As authService.logout does: this browser must stop showing the leaving
+    // account's notifications. Best effort, never awaited; the server side of
+    // the unsubscribe may fail now the session is gone, the local one won't.
+    releaseBrowserPushOnLogout().catch((err: unknown) => {
+      logger.warn('[AuthContext] Push release failed', { error: err });
+    });
+    sessionStorage.removeItem('user');
+    clearAllDrafts();
+    setUser(null);
+    setError(null);
+  };
+
   /**
    * Re-read the current user from the backend and sync context state.
    * The OAuth callback lands here after the backend has already set JWT cookies,
@@ -440,6 +460,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isAuthenticated: !!user,
       login,
       logout,
+      clearLocalSession,
       signup,
       refreshUser,
       revalidateIdentity,

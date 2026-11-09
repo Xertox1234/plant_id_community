@@ -45,6 +45,7 @@ class OAuthFindOrCreateUsernameTest(TestCase):
         user = oauth_views._find_or_create_user(
             "google",
             {"email": "jane.doe@example.com", "id": "g-1", "given_name": "Jane"},
+            accepted_terms=True,
         )
 
         self.assertIsNotNone(user)
@@ -56,6 +57,7 @@ class OAuthFindOrCreateUsernameTest(TestCase):
         user = oauth_views._find_or_create_user(
             "github",
             {"email": "jane@example.com", "id": 7, "login": "janedoe", "name": "J D"},
+            accepted_terms=True,
         )
 
         self.assertIsNotNone(user)

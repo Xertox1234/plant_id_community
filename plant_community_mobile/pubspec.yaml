@@ -73,12 +73,8 @@ dependencies:
   path_provider: ^2.1.5  # For database file paths
   path: ^1.9.1  # Path manipulation
 
-  # Location services (for weather data)
-  geolocator: ^14.0.2  # GPS location
-  geocoding: ^4.0.0  # Reverse geocoding
-
   # Permissions
-  permission_handler: ^12.0.1  # For notification and location permissions
+  permission_handler: ^12.0.1  # For opening app settings (notification and camera permissions)
   google_sign_in: ^7.2.0
 
   # Icons — the web uses lucide-react; this is the same icon set as a Flutter

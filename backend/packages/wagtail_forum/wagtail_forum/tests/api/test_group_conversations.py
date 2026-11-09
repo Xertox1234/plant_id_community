@@ -486,9 +486,11 @@ def test_kind_shape_constraint_rejects_a_group_with_a_pair():
 
 
 @pytest.mark.django_db
-def test_kind_shape_constraint_rejects_a_direct_thread_without_a_pair():
-    with pytest.raises(IntegrityError):
-        Conversation.objects.create(kind=ConversationKind.DIRECT)
+def test_kind_shape_constraint_allows_a_direct_thread_whose_sides_were_deleted():
+    # Relaxed for account deletion (Plan B): SET_NULL leaves a direct thread
+    # with a NULL side, so the constraint can no longer demand the pair. Only
+    # the group half (never a pair) is enforced at the DB level.
+    assert Conversation.objects.create(kind=ConversationKind.DIRECT).pk
 
 
 @pytest.mark.django_db

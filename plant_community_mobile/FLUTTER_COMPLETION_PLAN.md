@@ -122,6 +122,7 @@
 **Purpose**: Centralized HTTP client for Django backend
 
 **Implementation**:
+
 ```dart
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -210,6 +211,7 @@ final apiServiceProvider = Provider<ApiService>((ref) {
 ```
 
 **Testing**:
+
 - Test GET /plant-identification/
 - Test POST /plant-identification/identify/
 - Test error handling (network failure, 404, 500)
@@ -225,6 +227,7 @@ final apiServiceProvider = Provider<ApiService>((ref) {
 **Purpose**: Handle Firebase Auth + Django JWT token exchange
 
 **Flow**:
+
 1. User signs in with Firebase (email/password, Google, Apple)
 2. Get Firebase ID token
 3. Exchange token with Django backend → Get JWT
@@ -232,6 +235,7 @@ final apiServiceProvider = Provider<ApiService>((ref) {
 5. Use JWT for all API calls
 
 **Implementation**:
+
 ```dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -334,12 +338,14 @@ class AuthService extends _$AuthService {
 ```
 
 **Backend Integration**:
+
 - Django endpoint: `/api/v1/auth/firebase-token-exchange/`
 - Validates Firebase token
 - Creates/gets User in Django
 - Returns JWT token
 
 **Testing**:
+
 - Test registration flow
 - Test sign in/sign out
 - Test token exchange
@@ -356,6 +362,7 @@ class AuthService extends _$AuthService {
 **Purpose**: Call Django plant ID API
 
 **Implementation**:
+
 ```dart
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../models/plant.dart';
@@ -421,11 +428,13 @@ class PlantIdentificationService extends _$PlantIdentificationService {
 ```
 
 **Django Backend Endpoints Used**:
+
 - `POST /api/v1/plant-identification/identify/` - Identify plant
 - `GET /api/v1/plant-identification/{uuid}/` - Get plant details
 - `GET /api/v1/plant-identification/species/` - List all species
 
 **Testing**:
+
 - Test identify with real image
 - Test error handling (network failure, invalid image)
 - Test offline fallback
@@ -441,6 +450,7 @@ class PlantIdentificationService extends _$PlantIdentificationService {
 **Purpose**: Upload images to Firebase Storage
 
 **Implementation**:
+
 ```dart
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -487,6 +497,7 @@ final storageServiceProvider = Provider<StorageService>((ref) {
 ```
 
 **Security Rules** (Firebase Console):
+
 ```javascript
 rules_version = '2';
 service firebase.storage {
@@ -505,6 +516,7 @@ service firebase.storage {
 ```
 
 **Testing**:
+
 - Test upload with valid image
 - Test upload with >10MB image (should fail)
 - Test upload with non-image file (should fail)
@@ -521,6 +533,7 @@ service firebase.storage {
 **Purpose**: Sync data to Firestore for offline access
 
 **Collections Structure**:
+
 ```
 /users/{userId}/
   ├─ identified_plants/
@@ -548,6 +561,7 @@ service firebase.storage {
 ```
 
 **Implementation**:
+
 ```dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -596,6 +610,7 @@ final firestoreServiceProvider = Provider<FirestoreService>((ref) {
 ```
 
 **Firestore Security Rules**:
+
 ```javascript
 rules_version = '2';
 service cloud.firestore {
@@ -609,6 +624,7 @@ service cloud.firestore {
 ```
 
 **Testing**:
+
 - Test offline write → sync when online
 - Test offline read (cached data)
 - Test real-time updates
@@ -622,36 +638,43 @@ service cloud.firestore {
 Due to length constraints, the remaining tasks are summarized:
 
 **Task 6: User Profile Management** (3-4 hours)
+
 - Profile screen with display name, email, photo
 - Settings: theme, notifications, logout
 - Provider: `UserProfileProvider`
 
 **Task 7: Garden Tracking Integration** (4-6 hours)
+
 - Create `GardenService` calling Django Garden Calendar API
 - Sync garden beds, plants, care tasks
 - Bidirectional sync: Firestore ↔ Django
 
 **Task 8: Error Handling & Retry Logic** (2-3 hours)
+
 - Implement exponential backoff for retries
 - User-friendly error messages
 - Network status monitoring
 
 **Task 9: Loading States & User Feedback** (2-3 hours)
+
 - Shimmer loading for lists
 - Progress indicators for uploads
 - Success/error snackbars
 
 **Task 10: Integration Tests** (4-6 hours)
+
 - Test camera → identify → save flow
 - Test offline mode
 - Test sync when back online
 
 **Task 11: Replace Mock with Real Backend** (1-2 hours)
+
 - Remove `MockPlantService`
 - Update all screens to use real services
 - Test thoroughly
 
 **Task 12: End-to-End Testing** (4-6 hours)
+
 - Manual testing on iOS/Android
 - Test all user journeys
 - Fix bugs found during testing
@@ -663,6 +686,7 @@ Due to length constraints, the remaining tasks are summarized:
 ### Django Endpoints Required
 
 ✅ Already Implemented:
+
 - `POST /api/v1/plant-identification/identify/` - Plant identification
 - `GET /api/v1/plant-identification/{uuid}/` - Plant details
 - `GET /api/v1/calendar/api/garden-beds/` - List garden beds
@@ -670,6 +694,7 @@ Due to length constraints, the remaining tasks are summarized:
 - `GET /api/v1/calendar/api/care-tasks/` - List care tasks
 
 ❌ Need to Implement:
+
 - `POST /api/v1/auth/firebase-token-exchange/` - JWT token exchange
 - `GET /api/v1/users/profile/` - User profile
 - `PATCH /api/v1/users/profile/` - Update profile
@@ -679,16 +704,19 @@ Due to length constraints, the remaining tasks are summarized:
 ## Testing Strategy
 
 ### Unit Tests
+
 - Test each service method independently
 - Mock API responses
 - Test error scenarios
 
 ### Widget Tests
+
 - Test screen layouts
 - Test navigation
 - Test user interactions
 
 ### Integration Tests
+
 ```dart
 testWidgets('Complete plant identification flow', (tester) async {
   // 1. Launch app
@@ -721,6 +749,7 @@ testWidgets('Complete plant identification flow', (tester) async {
 ## Timeline & Milestones
 
 ### Week 1: Core Services (32-40 hours)
+
 - ✅ Task 1: API Service Layer (4h)
 - ✅ Task 2: Firebase Auth + JWT (6h)
 - ✅ Task 3: PlantIdentificationService (4h)
@@ -732,6 +761,7 @@ testWidgets('Complete plant identification flow', (tester) async {
 **Milestone**: Backend integration complete, plant ID working
 
 ### Week 2: Features & Integration (28-36 hours)
+
 - ✅ Task 6: User Profile (4h)
 - ✅ Task 7: Garden Tracking (6h)
 - ✅ Task 10: Integration Tests (6h)
@@ -740,6 +770,7 @@ testWidgets('Complete plant identification flow', (tester) async {
 **Milestone**: All features implemented, tests passing
 
 ### Week 3: Testing & Polish (24-32 hours)
+
 - ✅ Task 12: End-to-End Testing (6h)
 - ✅ Bug fixes from testing (10h)
 - ✅ UI polish & animations (4h)
@@ -764,7 +795,7 @@ testWidgets('Complete plant identification flow', (tester) async {
 - [ ] Offline mode tested thoroughly
 - [ ] Error handling tested (airplane mode, server down)
 - [ ] App icons and splash screens configured
-- [ ] Privacy policy and terms of service added
+- [x] Privacy policy and terms of service added — drafts; legal review and company details pending
 - [ ] App Store metadata prepared (screenshots, descriptions)
 
 ### Post-Release Monitoring
@@ -818,6 +849,7 @@ testWidgets('Complete plant identification flow', (tester) async {
 This is the foundation for all backend communication. Once this is done, we can progressively add authentication, plant identification, and other features.
 
 **Recommended Development Flow**:
+
 1. API Service → Test with Django backend
 2. Auth Service → Test login/logout
 3. Plant ID Service → Test camera → identify flow

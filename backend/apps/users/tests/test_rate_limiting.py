@@ -40,6 +40,7 @@ from time remaining in the window, so it stays positive under a freeze.
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase
+from django.urls import reverse
 from freezegun import freeze_time
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -207,8 +208,10 @@ class RegistrationRateLimitingTestCase(TestCase):
                         "email": f"test{i}@example.com",
                         "password": "TestPassword123!",
                         "confirmPassword": "TestPassword123!",
+                        "accepted_terms": True,
                     },
                     HTTP_X_CSRFTOKEN=csrf_token,
+                    format="json",
                 )
                 self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -223,8 +226,10 @@ class RegistrationRateLimitingTestCase(TestCase):
                     "email": "test4@example.com",
                     "password": "TestPassword123!",
                     "confirmPassword": "TestPassword123!",
+                    "accepted_terms": True,
                 },
                 HTTP_X_CSRFTOKEN=csrf_token,
+                format="json",
             )
 
             self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
@@ -248,8 +253,10 @@ class RegistrationRateLimitingTestCase(TestCase):
                         "email": f"test{i}@example.com",
                         "password": "TestPassword123!",
                         "confirmPassword": "TestPassword123!",
+                        "accepted_terms": True,
                     },
                     HTTP_X_CSRFTOKEN=csrf_token,
+                    format="json",
                     REMOTE_ADDR="192.168.1.1",
                 )
 
@@ -264,8 +271,10 @@ class RegistrationRateLimitingTestCase(TestCase):
                     "email": "test_different@example.com",
                     "password": "TestPassword123!",
                     "confirmPassword": "TestPassword123!",
+                    "accepted_terms": True,
                 },
                 HTTP_X_CSRFTOKEN=csrf_token,
+                format="json",
                 REMOTE_ADDR="192.168.1.2",
             )
 
@@ -377,4 +386,69 @@ class RateLimitHeadersTestCase(TestCase):
                 response.has_header("Retry-After"),
                 "429 response must include a Retry-After header",
             )
+            self.assertGreater(int(response["Retry-After"]), 0)
+
+
+class SignupConsentRateLimitTestCase(TestCase):
+    """The consent gate and the sign-up rate limits (PR #1286 review)."""
+
+    client: APIClient
+
+    def setUp(self):
+        self.client = APIClient()
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def _register(self, i, **extra):
+        return self.client.post(
+            "/api/v1/auth/register/",
+            data={
+                "username": f"consentuser{i}",
+                "email": f"consent{i}@example.com",
+                "password": "TestPassword123!",
+                "confirmPassword": "TestPassword123!",
+                **extra,
+            },
+            format="json",
+        )
+
+    def test_consent_refusals_do_not_use_the_register_quota(self):
+        """A stale client's 428s must not lock out its real sign-up (3/h)."""
+        with freeze_time():
+            for i in range(5):
+                response = self._register(i)
+                self.assertEqual(
+                    response.status_code, status.HTTP_428_PRECONDITION_REQUIRED
+                )
+            response = self._register(99, accepted_terms=True)
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_block_check_has_its_own_per_ip_limit(self):
+        """The 11th register request in an hour is 429, consent or not."""
+        with freeze_time():
+            for i in range(10):
+                response = self._register(i)
+                self.assertEqual(
+                    response.status_code, status.HTTP_428_PRECONDITION_REQUIRED
+                )
+            response = self._register(11)
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertIn("Retry-After", response)
+
+    def test_oauth_finish_rate_limit_per_ip(self):
+        """POST auth/oauth/finish/ allows 10 per hour per IP, then 429."""
+        url = reverse("v1:users:oauth_finish_signup")
+        with freeze_time():
+            for _ in range(10):
+                response = self.client.post(
+                    url, data={"accepted_terms": True}, format="json"
+                )
+                # No pending sign-up in this session: refused, but counted.
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            response = self.client.post(
+                url, data={"accepted_terms": True}, format="json"
+            )
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
             self.assertGreater(int(response["Retry-After"]), 0)

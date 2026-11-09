@@ -45,14 +45,14 @@ class Conversation(models.Model):
     )
     participant_a = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="forum_conversations_as_a",
         null=True,
         blank=True,
     )
     participant_b = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="forum_conversations_as_b",
         null=True,
         blank=True,
@@ -75,14 +75,13 @@ class Conversation(models.Model):
                 condition=~Q(participant_a=F("participant_b")),
                 name="forum_conversation_not_self",
             ),
-            # A direct thread has its pair; a group has none — never half.
+            # A group has no pair — never half. A direct thread's sides may be
+            # NULL: deleting a user SET_NULLs their side so the survivor keeps
+            # the thread (account deletion, Plan B). `between()` still always
+            # creates both sides.
             models.CheckConstraint(
                 condition=(
-                    Q(
-                        kind="direct",
-                        participant_a__isnull=False,
-                        participant_b__isnull=False,
-                    )
+                    Q(kind="direct")
                     | Q(
                         kind="group",
                         participant_a__isnull=True,
@@ -154,7 +153,8 @@ class Conversation(models.Model):
         return self.participants.filter(user_id=user.pk).exists()
 
     def other_participant_id(self, user):
-        """Direct threads only: the other side's user id."""
+        """Direct threads only: the other side's user id, or None once that
+        side's account is deleted."""
         return (
             self.participant_b_id
             if user.pk == self.participant_a_id
@@ -207,9 +207,13 @@ class Message(models.Model):
     conversation = models.ForeignKey(
         Conversation, on_delete=models.CASCADE, related_name="messages"
     )
+    # NULL once the sender's account is deleted: the thread survives for the
+    # other members and renders the `[deleted]` sentinel.
     sender = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="forum_messages_sent",
     )
     body = models.TextField(max_length=MESSAGE_BODY_MAX_CHARS)

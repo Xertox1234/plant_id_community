@@ -172,9 +172,18 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
     def is_open_for_signup(
         self, request: HttpRequest, sociallogin: SocialLogin
     ) -> bool:
-        """allauth's default asks the ACCOUNT adapter, which is closed below
-        for local signup only. Social signup stays as it was."""
-        return True
+        """Closed: allauth's social flow never creates an account.
+
+        Accounts are created only by the paths that require Privacy Policy and
+        Terms consent: ``POST /api/v1/auth/register/``, the Firebase token
+        exchange, and the web OAuth flow in ``oauth_views`` with its
+        ``oauth/finish/`` step. ``SOCIALACCOUNT_AUTO_SIGNUP`` would otherwise
+        create one here with no consent and no stamp. allauth asks this only
+        for a NEW user: an already linked social account, and one that
+        ``pre_social_login`` connects to an existing verified account, still
+        sign in.
+        """
+        return False
 
     def populate_user(
         self, request: HttpRequest, sociallogin: SocialLogin, data: dict[str, Any]

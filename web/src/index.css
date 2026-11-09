@@ -783,3 +783,58 @@
   color: var(--gt-ink);
   font-weight: 600;
 }
+
+/* Legal documents (/privacy, /terms): rendered markdown, no typography plugin. */
+.legal-doc > * + * {
+  margin-top: 1rem;
+}
+
+.legal-doc h1,
+.legal-doc h2,
+.legal-doc h3 {
+  color: var(--gt-ink);
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.legal-doc h1 {
+  font-size: 1.875rem;
+}
+
+.legal-doc h2 {
+  font-size: 1.375rem;
+  margin-top: 2rem;
+}
+
+.legal-doc h3 {
+  font-size: 1.125rem;
+  margin-top: 1.5rem;
+}
+
+.legal-doc ul,
+.legal-doc ol {
+  padding-inline-start: 1.5rem;
+}
+
+.legal-doc ul {
+  list-style: disc;
+}
+
+.legal-doc ol {
+  list-style: decimal;
+}
+
+.legal-doc li + li {
+  margin-top: 0.35rem;
+}
+
+.legal-doc a {
+  text-decoration: underline;
+}
+
+.legal-doc blockquote {
+  border-left: 2px solid var(--gt-secondary);
+  color: var(--gt-ink-2);
+  padding-inline-start: 1rem;
+}

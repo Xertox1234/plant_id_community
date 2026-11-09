@@ -203,9 +203,7 @@ describe('AppShell', () => {
     renderShell();
     await userEvent.click(screen.getByRole('button', { name: 'Open menu' }));
     const dialog = screen.getByRole('dialog', { name: 'Menu' });
-    within(dialog)
-      .getByRole('link', { name: /log in/i })
-      .focus();
+    within(dialog).getByRole('link', { name: 'Delete account' }).focus();
 
     await userEvent.tab();
     expect(within(dialog).getByRole('link', { name: 'Houseplant MD home' })).toHaveFocus();
@@ -218,7 +216,7 @@ describe('AppShell', () => {
     within(dialog).getByRole('link', { name: 'Houseplant MD home' }).focus();
 
     await userEvent.tab({ shift: true });
-    expect(within(dialog).getByRole('link', { name: /log in/i })).toHaveFocus();
+    expect(within(dialog).getByRole('link', { name: 'Delete account' })).toHaveFocus();
   });
 
   it('drawer: focus moves to Close menu on open and back to Open menu on Escape', async () => {
@@ -538,5 +536,15 @@ describe('AppShell', () => {
     await userEvent.click(screen.getByRole('button', { name: /search plants, posts, people/i }));
 
     expect(screen.getByTestId('command-palette')).toBeInTheDocument();
+  });
+
+  it('links to the legal pages from the sidebar foot', () => {
+    renderShell();
+    expect(screen.getAllByRole('link', { name: 'Privacy' })[0]).toHaveAttribute('href', '/privacy');
+    expect(screen.getAllByRole('link', { name: 'Terms' })[0]).toHaveAttribute('href', '/terms');
+    expect(screen.getAllByRole('link', { name: 'Delete account' })[0]).toHaveAttribute(
+      'href',
+      '/delete-account'
+    );
   });
 });

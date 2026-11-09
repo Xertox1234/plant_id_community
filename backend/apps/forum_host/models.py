@@ -69,7 +69,9 @@ class RagAnswerReport(models.Model):
     )
     reporter = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name="forum_rag_answer_reports",
     )
     detail = models.CharField(

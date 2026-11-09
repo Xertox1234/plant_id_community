@@ -28,9 +28,14 @@ const MyPlantsPage = lazy(() => import('./pages/MyPlantsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const DiseaseDiagnosePage = lazy(() => import('./pages/diagnosis/DiseaseDiagnosePage'));
 const GoogleCallbackPage = lazy(() => import('./pages/auth/GoogleCallbackPage'));
+const FinishSignupPage = lazy(() => import('./pages/auth/FinishSignupPage'));
 const UnsubscribePage = lazy(() => import('./pages/UnsubscribePage'));
 const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'));
 const ThemePreviewPage = lazy(() => import('./pages/debug/ThemePreviewPage'));
+const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'));
+const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
+const DeleteAccountPage = lazy(() => import('./pages/account/DeleteAccountPage'));
+const ConfirmDeleteAccountPage = lazy(() => import('./pages/account/ConfirmDeleteAccountPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 /**
@@ -59,6 +64,9 @@ function App() {
               before SPA auth state exists, so it must not sit behind ProtectedLayout. */}
           <Route path="/auth/google/callback" element={<GoogleCallbackPage />} />
 
+          {/* Google sign-up consent step — public: the visitor has no account yet. */}
+          <Route path="/signup/finish" element={<FinishSignupPage />} />
+
           {/* Email unsubscribe link (todo 408) — public: the signed token in
               the URL is the credential, so it must work signed out. */}
           <Route path="/unsubscribe" element={<UnsubscribePage />} />
@@ -73,6 +81,15 @@ function App() {
             path="/newsletter/unsubscribe"
             element={<NewsletterLinkPage key="unsubscribe" action="unsubscribe" />}
           />
+
+          {/* Legal documents — public; the mobile app opens them in-app with ?lang= */}
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+
+          {/* Account deletion — public: reachable without signing in; the emailed
+              signed token is the credential for /confirm. */}
+          <Route path="/delete-account" element={<DeleteAccountPage />} />
+          <Route path="/delete-account/confirm" element={<ConfirmDeleteAccountPage />} />
 
           {/* Non-critical routes (lazy loaded) */}
           <Route path="/identify" element={<IdentifyPage />} />

@@ -1182,6 +1182,11 @@ WEB_HTTP_CONCURRENCY = config("WEB_HTTP_CONCURRENCY", default=20, cast=int)
 FORUM_LIVE_UPDATES_ENABLED = config(
     "FORUM_LIVE_UPDATES_ENABLED", default=False, cast=bool
 )
+# Plan B task 8: the nightly prune deletes Firebase logins no account owns
+# only when this is True. Default False: it logs the count and uids instead.
+ORPHAN_FIREBASE_PRUNE_ENABLED = config(
+    "ORPHAN_FIREBASE_PRUNE_ENABLED", default=False, cast=bool
+)
 
 # Firebase Admin SDK service-account JSON path — the CANONICAL credentials
 # setting: both the auth token exchange (apps/users) and the FCM sender
@@ -1485,6 +1490,13 @@ CELERY_BEAT_SCHEDULE = {
     "email-feedback-prune": {
         "task": "apps.core.tasks.prune_email_feedback",
         "schedule": crontab(hour=3, minute=40),
+    },
+    # Plan B task 8: 90-day privacy retention, release of forum posts held
+    # for a report, re-queue of stalled account deletions, and the orphaned
+    # Firebase login prune (apps/users/retention.py).
+    "privacy-retention-prune": {
+        "task": "apps.users.tasks.privacy_retention_prune",
+        "schedule": crontab(hour=3, minute=50),
     },
 }
 
