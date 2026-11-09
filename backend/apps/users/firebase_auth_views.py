@@ -22,6 +22,7 @@ from apps.users.consent import ConsentRequired, consent_required_response, is_ac
 from apps.users.constants import LEGAL_POLICY_VERSION
 from apps.users.deletion import (
     SignupBlocked,
+    is_deletion_pending_for_firebase_uid,
     is_signup_blocked,
     signup_blocked_response,
 )
@@ -502,6 +503,19 @@ def firebase_token_exchange(request: Request) -> Response:
             return Response(
                 {"error": "Email address must be verified before logging in."},
                 status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # A pending deletion still holds this uid: the Firebase login is not
+        # erased yet, but the account is (or soon will be). Signing in now
+        # would create a fresh account on a uid the next erase step deletes.
+        # The plain invalid-token 401 is what the app already treats as
+        # signed out, so it needs no new mapping.
+        if is_deletion_pending_for_firebase_uid(firebase_uid):
+            logger.warning(
+                "[FIREBASE AUTH] Refused sign-in: a deletion is pending for this uid"
+            )
+            return Response(
+                {"error": "Invalid Firebase token"}, status=status.HTTP_401_UNAUTHORIZED
             )
 
         logger.info(

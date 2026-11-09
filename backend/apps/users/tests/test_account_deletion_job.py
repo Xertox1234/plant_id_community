@@ -303,3 +303,22 @@ def test_task_retry_options():
     assert task.max_retries == 8
     assert task.retry_backoff is True
     assert task.retry_backoff_max == 3600
+    # Its own limits, not the request-shaped global 90 s / 120 s: a prolific
+    # poster's forum step would otherwise be killed and retried forever.
+    assert task.soft_time_limit == 900
+    assert task.time_limit == 960
+
+
+def test_a_broker_failure_at_commit_does_not_fail_the_request(
+    user, django_capture_on_commit_callbacks
+):
+    with patch.object(
+        tasks.delete_account_task, "delay", side_effect=ConnectionError("broker down")
+    ) as delay:
+        record = _request(user, django_capture_on_commit_callbacks)
+
+    delay.assert_called_once_with(record.pk)
+    record.refresh_from_db()
+    assert record.status == DELETED_ACCOUNT_STATUS_PENDING
+    user.refresh_from_db()
+    assert user.is_active is False

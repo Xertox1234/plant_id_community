@@ -126,6 +126,43 @@ def test_token_exchange_existing_user_on_list_still_signs_in(mock_verify, client
     assert r.status_code == 200
 
 
+@pytest.mark.django_db
+@patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+def test_token_exchange_refused_while_a_deletion_holds_the_uid(mock_verify, client):
+    """Between the django and firebase_auth steps the login still exists but
+    the account does not: a sign-in must not create a fresh account."""
+    DeletedAccount.objects.create(
+        user_id=5,
+        email="leaving@example.com",
+        email_hash=email_hash("leaving@example.com"),
+        firebase_uid="doomed-uid",
+        reason="self",
+        status="pending",
+    )
+    mock_verify.return_value = {
+        "uid": "doomed-uid",
+        "email": "leaving@example.com",
+        "email_verified": True,
+    }
+    r = client.post(
+        reverse("v1:users:firebase_token_exchange"),
+        {"firebase_token": "tok", "accepted_terms": True},
+        content_type="application/json",
+    )
+    assert r.status_code == 401
+    assert r.json() == {"error": "Invalid Firebase token"}
+    assert User.objects.count() == 0
+
+    # Once the deletion is done, the uid is free again (the record clears it).
+    DeletedAccount.objects.update(status="done", firebase_uid="")
+    r = client.post(
+        reverse("v1:users:firebase_token_exchange"),
+        {"firebase_token": "tok", "accepted_terms": True},
+        content_type="application/json",
+    )
+    assert r.status_code == 200
+
+
 GOOGLE = {"id": "g-1", "email": BLOCKED, "given_name": "B", "family_name": "L"}
 
 

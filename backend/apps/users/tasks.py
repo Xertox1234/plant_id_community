@@ -268,6 +268,8 @@ def send_account_delete_link_task(self, user_id: int) -> None:
     max_retries=constants.ACCOUNT_DELETE_MAX_RETRIES,
     retry_backoff=True,
     retry_backoff_max=constants.ACCOUNT_DELETE_RETRY_BACKOFF_MAX,
+    soft_time_limit=constants.ACCOUNT_DELETE_SOFT_TIME_LIMIT,
+    time_limit=constants.ACCOUNT_DELETE_TIME_LIMIT,
     ignore_result=True,
 )
 def delete_account_task(self, record_id: int) -> None:

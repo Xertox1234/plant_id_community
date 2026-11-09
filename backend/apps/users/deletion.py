@@ -34,6 +34,7 @@ from .constants import (
     DELETED_ACCOUNT_STATUS_DONE,
     DELETED_ACCOUNT_STATUS_PENDING,
     DELETED_TOPIC_TITLE,
+    ERASE_FORUM_POST_CHUNK_SIZE,
     ERASE_LOGENTRY_CHUNK_SIZE,
     ERASE_STEP_DJANGO,
     ERASE_STEP_EMAIL,
@@ -64,6 +65,21 @@ class SignupBlocked(Exception):
 def email_hash(address: str) -> str:
     """The hash ``EmailSuppression`` keys on (one normaliser, not a copy)."""
     return address_hash(address)
+
+
+def is_deletion_pending_for_firebase_uid(uid: str) -> bool:
+    """Whether a pending deletion still holds Firebase ``uid``.
+
+    The token exchange refuses such a uid: between the ``django`` and
+    ``firebase_auth`` steps the Firebase login still exists but no account
+    does, and a sign-in would otherwise create a fresh account that the
+    later steps then wipe.
+    """
+    if not uid:
+        return False
+    return DeletedAccount.objects.filter(
+        firebase_uid=uid, status=DELETED_ACCOUNT_STATUS_PENDING
+    ).exists()
 
 
 def is_signup_blocked(address: str) -> bool:
@@ -124,8 +140,6 @@ def request_account_deletion(user: User, reason: str) -> DeletedAccount:
     """
     from apps.blog.models import BlogAuthorPage, BlogPostPage
 
-    from .tasks import delete_account_task
-
     if reason not in dict(DeletedAccount.REASON_CHOICES):
         raise ValueError(f"Unknown account deletion reason: {reason!r}")
 
@@ -166,7 +180,10 @@ def request_account_deletion(user: User, reason: str) -> DeletedAccount:
             policy_version=locked.policy_version_accepted or "",
         )
         record_id = record.pk
-        transaction.on_commit(lambda: delete_account_task.delay(record_id))
+        # robust: a broker error at commit must not turn a deletion that did
+        # start into a 500. The account is already inactive; the nightly
+        # re-queue of stale pending records picks the job up.
+        transaction.on_commit(lambda: _queue_deletion(record_id), robust=True)
     user.is_active = False
     logger.info(
         "[ACCOUNT DELETE] deletion %s requested for account %s (%s)",
@@ -175,6 +192,20 @@ def request_account_deletion(user: User, reason: str) -> DeletedAccount:
         reason,
     )
     return record
+
+
+def _queue_deletion(record_id: int) -> None:
+    from .tasks import delete_account_task
+
+    try:
+        delete_account_task.delay(record_id)
+    except Exception as exc:
+        logger.error(
+            "[ACCOUNT DELETE] deletion %s could not be queued (%s); the nightly "
+            "re-queue will pick it up",
+            record_id,
+            type(exc).__name__,
+        )
 
 
 def notify_account_deleted(record: DeletedAccount) -> None:
@@ -254,6 +285,7 @@ def erase_django_data(record: DeletedAccount) -> None:
     )
     user_model = get_user_model()
     with disable_auditlog():
+        _erase_forum_posts_in_chunks(record)
         for name, step in steps:
 
             def work(locked: DeletedAccount, step=step) -> bool:
@@ -269,6 +301,44 @@ def erase_django_data(record: DeletedAccount) -> None:
                 return user is not None
 
             _run_erase_step(record, name, work, skipped_note="no user row")
+
+
+def _erase_forum_posts_in_chunks(record: DeletedAccount) -> None:
+    """Erase the user's unheld forum posts ``ERASE_FORUM_POST_CHUNK_SIZE`` at
+    a time, each chunk in its own committed transaction, before the ``forum``
+    step runs.
+
+    A prolific poster's posts cost a revisions delete, a re-index and image
+    checks each, which can outlast the task's time limit in one transaction.
+    Committed chunks survive a kill, and an erased post has no author, so it
+    drops out of the next query: a retry carries on where it stopped. The
+    ``forum`` step itself still runs every post that is left (held ones, or
+    one written meanwhile), so it is recorded only once all are handled.
+    """
+    from wagtail_forum.models import Post, Report
+
+    while True:
+        with transaction.atomic():
+            locked = DeletedAccount.objects.select_for_update().get(pk=record.pk)
+            if ERASE_STEP_FORUM in locked.steps_done or locked.user_id is None:
+                return
+            queued = Report.objects.filter(
+                post=OuterRef("pk"), status__in=moderation_queue_statuses()
+            )
+            chunk = list(
+                Post.objects.filter(author_id=locked.user_id)
+                .filter(~Exists(queued))
+                .order_by("pk")[:ERASE_FORUM_POST_CHUNK_SIZE]
+            )
+            if not chunk:
+                return
+            for post in chunk:
+                erase_post(post)
+        logger.info(
+            "[ACCOUNT DELETE] account %s: erased %s forum posts",
+            locked.user_id,
+            len(chunk),
+        )
 
 
 def _run_erase_step(
@@ -432,7 +502,7 @@ def _erase_forum(user: User) -> None:
     held post shows), and notifications the user caused are deleted.
     """
     from wagtail.images import get_image_model
-    from wagtail_forum.models import Notification, Post, Report, Topic
+    from wagtail_forum.models import ForumProfile, Notification, Post, Report, Topic
 
     queued = Report.objects.filter(
         post=OuterRef("pk"), status__in=moderation_queue_statuses()
@@ -446,6 +516,15 @@ def _erase_forum(user: User) -> None:
             held_image_ids |= _body_image_ids(post)
         else:
             erase_post(post)
+
+    # The forum avatar must be the user's own upload, and the profile still
+    # references it here (the profile goes only with user.delete()), so the
+    # sweep below would keep it. Unlink it first, with save() so the
+    # ReferenceIndex drops the reference, and the sweep deletes the photo.
+    profile = ForumProfile.objects.filter(user=user, avatar__isnull=False).first()
+    if profile is not None:
+        profile.avatar = None
+        profile.save()
 
     for topic in Topic.objects.filter(author=user).order_by("pk"):
         topic.revisions.all().delete()

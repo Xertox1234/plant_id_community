@@ -135,8 +135,15 @@ ERASE_STEP_NOTIFIED = "notified"
 ACCOUNT_DELETE_MAX_RETRIES = 8
 ACCOUNT_DELETE_RETRY_BACKOFF_MAX = 3600
 ACCOUNT_DELETED_EMAIL_SUBJECT = "Your Houseplant MD account has been deleted"
+# delete_account_task's own Celery limits: a prolific poster's forum step
+# outlasts the request-shaped global 90 s. Forum posts are erased in committed
+# chunks, so a kill keeps the chunks already done and the retry carries on.
+ACCOUNT_DELETE_SOFT_TIME_LIMIT = 900
+ACCOUNT_DELETE_TIME_LIMIT = 960
 # Audit-log rows deleted per statement while erasing.
 ERASE_LOGENTRY_CHUNK_SIZE = 500
+# Forum posts erased per committed transaction, before the forum step itself.
+ERASE_FORUM_POST_CHUNK_SIZE = 50
 
 # Deletion endpoints (Plan B task 6). The mobile app proves a fresh sign-in:
 # the Firebase ID token's auth_time may be at most this old.

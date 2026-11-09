@@ -608,3 +608,74 @@ def test_a_stale_record_copy_does_not_redo_or_overwrite_steps(target, board):
     first.refresh_from_db()
     assert first.steps_done == ["forum", "email", "django"]
     assert stale.steps_done == ["forum", "email", "django"]
+
+
+def test_forum_posts_erase_in_chunks_and_resume_after_a_kill(target, other, board):
+    """A kill mid-way keeps the chunks already committed; the retry erases
+    only what is left and then records the forum step."""
+    topic = _topic(board, other)
+    _post(topic, other, [("quote", "opening")], opening=True)
+    posts = [_post(topic, target, [("quote", f"reply {i}")]) for i in range(5)]
+    record = _record(target)
+    real_erase = deletion.erase_post
+    erased = []
+
+    def killed_on_third(post):
+        if len(erased) == 2:
+            raise RuntimeError("SoftTimeLimitExceeded stand-in")
+        real_erase(post)
+        erased.append(post.pk)
+
+    with (
+        patch.object(deletion, "ERASE_FORUM_POST_CHUNK_SIZE", 2),
+        patch.object(deletion, "erase_post", side_effect=killed_on_third),
+    ):
+        with pytest.raises(RuntimeError):
+            erase_django_data(record)
+
+    record.refresh_from_db()
+    assert record.steps_done == []
+    # The first chunk committed; the second rolled back whole.
+    first_two = {p.pk for p in posts[:2]}
+    assert set(Post.objects.filter(author=None).values_list("pk", flat=True)) == (
+        first_two
+    )
+
+    resumed = []
+
+    def tracking(post):
+        resumed.append(post.pk)
+        real_erase(post)
+
+    with (
+        patch.object(deletion, "ERASE_FORUM_POST_CHUNK_SIZE", 2),
+        patch.object(deletion, "erase_post", side_effect=tracking),
+    ):
+        erase_django_data(record)
+
+    record.refresh_from_db()
+    assert record.steps_done == ["forum", "email", "django"]
+    # Nothing already erased is erased again.
+    assert sorted(resumed) == sorted(p.pk for p in posts[2:])
+    for post in posts:
+        post.refresh_from_db()
+        assert post.author_id is None
+        assert len(post.body) == 0
+
+
+def test_forum_avatar_upload_is_deleted(
+    roots, target, board, django_capture_on_commit_callbacks
+):
+    from wagtail_forum.models import ForumProfile
+
+    avatar = _image(target, "my face")
+    avatar_path = Path(avatar.file.path)
+    profile, _ = ForumProfile.objects.get_or_create(user=target)
+    profile.avatar = avatar
+    profile.save()
+
+    with django_capture_on_commit_callbacks(execute=True):
+        erase_django_data(_record(target))
+
+    assert not get_image_model().objects.filter(pk=avatar.pk).exists()
+    assert not avatar_path.exists()
