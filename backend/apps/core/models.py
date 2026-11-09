@@ -413,7 +413,9 @@ class EmailClick(models.Model):
     only. One row per email and link, so a repeated click is never counted
     twice; only a click within ``EMAIL_CLICK_ATTRIBUTION_DAYS`` of the send is
     recorded. Deleted after ``EMAIL_FEEDBACK_RETENTION_DAYS`` and with the
-    account. No IP address or user agent is stored.
+    account, and also (CASCADE) when the nightly privacy prune deletes its
+    notification at 90 days (``apps.users.retention``), so a click can go
+    from about 84 days old. No IP address or user agent is stored.
     """
 
     notification = models.ForeignKey(

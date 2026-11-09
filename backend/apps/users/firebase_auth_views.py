@@ -20,6 +20,12 @@ from apps.plant_identification.constants import RATE_LIMITS
 from apps.users.account_links import on_first_provider_link
 from apps.users.consent import ConsentRequired, consent_required_response, is_accepted
 from apps.users.constants import LEGAL_POLICY_VERSION
+from apps.users.deletion import (
+    SignupBlocked,
+    is_deletion_pending_for_firebase_uid,
+    is_signup_blocked,
+    signup_blocked_response,
+)
 from apps.users.email_verification import (
     get_account_by_email,
     is_address_verified,
@@ -499,6 +505,19 @@ def firebase_token_exchange(request: Request) -> Response:
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        # A pending deletion still holds this uid: the Firebase login is not
+        # erased yet, but the account is (or soon will be). Signing in now
+        # would create a fresh account on a uid the next erase step deletes.
+        # The plain invalid-token 401 is what the app already treats as
+        # signed out, so it needs no new mapping.
+        if is_deletion_pending_for_firebase_uid(firebase_uid):
+            logger.warning(
+                "[FIREBASE AUTH] Refused sign-in: a deletion is pending for this uid"
+            )
+            return Response(
+                {"error": "Invalid Firebase token"}, status=status.HTTP_401_UNAUTHORIZED
+            )
+
         logger.info(
             f"[FIREBASE AUTH] Token validated for uid={firebase_uid}, email={redact_email(firebase_email)}"
         )
@@ -540,6 +559,9 @@ def firebase_token_exchange(request: Request) -> Response:
             },
             status=status.HTTP_200_OK,
         )
+
+    except SignupBlocked:
+        return signup_blocked_response()
 
     except ConsentRequired:
         # Before ValueError/Exception: a new account without acceptance.
@@ -755,6 +777,14 @@ def get_or_create_user_from_firebase(
             f"is verified on another account"
         )
         raise ValueError("Email is verified on another account")
+
+    # A blocked address is refused before it is asked for consent.
+    if is_signup_blocked(firebase_email):
+        logger.warning(
+            f"[SECURITY] Refused signup: {redact_email(firebase_email)} "
+            f"was deleted for abuse or under-13"
+        )
+        raise SignupBlocked()
 
     # Every refusal above has run. A new account needs the sign-up consent;
     # raised here so no User row or side effect exists yet.

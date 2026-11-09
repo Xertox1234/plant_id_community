@@ -931,6 +931,33 @@ void main() {
       expect(e.message, contains('No internet connection'));
     });
 
+    test('only a connection failure or a timeout is marked connectivity', () {
+      bool connectivity(DioExceptionType type, {Object? error}) =>
+          (api.handleDioException(
+                    DioException(
+                      requestOptions: options,
+                      type: type,
+                      error: error,
+                    ),
+                  )
+                  as ApiException)
+              .connectivity;
+
+      expect(connectivity(DioExceptionType.connectionError), isTrue);
+      expect(connectivity(DioExceptionType.connectionTimeout), isTrue);
+      expect(connectivity(DioExceptionType.sendTimeout), isTrue);
+      expect(connectivity(DioExceptionType.receiveTimeout), isTrue);
+      expect(
+        connectivity(
+          DioExceptionType.unknown,
+          error: const SocketException('down'),
+        ),
+        isTrue,
+      );
+      expect(connectivity(DioExceptionType.cancel), isFalse);
+      expect(connectivity(DioExceptionType.unknown), isFalse);
+    });
+
     test('F8: a non-JSON error body is marked unstructured, a JSON one is '
         'not', () {
       ApiException convert(Object? body, int status) =>

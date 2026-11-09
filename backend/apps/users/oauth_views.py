@@ -40,6 +40,7 @@ from .constants import (
     SIGNUP_FAILED_CODE,
     SIGNUP_FAILED_MESSAGE,
 )
+from .deletion import SignupBlocked, is_signup_blocked, signup_blocked_response
 from .email_verification import (
     get_account_by_email,
     is_address_verified,
@@ -272,6 +273,9 @@ def oauth_callback(request, provider):
         except UnverifiedLocalAccount:
             frontend_url = get_oauth_redirect_url(provider)
             return HttpResponseRedirect(f"{frontend_url}?error=account_unverified")
+        except SignupBlocked:
+            frontend_url = get_oauth_redirect_url(provider)
+            return HttpResponseRedirect(f"{frontend_url}?error=signup_blocked")
         except ConsentRequired:
             # A new user who never ticked the box: no account yet. Park the
             # profile in THIS session for the finish step, never a token.
@@ -363,15 +367,21 @@ def oauth_finish_signup(request):
             {"error": SIGNUP_EXPIRED_MESSAGE, "code": SIGNUP_EXPIRED_CODE},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    provider, user_data = pending
+    # A blocked address is refused before it is asked for consent.
+    if is_signup_blocked(user_data.get("email") or ""):
+        request.session.pop(OAUTH_PENDING_SIGNUP_KEY, None)
+        return signup_blocked_response()
     body = request.data if isinstance(request.data, dict) else {}
     if not is_accepted(body.get("accepted_terms")):
         # Kept, so the user can tick the box and send again.
         return consent_required_response()
 
-    provider, user_data = pending
     request.session.pop(OAUTH_PENDING_SIGNUP_KEY, None)
     try:
         user = _find_or_create_user(provider, user_data, accepted_terms=True)
+    except SignupBlocked:
+        return signup_blocked_response()
     except UnverifiedLocalAccount:
         user = None
     if not user:
@@ -677,6 +687,14 @@ def _find_or_create_user(provider, user_data, accepted_terms: bool = False):
             )
             return None
 
+        # A blocked address is refused before it is asked for consent.
+        if is_signup_blocked(email):
+            logger.warning(
+                f"[SECURITY] Refused {provider} signup: address was deleted "
+                f"for abuse or under-13"
+            )
+            raise SignupBlocked()
+
         if not accepted_terms:
             raise ConsentRequired()
 
@@ -730,7 +748,7 @@ def _find_or_create_user(provider, user_data, accepted_terms: bool = False):
         logger.info(f"[AUTH] Created new {log_safe_user_context(user)} via {provider}")
         return user
 
-    except (UnverifiedLocalAccount, ConsentRequired):
+    except (UnverifiedLocalAccount, ConsentRequired, SignupBlocked):
         raise
     except Exception as e:
         logger.error(f"[AUTH] User creation error for {provider}: {str(e)}")

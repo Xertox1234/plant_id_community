@@ -4,7 +4,13 @@ URL configuration for user authentication and profile management.
 
 from django.urls import path
 
-from . import email_preferences_views, firebase_auth_views, oauth_views, views
+from . import (
+    deletion_views,
+    email_preferences_views,
+    firebase_auth_views,
+    oauth_views,
+    views,
+)
 
 app_name = "users"
 
@@ -39,6 +45,18 @@ urlpatterns = [
         "oauth/<str:provider>/callback/",
         oauth_views.oauth_callback,
         name="oauth_callback",
+    ),
+    # Account deletion (Plan B): mobile re-auth, then the public emailed link.
+    path("account/delete/", deletion_views.delete_account, name="delete_account"),
+    path(
+        "account/delete/request/",
+        deletion_views.request_account_deletion_link,
+        name="request_account_deletion_link",
+    ),
+    path(
+        "account/delete/confirm/",
+        deletion_views.confirm_account_deletion,
+        name="confirm_account_deletion",
     ),
     # User profile endpoints
     path("user/", views.current_user, name="current_user"),

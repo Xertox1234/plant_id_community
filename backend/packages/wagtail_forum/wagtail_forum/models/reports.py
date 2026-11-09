@@ -48,9 +48,14 @@ class Report(models.Model):
         on_delete=models.CASCADE,
         related_name="reports",
     )
+    # NULL once the reporter's account is deleted: the report (and the
+    # content it flags) outlives them. Unique (target, reporter) constraints
+    # treat NULLs as distinct, so deleted reporters never collide.
     reporter = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name="wagtail_forum_reports",
     )
     reason = models.CharField(max_length=16, choices=REASON_CHOICES)
@@ -121,7 +126,8 @@ class Report(models.Model):
             return ""
         body = self.message.body
         excerpt = body if len(body) <= 60 else body[:57] + "..."
-        return f"{self.message.sender}: {excerpt}"
+        sender = self.message.sender if self.message.sender_id else "[deleted]"
+        return f"{sender}: {excerpt}"
 
     @property
     def target_excerpt(self):

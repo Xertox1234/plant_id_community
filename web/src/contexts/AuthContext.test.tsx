@@ -10,10 +10,16 @@ import { renderHook, waitFor, act } from '@testing-library/react';
 import { AuthProvider, useAuth, AuthErrorCode } from './AuthContext';
 import * as authService from '../services/authService';
 import * as forumService from '../services/forumService';
+import { releaseBrowserPushOnLogout } from '../services/pushService';
 import type { User, LoginCredentials, SignupData } from '../types/auth';
 
 // Mock the auth service
 vi.mock('../services/authService');
+
+// clearLocalSession releases browser push (it must never touch the real one).
+vi.mock('../services/pushService', () => ({
+  releaseBrowserPushOnLogout: vi.fn(async () => undefined),
+}));
 
 // Mock logger to avoid console noise during tests
 vi.mock('../utils/logger', () => ({
@@ -867,6 +873,35 @@ describe('AuthContext', () => {
       // consumer (e.g. the context value's own useMemo) doesn't re-render
       // on every alt-tab for no reason.
       expect(result.current.user).toBe(userRefBefore);
+    });
+  });
+
+  describe('clearLocalSession (account deletion confirm)', () => {
+    it('releases browser push and clears the user', async () => {
+      const mockUser = { id: 1, username: 'leaving', email: 'leaving@example.test' } as User;
+      vi.mocked(authService.getStoredUser).mockReturnValue(mockUser);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(mockUser);
+      const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+      await waitFor(() => expect(result.current.user).toEqual(mockUser));
+
+      act(() => result.current.clearLocalSession());
+
+      expect(releaseBrowserPushOnLogout).toHaveBeenCalledTimes(1);
+      expect(result.current.user).toBeNull();
+      expect(authService.logout).not.toHaveBeenCalled();
+    });
+
+    it('still clears the session when the push release rejects', async () => {
+      vi.mocked(releaseBrowserPushOnLogout).mockRejectedValueOnce(new Error('sw gone'));
+      vi.mocked(authService.getStoredUser).mockReturnValue(null);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(null);
+      const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      act(() => result.current.clearLocalSession());
+
+      expect(result.current.user).toBeNull();
+      await waitFor(() => expect(releaseBrowserPushOnLogout).toHaveBeenCalledTimes(1));
     });
   });
 });

@@ -101,6 +101,39 @@ const emailStillUnverifiedMessage =
     'Your email is not verified yet. Open the link in the email we sent, '
     'then try again.';
 
+/// How [AuthService.freshIdTokenAfterReauth] proves it is still the account
+/// holder before an account deletion (Plan B task 10).
+enum ReauthMethod { google, password }
+
+/// The re-auth method for an account with these linked sign-in methods
+/// (`User.providerData` provider ids): `google.com` wins over `password`
+/// when both are linked, since it needs no typing and works for an account
+/// whose password the user never set or forgot. `null` for anything else
+/// (no other provider is offered by this app).
+ReauthMethod? reauthMethodFor(Iterable<String> providerIds) {
+  final ids = providerIds.toSet();
+  if (ids.contains(GoogleAuthProvider.PROVIDER_ID)) return ReauthMethod.google;
+  if (ids.contains(EmailAuthProvider.PROVIDER_ID)) return ReauthMethod.password;
+  return null;
+}
+
+/// Re-auth refused: the password did not match.
+const reauthWrongPasswordMessage =
+    'Incorrect password. Please try again.'; // pragma: allowlist secret
+
+/// Re-auth refused: the Google account picked is not this account's.
+const reauthWrongAccountMessage =
+    "That's a different account. Choose the account you're deleting.";
+
+/// Re-auth refused for a reason that is not a wrong password, e.g. a Google
+/// credential Firebase would not accept.
+const reauthNotConfirmedMessage = "Couldn't confirm it's you. Try again.";
+
+/// The signed-in account has no sign-in method re-auth supports.
+const reauthUnsupportedMessage =
+    "We couldn't confirm it's you for this sign-in method. Contact support "
+    'to delete your account.';
+
 /// Current Firebase user id, or `null` when signed out.
 ///
 /// Firestore (offline persistence + sync) is scoped by the Firebase uid, which
@@ -430,6 +463,97 @@ class AuthService extends _$AuthService {
     }
   }
 
+  /// How [freshIdTokenAfterReauth] will re-authenticate the current Firebase
+  /// user, or `null` when signed out or no supported method is linked. The
+  /// delete screen reads it first, to ask for a password only when one is
+  /// needed.
+  ReauthMethod? get reauthMethod {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) return null;
+    return reauthMethodFor(user.providerData.map((info) => info.providerId));
+  }
+
+  /// Re-authenticate the current Firebase user and return a FORCED fresh ID
+  /// token, whose `auth_time` is now: the account-deletion endpoint accepts
+  /// only a sign-in younger than 300 s (Plan B task 10).
+  ///
+  /// Picks the credential with [reauthMethod]: a fresh Google
+  /// `authenticate()` when `google.com` is linked (preferred, [password]
+  /// ignored), else `EmailAuthProvider.credential(email, password)`.
+  ///
+  /// Throws [ReauthCancelledException] when the user backs out (the Google
+  /// sheet closed, no password given), and [AuthException] with a readable
+  /// message for any other failure. It never touches [state]: the delete
+  /// screen shows the error itself, and an error on state would also put up
+  /// main.dart's root SnackBar. Re-authenticating keeps the uid, so no
+  /// auth-state event fires and no token exchange runs.
+  Future<String> freshIdTokenAfterReauth({String? password}) async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) {
+      throw AuthException('Sign in again to delete your account.');
+    }
+    final method = reauthMethod;
+    final AuthCredential credential;
+    switch (method) {
+      case ReauthMethod.google:
+        credential = await _freshGoogleCredential();
+      case ReauthMethod.password:
+        final email = user.email;
+        if (password == null || password.isEmpty) {
+          throw ReauthCancelledException();
+        }
+        if (email == null) throw AuthException(reauthUnsupportedMessage);
+        credential = EmailAuthProvider.credential(
+          email: email,
+          password: password,
+        );
+      case null:
+        throw AuthException(reauthUnsupportedMessage);
+    }
+
+    try {
+      await user.reauthenticateWithCredential(credential);
+      final token = await user.getIdToken(true);
+      if (token == null) {
+        throw AuthException(
+          'Could not confirm your sign-in. Please try again.',
+        );
+      }
+      return token;
+    } on FirebaseAuthException catch (e) {
+      if (kDebugMode) debugPrint('[AUTH] Re-auth refused: ${e.code}');
+      throw AuthException(switch (e.code) {
+        'wrong-password' || 'invalid-credential'
+            when method == ReauthMethod.password =>
+          reauthWrongPasswordMessage,
+        'wrong-password' || 'invalid-credential' => reauthNotConfirmedMessage,
+        'user-mismatch' => reauthWrongAccountMessage,
+        _ => _handleFirebaseAuthException(e),
+      });
+    }
+  }
+
+  /// A Google credential from a fresh account pick, reusing the sign-in's
+  /// one-time `initialize`.
+  Future<AuthCredential> _freshGoogleCredential() async {
+    try {
+      await _ensureGoogleInitialized();
+      final account = await googleSignIn.authenticate();
+      final idToken = account.authentication.idToken;
+      if (idToken == null) {
+        throw AuthException('Google did not return an ID token.');
+      }
+      return GoogleAuthProvider.credential(idToken: idToken);
+    } on GoogleSignInException catch (e) {
+      if (e.code == GoogleSignInExceptionCode.canceled) {
+        throw ReauthCancelledException();
+      }
+      throw AuthException(
+        'Google sign in failed: ${e.description ?? e.code.name}',
+      );
+    }
+  }
+
   /// Overridable for tests; the plugin exposes only a singleton.
   @visibleForTesting
   GoogleSignIn get googleSignIn => GoogleSignIn.instance;
@@ -744,9 +868,14 @@ class AuthService extends _$AuthService {
       // unverified-email 403 that is what lets "I've verified" and a second
       // sign-in retry the exchange (todo 660).
       final unverified = e.statusCode == 409 && e.code == 'unverified_account';
-      // The view's own JSON 403 means an unverified email; a proxy's HTML
-      // 403 says nothing about this account (todo 500 finding 8).
-      final emailUnverified = e.statusCode == 403 && !e.unstructured;
+      // An address blocked from sign-up (ruling R3): the server's own
+      // message says so, and verifying the email would not help.
+      final blocked =
+          e.statusCode == 403 && e.code == 'signup_blocked' && !e.unstructured;
+      // Any other view's own JSON 403 means an unverified email; a proxy's
+      // HTML 403 says nothing about this account (todo 500 finding 8).
+      final emailUnverified =
+          e.statusCode == 403 && !e.unstructured && !blocked;
       // A new account without consent: the root's sheet asks for it, so no
       // error SnackBar goes under it.
       final consent = _isConsentRefusal(e);
@@ -755,6 +884,8 @@ class AuthService extends _$AuthService {
         firebaseUser: _firebaseAuth.currentUser,
         error: consent
             ? null
+            : blocked
+            ? e.message
             : emailUnverified
             ? emailNotVerifiedMessage
             : unverified
@@ -1269,4 +1400,10 @@ class AuthException implements Exception {
 
   @override
   String toString() => 'AuthException: $message';
+}
+
+/// The user backed out of [AuthService.freshIdTokenAfterReauth]: closed the
+/// Google sheet or gave no password. Not an error to show.
+class ReauthCancelledException extends AuthException {
+  ReauthCancelledException() : super('Cancelled.');
 }

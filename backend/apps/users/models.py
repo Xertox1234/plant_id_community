@@ -14,6 +14,15 @@ from imagekit.models import ImageSpecField
 from imagekit.processors import ResizeToFill
 from taggit.managers import TaggableManager
 
+from .constants import (
+    DELETED_ACCOUNT_REASON_ABUSE,
+    DELETED_ACCOUNT_REASON_SELF,
+    DELETED_ACCOUNT_REASON_STAFF,
+    DELETED_ACCOUNT_REASON_UNDER_13,
+    DELETED_ACCOUNT_STATUS_DONE,
+    DELETED_ACCOUNT_STATUS_PENDING,
+)
+
 
 # The stubs plugin cannot resolve the reverse manager that wagtail's BlogPostPage.author
 # adds (Page multi-table inheritance), so it reports the class itself.
@@ -809,3 +818,42 @@ class OnboardingAnalytics(models.Model):
             event_data=event_data or {},
             **kwargs,
         )
+
+
+class DeletedAccount(models.Model):
+    """Record of an account deletion (Plan B).
+
+    Not an FK to User: the user row is gone. ``email`` and ``firebase_uid`` are
+    cleared when the deletion finishes; ``email_hash`` stays so an address
+    deleted for abuse or under-13 cannot sign up again. A finished ``self`` or
+    ``staff`` deletion is thinned by the nightly prune after
+    ``PRIVACY_RETENTION_DAYS``: ``email_hash`` blank and ``user_id`` NULL,
+    keeping ``reason``, ``deleted_at`` and ``policy_version``.
+    """
+
+    REASON_CHOICES = [
+        (DELETED_ACCOUNT_REASON_SELF, "Self-service"),
+        (DELETED_ACCOUNT_REASON_STAFF, "Staff"),
+        (DELETED_ACCOUNT_REASON_ABUSE, "Abuse"),
+        (DELETED_ACCOUNT_REASON_UNDER_13, "Under 13"),
+    ]
+    STATUS_CHOICES = [
+        (DELETED_ACCOUNT_STATUS_PENDING, "Pending"),
+        (DELETED_ACCOUNT_STATUS_DONE, "Done"),
+    ]
+
+    user_id = models.BigIntegerField(null=True, unique=True)
+    email = models.CharField(max_length=254, blank=True)
+    email_hash = models.CharField(max_length=64, db_index=True, blank=True)
+    firebase_uid = models.CharField(max_length=128, blank=True)
+    reason = models.CharField(max_length=16, choices=REASON_CHOICES)
+    policy_version = models.CharField(max_length=32, blank=True)
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=DELETED_ACCOUNT_STATUS_PENDING
+    )
+    steps_done = models.JSONField(default=list)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(null=True)
+
+    def __str__(self):
+        return f"DeletedAccount {self.user_id} ({self.reason}, {self.status})"

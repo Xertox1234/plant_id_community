@@ -1,0 +1,5 @@
+{% autoescape off %}Your account and its data have been deleted, as described in our Privacy Policy. If you didn't ask for this, reply to this email.
+
+---
+{{ site_name }}: this is a security message about your account. It is sent whatever your email preferences are.
+{% endautoescape %}

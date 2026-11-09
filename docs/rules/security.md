@@ -553,3 +553,4 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   - A number that gates a delete (minimum age, size, count) rejects `nan`,
     `inf` and negatives with `math.isfinite` at parse time. `age < nan` is
     always `False`, so `--min-age nan` made every orphan old enough.
+- **Never `user.delete()` directly** — call `request_account_deletion` (`apps/users/deletion.py`); only `expire_unverified_accounts` is exempt.

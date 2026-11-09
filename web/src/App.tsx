@@ -34,6 +34,8 @@ const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'));
 const ThemePreviewPage = lazy(() => import('./pages/debug/ThemePreviewPage'));
 const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'));
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'));
+const DeleteAccountPage = lazy(() => import('./pages/account/DeleteAccountPage'));
+const ConfirmDeleteAccountPage = lazy(() => import('./pages/account/ConfirmDeleteAccountPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 /**
@@ -83,6 +85,11 @@ function App() {
           {/* Legal documents — public; the mobile app opens them in-app with ?lang= */}
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/terms" element={<TermsPage />} />
+
+          {/* Account deletion — public: reachable without signing in; the emailed
+              signed token is the credential for /confirm. */}
+          <Route path="/delete-account" element={<DeleteAccountPage />} />
+          <Route path="/delete-account/confirm" element={<ConfirmDeleteAccountPage />} />
 
           {/* Non-critical routes (lazy loaded) */}
           <Route path="/identify" element={<IdentifyPage />} />

@@ -1596,7 +1596,12 @@ class ConversationSerializer(serializers.Serializer):
         return {
             "body": body[:MESSAGE_PREVIEW_CHARS],
             "is_mine": sender_id == request.user.pk,
-            "sender": serialize_forum_author(sender, request) if sender else None,
+            # A NULL sender_id is a deleted account: the `[deleted]` sentinel.
+            "sender": (
+                serialize_forum_author(sender, request)
+                if sender
+                else (_deleted_author() if sender_id is None else None)
+            ),
             # Same ISO rendering as the sibling DateTimeField, not a raw datetime.
             "created_at": self.fields["last_message_at"].to_representation(
                 conversation.last_message_at
@@ -1609,6 +1614,8 @@ class ConversationSerializer(serializers.Serializer):
             return None
         request = self.context.get("request")
         other_id = conversation.other_participant_id(request.user)
+        if other_id is None:  # the other account was deleted
+            return serialize_forum_author(None, request)
         other_user = (
             conversation.participant_a
             if other_id == conversation.participant_a_id

@@ -3,6 +3,11 @@ Rate limiting and other constants for the users app.
 """
 
 RATE_LIMIT_ONBOARDING_EVENT = "50/h"
+# The blocked-address check on sign-up, per client IP. It counts EVERY register
+# call (it sits above the consent gate), so it must stay strictly above the main
+# register limit (3/h): a normal user is stopped by that one first. It bounds
+# probing the blocked list for addresses.
+RATE_LIMIT_SIGNUP_BLOCK_CHECK = "10/h"
 # Signed-link email unsubscribe (todo 408), per client IP. The token is the
 # credential, so this bounds probing, not a real user clicking twice.
 RATE_LIMIT_EMAIL_UNSUBSCRIBE = "30/h"
@@ -97,3 +102,115 @@ OAUTH_PENDING_SIGNUP_USER_DATA_KEYS = (
     "blog",
     "location",
 )
+
+# Account deletion (Plan B). An address deleted for abuse or under-13 cannot
+# sign up again: every create path answers 403 with this code BEFORE it asks
+# for sign-up consent, so a blocked address is never shown the terms.
+SIGNUP_BLOCKED_CODE = "signup_blocked"
+SIGNUP_BLOCKED_MESSAGE = "This email address can't be used to create an account."
+DELETED_ACCOUNT_REASON_SELF = "self"
+DELETED_ACCOUNT_REASON_STAFF = "staff"
+DELETED_ACCOUNT_REASON_ABUSE = "abuse"
+DELETED_ACCOUNT_REASON_UNDER_13 = "under_13"
+DELETED_ACCOUNT_STATUS_PENDING = "pending"
+DELETED_ACCOUNT_STATUS_DONE = "done"
+# Reasons that keep an address from signing up again.
+SIGNUP_BLOCKING_REASONS = (
+    DELETED_ACCOUNT_REASON_ABUSE,
+    DELETED_ACCOUNT_REASON_UNDER_13,
+)
+# Finished deletions with these reasons lose their email hash and user id
+# after PRIVACY_RETENTION_DAYS (nightly prune). Never the blocking reasons.
+THINNED_DELETION_REASONS = (
+    DELETED_ACCOUNT_REASON_SELF,
+    DELETED_ACCOUNT_REASON_STAFF,
+)
+# Erasing a deleted account's data (Plan B task 3). A post of theirs with a
+# report still in the moderation queue keeps its content this long, so a
+# moderator can still review it; the scheduled erase then removes it.
+FORUM_HELD_POST_DAYS = 30
+# What an erased account's topics are titled. The same sentinel the forum
+# shows for a deleted author.
+DELETED_TOPIC_TITLE = "[deleted]"
+# Erase steps, in the order they run and are recorded in steps_done.
+ERASE_STEP_FORUM = "forum"
+ERASE_STEP_EMAIL = "email"
+ERASE_STEP_DJANGO = "django"
+ERASE_STEP_FIRESTORE = "firestore"
+ERASE_STEP_FIREBASE_AUTH = "firebase_auth"
+# Recorded once the "your account has been deleted" email is sent, so a retry
+# never sends a second one.
+ERASE_STEP_NOTIFIED = "notified"
+# delete_account_task's retries (Plan B task 5). retry_backoff=True is
+# Celery's backoff factor 1: about 1 s, 2 s, 4 s ... jittered, capped below.
+ACCOUNT_DELETE_MAX_RETRIES = 8
+ACCOUNT_DELETE_RETRY_BACKOFF_MAX = 3600
+ACCOUNT_DELETED_EMAIL_SUBJECT = "Your Houseplant MD account has been deleted"
+# delete_account_task's own Celery limits: a prolific poster's forum step
+# outlasts the request-shaped global 90 s. Forum posts are erased in committed
+# chunks, so a kill keeps the chunks already done and the retry carries on.
+ACCOUNT_DELETE_SOFT_TIME_LIMIT = 900
+ACCOUNT_DELETE_TIME_LIMIT = 960
+# Audit-log rows deleted per statement while erasing.
+ERASE_LOGENTRY_CHUNK_SIZE = 500
+# Forum posts erased per committed transaction, before the forum step itself.
+ERASE_FORUM_POST_CHUNK_SIZE = 50
+
+# Deletion endpoints (Plan B task 6). The mobile app proves a fresh sign-in:
+# the Firebase ID token's auth_time may be at most this old.
+ACCOUNT_DELETE_REAUTH_MAX_AGE_SECONDS = 300
+# How far in the future auth_time may be (clock skew) before it is refused.
+ACCOUNT_DELETE_AUTH_TIME_SKEW_SECONDS = 60
+ACCOUNT_DELETE_REAUTH_CODE = "reauth_required"
+ACCOUNT_DELETE_REAUTH_MESSAGE = "Please sign in again to delete your account."
+ACCOUNT_DELETE_SCHEDULED_STATUS = "scheduled"
+# Staff and blog authors (DeletionRefused). [[CONTACT_EMAIL]] is the policy
+# placeholder the owner fills in later; keep it literal until then.
+ACCOUNT_DELETE_CONTACT_SUPPORT_CODE = "contact_support"
+ACCOUNT_DELETE_CONTACT_SUPPORT_MESSAGE = (
+    "This account can't be deleted from the app. Email [[CONTACT_EMAIL]] "
+    "and we'll help."
+)
+# The emailed link (web). POST account/delete/request/ is limited per client
+# IP and per normalised address.
+ACCOUNT_DELETE_REQUEST_RATE_IP = "5/h"
+ACCOUNT_DELETE_REQUEST_RATE_EMAIL = "3/h"
+# POST account/delete/confirm/ is limited per client IP: the signed token
+# cannot be guessed, but a public endpoint still gets a ceiling.
+ACCOUNT_DELETE_CONFIRM_RATE_IP = "10/h"
+ACCOUNT_DELETE_REQUEST_SENT_STATUS = "sent"
+ACCOUNT_DELETE_LINK_TTL_SECONDS = 3600
+ACCOUNT_DELETE_LINK_SALT = "account-delete"
+# The link's one-time nonce lives in the cache under this prefix + user pk
+# (``users:account_delete:nonce:<pk>``: colon-separated, app first, like
+# ``blog:post:v2``; backend/docs/patterns/architecture/caching.md). A new
+# request replaces it, so only the newest link works.
+ACCOUNT_DELETE_LINK_CACHE_PREFIX = "users:account_delete:nonce:"
+ACCOUNT_DELETE_LINK_NONCE_BYTES = 32
+ACCOUNT_DELETE_LINK_PATH = "/delete-account/confirm"
+ACCOUNT_DELETE_LINK_SUBJECT = "Confirm you want to delete your Houseplant MD account"
+ACCOUNT_DELETE_LINK_INVALID_CODE = "link_invalid"
+ACCOUNT_DELETE_LINK_INVALID_MESSAGE = (
+    "This link has expired or was already used. Request a new one."
+)
+
+# Nightly privacy prune (Plan B task 8, beat entry ``privacy-retention-prune``).
+# Email records, blog page views and audit-log rows are kept this long.
+PRIVACY_RETENTION_DAYS = 90
+# Rows deleted per statement by the retention prune.
+PRIVACY_PRUNE_BATCH = 5000
+# The prune's own Celery limits: a first run over a large audit-log table
+# outlasts the request-shaped global 90 s. Each batch commits on its own, so a
+# kill loses nothing and the next night carries on.
+PRIVACY_PRUNE_SOFT_TIME_LIMIT = 900
+PRIVACY_PRUNE_TIME_LIMIT = 960
+# A Firebase login with no account behind it is removed once it is this old.
+# The margin covers a sign-up whose Django account is created after its login.
+ORPHAN_FIREBASE_USER_DAYS = 7
+# More orphans than this in one run is treated as a bug (a wrong project, an
+# emptied users table), not cleanup: nothing is deleted and Sentry is told.
+ORPHAN_FIREBASE_DELETE_CAP = 50
+# A deletion still pending this long after it was requested is queued again:
+# delete_account_task's retries span only minutes, and a .delay() that failed
+# at commit leaves the record with no job at all.
+ACCOUNT_DELETE_STALE_HOURS = 1

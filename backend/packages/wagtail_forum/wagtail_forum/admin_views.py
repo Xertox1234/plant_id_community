@@ -189,7 +189,7 @@ class ModerationQueueView(ReportView):
         Column(
             "reporter",
             label=_("Reporter"),
-            accessor=lambda r: r.reporter.get_username(),
+            accessor=lambda r: r.reporter.get_username() if r.reporter else "[deleted]",
         ),
         Column(
             "reporter_trust_level", label=_("Reporter trust"), accessor=_trust_label

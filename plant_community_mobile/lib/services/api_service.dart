@@ -763,6 +763,7 @@ class ApiService {
         return ApiException(
           'Connection timeout. Please check your internet connection.',
           statusCode: null,
+          connectivity: true,
         );
 
       case DioExceptionType.connectionError:
@@ -771,6 +772,7 @@ class ApiService {
         return ApiException(
           'No internet connection. Please check your network.',
           statusCode: null,
+          connectivity: true,
         );
 
       case DioExceptionType.badResponse:
@@ -856,6 +858,7 @@ class ApiService {
           return ApiException(
             'No internet connection. Please check your network.',
             statusCode: null,
+            connectivity: true,
           );
         }
         return ApiException(
@@ -900,12 +903,19 @@ class ApiException implements Exception {
   /// extra fields (`job_id`, `kind`, `limit`, `resets_at`).
   final Map<String, dynamic>? body;
 
+  /// True when no response came back because the device could not reach
+  /// the server: a connection error or a timeout. Not set for a cancel, an
+  /// unknown failure or a refresh that could not run, which also have no
+  /// [statusCode] but are not "you're offline".
+  final bool connectivity;
+
   ApiException(
     this.message, {
     this.statusCode,
     this.code,
     this.unstructured = false,
     this.body,
+    this.connectivity = false,
   });
 
   @override

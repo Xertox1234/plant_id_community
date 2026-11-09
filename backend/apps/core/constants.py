@@ -131,6 +131,7 @@ SECURITY_SENSITIVE_PATHS = (
     "/api/v1/auth/token/refresh/",
     "/api/v1/auth/firebase-token-exchange/",
     "/api/v1/auth/oauth/finish/",
+    "/api/v1/auth/account/delete/",
 )
 
 # ============================================================================

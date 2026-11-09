@@ -23,6 +23,10 @@ import type {
 
 vi.mock('../services/forumService');
 vi.mock('../services/profileService');
+// DeleteAccountSection reads the signed-in email; these tests render without an AuthProvider.
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: () => ({ user: { email: 'jane@example.com' } }),
+}));
 
 // GET /auth/user/ as the account-wide switches section reads it (todo 620).
 const accountProfile: UserProfile = {

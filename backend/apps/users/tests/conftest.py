@@ -17,6 +17,7 @@ MAIL_TASKS = (
     tasks.send_welcome_email_task,
     tasks.send_provider_linked_notice_task,
     tasks.send_lockout_email_task,
+    tasks.send_account_delete_link_task,
 )
 
 
