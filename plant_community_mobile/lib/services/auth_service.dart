@@ -1370,6 +1370,10 @@ class AuthService extends _$AuthService {
         return 'No account found with this email. Please sign up.';
       case 'wrong-password':
         return 'Incorrect password. Please try again.';
+      case 'invalid-credential':
+        // Email-enumeration protection: Firebase answers a wrong password
+        // and an unknown (or deleted) account alike with this code.
+        return 'Incorrect email or password. Please try again.';
       case 'invalid-email':
         return 'Please enter a valid email address.';
       case 'user-disabled':
