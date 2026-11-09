@@ -170,10 +170,14 @@ def test_scan_job_admin_is_read_only(rf):
 
 
 @pytest.mark.django_db
-def test_admin_can_delete_a_user_who_has_scans(
+def test_account_erasure_removes_a_user_who_has_scans(
     roots, job, user, client, django_capture_on_commit_callbacks
 ):
-    """The admin user delete is the manual erasure path: scans must not block it."""
+    """Account erasure is the only deletion path (the admin user delete is
+    disabled, Plan B): scans and their private photos must not block it."""
+    from apps.users.constants import DELETED_ACCOUNT_REASON_SELF
+    from apps.users.deletion import email_hash, erase_django_data
+    from apps.users.models import DeletedAccount
     from django.urls import reverse
 
     _, private = roots
@@ -185,14 +189,16 @@ def test_admin_can_delete_a_user_who_has_scans(
     )
     client.force_login(admin_user)
     url = reverse("admin:users_user_delete", args=[user.pk])
+    assert client.get(url).status_code == 403
 
-    confirm = client.get(url)
-    assert confirm.status_code == 200
-    assert not confirm.context["perms_lacking"]
-
+    record = DeletedAccount.objects.create(
+        user_id=user.pk,
+        email=user.email,
+        email_hash=email_hash(user.email),
+        reason=DELETED_ACCOUNT_REASON_SELF,
+    )
     with django_capture_on_commit_callbacks(execute=True):
-        response = client.post(url, {"post": "yes"})
-    assert response.status_code == 302
+        erase_django_data(record)
     assert not get_user_model().objects.filter(pk=user.pk).exists()
     assert not ScanJob.objects.filter(pk=job.pk).exists()
     assert not ScanJobImage.objects.filter(pk=row.pk).exists()

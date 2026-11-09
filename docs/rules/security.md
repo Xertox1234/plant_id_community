@@ -553,3 +553,6 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   - A number that gates a delete (minimum age, size, count) rejects `nan`,
     `inf` and negatives with `math.isfinite` at parse time. `age < nan` is
     always `False`, so `--min-age nan` made every orphan old enough.
+- **Never `user.delete()` directly.** Call `request_account_deletion`
+  (`apps/users/deletion.py`): it queues the Firebase and stored-photo erasure a bare
+  cascade would leave behind. The admin delete action is disabled for the same reason.

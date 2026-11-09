@@ -510,17 +510,15 @@ def test_erasure_writes_no_new_audit_rows(target, django_capture_on_commit_callb
 
     GardenBed.objects.create(owner=target, name="Bed", bed_type="raised")
     record = _record(target)
+    log = get_logentry_model()
+    # Count against a baseline: an earlier transactional test can leave its
+    # own DELETE rows behind, which are not this erasure's.
+    deletes_before = log.objects.filter(action=log.Action.DELETE).count()
     with django_capture_on_commit_callbacks(execute=True):
         erase_django_data(record)
 
-    assert (
-        get_logentry_model().objects.filter(object_pk=str(record.user_id)).count() == 0
-    )
-    assert (
-        not get_logentry_model()
-        .objects.filter(action=get_logentry_model().Action.DELETE)
-        .exists()
-    )
+    assert log.objects.filter(object_pk=str(record.user_id)).count() == 0
+    assert log.objects.filter(action=log.Action.DELETE).count() == deletes_before
 
 
 def test_an_upload_used_elsewhere_survives_without_its_uploader(

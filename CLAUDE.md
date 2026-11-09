@@ -105,6 +105,11 @@ caveat in this environment) `git stash push -u -m "<tag>"` over a bare stash.
 Verification scripts should use absolute paths rather than relying on a `cd`
 persisting across Bash calls.
 
+**Account deletion.** Never `user.delete()` directly — call `request_account_deletion`
+(`apps/users/deletion.py`); the admin delete is disabled. The `privacy-retention-prune`
+beat entry (03:50) runs the 90-day retention and orphan-Firebase prune; see
+`ORPHAN_FIREBASE_PRUNE_ENABLED` below.
+
 **Evidence before claims.** Before stating a fix is applied repo-wide, grep
 for all occurrences and report the count found vs. the count actually changed.
 Label an inferred-but-unreproduced root cause explicitly as "hypothesis, not
