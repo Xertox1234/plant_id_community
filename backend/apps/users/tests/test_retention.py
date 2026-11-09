@@ -462,6 +462,7 @@ def test_command_dry_run_changes_nothing_and_prints_counts(board, reporter):
     assert "held posts (would erase): 1" in text
     assert "stale deletions (would re-queue): 1" in text
     assert "orphaned Firebase logins (would delete): 0" in text
+    assert "old deletion records (would thin): 0" in text
 
 
 # --- cap boundary and Firebase error paths ----------------------------------
@@ -760,3 +761,123 @@ def test_task_summary_log_includes_sessions_and_conversations():
     rendered = fmt % tuple(values)
     assert "sessions=0" in rendered
     assert "conversations=0" in rendered
+    assert "deleted_accounts=0" in rendered
+
+
+# --- thinning old deletion records ---------------------------------------------
+
+
+def _done_deletion(age, reason=DELETED_ACCOUNT_REASON_SELF, address="old@example.org"):
+    return DeletedAccount.objects.create(
+        user_id=DeletedAccount.objects.count() + 9000,
+        email_hash=email_hash(address),
+        reason=reason,
+        status=DELETED_ACCOUNT_STATUS_DONE,
+        policy_version="2026-11-01",
+        deleted_at=timezone.now() - age,
+    )
+
+
+def test_a_91_day_old_self_deletion_is_thinned():
+    record = _done_deletion(91 * DAY)
+    deleted_at = record.deleted_at
+
+    assert retention.thin_deleted_accounts() == 1
+
+    record.refresh_from_db()
+    assert record.email_hash == ""
+    assert record.user_id is None
+    assert record.reason == DELETED_ACCOUNT_REASON_SELF
+    assert record.deleted_at == deleted_at
+    assert record.policy_version == "2026-11-01"
+    assert record.status == DELETED_ACCOUNT_STATUS_DONE
+
+
+def test_an_old_staff_deletion_is_thinned():
+    from apps.users.constants import DELETED_ACCOUNT_REASON_STAFF
+
+    record = _done_deletion(91 * DAY, reason=DELETED_ACCOUNT_REASON_STAFF)
+
+    retention.thin_deleted_accounts()
+
+    record.refresh_from_db()
+    assert (record.email_hash, record.user_id) == ("", None)
+
+
+def test_an_89_day_old_self_deletion_is_kept():
+    record = _done_deletion(89 * DAY)
+
+    assert retention.thin_deleted_accounts() == 0
+
+    record.refresh_from_db()
+    assert record.email_hash == email_hash("old@example.org")
+    assert record.user_id is not None
+
+
+@pytest.mark.parametrize("reason", ["abuse", "under_13"])
+def test_an_old_blocking_deletion_keeps_its_hash(reason):
+    from apps.users.deletion import is_signup_blocked
+
+    record = _done_deletion(400 * DAY, reason=reason, address="banned@example.org")
+
+    assert retention.thin_deleted_accounts() == 0
+
+    record.refresh_from_db()
+    assert record.email_hash == email_hash("banned@example.org")
+    assert record.user_id is not None
+    assert is_signup_blocked("banned@example.org") is True
+
+
+def test_a_pending_deletion_is_untouched():
+    record = _deleted_account(400 * DAY, user_id=4242)
+    DeletedAccount.objects.filter(pk=record.pk).update(
+        deleted_at=timezone.now() - 400 * DAY
+    )
+
+    assert retention.thin_deleted_accounts() == 0
+
+    record.refresh_from_db()
+    assert record.email_hash == email_hash("gone@example.org")
+    assert record.user_id == 4242
+
+
+def test_thinning_dry_run_changes_nothing():
+    record = _done_deletion(91 * DAY)
+
+    with patch("apps.users.retention.initialize_firebase", return_value=False):
+        counts = retention.run_privacy_prune(dry_run=True)
+
+    assert counts["deleted_accounts"] == 1
+    record.refresh_from_db()
+    assert record.email_hash == email_hash("old@example.org")
+    assert record.user_id is not None
+
+
+def test_thinning_runs_in_the_nightly_prune():
+    record = _done_deletion(91 * DAY)
+
+    with patch("apps.users.retention.initialize_firebase", return_value=False):
+        counts = retention.run_privacy_prune()
+
+    assert counts["deleted_accounts"] == 1
+    record.refresh_from_db()
+    assert record.email_hash == ""
+    # Idempotent: a second night finds nothing.
+    assert retention.thin_deleted_accounts() == 0
+
+
+def test_a_failing_thinning_part_does_not_stop_the_others():
+    old = _notification(91 * DAY)
+
+    with (
+        patch("apps.users.retention.initialize_firebase", return_value=False),
+        patch.object(
+            retention, "thin_deleted_accounts", side_effect=RuntimeError("thin")
+        ),
+        patch("apps.users.retention.sentry_sdk.capture_exception") as capture,
+        pytest.raises(RuntimeError, match="thin"),
+    ):
+        retention.run_privacy_prune()
+
+    assert not EmailNotification.objects.filter(pk=old.pk).exists()
+    capture.assert_called_once()

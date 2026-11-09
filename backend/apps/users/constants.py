@@ -119,6 +119,12 @@ SIGNUP_BLOCKING_REASONS = (
     DELETED_ACCOUNT_REASON_ABUSE,
     DELETED_ACCOUNT_REASON_UNDER_13,
 )
+# Finished deletions with these reasons lose their email hash and user id
+# after PRIVACY_RETENTION_DAYS (nightly prune). Never the blocking reasons.
+THINNED_DELETION_REASONS = (
+    DELETED_ACCOUNT_REASON_SELF,
+    DELETED_ACCOUNT_REASON_STAFF,
+)
 # Erasing a deleted account's data (Plan B task 3). A post of theirs with a
 # report still in the moderation queue keeps its content this long, so a
 # moderator can still review it; the scheduled erase then removes it.

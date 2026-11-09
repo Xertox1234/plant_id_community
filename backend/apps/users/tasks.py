@@ -333,18 +333,20 @@ def delete_account_task(self, record_id: int) -> None:
 def privacy_retention_prune() -> None:
     """Beat entry ``privacy-retention-prune`` (Plan B task 8): 90-day
     retention, held-post release, stalled-deletion re-queue, the orphaned
-    Firebase login prune, expired sessions and unreachable conversations
-    (``apps.users.retention``)."""
+    Firebase login prune, expired sessions, unreachable conversations and
+    the thinning of old deletion records (``apps.users.retention``)."""
     from .retention import run_privacy_prune
 
     counts = run_privacy_prune()
     logger.info(
         "[PRIVACY PRUNE] retention=%s held_posts=%s stale_deletions=%s "
-        "orphan_firebase_logins=%s sessions=%s conversations=%s",
+        "orphan_firebase_logins=%s sessions=%s conversations=%s "
+        "deleted_accounts=%s",
         counts["retention"],
         counts["held_posts"],
         counts["stale_deletions"],
         counts["orphan_firebase_logins"],
         counts["sessions"],
         counts["conversations"],
+        counts["deleted_accounts"],
     )

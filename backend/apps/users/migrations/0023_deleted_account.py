@@ -24,7 +24,10 @@ class Migration(migrations.Migration):
                 ),
                 ("user_id", models.BigIntegerField(null=True, unique=True)),
                 ("email", models.CharField(blank=True, max_length=254)),
-                ("email_hash", models.CharField(db_index=True, max_length=64)),
+                (
+                    "email_hash",
+                    models.CharField(blank=True, db_index=True, max_length=64),
+                ),
                 ("firebase_uid", models.CharField(blank=True, max_length=128)),
                 (
                     "reason",

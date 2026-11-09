@@ -16,6 +16,9 @@
   them. Log-only unless ``settings.ORPHAN_FIREBASE_PRUNE_ENABLED``.
 - ``prune_expired_sessions``: expired ``django.contrib.sessions`` rows, like
   ``manage.py clearsessions``.
+- ``thin_deleted_accounts``: a finished ``self``/``staff`` deletion older
+  than ``PRIVACY_RETENTION_DAYS`` loses its ``email_hash`` and ``user_id``.
+  ``abuse``/``under_13`` rows keep their hash (the sign-up block needs it).
 - ``prune_unreachable_conversations``: DM threads every member of which has
   been deleted (the deletion's own ``django`` step removes the ones it
   creates; this catches older ones and those a queued report held).
@@ -45,11 +48,13 @@ from django.utils import timezone
 
 from .constants import (
     ACCOUNT_DELETE_STALE_HOURS,
+    DELETED_ACCOUNT_STATUS_DONE,
     DELETED_ACCOUNT_STATUS_PENDING,
     ORPHAN_FIREBASE_DELETE_CAP,
     ORPHAN_FIREBASE_USER_DAYS,
     PRIVACY_PRUNE_BATCH,
     PRIVACY_RETENTION_DAYS,
+    THINNED_DELETION_REASONS,
 )
 from .deletion import (
     delete_unreachable_conversations,
@@ -89,6 +94,7 @@ def run_privacy_prune(dry_run: bool = False) -> dict[str, Any]:
         ("retention", lambda: prune_retention(now, dry_run=dry_run)),
         ("sessions", lambda: prune_expired_sessions(now, dry_run=dry_run)),
         ("conversations", lambda: prune_unreachable_conversations(dry_run=dry_run)),
+        ("deleted_accounts", lambda: thin_deleted_accounts(now, dry_run=dry_run)),
     )
     counts: dict[str, Any] = {}
     failures: list[Exception] = []
@@ -124,6 +130,32 @@ def prune_expired_sessions(now: datetime | None = None, dry_run: bool = False) -
     if not dry_run:
         import_string(f"{settings.SESSION_ENGINE}.SessionStore").clear_expired()
     return count
+
+
+# --- old deletion records -----------------------------------------------------
+
+
+def thin_deleted_accounts(now: datetime | None = None, dry_run: bool = False) -> int:
+    """Blank ``email_hash`` and NULL ``user_id`` on every finished ``self`` or
+    ``staff`` deletion whose ``deleted_at`` is older than
+    ``PRIVACY_RETENTION_DAYS``; the row stays with its ``reason``,
+    ``deleted_at`` and ``policy_version``. Pending rows and ``abuse`` /
+    ``under_13`` rows are never touched: their hash is what blocks the
+    address from signing up again. Returns how many rows were thinned; in a
+    dry run, how many would be. Idempotent: a thinned row no longer matches.
+    """
+    cutoff = (now or timezone.now()) - timedelta(days=PRIVACY_RETENTION_DAYS)
+    due = DeletedAccount.objects.filter(
+        status=DELETED_ACCOUNT_STATUS_DONE,
+        reason__in=THINNED_DELETION_REASONS,
+        deleted_at__lt=cutoff,
+    ).filter(~Q(email_hash="") | Q(user_id__isnull=False))
+    if dry_run:
+        return int(due.count())
+    thinned = int(due.update(email_hash="", user_id=None))
+    if thinned:
+        logger.info("[PRIVACY PRUNE] thinned %s old deletion records", thinned)
+    return thinned
 
 
 # --- unreachable conversations ----------------------------------------------
