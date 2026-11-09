@@ -11,6 +11,7 @@ import {
 } from 'react';
 import * as authService from '../services/authService';
 import { resetAllCapabilityLatches } from '../services/capabilityLatch';
+import { releaseBrowserPushOnLogout } from '../services/pushService';
 import { logger } from '../utils/logger';
 import { rotateRequestId } from '../utils/requestId';
 import { clearAllDrafts } from '../utils/forumDrafts';
@@ -408,6 +409,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   /** Local-only logout: the server already cleared the cookies. */
   const clearLocalSession = (): void => {
+    // As authService.logout does: this browser must stop showing the leaving
+    // account's notifications. Best effort, never awaited; the server side of
+    // the unsubscribe may fail now the session is gone, the local one won't.
+    releaseBrowserPushOnLogout().catch((err: unknown) => {
+      logger.warn('[AuthContext] Push release failed', { error: err });
+    });
     sessionStorage.removeItem('user');
     clearAllDrafts();
     setUser(null);

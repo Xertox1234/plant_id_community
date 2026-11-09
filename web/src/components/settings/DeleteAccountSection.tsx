@@ -6,8 +6,7 @@ import {
 } from '../../services/accountDeletionService';
 import Button from '../ui/Button';
 import ConfirmDialog from '../ui/ConfirmDialog';
-
-export const DANGER_BUTTON_CLASS = 'border-error text-error hover:bg-error/10';
+import { DANGER_BUTTON_CLASS } from '../ui/dangerButton';
 
 type Status = 'idle' | 'sending' | 'sent' | 'rate_limited' | 'error';
 

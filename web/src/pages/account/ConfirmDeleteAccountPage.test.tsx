@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import ConfirmDeleteAccountPage from './ConfirmDeleteAccountPage';
 import {
   AccountDeletionError,
@@ -18,11 +18,24 @@ vi.mock('../../contexts/AuthContext', () => ({
 }));
 const confirm = vi.mocked(confirmAccountDeletion);
 
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
+}
+
 function renderAt(url: string) {
   return render(
     <MemoryRouter initialEntries={[url]}>
       <Routes>
-        <Route path="/delete-account/confirm" element={<ConfirmDeleteAccountPage />} />
+        <Route
+          path="/delete-account/confirm"
+          element={
+            <>
+              <ConfirmDeleteAccountPage />
+              <LocationProbe />
+            </>
+          }
+        />
       </Routes>
     </MemoryRouter>
   );
@@ -39,6 +52,16 @@ describe('ConfirmDeleteAccountPage', () => {
     expect(await screen.findByRole('button', { name: 'Delete my account' })).toBeInTheDocument();
     expect(confirm).not.toHaveBeenCalled();
     expect(screen.getByText(/plants/i)).toBeInTheDocument();
+  });
+
+  it('drops the token from the URL but still sends it', async () => {
+    confirm.mockResolvedValue('scheduled');
+    renderAt('/delete-account/confirm?token=tok');
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/delete-account\/confirm$/)
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete my account' }));
+    expect(confirm).toHaveBeenCalledWith('tok');
   });
 
   it('on 202 shows the done message and clears the local session', async () => {

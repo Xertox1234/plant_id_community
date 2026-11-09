@@ -2,9 +2,12 @@
  * /delete-account/confirm?token=… — public: the emailed signed token is the
  * credential. Opening the page changes nothing (mail scanners open links too);
  * only the button schedules the deletion.
+ *
+ * The token is read once into state and the URL is then replaced without it,
+ * so the credential leaves the address bar and the history entry.
  */
-import { useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import PageMeta from '../../components/PageMeta';
@@ -13,7 +16,7 @@ import {
   AccountDeletionError,
   confirmAccountDeletion,
 } from '../../services/accountDeletionService';
-import { DANGER_BUTTON_CLASS } from '../../components/settings/DeleteAccountSection';
+import { DANGER_BUTTON_CLASS } from '../../components/ui/dangerButton';
 
 const LINK_INVALID_COPY = 'This link has expired or was already used. Request a new one.';
 
@@ -24,8 +27,13 @@ type View =
 
 export default function ConfirmDeleteAccountPage() {
   const [params] = useSearchParams();
-  const token = params.get('token') ?? '';
+  const navigate = useNavigate();
+  // Lazy: read once, before the replace below drops it from the URL.
+  const [token] = useState(() => params.get('token') ?? '');
   const { clearLocalSession } = useAuth();
+  useEffect(() => {
+    if (params.has('token')) navigate('/delete-account/confirm', { replace: true });
+  }, [params, navigate]);
   const [view, setView] = useState<View>(
     token
       ? { kind: 'ready', failed: false }
