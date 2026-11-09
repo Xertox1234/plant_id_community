@@ -3,6 +3,11 @@ Rate limiting and other constants for the users app.
 """
 
 RATE_LIMIT_ONBOARDING_EVENT = "50/h"
+# The blocked-address check on sign-up, per client IP. It counts EVERY register
+# call (it sits above the consent gate), so it must stay strictly above the main
+# register limit (3/h): a normal user is stopped by that one first. It bounds
+# probing the blocked list for addresses.
+RATE_LIMIT_SIGNUP_BLOCK_CHECK = "10/h"
 # Signed-link email unsubscribe (todo 408), per client IP. The token is the
 # credential, so this bounds probing, not a real user clicking twice.
 RATE_LIMIT_EMAIL_UNSUBSCRIBE = "30/h"

@@ -14,6 +14,8 @@
   ``ACCOUNT_DELETE_STALE_HOURS`` is queued again (ruling R12).
 - ``prune_orphan_firebase_users``: Firebase logins with no account behind
   them. Log-only unless ``settings.ORPHAN_FIREBASE_PRUNE_ENABLED``.
+- ``prune_expired_sessions``: expired ``django.contrib.sessions`` rows, like
+  ``manage.py clearsessions``.
 
 Every part takes ``dry_run``: it then counts what it would do and changes and
 queues nothing. Every part is idempotent, so an overlapping or retried run
@@ -77,6 +79,7 @@ def run_privacy_prune(dry_run: bool = False) -> dict[str, Any]:
             lambda: prune_orphan_firebase_users(now, dry_run=dry_run),
         ),
         ("retention", lambda: prune_retention(now, dry_run=dry_run)),
+        ("sessions", lambda: prune_expired_sessions(now, dry_run=dry_run)),
     )
     counts: dict[str, Any] = {}
     failures: list[Exception] = []
@@ -93,6 +96,25 @@ def run_privacy_prune(dry_run: bool = False) -> dict[str, Any]:
     if failures:
         raise failures[0]
     return counts
+
+
+# --- expired sessions ---------------------------------------------------------
+
+
+def prune_expired_sessions(now: datetime | None = None, dry_run: bool = False) -> int:
+    """Delete expired session rows via the configured ``SESSION_ENGINE``'s
+    ``clear_expired`` (what ``manage.py clearsessions`` calls; a no-op for an
+    engine that is not database-backed). Returns the number of expired rows
+    counted just before the delete; in a dry run, the number it would delete.
+    """
+    from django.contrib.sessions.models import Session
+    from django.utils.module_loading import import_string
+
+    expired = Session.objects.filter(expire_date__lt=now or timezone.now())
+    count = expired.count()
+    if not dry_run:
+        import_string(f"{settings.SESSION_ENGINE}.SessionStore").clear_expired()
+    return count
 
 
 # --- retention ---------------------------------------------------------------

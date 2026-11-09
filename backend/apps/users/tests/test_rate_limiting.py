@@ -425,6 +425,18 @@ class SignupConsentRateLimitTestCase(TestCase):
             response = self._register(99, accepted_terms=True)
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_block_check_has_its_own_per_ip_limit(self):
+        """The 11th register request in an hour is 429, consent or not."""
+        with freeze_time():
+            for i in range(10):
+                response = self._register(i)
+                self.assertEqual(
+                    response.status_code, status.HTTP_428_PRECONDITION_REQUIRED
+                )
+            response = self._register(11)
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertIn("Retry-After", response)
+
     def test_oauth_finish_rate_limit_per_ip(self):
         """POST auth/oauth/finish/ allows 10 per hour per IP, then 429."""
         url = reverse("v1:users:oauth_finish_signup")

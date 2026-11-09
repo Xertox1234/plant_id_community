@@ -32,7 +32,11 @@ from . import view_schemas as vs
 from .authentication import RefreshTokenFromCookie, clear_jwt_cookies, set_jwt_cookies
 from .avatars import avatar_file_names, delete_avatar_files_on_commit
 from .consent import record_policy_acceptance, require_consent
-from .constants import RATE_LIMIT_ONBOARDING_EVENT, RATE_LIMIT_PUSH_RESUBSCRIBE
+from .constants import (
+    RATE_LIMIT_ONBOARDING_EVENT,
+    RATE_LIMIT_PUSH_RESUBSCRIBE,
+    RATE_LIMIT_SIGNUP_BLOCK_CHECK,
+)
 from .deletion import reject_blocked_signup
 from .email_verification import (
     VerificationKeyInvalid,
@@ -103,7 +107,15 @@ def get_csrf_token(request: Request) -> Response:
 @permission_classes([permissions.AllowAny])
 @csrf_protect  # SECURITY: Enforce CSRF protection for registration
 # Blocked address before consent (never shown the terms); both before the
-# rate limit: a refused request costs no sign-up quota.
+# rate limit: a refused request costs no sign-up quota. The block check has its
+# own per-IP limit so the blocked list cannot be probed without bound.
+@ratelimit(
+    group="signup_block_check",
+    key=client_ip_key,
+    rate=RATE_LIMIT_SIGNUP_BLOCK_CHECK,
+    method="POST",
+    block=True,
+)
 @reject_blocked_signup
 @require_consent
 @ratelimit(

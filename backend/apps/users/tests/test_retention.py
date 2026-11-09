@@ -619,3 +619,58 @@ def test_one_failing_enqueue_still_queues_the_other_row():
 
     assert sorted(c.args[0] for c in d.call_args_list) == sorted([first.pk, second.pk])
     capture.assert_called_once()
+
+
+# --- expired sessions -------------------------------------------------------
+
+
+def _session(key, expires_in):
+    from django.contrib.sessions.models import Session
+
+    return Session.objects.create(
+        session_key=key,
+        session_data="x",
+        expire_date=timezone.now() + expires_in,
+    )
+
+
+def test_expired_sessions_are_deleted_and_live_ones_kept():
+    from django.contrib.sessions.models import Session
+
+    _session("expired-key", timedelta(hours=-1))
+    _session("live-key", timedelta(hours=1))
+
+    with patch("apps.users.retention.initialize_firebase", return_value=False):
+        counts = retention.run_privacy_prune()
+
+    assert counts["sessions"] == 1
+    assert list(Session.objects.values_list("session_key", flat=True)) == ["live-key"]
+
+
+def test_sessions_dry_run_counts_and_deletes_nothing():
+    from django.contrib.sessions.models import Session
+
+    _session("expired-key", timedelta(hours=-1))
+
+    with patch("apps.users.retention.initialize_firebase", return_value=False):
+        counts = retention.run_privacy_prune(dry_run=True)
+
+    assert counts["sessions"] == 1
+    assert Session.objects.filter(session_key="expired-key").exists()
+
+
+def test_a_failing_sessions_part_does_not_stop_the_others_then_reraises():
+    old = _notification(91 * DAY)
+
+    with (
+        patch("apps.users.retention.initialize_firebase", return_value=False),
+        patch.object(
+            retention, "prune_expired_sessions", side_effect=RuntimeError("db")
+        ),
+        patch("apps.users.retention.sentry_sdk.capture_exception") as capture,
+        pytest.raises(RuntimeError, match="db"),
+    ):
+        retention.run_privacy_prune()
+
+    assert not EmailNotification.objects.filter(pk=old.pk).exists()
+    capture.assert_called_once()
