@@ -68,6 +68,7 @@ class _ScanServer extends ScanJobApi {
   @override
   Future<ScanJob> create(
     CaptureResult r, {
+    String? retryOf,
     void Function(double)? onProgress,
   }) async {
     remaining = 0;

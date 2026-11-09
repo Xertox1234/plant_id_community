@@ -719,3 +719,36 @@ def test_degraded_diagnoses_exhaust_the_identify_allowance():
     assert refused.data["kind"] == "identify"
     # The diagnosis slot was never spent.
     assert _create(client).status_code == 201
+
+
+@pytest.mark.django_db
+def test_cancel_deletes_photos(django_capture_on_commit_callbacks):
+    client = _client(_user())
+    response = _create(client)
+    job = ScanJob.objects.get(uuid=response.data["id"])
+    files = [(i.image.storage, i.image.name) for i in job.images.all()]
+    assert files and all(s.exists(n) for s, n in files)
+    with django_capture_on_commit_callbacks(execute=True):
+        assert client.post(f"{BASE}{response.data['id']}/cancel/").status_code == 200
+    assert job.images.count() == 0
+    assert not any(s.exists(n) for s, n in files)
+
+
+@pytest.mark.django_db
+def test_cancel_rolls_back_when_the_photo_delete_fails():
+    """The status UPDATE and the photo delete are one transaction: a crash in
+    between leaves the job active with its photos, never cancelled with them."""
+    client = _client(_user())
+    response = _create(client)
+    job = ScanJob.objects.get(uuid=response.data["id"])
+    status_before = job.status
+    with patch(
+        "apps.plant_identification.api.scan_views.delete_scan_photos",
+        side_effect=RuntimeError("crash"),
+    ):
+        failed = client.post(f"{BASE}{response.data['id']}/cancel/")
+    assert failed.status_code == 500
+    job.refresh_from_db()
+    assert job.status == status_before
+    assert job.status in ScanJob.ACTIVE_STATUSES
+    assert job.images.count() > 0

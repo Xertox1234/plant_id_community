@@ -11,7 +11,7 @@ import logging
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from functools import partial
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from django.conf import settings
 from django.db import transaction
@@ -20,13 +20,51 @@ from django.utils import timezone
 
 from .constants import (
     SCAN_ALLOWANCE_WINDOW_HOURS,
+    SCAN_DECISION_WINDOW_HOURS,
     SCAN_FAILURE_STALE,
     SCAN_SUMMARY_MAX_SUGGESTIONS,
 )
-from .scan_models import ScanJob
+from .scan_models import ScanJob, ScanJobImage
 from .services.quota_manager import QuotaManager
 
 logger = logging.getLogger(__name__)
+
+
+def delete_scan_photos(job_ids: Iterable[int]) -> None:
+    """Delete the photo rows of these jobs, one by one.
+
+    Per row, never a queryset ``.delete()`` bypass: each ``post_delete`` signal
+    removes its file once the surrounding transaction commits.
+    """
+    for img in ScanJobImage.objects.filter(job_id__in=list(job_ids)):
+        img.delete()
+
+
+def erase_scan(
+    job_id: int,
+    decision: str,
+    *,
+    from_decisions: Tuple[str, ...],
+    refund: bool = False,
+) -> bool:
+    """Erase a finished scan's photos and result; the row itself stays.
+
+    A conditional UPDATE: False when the job is not ``done``/``degraded`` or
+    its decision is not in ``from_decisions`` (a concurrent decision won).
+    ``status`` and ``charged_as`` are untouched unless ``refund`` clears the
+    charge, because the allowance counts rows.
+    """
+    with transaction.atomic():
+        extra: Dict[str, Any] = {"charged_as": ""} if refund else {}
+        updated = ScanJob.objects.filter(
+            pk=job_id,
+            decision__in=from_decisions,
+            status__in=("done", "degraded"),
+        ).update(decision=decision, decided_at=timezone.now(), result=None, **extra)
+        if not updated:
+            return False
+        delete_scan_photos([job_id])
+    return True
 
 
 def classify_scan(mode: str, results: Dict[str, Any]) -> Tuple[str, str]:
@@ -96,6 +134,34 @@ def summarize_scan_result(
     }
 
 
+def expire_undecided_jobs(now: Optional[datetime] = None) -> int:
+    """Erase finished scans left undecided past the decision window.
+
+    Beat sweep: ``done``/``degraded`` jobs still ``undecided`` more than
+    ``SCAN_DECISION_WINDOW_HOURS`` after ``finished_at`` become ``expired``.
+    Never refunds (``status``/``charged_as`` untouched) and never touches a
+    ``kept`` job. ``erase_scan`` is conditional, so a concurrent keep or
+    dismiss wins. Returns the count actually erased.
+    """
+    now = now or timezone.now()
+    cutoff = now - timedelta(hours=SCAN_DECISION_WINDOW_HOURS)
+    job_ids = list(
+        ScanJob.objects.filter(
+            status__in=("done", "degraded"),
+            decision="undecided",
+            finished_at__lt=cutoff,
+        ).values_list("pk", flat=True)
+    )
+    expired = sum(
+        1
+        for job_id in job_ids
+        if erase_scan(job_id, "expired", from_decisions=("undecided",))
+    )
+    if expired:
+        logger.info("[SCAN] Expired %s undecided scan(s)", expired)
+    return expired
+
+
 def expire_stale_jobs(user_id: Optional[int] = None) -> int:
     """Fail jobs still active past ``SCAN_JOB_STALE_MINUTES``; one user's, or all.
 
@@ -134,6 +200,12 @@ def expire_stale_jobs(user_id: Optional[int] = None) -> int:
             pk__in=job_ids, failure_reason=SCAN_FAILURE_STALE, finished_at=now
         ).values_list("pk", flat=True):
             transaction.on_commit(partial(_enqueue_notify, job_id))
+        # A failed scan keeps no photos. Same row set as the pushes above.
+        delete_scan_photos(
+            ScanJob.objects.filter(
+                pk__in=job_ids, failure_reason=SCAN_FAILURE_STALE, finished_at=now
+            ).values_list("pk", flat=True)
+        )
     return expired
 
 

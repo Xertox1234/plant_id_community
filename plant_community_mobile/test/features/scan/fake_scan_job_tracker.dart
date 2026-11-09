@@ -32,6 +32,9 @@ class FakeScanJobTracker extends ScanJobTracker {
 
   final ScanTrackerState initial;
   final submitted = <CaptureResult>[];
+
+  /// The `retryOf` each [submit] received, in order.
+  final retryOfs = <String?>[];
   final calls = <String>[];
 
   /// Thrown by [submit] after recording, when set.
@@ -47,8 +50,9 @@ class FakeScanJobTracker extends ScanJobTracker {
   void emit(ScanTrackerState s) => state = s;
 
   @override
-  Future<void> submit(CaptureResult r) async {
+  Future<void> submit(CaptureResult r, {String? retryOf}) async {
     submitted.add(r);
+    retryOfs.add(retryOf);
     calls.add('submit');
     final error = submitError;
     if (error != null) throw error;

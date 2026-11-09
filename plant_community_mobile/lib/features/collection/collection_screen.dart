@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -11,6 +14,13 @@ import '../../core/theme/green_thumb_extension.dart';
 import '../../models/plant.dart';
 import '../../services/auth_service.dart';
 import '../../services/firestore_service.dart';
+import '../profile/forum_notification_settings_card.dart' show apiErrorMessage;
+import '../scan/capture_steps.dart';
+import '../scan/scan_card_actions.dart';
+import '../scan/scan_decisions.dart';
+import '../scan/scan_job_api.dart';
+import '../scan/scan_job_tracker.dart';
+import '../scan/widgets/short_scan_card.dart';
 import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// Identified-plant collection hub.
@@ -19,8 +29,18 @@ import 'package:plant_community_mobile/core/routing/main_shell.dart';
 /// with offline persistence — so the list is available offline, updates in real
 /// time, and syncs across devices. Shows a sync/offline badge driven by the
 /// snapshot metadata, and graceful signed-out / loading / error / empty states.
+///
+/// Finished scans still waiting for a keep-or-dismiss decision come first,
+/// as [ShortScanCard]s; a long-press on a kept plant offers Remove.
 class CollectionScreen extends ConsumerWidget {
-  const CollectionScreen({super.key});
+  const CollectionScreen({super.key, this.now});
+
+  /// The clock for the undecided cards' countdown; defaults to
+  /// [DateTime.now]. Injected by tests.
+  final DateTime Function()? now;
+
+  static const removeActionKey = Key('plant-remove-action');
+  static const removeConfirmKey = Key('plant-remove-confirm');
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -55,75 +75,254 @@ class CollectionScreen extends ConsumerWidget {
                       subtitle: 'Check your connection and try again.',
                       ext: ext,
                     ),
-                    data: (snapshot) =>
-                        _CollectionBody(snapshot: snapshot, ext: ext),
+                    data: (snapshot) => _CollectionBody(
+                      snapshot: snapshot,
+                      ext: ext,
+                      now: now ?? DateTime.now,
+                    ),
                   ),
       ),
     );
   }
 }
 
-/// Renders the populated collection: count eyebrow + sync badge, then either the
-/// plant grid (with an "add" tile) or an empty-state call to action.
-class _CollectionBody extends StatelessWidget {
-  const _CollectionBody({required this.snapshot, required this.ext});
+/// Renders the populated collection: the undecided scans, the count eyebrow +
+/// sync badge, then either the plant grid (with an "add" tile) or an
+/// empty-state call to action (only when there are no undecided cards either).
+class _CollectionBody extends ConsumerWidget {
+  const _CollectionBody({
+    required this.snapshot,
+    required this.ext,
+    required this.now,
+  });
 
   final PlantsSnapshot snapshot;
   final GreenThumbExtension ext;
+  final DateTime Function() now;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final plants = snapshot.plants;
     final eyebrowStyle = Theme.of(
       context,
     ).textTheme.labelSmall?.copyWith(letterSpacing: 0.06 * 11, color: ext.ink3);
+    // A fetch error (offline) hides the section; the kept grid still shows.
+    // A refetch (after a dismiss) keeps the previous cards, no flicker.
+    final undecidedAsync = ref.watch(undecidedScansProvider);
+    final undecided = undecidedAsync.hasError
+        ? const <ScanJob>[]
+        : undecidedAsync.value ?? const <ScanJob>[];
 
-    return CustomScrollView(
-      slivers: [
-        SliverPadding(
-          padding:
-              EdgeInsets.all(ext.padScreen) + MainShell.fabClearanceOf(context),
-          sliver: SliverList(
-            delegate: SliverChildListDelegate([
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '${plants.length} '
-                      '${plants.length == 1 ? "PLANT" : "PLANTS"} IDENTIFIED',
-                      style: eyebrowStyle,
-                    ),
+    return _MinuteClock(
+      now: now,
+      jobs: undecided,
+      builder: (context, cards) => RefreshIndicator.adaptive(
+        onRefresh: () => _refreshUndecided(ref),
+        child: CustomScrollView(
+          // Pull to refresh works even when the content is short.
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            if (cards.isNotEmpty)
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  ext.padScreen,
+                  ext.padScreen,
+                  ext.padScreen,
+                  0,
+                ),
+                sliver: SliverList.separated(
+                  itemCount: cards.length,
+                  separatorBuilder: (_, _) => SizedBox(height: ext.gapY),
+                  itemBuilder: (context, i) => _UndecidedCard(
+                    key: ValueKey(cards[i].id),
+                    job: cards[i],
+                    now: now,
                   ),
-                  _SyncBadge(snapshot: snapshot, ext: ext),
-                ],
+                ),
               ),
-              SizedBox(height: ext.gapY),
-            ]),
+            SliverPadding(
+              padding:
+                  EdgeInsets.all(ext.padScreen) +
+                  MainShell.fabClearanceOf(context),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${plants.length} '
+                          '${plants.length == 1 ? "PLANT" : "PLANTS"} '
+                          'IDENTIFIED',
+                          style: eyebrowStyle,
+                        ),
+                      ),
+                      _SyncBadge(snapshot: snapshot, ext: ext),
+                    ],
+                  ),
+                  SizedBox(height: ext.gapY),
+                ]),
+              ),
+            ),
+            if (plants.isEmpty && cards.isEmpty)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: _EmptyState(ext: ext),
+              )
+            else
+              SliverPadding(
+                padding: EdgeInsets.symmetric(horizontal: ext.padScreen),
+                sliver: SliverGrid(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: ext.gapY,
+                    crossAxisSpacing: ext.gapY,
+                    childAspectRatio: 0.8,
+                  ),
+                  delegate: SliverChildListDelegate([
+                    ...plants.map((p) => _PlantCard(plant: p, ext: ext)),
+                    _AddCard(ext: ext),
+                  ]),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Pull to refresh: refetches the undecided list (a scan finished on
+  /// another device, say). A failure only hides the section.
+  static Future<void> _refreshUndecided(WidgetRef ref) async {
+    ref.invalidate(undecidedScansProvider);
+    try {
+      await ref.read(undecidedScansProvider.future);
+    } catch (e) {
+      debugPrint('[COLLECTION] Undecided refresh failed: ${e.runtimeType}');
+    }
+  }
+}
+
+/// Undecided scans still inside their decide-by time, newest first. One
+/// past it goes at once, without waiting for the server's sweep; one with
+/// no decide-by (the server always sets it) is left out.
+List<ScanJob> _liveCards(List<ScanJob> jobs, DateTime at) {
+  final live = [
+    for (final j in jobs)
+      if (j.decideBy != null && j.decideBy!.isAfter(at)) j,
+  ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  return live;
+}
+
+/// Builds the live undecided cards ([_liveCards] of [jobs] at [now]) and
+/// rebuilds every minute while at least one is live, so the countdowns tick
+/// and an expired card drops out. With no live card the timer is off, so an
+/// empty My Plants never rebuilds on its own.
+class _MinuteClock extends StatefulWidget {
+  const _MinuteClock({
+    required this.now,
+    required this.jobs,
+    required this.builder,
+  });
+
+  final DateTime Function() now;
+  final List<ScanJob> jobs;
+  final Widget Function(BuildContext context, List<ScanJob> cards) builder;
+
+  @override
+  State<_MinuteClock> createState() => _MinuteClockState();
+}
+
+class _MinuteClockState extends State<_MinuteClock> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncTimer();
+  }
+
+  @override
+  void didUpdateWidget(_MinuteClock old) {
+    super.didUpdateWidget(old);
+    _syncTimer();
+  }
+
+  /// Runs the timer only while a card is live.
+  void _syncTimer() {
+    final live = _liveCards(widget.jobs, widget.now()).isNotEmpty;
+    if (live && _timer == null) {
+      _timer = Timer.periodic(const Duration(minutes: 1), (_) {
+        if (!mounted) return;
+        setState(() {});
+        _syncTimer();
+      });
+    } else if (!live) {
+      _timer?.cancel();
+      _timer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      widget.builder(context, _liveCards(widget.jobs, widget.now()));
+}
+
+/// One undecided scan in My Plants: View opens the full result, Dismiss
+/// erases it, and a half-result the tracker can still re-run offers Try
+/// again (the same rule as `/scans/<id>`).
+class _UndecidedCard extends ConsumerWidget {
+  const _UndecidedCard({super.key, required this.job, required this.now});
+
+  final ScanJob job;
+  final DateTime Function() now;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final canRetry = watchCanRetryScan(ref, job.id);
+    return ShortScanCard(
+      job: job,
+      now: now,
+      onView: () => context.push(scanFullResultPath(job.id)),
+      onDismiss: () => _dismiss(context, ref),
+      onTryAgain: canRetry ? () => _tryAgain(context, ref) : null,
+    );
+  }
+
+  void _tryAgain(BuildContext context, WidgetRef ref) {
+    final mode = ref.read(scanJobTrackerProvider).lastCapture?.mode;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    unawaited(
+      reportScanRetry(
+        ref.read(scanJobTrackerProvider.notifier).retry(),
+        mode: mode ?? ScanMode.diagnose,
+        messenger: messenger,
+      ),
+    );
+  }
+
+  Future<void> _dismiss(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final container = ProviderScope.containerOf(context, listen: false);
+    try {
+      await ref.read(scanDecisionsProvider).dismiss(job.id);
+    } catch (e) {
+      debugPrint('[SCAN_JOB] Dismiss from My Plants failed: ${e.runtimeType}');
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            apiErrorMessage(e) ?? "Couldn't dismiss the scan. Try again.",
           ),
         ),
-        if (plants.isEmpty)
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: _EmptyState(ext: ext),
-          )
-        else
-          SliverPadding(
-            padding: EdgeInsets.symmetric(horizontal: ext.padScreen),
-            sliver: SliverGrid(
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: ext.gapY,
-                crossAxisSpacing: ext.gapY,
-                childAspectRatio: 0.8,
-              ),
-              delegate: SliverChildListDelegate([
-                ...plants.map((p) => _PlantCard(plant: p, ext: ext)),
-                _AddCard(ext: ext),
-              ]),
-            ),
-          ),
-      ],
-    );
+      );
+      return;
+    }
+    clearTrackedScanPill(container, job.id);
   }
 }
 
@@ -185,6 +384,25 @@ class _PlantCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final hasImage = plant.imageUrl != null && plant.imageUrl!.isNotEmpty;
 
+    void openActions() => unawaited(_showPlantActions(context, plant));
+
+    // Remove is also a semantics action, so a screen reader reaches it
+    // without the gesture (docs/rules/flutter.md).
+    return Semantics(
+      customSemanticsActions: {
+        const CustomSemanticsAction(label: 'Remove'): openActions,
+      },
+      child: GestureDetector(
+        onLongPress: () {
+          Feedback.forLongPress(context);
+          openActions();
+        },
+        child: _card(context, cs, hasImage),
+      ),
+    );
+  }
+
+  Widget _card(BuildContext context, ColorScheme cs, bool hasImage) {
     return CanopyCard(
       padding: EdgeInsets.zero,
       child: Column(
@@ -258,6 +476,96 @@ class _PlantCard extends StatelessWidget {
       size: 32,
       color: cs.primary.withValues(alpha: 0.4),
     ),
+  );
+}
+
+/// The long-press sheet of a kept plant: "Remove", then a confirmation.
+Future<void> _showPlantActions(BuildContext context, Plant plant) async {
+  final remove = await showModalBottomSheet<bool>(
+    context: context,
+    showDragHandle: true,
+    useSafeArea: true,
+    builder: (sheetContext) => SafeArea(
+      child: ListTile(
+        key: CollectionScreen.removeActionKey,
+        leading: Icon(
+          LucideIcons.trash2,
+          color: Theme.of(sheetContext).colorScheme.error,
+        ),
+        title: const Text('Remove'),
+        onTap: () => Navigator.of(sheetContext).pop(true),
+      ),
+    ),
+  );
+  if (remove != true || !context.mounted) return;
+  final confirmed = await _confirmRemove(context, plant);
+  if (confirmed != true || !context.mounted) return;
+
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final decisions = ProviderScope.containerOf(
+    context,
+    listen: false,
+  ).read(scanDecisionsProvider);
+  try {
+    await decisions.removePlant(plant);
+  } catch (e) {
+    debugPrint('[COLLECTION] Remove failed: ${e.runtimeType}');
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(
+          apiErrorMessage(e) ?? "Couldn't remove the plant. Try again.",
+        ),
+      ),
+    );
+  }
+}
+
+/// "Remove `name` from My Plants?" with Remove / Cancel, in-app.
+Future<bool?> _confirmRemove(BuildContext context, Plant plant) {
+  return showModalBottomSheet<bool>(
+    context: context,
+    showDragHandle: true,
+    useSafeArea: true,
+    builder: (sheetContext) {
+      final theme = Theme.of(sheetContext);
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          0,
+          AppSpacing.md,
+          AppSpacing.md,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Remove ${plant.name} from My Plants?',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            FilledButton(
+              key: CollectionScreen.removeConfirmKey,
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.error,
+                foregroundColor: theme.colorScheme.onError,
+                minimumSize: const Size.fromHeight(48),
+              ),
+              onPressed: () => Navigator.of(sheetContext).pop(true),
+              child: const Text('Remove'),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextButton(
+              style: TextButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+              ),
+              onPressed: () => Navigator.of(sheetContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+    },
   );
 }
 

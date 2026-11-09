@@ -25,6 +25,9 @@ BODILESS_WRITES = {
     ("post", "/blog/comments/{id}/flag/"),
     ("post", "/blog/newsletter/unsubscribe/one-click/"),
     ("post", "/plant-identification/scans/{uuid}/cancel/"),
+    ("post", "/plant-identification/scans/{uuid}/keep/"),
+    ("post", "/plant-identification/scans/{uuid}/dismiss/"),
+    ("post", "/plant-identification/scans/{uuid}/remove/"),
 }
 
 # Keys whose example value would be a secret if it were real.

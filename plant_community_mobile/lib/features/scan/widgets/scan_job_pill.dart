@@ -85,7 +85,9 @@ class ScanJobPill extends ConsumerWidget {
       builder: (context, _) {
         final top = _topPath(delegate);
         if (top == AppRoutes.camera ||
-            (jobId != null && top == scanResultPath(jobId))) {
+            (jobId != null &&
+                (top == scanResultPath(jobId) ||
+                    top == scanFullResultPath(jobId)))) {
           return const SizedBox.shrink();
         }
         return const ScanJobStatusCard();

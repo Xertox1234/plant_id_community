@@ -1,9 +1,10 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "699"
 tags: [scan, privacy, r2, owner-decision]
 dependencies: []
+owner_decision: "Retention settled by keep-or-dismiss: dismiss/24 h expiry erase; failed/cancelled erased at end; kept until removed (2026-11-06)"
 ---
 
 # Scan 2.0: private scan photos are kept forever
@@ -47,13 +48,23 @@ needed, and nothing in the app needs a photo after its result is seen.
 
 ## Acceptance Criteria
 
-- [ ] Owner's retention window recorded here with its date.
-- [ ] `prune_scan_photos --dry-run` lists, and a real run deletes, only photos
+- [x] Owner's retention window recorded here with its date (2026-11-06, see owner_decision).
+- Dropped, not done: `prune_scan_photos --dry-run` lists, and a real run deletes, only photos
       past the window; tests cover the boundary and a non-finite age.
-- [ ] Scheduled on the cron service.
+- Dropped, not done: Scheduled on the cron service.
 
 ## Work Log
 
 ### 2026-11-06 - Filed from the scan-2 audit
 
 - Deferred at triage: the retention window is the owner's call.
+
+### 2026-11-06 - Closed by the keep-or-dismiss branch
+
+- Retention is settled by the decision flow, not a `prune_scan_photos` command:
+  dismissing a scan, or letting it sit undecided for 24 h (the 15-minute
+  `scan-decision-sweep`), erases its photos; failed and cancelled scans erase
+  their photos when they end; a kept scan keeps them until the user removes it.
+- No `prune_scan_photos` command was built and nothing was added to
+  `forum-prune-cron`, so the second and third criteria were replaced by the
+  above rather than met as written. The privacy-policy wording is not updated here.

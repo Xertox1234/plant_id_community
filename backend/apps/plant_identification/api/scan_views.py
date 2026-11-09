@@ -11,6 +11,8 @@ serialized: the second sees the first's active job (409) or its spent slot
 from __future__ import annotations
 
 import logging
+import uuid as uuid_module
+from datetime import timedelta
 from typing import Any, Dict
 
 from apps.core.exceptions import get_request_id
@@ -39,6 +41,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from ..constants import (
     SCAN_CREATE_RATE,
+    SCAN_DECISION_WINDOW_HOURS,
     SCAN_FAILURE_ENQUEUE,
     SCAN_MAX_PHOTO_BYTES,
     SCAN_MODE_CHOICES,
@@ -48,6 +51,8 @@ from ..constants import (
 )
 from ..scan_jobs import (
     allowance_for,
+    delete_scan_photos,
+    erase_scan,
     expire_stale_jobs,
     local_date_for,
     parse_utc_offset,
@@ -122,6 +127,15 @@ ERROR_IN_PROGRESS = _error_schema(
 )
 ERROR_NOT_ACTIVE = _error_schema(
     "ScanNotActiveError", "not_active: the job has already finished."
+)
+ERROR_NOT_UNDECIDED = _error_schema(
+    "ScanNotUndecidedError",
+    "not_undecided: the scan is not waiting for a decision (or has not finished).",
+)
+ERROR_DECISION_CONFLICT = _error_schema(
+    "ScanDecisionConflictError",
+    "not_finished: the scan is still running. already_kept: a kept scan can "
+    "only be removed, not dismissed.",
 )
 ERROR_CREATE_429 = _error_schema(
     "ScanCreateLimitError",
@@ -267,7 +281,12 @@ class ScanJobViewSet(GenericViewSet):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return ScanJob.objects.none()
-        return ScanJob.objects.filter(user=self.request.user).prefetch_related("images")
+        jobs = ScanJob.objects.filter(user=self.request.user)
+        # Erased scans are gone to the client (404) except where dismiss and
+        # remove answer them as an idempotent 204.
+        if self.action not in ("dismiss", "remove"):
+            jobs = jobs.exclude(decision__in=ScanJob.ERASED_DECISIONS)
+        return jobs.prefetch_related("images")
 
     def get_object(self) -> ScanJob:
         # A missing job and another user's job raise the same DRF NotFound,
@@ -374,6 +393,16 @@ class ScanJobViewSet(GenericViewSet):
         if mode not in SCAN_MODE_ROLES:
             raise ValidationError({"mode": ["Must be diagnose or identify."]})
         offset = parse_utc_offset(request.data.get("utc_offset_minutes"))
+        # New clients send the header and decide each scan themselves; an old
+        # build does not, so its scans stay kept and its photos are never swept.
+        decision = (
+            "undecided" if request.headers.get("X-Scan-Decisions") == "1" else "kept"
+        )
+        # retry_of is lenient on purpose: anything unusable is ignored, never a 400.
+        try:
+            retry_of = uuid_module.UUID(str(request.data.get("retry_of", "")))
+        except ValueError:
+            retry_of = None
 
         refused = self._refusal(request, request.user, mode)
         if refused is not None:
@@ -395,7 +424,22 @@ class ScanJobViewSet(GenericViewSet):
                     mode=mode,
                     local_date=local_date_for(offset),
                     utc_offset_minutes=offset,
+                    decision=decision,
                 )
+                if retry_of is not None:
+                    # Try again on a degraded scan: refund its identify charge.
+                    # Inside the lock and after the refusal re-check, so a
+                    # refused create refunds nothing.
+                    target = ScanJob.objects.filter(
+                        user=user, uuid=retry_of, status="degraded"
+                    ).first()
+                    if target is not None:
+                        erase_scan(
+                            target.pk,
+                            "dismissed",
+                            from_decisions=("undecided",),
+                            refund=True,
+                        )
                 for role, photo in photos.items():
                     image = ScanJobImage.objects.create(job=job, role=role, image=photo)
                     if image.image.name:
@@ -438,9 +482,14 @@ class ScanJobViewSet(GenericViewSet):
     def cancel(self, request: Request, uuid=None) -> Response:
         """Cancel a scan that is still running. A cancelled scan costs nothing."""
         job = self.get_object()
-        cancelled = ScanJob.objects.filter(
-            pk=job.pk, status__in=ScanJob.ACTIVE_STATUSES
-        ).update(status="cancelled", finished_at=timezone.now())
+        # One transaction: a crash between the UPDATE and the photo delete
+        # must not leave a cancelled job with its photos (files go on commit).
+        with transaction.atomic():
+            cancelled = ScanJob.objects.filter(
+                pk=job.pk, status__in=ScanJob.ACTIVE_STATUSES
+            ).update(status="cancelled", finished_at=timezone.now())
+            if cancelled:
+                delete_scan_photos([job.pk])
         if not cancelled:
             return _error(
                 request,
@@ -450,6 +499,138 @@ class ScanJobViewSet(GenericViewSet):
             )
         logger.info("[SCAN] job=%s cancelled by user=%s", job.pk, request.user.pk)
         return self._job_response(job)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "decision",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=True,
+                enum=["undecided"],
+                description="Only 'undecided' is supported.",
+            )
+        ],
+        responses={200: ScanJobSerializer(many=True), 400: ERROR_INVALID},
+    )
+    def list(self, request: Request) -> Response:
+        """Finished scans still waiting for keep-or-dismiss, newest first."""
+        if request.query_params.get("decision") != "undecided":
+            return _error(
+                request,
+                status.HTTP_400_BAD_REQUEST,
+                "invalid",
+                "Pass decision=undecided.",
+            )
+        cutoff = timezone.now() - timedelta(hours=SCAN_DECISION_WINDOW_HOURS)
+        jobs = (
+            self.get_queryset()
+            .filter(
+                decision="undecided",
+                status__in=("done", "degraded"),
+                finished_at__gte=cutoff,
+            )
+            .order_by("-finished_at")[:50]
+        )
+        return Response(
+            ScanJobSerializer(
+                jobs, many=True, context=self.get_serializer_context()
+            ).data
+        )
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: ScanJobSerializer,
+            404: ERROR_NOT_FOUND,
+            409: ERROR_NOT_UNDECIDED,
+        },
+    )
+    @action(detail=True, methods=["post"])
+    def keep(self, request: Request, uuid=None) -> Response:
+        """Keep a finished scan. Keeping a kept scan again changes nothing."""
+        job = self.get_object()
+        kept = ScanJob.objects.filter(
+            pk=job.pk, decision="undecided", status__in=("done", "degraded")
+        ).update(decision="kept", decided_at=timezone.now())
+        if not kept:
+            current = ScanJob.objects.get(pk=job.pk)
+            already = current.decision == "kept" and current.status in (
+                "done",
+                "degraded",
+            )
+            if not already:
+                return _error(
+                    request,
+                    status.HTTP_409_CONFLICT,
+                    "not_undecided",
+                    "This scan is not waiting for a decision.",
+                )
+        else:
+            logger.info("[SCAN] job=%s kept by user=%s", job.pk, request.user.pk)
+        return self._job_response(job)
+
+    def _erase(
+        self, request: Request, job: ScanJob, decision: str, from_decisions
+    ) -> Response:
+        """Shared dismiss/remove body: idempotent 204 once erased."""
+        erased_codes = ScanJob.ERASED_DECISIONS
+        if job.decision in erased_codes:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        if job.status not in ("done", "degraded"):
+            return _error(
+                request,
+                status.HTTP_409_CONFLICT,
+                "not_finished",
+                "This scan has not finished yet.",
+            )
+        if decision == "dismissed" and job.decision == "kept":
+            return self._already_kept(request)
+        if erase_scan(job.pk, decision, from_decisions=from_decisions):
+            logger.info(
+                "[SCAN] job=%s %s by user=%s", job.pk, decision, request.user.pk
+            )
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        # Lost a race with another decision: re-read and apply the same rules.
+        current = ScanJob.objects.get(pk=job.pk)
+        if current.decision in erased_codes:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return self._already_kept(request)
+
+    @staticmethod
+    def _already_kept(request: Request) -> Response:
+        return _error(
+            request,
+            status.HTTP_409_CONFLICT,
+            "already_kept",
+            "A kept scan can only be removed.",
+        )
+
+    @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="Dismissed (or already erased)."),
+            404: ERROR_NOT_FOUND,
+            409: ERROR_DECISION_CONFLICT,
+        },
+    )
+    @action(detail=True, methods=["post"])
+    def dismiss(self, request: Request, uuid=None) -> Response:
+        """Dismiss an undecided scan: photos and result are erased, no refund."""
+        return self._erase(request, self.get_object(), "dismissed", ("undecided",))
+
+    @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="Removed (or already erased)."),
+            404: ERROR_NOT_FOUND,
+            409: ERROR_DECISION_CONFLICT,
+        },
+    )
+    @action(detail=True, methods=["post"])
+    def remove(self, request: Request, uuid=None) -> Response:
+        """Remove a kept or undecided scan: photos and result are erased."""
+        return self._erase(request, self.get_object(), "removed", ("kept", "undecided"))
 
     @extend_schema(
         parameters=[ROLE_PARAM],
