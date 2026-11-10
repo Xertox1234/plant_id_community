@@ -285,3 +285,5 @@ Compact checklist auto-injected before edits. Long-form:
   audit M3/M4).
 - Erasing a scan never deletes its `ScanJob` row before its allowance window
   passes: the allowance counts rows.
+- Every password `serializers.CharField` sets `trim_whitespace=False`: DRF trims
+  by default, and login compares the password as sent (audit 2026-11-10, H6).

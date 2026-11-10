@@ -352,3 +352,6 @@ Compact checklist auto-injected before edits. Long-form:
   Remount per key (`key={draftKey}`) or reset every field from the new key's
   draft in an effect on the key, and test that B's draft APPEARS after the
   switch, not just that it survives one render (todo 549 review, follow-up 575).
+- **Never sanitize or trim a password field's value.** It is hashed, never
+  rendered; changing it stores a different password than the user typed
+  (audit 2026-11-10, H6).

@@ -554,3 +554,5 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
     `inf` and negatives with `math.isfinite` at parse time. `age < nan` is
     always `False`, so `--min-age nan` made every orphan old enough.
 - **Never `user.delete()` directly** — call `request_account_deletion` (`apps/users/deletion.py`); only `expire_unverified_accounts` is exempt.
+- **A password is never altered between the keyboard and the hash.** No HTML sanitizer on a password input, and `trim_whitespace=False` on every DRF password `CharField` (DRF trims by default). Sign-up stored the altered copy while login read the raw one, so the account could not sign in (audit 2026-11-10, H6).
+- **A Firebase Admin call can raise `google.auth.exceptions.GoogleAuthError`, which is not a `FirebaseError`.** Any call that reaches Google (`verify_id_token(check_revoked=True)`, `get_user`) catches both where an outage must answer 503 (audit 2026-11-10, M6).

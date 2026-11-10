@@ -7648,3 +7648,26 @@ exchange is not "every sign-up". Three non-obvious things surfaced during the bu
 
 **Rule.** When adding a gate on "every path that does X", enumerate the creators of X from the
 library side too (adapters, signals, auto-signup settings), not only our own endpoints.
+
+## 2026-11-10 — Auth audit: three fixes that were each half a fix (auth audit, #1290)
+
+1. **Passwords were changed in two places, and the first fix found one.** The web forms ran
+   passwords through the HTML sanitizer; removing that looked complete. But the sign-up serializer
+   also trimmed them (DRF `CharField` trims by default) while login read the body as sent, so
+   `"  pass  "` still registered as `"pass"` and could not sign in. Fix: `trim_whitespace=False` on
+   the three password fields, with a test that signs up and logs in with a padded password.
+2. **A scrub hook the library never calls.** The Sentry replay scrubber was wired to
+   `beforeAddRecordingEvent` and unit-tested by calling it with a meta event. `@sentry/replay`
+   10.73 passes only custom events to that hook; the meta event's `href` is read from
+   `window.location` and sent as is. Fix: do not start replay on a page opened with a query string
+   or fragment. Found by review, not by the test.
+3. **Turning on `check_revoked=True` added a network call with its own error type.** A credential
+   that cannot refresh raises `google.auth.exceptions.RefreshError`, which is not a
+   `FirebaseError`, so the exchange answered 500 instead of 503. Fix: catch `GoogleAuthError` too.
+
+Also: an inline `SKIP_KIMI_REVIEW=1 git commit …` does not reach the `kimi-review.sh` tool hook,
+which reads its own environment; only the pre-commit gate sees it.
+
+**Rule.** Trace a value end to end (form → request body → serializer → hash) before calling a
+"we alter X" finding fixed, and check in the library source that a hook is called for the case you
+are testing.
