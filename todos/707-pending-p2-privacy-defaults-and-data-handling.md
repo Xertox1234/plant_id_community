@@ -77,7 +77,7 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
       is gone from the model and serializer.
 - [x] The block list matches `name+1@x` after `name@x` was blocked, and holds
       no unkeyed hash (tests).
-- [ ] Emulator tests show an unverified Firebase user cannot write, and
+- [x] Emulator tests show an unverified Firebase user cannot write, and
       Storage refuses every upload.
 - [ ] The dead `User` columns are removed by a migration.
 - [x] M11 has a dated owner decision in the Work Log.
@@ -152,6 +152,24 @@ todo 702).
 - Not changed: the default "My Plants" collection stays `is_public: True`
   (`signup.py:69`), under the owner's "public by default" decision.
 - Lost on deploy: the stored value of those three columns for every account.
+
+### 2026-11-10 - M15: Firestore open only to the owner's verified sign-in
+
+- `firestore.rules` opens one path, `users/{uid}/identified_plants`, to the
+  owner with `email_verified`. The user document and five collections no
+  client uses are closed. `git log -S` finds none of those five names in any
+  version of the app or web code, and account deletion erases `users/<uid>`
+  and everything under it.
+- `scripts/test_firebase_rules_emulator.py`: 13 emulator tests, Firestore and
+  Storage, run in CI by `firebase-rules-emulator.yml`. Against the old rules
+  the Firestore tests failed.
+- The collection screen tells an unverified account to verify its email, and
+  shows a failed read at once instead of after a minute of retries.
+- **Not live until deployed:** `firebase deploy --only firestore:rules,storage`
+  from `main`, then run the `Firebase rules drift` workflow.
+
+Left in this todo: the access-request procedure (L13) and the processor
+deletion routes (L15), both with todo 702.
 
 ## Notes
 
