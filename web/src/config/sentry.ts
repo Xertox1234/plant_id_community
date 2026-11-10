@@ -116,8 +116,9 @@ export function initSentry(): void {
           ]),
     ],
 
-    // Session replay configuration (optional - can be expensive)
-    replaysSessionSampleRate: 0.1, // 10% of sessions
+    // No session is recorded unless it hits an error (auth audit M8): a
+    // sampled recording of an ordinary visit is tracking nobody agreed to.
+    replaysSessionSampleRate: 0,
     replaysOnErrorSampleRate: 1.0, // 100% of sessions with errors
   };
 

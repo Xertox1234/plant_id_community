@@ -52,8 +52,8 @@ then the three policy texts. Taken on 2026-11-06.
     and care instructions (`backend/apps/plant_identification/auditlog.py`);
   - garden data (`backend/apps/garden_calendar/auditlog.py`).
 - **Crash reports** (Sentry). Purpose: finding and fixing errors. On the web,
-  about 10% of sessions and every session with an error are recorded, with
-  text masked.
+  a session that hits an error is recorded, with text masked; no other
+  session is.
 
 ## Processors
 
@@ -63,7 +63,7 @@ then the three policy texts. Taken on 2026-11-06.
 | Google Firebase | Login, saved plants, push |
 | Apple | Push |
 | OpenAI | Forum text, only while an optional forum AI feature is switched on |
-| Sentry | Crash reports. On the web, about 10% of sessions and every session with an error are recorded, with text masked |
+| Sentry | Crash reports. On the web, a session that hits an error is recorded, with text masked; no other session is |
 | Cloudflare | Website and file storage |
 | Railway | Servers in the US |
 | Resend | Email |
