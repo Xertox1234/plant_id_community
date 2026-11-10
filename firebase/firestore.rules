@@ -2,77 +2,31 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
-    function isAuthenticated() {
-      return request.auth != null;
+    // Only the account's own sign-in, and only once its email is verified.
+    // A Firebase login can be made by anyone with no consent and no app
+    // account, so "signed in" alone must not open any path (auth audit M15).
+    // Google sign-ins arrive verified; a password sign-in is verified by the
+    // emailed link, and the app refreshes its token right after.
+    function isVerifiedOwner(userId) {
+      return request.auth != null
+          && request.auth.uid == userId
+          && request.auth.token.email_verified == true;
     }
 
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+    // Identified plants: the offline-synced per-user collection, and the ONLY
+    // path a client uses (FirestoreService: savePlant / getPlantsStream /
+    // deletePlant). Rules do not cascade from a parent document, so this is
+    // matched by its full path.
+    match /users/{userId}/identified_plants/{plantId} {
+      allow read, write: if isVerifiedOwner(userId);
     }
 
-    // Users collection
-    match /users/{userId} {
-      allow read: if isOwner(userId);
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId);
-      allow delete: if false; // Users can't delete their own document
-
-      // Identified plants — offline-synced per-user subcollection (mobile app).
-      // Written/read by FirestoreService (savePlant / getPlantsStream). Firestore
-      // rules do NOT cascade from the parent doc, so this needs its own
-      // owner-only rule or the catch-all `if false` denies all server sync.
-      match /identified_plants/{plantId} {
-        allow read, write: if isOwner(userId);
-      }
-    }
-
-    // Plant identifications
-    match /plant_identifications/{identificationId} {
-      allow read: if isOwner(resource.data.user_id);
-      allow create: if isAuthenticated()
-                    && request.resource.data.user_id == request.auth.uid;
-      allow update: if isOwner(resource.data.user_id)
-                    && request.resource.data.user_id == resource.data.user_id;
-      allow delete: if isOwner(resource.data.user_id);
-    }
-
-    // User plants
-    match /user_plants/{plantId} {
-      allow read: if isOwner(resource.data.user_id)
-                  || (isAuthenticated() && resource.data.is_public == true);
-      allow create: if isAuthenticated()
-                    && request.resource.data.user_id == request.auth.uid;
-      allow update: if isOwner(resource.data.user_id)
-                    && request.resource.data.user_id == resource.data.user_id;
-      allow delete: if isOwner(resource.data.user_id);
-    }
-
-    // Disease diagnoses
-    match /disease_diagnoses/{diagnosisId} {
-      allow read: if isOwner(resource.data.user_id);
-      allow create: if isAuthenticated()
-                    && request.resource.data.user_id == request.auth.uid;
-      allow update: if isOwner(resource.data.user_id)
-                    && request.resource.data.user_id == resource.data.user_id;
-      allow delete: if isOwner(resource.data.user_id);
-    }
-
-    // User preferences
-    match /user_preferences/{userId} {
-      allow read: if isOwner(userId);
-      allow write: if isOwner(userId);
-    }
-
-    // Sync queue (only backend can write)
-    match /sync_queue/{syncId} {
-      allow read: if isOwner(resource.data.user_id);
-      allow create: if isAuthenticated() && request.resource.data.user_id == request.auth.uid;
-      allow update: if false; // Only cloud functions update
-      allow delete: if false; // Only cloud functions delete
-    }
-
-    // Deny all other paths
+    // Everything else is closed. The rules for the user document,
+    // plant_identifications, user_plants, disease_diagnoses, user_preferences
+    // and sync_queue were removed 2026-11-10: no client or server code reads
+    // or writes them, and they let any signed-in Firebase account store data.
+    // The backend uses the Admin SDK, which these rules do not apply to.
+    // Tests: scripts/test_firebase_rules_emulator.py (emulator).
     match /{document=**} {
       allow read, write: if false;
     }

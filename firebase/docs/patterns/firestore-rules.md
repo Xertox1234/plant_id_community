@@ -83,3 +83,39 @@ Test Firestore rules with the Firebase Emulator Suite before deploying:
 firebase emulators:start --only firestore
 firebase emulators:exec "npm test" --only firestore
 ```
+
+---
+
+## Verified Owner Only, And Test In The Emulator (2026-11-10)
+
+"Signed in" is not a trust level: anyone can create a Firebase login with no
+consent and no app account. The shipped rules open one path, to the account's
+own verified sign-in, and deny everything else:
+
+```javascript
+function isVerifiedOwner(userId) {
+  return request.auth != null
+      && request.auth.uid == userId
+      && request.auth.token.email_verified == true;
+}
+
+match /users/{userId}/identified_plants/{plantId} {
+  allow read, write: if isVerifiedOwner(userId);
+}
+
+match /{document=**} {
+  allow read, write: if false;
+}
+```
+
+- Do not add a rule for a collection no client uses. Five such collections
+  were writable by any signed-in account until the 2026-11-10 audit (M15).
+- A client must then handle `permission-denied` for an unverified account
+  (`collection_screen.dart` says "Verify your email", not "check your
+  connection").
+- Every rule change gets a case in `scripts/test_firebase_rules_emulator.py`,
+  including a guard case proving the emulator can deny at all. Run:
+  `firebase emulators:exec --only firestore,storage --project demo-rules
+  "python3 scripts/test_firebase_rules_emulator.py"`. CI runs it in
+  `firebase-rules-emulator.yml`.
+- The examples earlier in this file show rule shapes, not the shipped rules.
