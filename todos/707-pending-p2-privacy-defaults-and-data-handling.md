@@ -89,7 +89,23 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 - Deferred by the audit: product and legal decisions come first; a Firebase
   rules change is live the moment it deploys.
 
+### 2026-11-10 - Replay rate, and a correction to M15
+
+- M8, part: `replaysSessionSampleRate` is 0; replay on error stays. Test
+  `records no session unless it hits an error` failed first. The Privacy
+  Policy still says "about 10% of sessions" (`privacy.en.md:83,107`, and the
+  Spanish file): that sentence changes with the todo 701 revision, because
+  policy text needs a version bump.
+- M15 correction: "no client uses Firebase Storage" is true of current code
+  only. `git log -S firebase_storage -- plant_community_mobile/pubspec.yaml`
+  shows it was removed by #1251 (2026-11-05); before that,
+  `plant_identification_service.dart` uploaded each identification photo to
+  `plant-identifications/{uid}/`. So Storage deny-all needs two owner answers
+  first: is any build older than 19 still in use, and may the bucket be
+  emptied. L11 closes only when the bucket is empty.
+- H6 in the manifest now records the owner's decision (no fallback).
+
 ## Notes
 
-Step 1 (replay rate) and step 5 (Storage deny-all) need no decision and can go
-first.
+Step 1 (replay rate) needed no decision and is done. Step 5 (Storage
+deny-all) turned out to need one: see the Work Log.
