@@ -23,15 +23,17 @@ answer questions about the service providers outside Canada listed below.
 ## What we collect and why
 
 **Your account.** Your email, username, first and last name, bio, location
-(free text, if you enter one), website and avatar. If you sign in with Google,
-we record that sign-in. On the app, your login uses Google Firebase, so we
-store your Firebase user ID. When you sign up you confirm that you are 14 or
+(free text, if you enter one), website and avatar. If you sign in with Google
+or GitHub, we record that sign-in. On the app, your login uses Google Firebase,
+so we store your Firebase user ID. When you sign up you confirm that you are 14 or
 older and accept this policy and the Terms of Service; we record which version
 you accepted and when. We use this to run your account and show your profile.
 
-Your username and avatar are public. Your first and last name are shown with a
-blog article you write or an event you organise. We do not show your email
-address to other users. We remove the avatar photo's location and camera data
+Your username and avatar are public. Your forum posts also show a display
+name: the one you set in your forum profile or, if you have not set one, your
+first and last name if you entered them. Your first and last name are also
+shown with a blog article you write or an event you organise. We do not show
+your email address to other users. We remove the avatar photo's location and camera data
 (EXIF) before storing it.
 
 **Plant scans.** The photos you take to identify a plant or check its health.
@@ -125,8 +127,10 @@ needs for its task, and acts for us:
 - **Apple (United States):** push notifications.
 - **OpenAI (United States):** forum posts and private messages from new or
   not-yet-trusted members, to screen them for spam, while that screen is
-  switched on; and the forum text you submit to an optional AI feature
-  (search, writing help, plant-care answers) when you use one.
+  switched on. While an optional AI feature is switched on: the title and
+  opening post of public forum topics, to build its search index; and the
+  text you submit to the feature (search, writing help, plant-care answers).
+  We do not send your email address.
 - **Sentry (United States):** error reports, and the masked recording of a
   website session that hit an error.
 - **Cloudflare (United States):** the website and file storage.
@@ -195,8 +199,8 @@ clean-up.
 
 When staff delete an account because its owner was under 14, we go further:
 posts under a report are erased at once, the messages that person sent are
-deleted from the other person's copy, their words are removed from quotes in
-other posts, and the text of reports they filed is erased.
+deleted from the other person's copy, their words are removed from quotes made
+with the forum's quote button in other posts, and the text of reports they filed is erased.
 
 ## Your rights
 

@@ -123,7 +123,8 @@ checkboxes and `LEGAL_POLICY_VERSION` (one bump, to `2026-11-10`):
   not yet trusted, and the optional AI features. "No analytics or tracking"
   now says what is recorded (email clicks, blog views). Error replay only for
   a session that hits an error (707). The app sends no error reports.
-- **L12** GitHub sign-in removed (no button). Deleted-account hash: removed
+- **L12** GitHub sign-in stays in the text: there is no button, but the server
+  route completes a sign-in when the GitHub keys are set. Deleted-account hash: removed
   after 90 days for a self-deletion. Plant.id named as FlowerChecker s.r.o.,
   Czech Republic (its own privacy notice); PlantNet as France.
 - **L14** Change notice, embeds as third parties, how to remove your own
@@ -149,6 +150,12 @@ Not done, and why:
 - **Re-consent.** No code asks an existing account to accept a new version
   (`consent.py` asks only at sign-up). The app is not live, so none was built.
   It is needed before a policy change after launch.
+- **No per-person switch for email click records or blog view logging.** The
+  Spanish notice lists both as secondary purposes and points to the right to
+  object. Honouring an objection needs a per-user opt-out, which is not built.
+- **Forum display name.** With no forum display name set, forum posts show
+  the member's first and last name (`serializers.py` author payload). The
+  policy now says so; whether that default is wanted is a product question.
 - **M16** The checkbox sentence is still English only and still one box.
 - **Promises that are manual steps for the operator:** emailing account
   holders before a change, reviewing a rejected private message, sending a

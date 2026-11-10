@@ -26,17 +26,19 @@ Canada qui sont énumérés plus bas.
 
 **Votre compte.** Votre adresse courriel, votre nom d'utilisateur, vos prénom
 et nom, votre biographie, votre lieu (texte libre, si vous en indiquez un),
-votre site Web et votre avatar. Si vous vous connectez avec Google, nous
-enregistrons ce mode de connexion. Dans l'application, la connexion passe par
+votre site Web et votre avatar. Si vous vous connectez avec Google ou GitHub,
+nous enregistrons ce mode de connexion. Dans l'application, la connexion passe par
 Google Firebase; nous conservons donc votre identifiant d'utilisateur Firebase.
 À l'inscription, vous confirmez avoir 14 ans ou plus et accepter cette
 politique et les Conditions d'utilisation; nous enregistrons la version
 acceptée et le moment de l'acceptation. Ces renseignements servent à gérer
 votre compte et à afficher votre profil.
 
-Votre nom d'utilisateur et votre avatar sont publics. Vos prénom et nom sont
-affichés avec un article de blogue que vous écrivez ou un événement que vous
-organisez. Nous ne montrons pas votre adresse courriel aux autres utilisateurs.
+Votre nom d'utilisateur et votre avatar sont publics. Vos messages du forum
+affichent aussi un nom d'affichage : celui que vous définissez dans votre
+profil du forum ou, si vous n'en avez défini aucun, vos prénom et nom si vous
+les avez saisis. Vos prénom et nom sont aussi affichés avec un article de
+blogue que vous écrivez ou un événement que vous organisez. Nous ne montrons pas votre adresse courriel aux autres utilisateurs.
 Nous retirons de la photo de l'avatar les données de lieu et d'appareil (EXIF)
 avant de la conserver.
 
@@ -150,9 +152,11 @@ agit pour notre compte :
 - **Apple (États-Unis) :** les notifications push.
 - **OpenAI (États-Unis) :** les messages du forum et les messages privés des
   membres nouveaux ou qui ne sont pas encore de confiance, pour détecter le
-  pourriel, tant que ce filtrage est activé; et le texte du forum que vous
-  soumettez à une fonction facultative d'IA (recherche, aide à la rédaction,
-  réponses sur l'entretien des plantes) quand vous l'utilisez.
+  pourriel, tant que ce filtrage est activé. Tant qu'une fonction facultative
+  d'IA est activée : le titre et le premier message des sujets publics du
+  forum, pour bâtir son index de recherche; et le texte que vous soumettez à
+  la fonction (recherche, aide à la rédaction, réponses sur l'entretien des
+  plantes). Nous n'envoyons pas votre adresse courriel.
 - **Sentry (États-Unis) :** les rapports d'erreur et l'enregistrement, avec le
   texte masqué, d'une session du site Web où une erreur est survenue.
 - **Cloudflare (États-Unis) :** le site Web et le stockage de fichiers.
@@ -232,7 +236,7 @@ Quand notre équipe supprime un compte parce que son titulaire avait moins de
 14 ans, nous allons plus loin : les messages visés par un signalement sont
 effacés tout de suite, les messages privés envoyés par cette personne sont
 supprimés de la copie de l'autre personne, ses mots sont retirés des citations
-dans d'autres messages, et le texte des signalements qu'elle a faits est
+faites avec le bouton de citation du forum dans d'autres messages, et le texte des signalements qu'elle a faits est
 effacé.
 
 ## Vos droits

@@ -27,13 +27,16 @@ indican más adelante.
 
 **Su cuenta.** Su correo electrónico, nombre de usuario, nombre y apellido,
 biografía, ubicación (texto libre, si la escribe), sitio web y avatar. Si inicia
-sesión con Google, registramos ese inicio de sesión. En la aplicación, el inicio
-de sesión usa Google Firebase, por lo que guardamos su identificador de usuario
+sesión con Google o GitHub, registramos ese inicio de sesión. En la aplicación,
+el inicio de sesión usa Google Firebase, por lo que guardamos su identificador de usuario
 de Firebase. Al registrarse, usted confirma que tiene 14 años o más y que acepta
 este aviso y los Términos de servicio; registramos qué versión aceptó y cuándo.
 
-Su nombre de usuario y su avatar son públicos. Su nombre y apellido se muestran
-junto a un artículo del blog que usted escriba o un evento que organice. No
+Su nombre de usuario y su avatar son públicos. Sus publicaciones del foro
+muestran además un nombre visible: el que usted defina en su perfil del foro o,
+si no ha definido ninguno, su nombre y apellido si los escribió. Su nombre y
+apellido también se muestran junto a un artículo del blog que usted escriba o
+un evento que organice. No
 mostramos su correo electrónico a otros usuarios. Antes de guardar el avatar,
 quitamos de la foto los datos de ubicación y de la cámara (EXIF).
 
@@ -157,8 +160,10 @@ No son necesarias para el servicio:
 - elaborar estadísticas de las visitas al blog.
 
 Si no desea que usemos sus datos para el boletín, no se suscriba o cancele su
-suscripción. Para oponerse a las otras dos finalidades, escriba a
-[[CONTACT_EMAIL]]. Negarse no afecta el servicio.
+suscripción; negarse no afecta el servicio. Las otras dos finalidades se
+aplican por igual a todos los usuarios y hoy no tienen un interruptor
+individual; puede ejercer su derecho de oposición como se indica en "Derechos
+ARCO".
 
 ## Opciones para limitar el uso o la divulgación de sus datos
 
@@ -186,9 +191,11 @@ uno recibe solo lo que necesita para su tarea:
 - **Apple (Estados Unidos):** notificaciones push.
 - **OpenAI (Estados Unidos):** las publicaciones del foro y los mensajes
   privados de miembros nuevos o que aún no son de confianza, para detectar
-  spam, mientras esa revisión esté activada; y el texto del foro que usted
-  envía a una función opcional de inteligencia artificial (búsqueda, ayuda
-  para escribir, respuestas sobre el cuidado de plantas) cuando la usa.
+  spam, mientras esa revisión esté activada. Mientras una función opcional de
+  inteligencia artificial esté activada: el título y la primera publicación de
+  los temas públicos del foro, para crear su índice de búsqueda; y el texto
+  que usted envía a la función (búsqueda, ayuda para escribir, respuestas
+  sobre el cuidado de plantas). No enviamos su correo electrónico.
 - **Sentry (Estados Unidos):** informes de errores y la grabación, con el texto
   oculto, de una sesión del sitio web en la que ocurrió un error.
 - **Cloudflare (Estados Unidos):** el sitio web y el almacenamiento de
@@ -264,7 +271,8 @@ de 90 días naturales mediante nuestra limpieza periódica.
 Cuando nuestro equipo elimina una cuenta porque su titular tenía menos de 14
 años, hacemos más: las publicaciones con un reporte se borran de inmediato, los
 mensajes que esa persona envió se eliminan de la copia de la otra persona, sus
-palabras se quitan de las citas en otras publicaciones, y se borra el texto de
+palabras se quitan de las citas hechas con el botón de citar del foro en otras
+publicaciones, y se borra el texto de
 los reportes que hizo.
 
 ## Derechos ARCO
