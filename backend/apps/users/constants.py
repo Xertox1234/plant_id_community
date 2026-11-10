@@ -132,6 +132,9 @@ FORUM_HELD_POST_DAYS = 30
 # What an erased account's topics are titled. The same sentinel the forum
 # shows for a deleted author.
 DELETED_TOPIC_TITLE = "[deleted]"
+# What replaces a deleted child's words where another person's post quotes
+# them (an under-13 deletion only).
+DELETED_QUOTE_TEXT = "[deleted]"
 # Erase steps, in the order they run and are recorded in steps_done.
 ERASE_STEP_FORUM = "forum"
 ERASE_STEP_EMAIL = "email"

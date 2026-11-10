@@ -14,6 +14,8 @@ import pytest
 from apps.users import deletion
 from apps.users.constants import (
     DELETED_ACCOUNT_REASON_SELF,
+    DELETED_ACCOUNT_REASON_UNDER_13,
+    DELETED_QUOTE_TEXT,
     DELETED_TOPIC_TITLE,
     FORUM_HELD_POST_DAYS,
 )
@@ -564,11 +566,11 @@ def test_a_failed_step_resumes_without_redoing_earlier_steps(target, other, boar
     real_email = deletion._erase_email
     calls = {"email": 0}
 
-    def flaky_email(user):
+    def flaky_email(user, under_13):
         calls["email"] += 1
         if calls["email"] == 1:
             raise RuntimeError("mail store down")
-        real_email(user)
+        real_email(user, under_13)
 
     with (
         patch.object(deletion, "_erase_email", side_effect=flaky_email),
@@ -759,3 +761,126 @@ def test_orphan_with_a_queued_message_report_is_held(target, other):
     _erase(target)
 
     assert Conversation.objects.filter(pk=thread.pk).exists()
+
+
+# --- under-13 deletion (auth audit M11) --------------------------------------
+#
+# COPPA (16 CFR 312.10) has the operator delete what it collected from a
+# child, so this reason reaches what the standard job leaves for other
+# people: a reported post, the other side's copy of a message, the words
+# another post quotes, and the text of a report the child filed.
+
+
+def _erase_child(user):
+    record = _record(user)
+    record.reason = DELETED_ACCOUNT_REASON_UNDER_13
+    record.save(update_fields=["reason"])
+    erase_django_data(record)
+
+
+def test_under_13_erases_a_reported_post_at_once(target, other, board):
+    topic = _topic(board, other)
+    _post(topic, other, [("quote", "opening")], opening=True)
+    reported = _post(topic, target, [("quote", "a child wrote this")])
+    Report.objects.create(post=reported, reporter=other, reason=Report.ABUSE)
+
+    _erase_child(target)
+
+    reported.refresh_from_db()
+    assert reported.author_id is None
+    assert reported.erase_after is None
+    assert len(reported.body) == 0
+
+
+def test_under_13_deletes_the_messages_they_sent(target, other):
+    thread = Conversation.between(target, other)
+    sent = Message.objects.create(conversation=thread, sender=target, body="from child")
+    reply = Message.objects.create(conversation=thread, sender=other, body="reply")
+    Report.objects.create(message=sent, reporter=other, reason=Report.ABUSE)
+
+    _erase_child(target)
+
+    assert not Message.objects.filter(pk=sent.pk).exists()
+    assert Message.objects.filter(pk=reply.pk).exists()
+    assert Conversation.objects.filter(pk=thread.pk).exists()
+
+
+def test_a_standard_deletion_keeps_the_other_sides_copy(target, other):
+    thread = Conversation.between(target, other)
+    sent = Message.objects.create(conversation=thread, sender=target, body="hello")
+
+    _erase(target)
+
+    assert Message.objects.filter(pk=sent.pk).exists()
+
+
+def test_under_13_removes_their_words_from_posts_that_quote_them(target, other, board):
+    topic = _topic(board, other)
+    _post(topic, other, [("quote", "opening")], opening=True)
+    theirs = _post(topic, target, [("quote", "the secret childwords")])
+    unrelated = _post(topic, other, [("quote", "someone else")])
+    quoting = _post(
+        topic,
+        other,
+        [
+            ("post_quote", {"post": theirs.pk, "text": "the secret childwords"}),
+            ("post_quote", {"post": unrelated.pk, "text": "someone else"}),
+            ("quote", "my own reply"),
+        ],
+    )
+    quoting.save_revision()
+
+    _erase_child(target)
+
+    quoting.refresh_from_db()
+    values = [block.value for block in quoting.body]
+    assert values[0]["post"] == theirs.pk
+    assert values[0]["text"] == DELETED_QUOTE_TEXT
+    assert values[1]["text"] == "someone else"
+    assert values[2] == "my own reply"
+    assert quoting.author_id == other.pk
+    assert not quoting.revisions.exists()
+    assert _unexpected(_rows_naming("childwords")) == []
+
+
+def test_a_standard_deletion_leaves_quotes_alone(target, other, board):
+    topic = _topic(board, other)
+    _post(topic, other, [("quote", "opening")], opening=True)
+    theirs = _post(topic, target, [("quote", "quotable words")])
+    quoting = _post(
+        topic, other, [("post_quote", {"post": theirs.pk, "text": "quotable words"})]
+    )
+
+    _erase(target)
+
+    quoting.refresh_from_db()
+    assert quoting.body[0].value["text"] == "quotable words"
+
+
+def test_under_13_blanks_the_detail_of_reports_they_filed(target, other, board):
+    topic = _topic(board, other)
+    post = _post(topic, other, [("quote", "opening")], opening=True)
+    report = Report.objects.create(
+        post=post, reporter=target, reason=Report.OTHER, detail="child typed this"
+    )
+
+    _erase_child(target)
+
+    report.refresh_from_db()
+    assert report.detail == ""
+    assert report.reporter_id is None
+    assert report.status == Report.OPEN
+
+
+def test_a_request_upgraded_to_under_13_gets_the_wider_erase(target, other):
+    thread = Conversation.between(target, other)
+    sent = Message.objects.create(conversation=thread, sender=target, body="hello")
+    record = _record(target)
+    stale_copy = DeletedAccount.objects.get(pk=record.pk)
+    DeletedAccount.objects.filter(pk=record.pk).update(
+        reason=DELETED_ACCOUNT_REASON_UNDER_13
+    )
+
+    erase_django_data(stale_copy)
+
+    assert not Message.objects.filter(pk=sent.pk).exists()
