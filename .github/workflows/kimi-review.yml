@@ -54,6 +54,20 @@ jobs:
             exit 0
           fi
 
+          # Owner rule: the cheap-worker model never sees authentication,
+          # permissions, input validation, migrations or security-sensitive
+          # code. A PR that changes any such file is not reviewed here at all:
+          # filtering the diff would not be enough, because the agentic verify
+          # step reads the working tree. Markdown is not code and never skips.
+          SENSITIVE='(^backend/apps/users/|/migrations/|^firebase/.*\.rules$|auth|permission|validat|sanitiz|security|csrf|jwt|secret|password|credential)'
+          HITS=$(git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD" \
+            | grep -v '\.md$' | grep -i -E "$SENSITIVE" || true)
+          if [ -n "$HITS" ]; then
+            echo "::notice::kimi-review skipped: this PR changes security-sensitive files, which the cheap-worker model must not read."
+            echo "$HITS"
+            exit 0
+          fi
+
           # Tier B agentic verify reads the working tree; under the pull_request
           # trigger that is already the PR-head checkout, so no head-sha is needed.
           if REVIEW=$(git diff "${{ github.event.pull_request.base.sha }}...HEAD" \
