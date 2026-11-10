@@ -51,6 +51,22 @@ describe('LoginPage', () => {
     expect(link).toHaveAttribute('href', `${origin}/accounts/password/reset/`);
   });
 
+  // Audit 2026-11-10 (H6): the form ran every field through the HTML
+  // sanitizer, so a password lost everything after a "<" and its outer spaces.
+  // A password is never rendered as HTML; it must reach the server as typed.
+  it('sends the password exactly as typed', async () => {
+    mockLogin.mockResolvedValue({ success: true });
+    renderLoginPage();
+    const typed = ' x<y 12345 <b>6</b> '; // pragma: allowlist secret
+
+    fillForm('test@example.com', typed);
+    submit();
+
+    await waitFor(() =>
+      expect(mockLogin).toHaveBeenCalledWith({ email: 'test@example.com', password: typed })
+    );
+  });
+
   // Regression for PR #379: the login form wrongly ran the 14-char *new-password*
   // strength rule, locking out every account whose password predates that rule
   // (including the bootstrap superuser). Login must accept any non-empty password.

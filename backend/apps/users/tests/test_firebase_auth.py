@@ -13,6 +13,7 @@ from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from firebase_admin import auth as firebase_auth
+from firebase_admin import exceptions as firebase_exceptions
 from freezegun import freeze_time
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -370,21 +371,92 @@ class FirebaseTokenExchangeTestCase(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
-    def test_revocation_is_not_checked(self, mock_verify):
-        """Todo 567 finding 1, owner decision 2026-10-11: the documented 401
-        for a revoked token or a disabled Firebase account is retracted, not
-        built. Without check_revoked=True, verify_id_token raises neither, so
-        the UserDisabledError branch that test once drove was dead code.
-        Turning the check on means changing this test, the schema and
-        FIREBASE_AUTHENTICATION.md together."""
-        mock_verify.return_value = {**self.decoded_token, "name": "Test User"}
-
-        response = self.client.post(
+    def exchange(self):
+        return self.client.post(
             self.url,
             {"firebase_token": self.firebase_token, "accepted_terms": True},
             format="json",
         )
+
+    @patch("apps.users.firebase_auth_views._can_check_revocation", return_value=True)
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_revocation_is_checked_when_the_app_holds_real_credentials(
+        self, mock_verify, _can_check
+    ):
+        """Owner decision 2026-11-10 (auth audit M6), reversing todo 567
+        finding 1: the exchange mints a Django session, so a revoked token or
+        a disabled Firebase account must not get one."""
+        mock_verify.return_value = {**self.decoded_token, "name": "Test User"}
+
+        response = self.exchange()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_verify.assert_called_once_with(self.firebase_token, check_revoked=True)
+
+    @patch("apps.users.firebase_auth_views._can_check_revocation", return_value=True)
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_a_revoked_disabled_or_deleted_firebase_user_is_refused(
+        self, mock_verify, _can_check
+    ):
+        refusals = [
+            firebase_auth.RevokedIdTokenError("revoked"),
+            firebase_auth.UserDisabledError("disabled"),
+            firebase_auth.UserNotFoundError("gone"),
+        ]
+        for refusal in refusals:
+            with self.subTest(refusal=type(refusal).__name__):
+                cache.clear()
+                mock_verify.side_effect = refusal
+
+                response = self.exchange()
+
+                # 401 is what signs the mobile client out.
+                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+                self.assertNotIn("access_token", response.data)
+        self.assertFalse(User.objects.filter(email="test@example.com").exists())
+
+    @patch("apps.users.firebase_auth_views._can_check_revocation", return_value=True)
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_a_failed_revocation_lookup_is_an_outage_not_a_refusal(
+        self, mock_verify, _can_check
+    ):
+        """The lookup is a call to Google. If it fails, a 401 would sign every
+        refreshing user out during the outage; 503 is the answer the client
+        waits out (todo 498)."""
+        mock_verify.side_effect = firebase_exceptions.UnavailableError("down")
+
+        response = self.exchange()
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["code"], "verifier_unavailable")
+
+    @patch("apps.users.firebase_auth_views._can_check_revocation", return_value=True)
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_a_credential_that_cannot_refresh_is_an_outage_too(
+        self, mock_verify, _can_check
+    ):
+        """The lookup first refreshes the service-account token. google-auth
+        raises its own error for that (a rotated key, the token endpoint
+        down), which is not a FirebaseError."""
+        from google.auth.exceptions import RefreshError
+
+        mock_verify.side_effect = RefreshError("invalid_grant")
+
+        response = self.exchange()
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["code"], "verifier_unavailable")
+
+    @patch("apps.users.firebase_auth_views._can_check_revocation", return_value=False)
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_the_keyless_dev_tier_verifies_without_the_lookup(
+        self, mock_verify, _can_check
+    ):
+        """A projectId-only app holds no credential that may call the Auth
+        API, so the lookup would fail every exchange there."""
+        mock_verify.return_value = {**self.decoded_token, "name": "Test User"}
+
+        response = self.exchange()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_verify.assert_called_once_with(self.firebase_token)
@@ -406,10 +478,11 @@ class FirebaseTokenExchangeTestCase(TestCase):
         assert record.exc_info is not None  # narrows the Optional for mypy
         self.assertIs(record.exc_info[0], KeyError)
 
-    def test_the_schema_documents_429_and_no_revocation_promise(self):
-        """Todo 567 findings 1 and 4: the view is rate-limited, so the schema
-        lists the 429, and it no longer promises a 401 for a revoked token or
-        a disabled account."""
+    def test_the_schema_documents_the_429_and_the_401(self):
+        """Todo 567 finding 4: the view is rate-limited, so the schema lists
+        the 429. The 401 covers revoked and disabled accounts again (owner
+        decision 2026-11-10); the tests above pin that behaviour, so this one
+        does not pin the description's wording."""
         from drf_spectacular.generators import SchemaGenerator
 
         schema = SchemaGenerator().get_schema(request=None, public=True)
@@ -420,8 +493,27 @@ class FirebaseTokenExchangeTestCase(TestCase):
         ]
 
         self.assertIn("429", operation["responses"])
-        refusal = operation["responses"]["401"]["description"]
-        self.assertIn("Revocation is not checked", refusal)
+        self.assertIn("401", operation["responses"])
+        self.assertIn("503", operation["responses"])
+
+    def test_revocation_is_checked_only_with_a_credential_that_can_look_up(self):
+        """The switch itself: on for a real credential, off for the keyless
+        tier (the lookup would fail every exchange there) and with no app."""
+        from unittest.mock import MagicMock
+
+        from apps.users.firebase_auth_views import (
+            _can_check_revocation,
+            _VerifyOnlyCredential,
+        )
+
+        get_app = "apps.users.firebase_auth_views.firebase_admin.get_app"
+        with patch(get_app, return_value=MagicMock(credential=MagicMock())):
+            self.assertTrue(_can_check_revocation())
+        keyless = MagicMock(spec=_VerifyOnlyCredential)
+        with patch(get_app, return_value=MagicMock(credential=keyless)):
+            self.assertFalse(_can_check_revocation())
+        with patch(get_app, side_effect=ValueError("no app")):
+            self.assertFalse(_can_check_revocation())
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_certificate_fetch_failure_is_503_not_401(self, mock_verify):

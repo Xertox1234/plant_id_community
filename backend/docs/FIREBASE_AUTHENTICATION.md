@@ -112,10 +112,12 @@ This document describes the Firebase Authentication integration for the Plant ID
 
 - **400 Bad Request**: `firebase_token` missing or not a string
 - **401 Unauthorized**: invalid or expired Firebase token. The mobile app
-  signs the user out. Revocation is not checked (`verify_id_token` runs
-  without `check_revoked`, owner decision 2026-10-11, todo 567): a revoked
-  token, or one for a disabled Firebase account, is accepted until it
-  expires, about an hour.
+  signs the user out. A revoked token, and one for a disabled or deleted
+  Firebase account, are refused the same way: `verify_id_token` runs with
+  `check_revoked=True` (owner decision 2026-11-10, reversing todo 567). That
+  is one call to the Firebase Auth API per exchange, so it needs the service
+  account; the keyless projectId-only dev tier skips it. If the lookup itself
+  fails, the answer is the 503 below, not a 401.
 - **403 Forbidden**: the token's email is not verified
 - **409 Conflict**: the account cannot be linked; `code` is
   `unverified_account` (the app offers a password reset) or

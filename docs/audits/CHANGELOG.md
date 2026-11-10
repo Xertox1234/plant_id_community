@@ -389,3 +389,47 @@ links to the full audit manifest with detailed findings and resolutions.
   makemigrations and spectacular are clean.
 - **Commit(s):** `caaf05f0` … `99719297` (20) on branch
   `audit/scan-2-2026-11-05`.
+
+### 2026-11-10 — Auth Audit (security best practice and legal fit: Canada, US, Mexico)
+
+- **Manifest:** `docs/audits/2026-11-10-auth-legal.md`.
+- **Scope:** `apps/users` (JWT, OAuth, Firebase token exchange, consent,
+  deletion), web auth, mobile Firebase auth, Firebase rules, the published
+  policies and the email templates. The legal rows are a gap analysis against
+  statute text opened that day, not legal advice.
+- **Findings:** 9 high, 22 medium, 17 low (48 total). Three agent claims were
+  rejected in discovery and one low (L3) on the documentation check.
+- **Resolved:** 5 verified (H6, M3, M7, L1, L2) plus the `check_revoked` part
+  of M6; 42 deferred to todos 701–707, grouped by what gates them (policy
+  text + lawyer, breach runbook, email footer, mobile, backend, web, privacy
+  defaults); 1 false positive; 0 open.
+- **Headlines:**
+  - **H6:** the web forms ran passwords through the HTML sanitizer, so a
+    password with `<` or an outer space was stored altered. Fixing the forms
+    exposed a second half: the register serializer trimmed (DRF default)
+    while login does not, which would have locked such an account out. Both
+    ends now leave the password alone.
+  - **M3:** allauth's own limiter keyed on Railway's internal address. The
+    adapter now gives it the same client address our limiter uses.
+  - **M6 (part):** the Firebase exchange now checks revocation (owner
+    decision, reversing todo 567); a failed lookup answers 503.
+  - **M7:** query strings and fragments are stripped from everything the web
+    app sends to Sentry, so single-use tokens in page addresses stay out.
+  - **Legal:** the policies are live as drafts with blank operator details,
+    no email carries a sender address, and there is no breach runbook. All
+    three are P1 todos (701–703).
+- **Caught by the close review:** the serializer half of H6, by tracing the
+  password from the form to the hash rather than stopping at the page test.
+  The security review then showed the first M7 fix did not cover replay: the
+  library only passes custom events to `beforeAddRecordingEvent`, so the unit
+  test called a hook the real pipeline never calls for that event. Replay is
+  now skipped on a page opened with a query string or fragment. It also found
+  a credential-refresh failure answering 500 instead of 503.
+- **kimi-review:** not run. The owner's standing rule keeps it off
+  authentication code; the commit used `SKIP_KIMI_REVIEW=1` with the owner's
+  approval, and the bundled security review ran on the diff instead.
+- **Not checked:** M7 against a live Sentry project; the revocation lookup
+  against the production Firebase credential (check one mobile sign-in after
+  deploy).
+- **Close baseline:** Backend full suite 6858 passed, 8 skipped (`pytest --create-db`); `ruff` and `mypy` clean on `apps/users`; `spectacular --validate --fail-on-warn` exit 0. Web 2153 passed (143 files); `tsc` and `eslint` clean. Mobile not re-run: no mobile file changed.
+- **Commit(s):** branch `audit/auth-legal-2026-11-10`.
