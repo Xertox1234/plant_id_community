@@ -9,6 +9,7 @@ from allauth.account.adapter import DefaultAccountAdapter
 from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from allauth.socialaccount.models import SocialAccount, SocialLogin
+from apps.core.ratelimit import get_trusted_client_ip
 from apps.core.utils.pii_safe_logging import log_safe_user_context
 from apps.users.account_links import on_first_provider_link
 from apps.users.email_verification import (
@@ -271,6 +272,13 @@ class CustomAccountAdapter(DefaultAccountAdapter):
         allauth's ``/accounts/signup/`` skipped its checks, rate limit and
         side effects (todo 447)."""
         return False
+
+    def get_client_ip(self, request: HttpRequest) -> str:
+        """The client our own rate limiter sees, so allauth's per-IP limits
+        (``/accounts/login/``, password reset) count the same address. Its
+        default reads ``REMOTE_ADDR``, which behind the proxy is a different
+        internal address on every request."""
+        return get_trusted_client_ip(request) or super().get_client_ip(request)
 
     def populate_username(self, request: HttpRequest, user: Any) -> None:
         """Give a social signup a random username.

@@ -64,8 +64,11 @@ export default function SignupPage() {
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
 
-    // Sanitize input to prevent XSS
-    const sanitizedValue = sanitizeInput(value);
+    // Sanitize input to prevent XSS. Never the password fields: they are not
+    // rendered as HTML, and stripping or trimming them stores a different
+    // password from the one typed.
+    const isPassword = name === 'password' || name === 'confirmPassword';
+    const sanitizedValue = isPassword ? value : sanitizeInput(value);
 
     setFormData((prev) => ({
       ...prev,

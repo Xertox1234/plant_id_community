@@ -429,17 +429,27 @@ def _handle_google_callback(request, code):
         token_json = token_response.json()
 
         if "access_token" not in token_json:
-            logger.error(f"[AUTH] Google token exchange failed: {token_json}")
+            # The error code only: the reply can carry an id_token.
+            logger.error(
+                "[AUTH] Google token exchange failed: %s", token_json.get("error")
+            )
             return None
 
         # Get user profile
-        profile_url = f"https://www.googleapis.com/oauth2/v2/userinfo?access_token={token_json['access_token']}"
+        # The token goes in a header. In the URL it would be in the text of
+        # any requests exception, and so in whatever logs that exception.
         profile_response = requests.get(
-            profile_url, timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {token_json['access_token']}"},
+            timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS,
         )
 
         if profile_response.status_code != 200:
-            logger.error(f"[AUTH] Google profile fetch failed: {profile_response.text}")
+            # The status only: the body can hold the person's profile.
+            logger.error(
+                "[AUTH] Google profile fetch failed: HTTP %s",
+                profile_response.status_code,
+            )
             return None
 
         profile = profile_response.json()
@@ -463,7 +473,8 @@ def _handle_google_callback(request, code):
         return profile
 
     except Exception as e:
-        logger.error(f"[AUTH] Google OAuth handling error: {str(e)}")
+        # The exception type only: its text can quote a URL or a reply body.
+        logger.error("[AUTH] Google OAuth handling error: %s", type(e).__name__)
         return None
 
 
@@ -492,7 +503,9 @@ def _handle_github_callback(request, code):
         token_json = token_response.json()
 
         if "access_token" not in token_json:
-            logger.error(f"[AUTH] GitHub token exchange failed: {token_json}")
+            logger.error(
+                "[AUTH] GitHub token exchange failed: %s", token_json.get("error")
+            )
             return None
 
         # Get user profile
@@ -507,7 +520,10 @@ def _handle_github_callback(request, code):
         )
 
         if profile_response.status_code != 200:
-            logger.error(f"[AUTH] GitHub profile fetch failed: {profile_response.text}")
+            logger.error(
+                "[AUTH] GitHub profile fetch failed: HTTP %s",
+                profile_response.status_code,
+            )
             return None
 
         user_data = profile_response.json()
@@ -534,7 +550,7 @@ def _handle_github_callback(request, code):
         return user_data
 
     except Exception as e:
-        logger.error(f"[AUTH] GitHub OAuth handling error: {str(e)}")
+        logger.error("[AUTH] GitHub OAuth handling error: %s", type(e).__name__)
         return None
 
 

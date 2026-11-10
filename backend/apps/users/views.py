@@ -5,6 +5,7 @@ Authentication and user management views for the Plant Community application.
 import hashlib
 import logging
 import uuid
+from collections.abc import Mapping
 from typing import Optional
 
 from apps.core import ratelimit as core_ratelimit
@@ -263,10 +264,18 @@ def login(request: Request) -> Response:
     Accepts either 'username' or 'email' as the identifier.
     """
     # Support both 'username' and 'email' fields for flexibility
-    username = request.data.get("username") or request.data.get("email")
-    password = request.data.get("password")
+    # A JSON list, or a nested value in either field, must answer 400 like any
+    # other unusable credentials instead of raising below.
+    data = request.data if isinstance(request.data, Mapping) else {}
+    username = data.get("username") or data.get("email")
+    password = data.get("password")
 
-    if not username or not password:
+    if (
+        not username
+        or not password
+        or not isinstance(username, str)
+        or not isinstance(password, str)
+    ):
         return create_error_response(
             "MISSING_CREDENTIALS",
             "Missing credentials",
@@ -300,7 +309,10 @@ def login(request: Request) -> Response:
         if "@" in username:
             try:
                 user_obj = User.objects.get(email=username)
-            except User.DoesNotExist:
+            except (User.DoesNotExist, User.MultipleObjectsReturned):
+                # Email is not unique in the database. An address on several
+                # accounts names none of them, so it is refused like an
+                # unknown one (signing in by username still works).
                 pass
 
     # Always perform password check (constant time)

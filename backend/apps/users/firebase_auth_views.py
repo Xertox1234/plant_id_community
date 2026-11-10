@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Optional, Tuple
 
 import firebase_admin
 import google.auth.credentials
+import google.auth.exceptions
 from apps.core.ratelimit import (  # rate-preserving wrapper (Retry-After)
     client_ip_key,
     ratelimit,
@@ -49,6 +50,7 @@ from drf_spectacular.utils import (
 )
 from firebase_admin import auth as firebase_auth
 from firebase_admin import credentials as firebase_credentials
+from firebase_admin import exceptions as firebase_exceptions
 from rest_framework import serializers, status
 from rest_framework.decorators import (
     api_view,
@@ -85,6 +87,21 @@ class _VerifyOnlyCredential(firebase_credentials.Base):
 
 
 logger = logging.getLogger(__name__)
+
+
+def _can_check_revocation() -> bool:
+    """True when the Firebase app holds a credential that may call the Auth
+    API, which ``verify_id_token(check_revoked=True)`` does on every call.
+
+    The projectId-only tier (:class:`_VerifyOnlyCredential`, the keyless dev
+    loop) may not, so the lookup would fail every exchange there. Production
+    runs on the service account and checks.
+    """
+    try:
+        credential = firebase_admin.get_app().credential
+    except ValueError:  # no app: verify_id_token reports that itself (503)
+        return False
+    return not isinstance(credential, _VerifyOnlyCredential)
 
 
 class UnverifiedAccountConflict(ValueError):
@@ -282,9 +299,8 @@ def _error_body(name: str) -> serializers.Serializer:
         401: OpenApiResponse(
             _error_body("FirebaseTokenExchangeRefused"),
             description="Invalid or expired Firebase token. The mobile client "
-            "signs out. Revocation is not checked: a revoked token, or one "
-            "for a disabled Firebase account, is accepted until it expires "
-            "(about an hour).",
+            "signs out. A revoked token, and one for a disabled or deleted "
+            "Firebase account, are refused the same way.",
         ),
         403: OpenApiResponse(
             _error_body("FirebaseTokenExchangeUnverified"),
@@ -318,9 +334,9 @@ def _error_body(name: str) -> serializers.Serializer:
         503: OpenApiResponse(
             _error_body("FirebaseTokenExchangeUnavailable"),
             description="The token could not be checked (Google's public "
-            "certs unreachable, Firebase Admin not set up); `code` is "
-            "`verifier_unavailable`. The mobile client keeps the session and "
-            "retries.",
+            "certs unreachable, Firebase Admin not set up, or the revocation "
+            "lookup failed); `code` is `verifier_unavailable`. The mobile "
+            "client keeps the session and retries.",
         ),
     },
     examples=[
@@ -385,9 +401,10 @@ def firebase_token_exchange(request: Request) -> Response:
         }
 
     Response (401 Unauthorized): an invalid or expired token. The mobile
-    client signs out. Revocation is not checked (no ``check_revoked``), so a
-    revoked token, or one for a disabled Firebase account, is accepted until
-    it expires, about an hour (todo 567 finding 1, owner decision).
+    client signs out. A revoked token, and one for a disabled or deleted
+    Firebase account, are refused the same way (``check_revoked``, owner
+    decision 2026-11-10). Only the keyless projectId-only dev tier skips that
+    lookup.
         {
             "error": "Invalid Firebase token"
         }
@@ -414,7 +431,8 @@ def firebase_token_exchange(request: Request) -> Response:
 
     Response (503 Service Unavailable): the token could not be checked, a
     fault on our side (Google's public certs unreachable, Firebase Admin not
-    set up). The mobile client keeps the session and retries (todo 498).
+    set up, or the revocation lookup failing). The mobile client keeps the
+    session and retries (todo 498).
         {
             "error": "Token verification is temporarily unavailable",
             "code": "verifier_unavailable"
@@ -447,7 +465,16 @@ def firebase_token_exchange(request: Request) -> Response:
         # Sentry sees, not an outage-shaped 503 the client quietly retries
         # (todo 500 finding 4).
         try:
-            decoded_token = firebase_auth.verify_id_token(firebase_token)
+            # check_revoked looks the user up through the Firebase Auth API,
+            # so a revoked token, or one for a disabled or deleted Firebase
+            # user, gets no Django session (owner decision 2026-11-10, auth
+            # audit M6; it reverses todo 567 finding 1).
+            if _can_check_revocation():
+                decoded_token = firebase_auth.verify_id_token(
+                    firebase_token, check_revoked=True
+                )
+            else:
+                decoded_token = firebase_auth.verify_id_token(firebase_token)
         except firebase_auth.ExpiredIdTokenError as e:
             # NOTE: ExpiredIdTokenError must be caught before InvalidIdTokenError
             # because it's a subclass of InvalidIdTokenError
@@ -456,23 +483,34 @@ def firebase_token_exchange(request: Request) -> Response:
                 {"error": "Firebase token has expired"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
-        except firebase_auth.InvalidIdTokenError as e:
-            logger.warning(f"[FIREBASE AUTH] Invalid Firebase token: {str(e)}")
+        except (
+            firebase_auth.InvalidIdTokenError,  # a revoked token included
+            firebase_auth.UserDisabledError,
+            firebase_auth.UserNotFoundError,
+        ) as e:
+            logger.warning(
+                f"[FIREBASE AUTH] Firebase token refused: {type(e).__name__}"
+            )
             return Response(
                 {"error": "Invalid Firebase token"}, status=status.HTTP_401_UNAUTHORIZED
             )
-        # No check_revoked=True, so no UserDisabledError or
-        # RevokedIdTokenError either (owner decision 2026-10-11, todo 567
-        # finding 1): checking would look the user up through the Firebase
-        # Auth API on every exchange, which the verify-only credential tier
-        # (_VerifyOnlyCredential) cannot do.
-        except (firebase_auth.CertificateFetchError, ValueError) as e:
-            # On our side, not the token's: Google's public certs could not be
-            # fetched (CertificateFetchError), or the Admin app is not set up
-            # (ValueError). A 401 here would sign every refreshing mobile user
-            # out during the outage (todo 498); 503 is a failure the client
-            # waits out.
-            logger.error(f"[FIREBASE AUTH ERROR] Token verification failed: {str(e)}")
+        # After the refusals above: UserDisabledError and UserNotFoundError are
+        # FirebaseErrors too. Anything left is on our side, not the token's:
+        # Google's public certs could not be fetched (CertificateFetchError),
+        # the Admin app is not set up (ValueError), or the revocation lookup
+        # failed (an outage, or a credential that may not call the Auth API;
+        # google-auth raises its own GoogleAuthError when the service-account
+        # token cannot be refreshed).
+        # A 401 here would sign every refreshing mobile user out during the
+        # outage (todo 498); 503 is a failure the client waits out.
+        except (
+            firebase_exceptions.FirebaseError,
+            google.auth.exceptions.GoogleAuthError,
+            ValueError,
+        ) as e:
+            logger.error(
+                f"[FIREBASE AUTH ERROR] Token verification failed: {type(e).__name__}"
+            )
             return Response(
                 {
                     "error": "Token verification is temporarily unavailable",

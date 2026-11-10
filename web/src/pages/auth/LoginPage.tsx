@@ -62,8 +62,9 @@ export default function LoginPage() {
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
 
-    // Sanitize input to prevent XSS
-    const sanitizedValue = sanitizeInput(value);
+    // Sanitize input to prevent XSS. Never the password: it is not rendered as
+    // HTML, and stripping or trimming it sends a different password.
+    const sanitizedValue = name === 'password' ? value : sanitizeInput(value);
 
     setFormData((prev) => ({
       ...prev,

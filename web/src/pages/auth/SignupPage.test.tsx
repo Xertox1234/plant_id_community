@@ -88,6 +88,22 @@ describe('SignupPage', () => {
     expect(mockSignup).toHaveBeenCalledWith(expect.objectContaining({ accepted_terms: true }));
   });
 
+  // Audit 2026-11-10 (H6): the HTML sanitizer cut a password at its first "<"
+  // and trimmed it, so the account was created with a different, weaker
+  // password than the one typed.
+  it('creates the account with the password exactly as typed', async () => {
+    mockSignup.mockResolvedValue({ success: true });
+    renderSignupPage();
+    const typed = ' x<y 12345678901 <b>6</b> '; // pragma: allowlist secret
+    fillValidForm(typed);
+    tickConsent();
+    submit();
+    await waitFor(() => expect(mockSignup).toHaveBeenCalledTimes(1));
+    expect(mockSignup).toHaveBeenCalledWith(
+      expect.objectContaining({ password: typed, confirmPassword: typed })
+    );
+  });
+
   // Guards the "[object Object]" fix: the page must render error.message, not the
   // whole AuthError object (String({message,code}) → the literal "[object Object]").
   it('renders the readable server error message, not "[object Object]"', async () => {

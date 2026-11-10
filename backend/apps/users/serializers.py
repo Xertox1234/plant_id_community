@@ -17,10 +17,14 @@ logger = logging.getLogger(__name__)
 class UserRegistrationSerializer(serializers.ModelSerializer):
     """Serializer for user registration."""
 
-    password = serializers.CharField(write_only=True)
-    password_confirm = serializers.CharField(write_only=True, required=False)
+    # trim_whitespace=False: login reads the password as sent, so a trimmed
+    # copy stored here would never match it (audit 2026-11-10, H6).
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+    password_confirm = serializers.CharField(
+        write_only=True, required=False, trim_whitespace=False
+    )
     confirmPassword = serializers.CharField(
-        write_only=True, required=False
+        write_only=True, required=False, trim_whitespace=False
     )  # Support frontend field name
 
     class Meta:
