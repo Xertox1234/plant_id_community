@@ -62,7 +62,7 @@ Events acted on: `email.delivered`, `email.bounced`, `email.complained`,
 - **Optional mail** means forum notification emails, the forum digest and the blog
   newsletter. **Account mail** means verification, password reset and sign-in
   notices, account lockout and newsletter confirmation.
-- A suppression is keyed by a SHA-256 of the normalized address, so it outlives the
+- A suppression is keyed by an HMAC-SHA256 (server secret) of the normalized address, `+tag` dropped, so it outlives the
   account without keeping the address. That hash is a pseudonym, not anonymity:
   anyone who holds a list of addresses can hash it and test it against the table. It
   is deliberately not keyed (an HMAC on `SECRET_KEY`), because rotating that key would

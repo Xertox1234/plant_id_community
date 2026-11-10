@@ -351,7 +351,7 @@ class DeliveryIntent(models.Model):
 class EmailSuppression(models.Model):
     """An address the provider said not to mail again (todo 625).
 
-    Keyed by a SHA-256 of the normalized address, never the address itself:
+    Keyed by an HMAC-SHA256 of the normalized address, never the address itself:
     the row has to outlive the account (an address that hard-bounced still
     bounces after its account is deleted), and a hash is enough to answer
     "is this address suppressed?". The policy is in

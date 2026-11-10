@@ -54,6 +54,7 @@ from django.conf import settings
 from django.core import signing
 from django.db import DatabaseError, IntegrityError, transaction
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
 from django.utils.dateparse import parse_datetime
 
 from .constants import (
@@ -66,6 +67,8 @@ from .constants import (
 logger = logging.getLogger(__name__)
 
 CLICK_SALT = "apps.core.email_feedback.click"
+# Changing this empties the suppression list and the sign-up block list.
+ADDRESS_HASH_SALT = "apps.core.email_feedback.address_hash"
 
 # The events this app acts on. Anything else (email.sent, delivery_delayed,
 # opened, clicked, contact or domain events) is recorded and ignored: opens
@@ -159,10 +162,22 @@ def sign(secret: str, *, msg_id: str, timestamp: str, body: bytes) -> str:
 
 
 def address_hash(address: str) -> str:
-    """SHA-256 of the normalized bare address. A pseudonym, not anonymity: it
-    lets a suppression outlive the account without storing the address."""
-    bare = parseaddr(address or "")[1] or (address or "")
-    return hashlib.sha256(bare.strip().lower().encode()).hexdigest()
+    """Keyed hash (HMAC-SHA256) of the normalized bare address. A pseudonym,
+    not anonymity: it lets a suppression or a sign-up block outlive the
+    account without storing the address.
+
+    Keyed by ``SECRET_KEY`` so a copy of the database alone cannot be used to
+    test whether an address is on a list (auth audit M10). Rotating
+    ``SECRET_KEY`` therefore empties both lists: no stored hash matches again.
+
+    A ``+tag`` in the local part is dropped first, so ``name+1@x`` and
+    ``name@x`` are one address: they reach one mailbox.
+    """
+    bare = (parseaddr(address or "")[1] or (address or "")).strip().lower()
+    local, at, domain = bare.rpartition("@")
+    if at:
+        bare = f"{local.split('+', 1)[0]}@{domain}"
+    return salted_hmac(ADDRESS_HASH_SALT, bare, algorithm="sha256").hexdigest()
 
 
 def blocked_reasons(addresses: Iterable[str]) -> dict[str, str]:
