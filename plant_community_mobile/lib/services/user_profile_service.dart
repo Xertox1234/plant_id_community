@@ -111,9 +111,6 @@ class UserProfileService extends _$UserProfileService {
     String? website,
     String? gardeningExperience,
     String? avatar,
-    String? profileVisibility,
-    bool? showEmail,
-    bool? showLocation,
     bool? emailNotifications,
     bool? plantIdNotifications,
     bool? forumNotifications,
@@ -135,11 +132,6 @@ class UserProfileService extends _$UserProfileService {
         updateData['gardening_experience'] = gardeningExperience;
       }
       if (avatar != null) updateData['avatar'] = avatar;
-      if (profileVisibility != null) {
-        updateData['profile_visibility'] = profileVisibility;
-      }
-      if (showEmail != null) updateData['show_email'] = showEmail;
-      if (showLocation != null) updateData['show_location'] = showLocation;
       if (emailNotifications != null) {
         updateData['email_notifications'] = emailNotifications;
       }

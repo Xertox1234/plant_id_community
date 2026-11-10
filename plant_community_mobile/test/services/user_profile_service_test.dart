@@ -24,9 +24,6 @@ void main() {
         'gardening_experience': 'intermediate',
         'avatar': 'https://example.com/avatar.jpg',
         'avatar_thumbnail': 'https://example.com/avatar_thumb.jpg',
-        'profile_visibility': 'public',
-        'show_email': true,
-        'show_location': true,
         'email_notifications': true,
         'plant_id_notifications': true,
         'forum_notifications': false,
@@ -59,9 +56,6 @@ void main() {
         profile.avatarThumbnail,
         equals('https://example.com/avatar_thumb.jpg'),
       );
-      expect(profile.profileVisibility, equals('public'));
-      expect(profile.showEmail, isTrue);
-      expect(profile.showLocation, isTrue);
       expect(profile.emailNotifications, isTrue);
       expect(profile.plantIdNotifications, isTrue);
       expect(profile.forumNotifications, isFalse);
