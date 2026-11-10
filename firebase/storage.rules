@@ -2,59 +2,13 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Helper functions
-    function isOwner(userId) {
-      return request.auth.uid == userId;
-    }
-
-    function isImage() {
-      return request.resource.contentType.matches('image/.*');
-    }
-
-    function isValidSize() {
-      return request.resource.size < 10 * 1024 * 1024; // 10MB
-    }
-
-    // Plant identification images (private to the owner)
-    match /plant-identifications/{userId}/{imageId} {
-      allow read: if isOwner(userId);
-      allow write: if isOwner(userId)
-                   && isImage()
-                   && isValidSize();
-      allow delete: if isOwner(userId);
-    }
-
-    // Disease diagnosis images (private to the owner)
-    match /disease-diagnoses/{userId}/{imageId} {
-      allow read: if isOwner(userId);
-      allow write: if isOwner(userId)
-                   && isImage()
-                   && isValidSize();
-      allow delete: if isOwner(userId);
-    }
-
-    // User plant photos (private to the owner)
-    match /user-plants/{userId}/{imageId} {
-      allow read: if isOwner(userId);
-      allow write: if isOwner(userId)
-                   && isImage()
-                   && isValidSize();
-      allow delete: if isOwner(userId);
-    }
-
-    // User avatars — deliberately world-readable. Avatars are non-sensitive
-    // public profile images rendered across the app (forum, comments) to
-    // unauthenticated visitors; only writes/deletes are owner-gated. Reviewed
-    // 2026-06-05 (audit L16): the open read is intentional, not an oversight.
-    match /avatars/{userId}/{imageId} {
-      allow read: if true; // intentional public read — see note above (audit L16)
-      allow write: if isOwner(userId)
-                   && isImage()
-                   && isValidSize();
-      allow delete: if isOwner(userId);
-    }
-
-    // Deny all other paths
+    // Nothing in the app reads or writes Firebase Storage: scan photos go to
+    // the API (private R2 bucket) since #1251, and avatars are served by
+    // Django. Every path is closed so a throwaway Firebase account cannot use
+    // the bucket as hosting (auth audit 2026-11-10, M15).
+    //
+    // Rules do not cover a download URL that was already issued: its token
+    // keeps working until the object is deleted.
     match /{allPaths=**} {
       allow read, write: if false;
     }
