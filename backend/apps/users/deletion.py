@@ -31,8 +31,10 @@ from .account_links import revoke_refresh_tokens
 from .avatars import avatar_file_names, delete_avatar_files_on_commit
 from .constants import (
     ACCOUNT_DELETED_EMAIL_SUBJECT,
+    DELETED_ACCOUNT_REASON_UNDER_13,
     DELETED_ACCOUNT_STATUS_DONE,
     DELETED_ACCOUNT_STATUS_PENDING,
+    DELETED_QUOTE_TEXT,
     DELETED_TOPIC_TITLE,
     ERASE_FORUM_POST_CHUNK_SIZE,
     ERASE_LOGENTRY_CHUNK_SIZE,
@@ -277,8 +279,16 @@ def erase_django_data(record: DeletedAccount) -> None:
     Everything runs with django-auditlog disabled: ``user.delete()`` and its
     cascades would otherwise write fresh LogEntry rows (carrying the email)
     after the ``email`` step deleted the old ones.
+
+    An ``under_13`` deletion reaches further than the others (auth audit
+    M11; COPPA, 16 CFR 312.10, has the operator delete what it collected
+    from a child): no post is held for a moderator, the messages the child
+    sent go from the other side's thread too, their words are removed from
+    posts that quote them, and the detail of a report they filed is blanked.
+    The reason is read from the locked row at each step, so a request
+    upgraded to ``under_13`` while pending gets the wider erase.
     """
-    steps: tuple[tuple[str, Callable[["User"], None]], ...] = (
+    steps: tuple[tuple[str, Callable[["User", bool], None]], ...] = (
         (ERASE_STEP_FORUM, _erase_forum),
         (ERASE_STEP_EMAIL, _erase_email),
         (ERASE_STEP_DJANGO, _erase_django),
@@ -297,7 +307,7 @@ def erase_django_data(record: DeletedAccount) -> None:
                     else None
                 )
                 if user is not None:
-                    step(user)
+                    step(user, locked.reason == DELETED_ACCOUNT_REASON_UNDER_13)
                 return user is not None
 
             _run_erase_step(record, name, work, skipped_note="no user row")
@@ -314,6 +324,9 @@ def _erase_forum_posts_in_chunks(record: DeletedAccount) -> None:
     drops out of the next query: a retry carries on where it stopped. The
     ``forum`` step itself still runs every post that is left (held ones, or
     one written meanwhile), so it is recorded only once all are handled.
+
+    An ``under_13`` deletion holds nothing: reported posts are erased here
+    too, and each erased post's words are removed from posts quoting it.
     """
     from wagtail_forum.models import Post, Report
 
@@ -325,15 +338,17 @@ def _erase_forum_posts_in_chunks(record: DeletedAccount) -> None:
             queued = Report.objects.filter(
                 post=OuterRef("pk"), status__in=moderation_queue_statuses()
             )
-            chunk = list(
-                Post.objects.filter(author_id=locked.user_id)
-                .filter(~Exists(queued))
-                .order_by("pk")[:ERASE_FORUM_POST_CHUNK_SIZE]
-            )
+            under_13 = locked.reason == DELETED_ACCOUNT_REASON_UNDER_13
+            posts = Post.objects.filter(author_id=locked.user_id)
+            if not under_13:
+                posts = posts.filter(~Exists(queued))
+            chunk = list(posts.order_by("pk")[:ERASE_FORUM_POST_CHUNK_SIZE])
             if not chunk:
                 return
             for post in chunk:
                 erase_post(post)
+                if under_13:
+                    _remove_quotes_of(post.pk)
         logger.info(
             "[ACCOUNT DELETE] account %s: erased %s forum posts",
             locked.user_id,
@@ -469,6 +484,39 @@ def _delete_unreferenced_images(images: QuerySet[Any], *, clear_uploader: bool) 
             image.save(update_fields=["uploaded_by_user"])
 
 
+def _remove_quotes_of(post_pk: int) -> None:
+    """Replace the quoted text of every ``post_quote`` block that quotes post
+    ``post_pk`` with ``DELETED_QUOTE_TEXT``, in every other post.
+
+    The quoting post keeps its author and the rest of its body, and loses
+    its revisions: each one holds a copy of the quoted words. Only
+    structured quotes are found; words retyped or pasted into a plain
+    ``quote`` block carry no link to the post they came from.
+    """
+    from wagtail_forum.models import Post
+
+    quoting = Post.objects.filter(
+        body__contains=[{"type": "post_quote", "value": {"post": post_pk}}]
+    )
+    for other in quoting.order_by("pk"):
+        raw = []
+        for block in other.body.raw_data:
+            value = block.get("value")
+            if (
+                block.get("type") == "post_quote"
+                and isinstance(value, dict)
+                and value.get("post") == post_pk
+            ):
+                block = {**block, "value": {**value, "text": DELETED_QUOTE_TEXT}}
+            raw.append(block)
+        with transaction.atomic():
+            other.revisions.all().delete()
+            other.latest_revision = None
+            other.live_revision = None
+            other.body = raw
+            other.save()
+
+
 def _body_image_ids(post: Post) -> set[int]:
     """The image pks ``post``'s body references (both image block shapes)."""
     from wagtail_forum.api.sanitize import image_block_pk
@@ -492,7 +540,7 @@ def moderation_queue_statuses() -> tuple[str, str]:
     return (Report.OPEN, Report.AUTO_HIDDEN)
 
 
-def _erase_forum(user: User) -> None:
+def _erase_forum(user: User, under_13: bool = False) -> None:
     """Step ``forum``, while the user row still exists.
 
     A post with a report still in the moderation queue (open or
@@ -500,6 +548,10 @@ def _erase_forum(user: User) -> None:
     images intact; every other post is erased now. Topics are retitled and
     lose their revisions, the user's uploaded images go (except those a
     held post shows), and notifications the user caused are deleted.
+
+    With ``under_13`` no post is held, quotes of their posts lose the quoted
+    words, and the detail they typed into a report is blanked (the report
+    itself stays for the moderators).
     """
     from wagtail.images import get_image_model
     from wagtail_forum.models import ForumProfile, Notification, Post, Report, Topic
@@ -511,11 +563,13 @@ def _erase_forum(user: User) -> None:
     held_image_ids: set[int] = set()
     posts = Post.objects.filter(author=user).annotate(held=Exists(queued))
     for post in posts.order_by("pk"):
-        if post.held:
+        if post.held and not under_13:
             Post.objects.filter(pk=post.pk).update(erase_after=held_until)
             held_image_ids |= _body_image_ids(post)
         else:
             erase_post(post)
+            if under_13:
+                _remove_quotes_of(post.pk)
 
     # The forum avatar must be the user's own upload, and the profile still
     # references it here (the profile goes only with user.delete()), so the
@@ -545,8 +599,11 @@ def _erase_forum(user: User) -> None:
 
     Notification.objects.filter(actor=user).delete()
 
+    if under_13:
+        Report.objects.filter(reporter=user).exclude(detail="").update(detail="")
 
-def _erase_email(user: User) -> None:
+
+def _erase_email(user: User, under_13: bool = False) -> None:
     """Step ``email``: mail records, blog views, the audit trail, tokens."""
     from apps.blog.models import BlogNewsletter, BlogPostView
     from apps.core.models import EmailNotification
@@ -571,9 +628,13 @@ def _erase_email(user: User) -> None:
     OutstandingToken.objects.filter(user=user).delete()
 
 
-def _erase_django(user: User) -> None:
-    """Step ``django``: avatar files, push token, then ``user.delete()``."""
-    from wagtail_forum.models import ForumProfile, Post, Reaction
+def _erase_django(user: User, under_13: bool = False) -> None:
+    """Step ``django``: avatar files, push token, then ``user.delete()``.
+
+    With ``under_13`` the messages they sent are deleted first, so no other
+    member of a thread keeps a copy (a report on such a message goes with it).
+    """
+    from wagtail_forum.models import ForumProfile, Message, Post, Reaction
 
     reacted_post_ids = list(
         Reaction.objects.filter(user=user).values_list("post_id", flat=True).distinct()
@@ -582,6 +643,8 @@ def _erase_django(user: User) -> None:
     delete_avatar_files_on_commit(user, avatar_file_names(user))
     ForumProfile.objects.filter(user=user).update(fcm_token="")
     _delete_owned_audit_rows(user)
+    if under_13:
+        Message.objects.filter(sender=user).delete()
     # The cascades remove the rest. Scan photos go through their on-commit
     # post_delete receiver; the garden app's User receivers purge its rows.
     user.delete()
