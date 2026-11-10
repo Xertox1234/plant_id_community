@@ -49,7 +49,6 @@ class UserAdmin(BaseUserAdmin):
         "is_staff",
         "is_active",
         "gardening_experience",
-        "profile_visibility",
         "email_notifications",
         "date_joined",
     )
@@ -86,10 +85,6 @@ class UserAdmin(BaseUserAdmin):
         (
             "Social Features",
             {"fields": ("following", "follower_count", "following_count")},
-        ),
-        (
-            "Privacy Settings",
-            {"fields": ("profile_visibility", "show_email", "show_location")},
         ),
         (
             "Notification Settings",

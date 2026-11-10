@@ -39,15 +39,6 @@ class UserProfile {
   /// Profile avatar thumbnail URL (for lists/cards)
   final String? avatarThumbnail;
 
-  /// Profile visibility setting (public, private, friends_only)
-  final String profileVisibility;
-
-  /// Show email on public profile
-  final bool showEmail;
-
-  /// Show location on public profile
-  final bool showLocation;
-
   /// Enable email notifications
   final bool emailNotifications;
 
@@ -94,9 +85,6 @@ class UserProfile {
     this.gardeningExperience,
     this.avatar,
     this.avatarThumbnail,
-    this.profileVisibility = 'public',
-    this.showEmail = false,
-    this.showLocation = false,
     this.emailNotifications = true,
     this.plantIdNotifications = true,
     this.forumNotifications = true,
@@ -124,9 +112,6 @@ class UserProfile {
     String? gardeningExperience,
     String? avatar,
     String? avatarThumbnail,
-    String? profileVisibility,
-    bool? showEmail,
-    bool? showLocation,
     bool? emailNotifications,
     bool? plantIdNotifications,
     bool? forumNotifications,
@@ -152,9 +137,6 @@ class UserProfile {
       gardeningExperience: gardeningExperience ?? this.gardeningExperience,
       avatar: avatar ?? this.avatar,
       avatarThumbnail: avatarThumbnail ?? this.avatarThumbnail,
-      profileVisibility: profileVisibility ?? this.profileVisibility,
-      showEmail: showEmail ?? this.showEmail,
-      showLocation: showLocation ?? this.showLocation,
       emailNotifications: emailNotifications ?? this.emailNotifications,
       plantIdNotifications: plantIdNotifications ?? this.plantIdNotifications,
       forumNotifications: forumNotifications ?? this.forumNotifications,
@@ -188,9 +170,6 @@ class UserProfile {
       gardeningExperience: json['gardening_experience'] as String?,
       avatar: json['avatar'] as String?,
       avatarThumbnail: json['avatar_thumbnail'] as String?,
-      profileVisibility: json['profile_visibility'] as String? ?? 'public',
-      showEmail: json['show_email'] as bool? ?? false,
-      showLocation: json['show_location'] as bool? ?? false,
       emailNotifications: json['email_notifications'] as bool? ?? true,
       plantIdNotifications: json['plant_id_notifications'] as bool? ?? true,
       forumNotifications: json['forum_notifications'] as bool? ?? true,
@@ -219,9 +198,6 @@ class UserProfile {
       'website': website,
       'gardening_experience': gardeningExperience,
       'avatar': avatar,
-      'profile_visibility': profileVisibility,
-      'show_email': showEmail,
-      'show_location': showLocation,
       'email_notifications': emailNotifications,
       'plant_id_notifications': plantIdNotifications,
       'forum_notifications': forumNotifications,
@@ -273,9 +249,6 @@ class UserProfile {
         other.gardeningExperience == gardeningExperience &&
         other.avatar == avatar &&
         other.avatarThumbnail == avatarThumbnail &&
-        other.profileVisibility == profileVisibility &&
-        other.showEmail == showEmail &&
-        other.showLocation == showLocation &&
         other.emailNotifications == emailNotifications &&
         other.plantIdNotifications == plantIdNotifications &&
         other.forumNotifications == forumNotifications &&
@@ -303,9 +276,6 @@ class UserProfile {
     gardeningExperience,
     avatar,
     avatarThumbnail,
-    profileVisibility,
-    showEmail,
-    showLocation,
     emailNotifications,
     plantIdNotifications,
     forumNotifications,
