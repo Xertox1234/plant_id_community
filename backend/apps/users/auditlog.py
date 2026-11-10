@@ -27,8 +27,6 @@ auditlog.register(
         "bio",
         "location",
         "hardiness_zone",
-        "profile_visibility",
-        "show_email",
         "trust_level",
     ],
     exclude_fields=["password", "last_login"],  # Never log passwords

@@ -53,6 +53,7 @@ All create, update, and delete operations on sensitive models are automatically 
 ### Configuration Files
 
 1. **Settings**: `/backend/plant_community_backend/settings.py`
+
    ```python
    AUDITLOG_INCLUDE_ALL_MODELS = False  # Explicit registration only
    AUDITLOG_RETENTION_DAYS = 90  # Active retention period
@@ -73,74 +74,97 @@ All create, update, and delete operations on sensitive models are automatically 
 ### Users App
 
 #### User Model
+
 **Fields Tracked:**
+
 - `username`, `email`, `first_name`, `last_name`
 - `is_active`, `is_staff`, `is_superuser`
 - `bio`, `location`, `hardiness_zone`
-- `profile_visibility`, `show_email`, `trust_level`
+- `trust_level`
 
 **Fields Excluded:**
+
 - `password` (never logged for security)
 - `last_login` (too verbose)
 
 **M2M Fields Tracked:**
+
 - `groups` (permission changes)
 - `user_permissions` (permission changes)
 - `following` (social graph changes)
 
 #### UserPlantCollection Model
+
 **Fields Tracked:**
+
 - `name`, `description`, `is_public`
 
 #### ActivityLog Model
+
 **Purpose**: Meta-tracking (audit the audit)
 **Fields Tracked:**
+
 - `activity_type`, `description`, `is_public`
 
 ### Plant Identification App
 
 #### PlantIdentificationResult Model
+
 **Fields Tracked:**
+
 - `confidence_score`, `identification_source`
 - `is_accepted`, `is_primary`
 - `upvotes`, `downvotes`
 - `suggested_scientific_name`, `suggested_common_name`
 
 **Fields Excluded:**
+
 - `api_response_data` (large JSON, performance consideration)
 
 #### PlantIdentificationRequest Model
+
 **Fields Tracked:**
+
 - `status`, `location`, `latitude`, `longitude`
 - `description`, `plant_size`, `habitat`
 - `processed_by_ai`
 
 #### PlantSpecies Model
+
 **Fields Tracked:**
+
 - `scientific_name`, `common_names`, `family`, `genus`, `species`
 - `is_verified`, `auto_stored`, `confidence_score`
 - `identification_count`, `api_source`
 
 #### UserPlant Model
+
 **Fields Tracked:**
+
 - `nickname`, `acquisition_date`, `location_in_home`
 - `notes`, `is_alive`, `is_public`
 
 #### SavedCareInstructions Model
+
 **Fields Tracked:**
+
 - `plant_scientific_name`, `plant_common_name`, `custom_nickname`
 - `personal_notes`, `care_difficulty_experienced`, `current_status`
 - `share_with_community`, `is_favorite`
 
 **Fields Excluded:**
+
 - `care_instructions_data` (large JSON)
 
 #### PlantDiseaseResult Model
+
 **Fields Tracked:**
+
 - `confidence_score`, `diagnosis_source`, `severity_assessment`
 - `is_accepted`, `is_primary`, `stored_to_database`
 
 **Fields Excluded:**
+
 - `api_response_data` (large JSON)
 
 ---
@@ -149,9 +173,10 @@ All create, update, and delete operations on sensitive models are automatically 
 
 ### Django Admin
 
-Access audit logs at: **http://localhost:8000/admin/auditlog/logentry/**
+Access audit logs at: **<http://localhost:8000/admin/auditlog/logentry/>**
 
 Filters available:
+
 - Content type (model)
 - Action (create, update, delete, access)
 - Timestamp
@@ -160,6 +185,7 @@ Filters available:
 ### Programmatic Queries
 
 #### 1. All Actions on User Model
+
 ```python
 from auditlog.models import LogEntry
 
@@ -169,6 +195,7 @@ user_logs = LogEntry.objects.filter(
 ```
 
 #### 2. Changes to a Specific User
+
 ```python
 from apps.users.models import User
 
@@ -180,6 +207,7 @@ user_logs = LogEntry.objects.filter(
 ```
 
 #### 3. All Actions by a Specific User
+
 ```python
 user_actions = LogEntry.objects.filter(
     actor=user
@@ -187,6 +215,7 @@ user_actions = LogEntry.objects.filter(
 ```
 
 #### 4. Recent Audit Entries (Last 24 Hours)
+
 ```python
 from django.utils import timezone
 from datetime import timedelta
@@ -198,6 +227,7 @@ recent_logs = LogEntry.objects.filter(
 ```
 
 #### 5. Changes to a Specific Field
+
 ```python
 # Find all logs where email was changed
 email_changes = LogEntry.objects.filter(
@@ -207,6 +237,7 @@ email_changes = LogEntry.objects.filter(
 ```
 
 #### 6. Deleted Objects (Still Tracked)
+
 ```python
 deleted_objects = LogEntry.objects.filter(
     action=LogEntry.Action.DELETE
@@ -290,6 +321,7 @@ with open('gdpr_export.csv', 'w') as f:
 ### Cleanup Commands
 
 #### Manual Cleanup (Development)
+
 ```bash
 # Delete logs older than 90 days
 python manage.py auditlogflush --before-days 90 --no-input
@@ -298,12 +330,14 @@ python manage.py auditlogflush --before-days 90 --no-input
 #### Automated Cleanup (Production)
 
 **Option 1: Cron Job**
+
 ```bash
 # Add to crontab
 0 2 * * 0 cd /app && python manage.py auditlogflush --before-days 90 --no-input
 ```
 
 **Option 2: Celery Beat** (Recommended)
+
 ```python
 # settings.py
 from celery.schedules import crontab
@@ -413,6 +447,7 @@ LIMIT 10;
 ### Issue: No Audit Logs Created
 
 **Diagnosis**:
+
 ```python
 # Check if auditlog is installed
 from django.conf import settings
@@ -424,6 +459,7 @@ print(auditlog._registry.keys())
 ```
 
 **Solutions**:
+
 1. Ensure `auditlog` is in `INSTALLED_APPS`
 2. Ensure `auditlog.middleware.AuditlogMiddleware` is in `MIDDLEWARE`
 3. Verify model registration in `apps.py`
@@ -433,6 +469,7 @@ print(auditlog._registry.keys())
 **Diagnosis**: IP address requires middleware and proper request context
 
 **Solutions**:
+
 1. Verify middleware order (must be after `AuthenticationMiddleware`)
 2. Ensure views use `request` parameter
 3. For management commands, IP will be `None` (expected)
@@ -440,12 +477,14 @@ print(auditlog._registry.keys())
 ### Issue: Performance Degradation
 
 **Diagnosis**:
+
 ```sql
 -- Check index usage
 SELECT * FROM pg_indexes WHERE tablename = 'auditlog_logentry';
 ```
 
 **Solutions**:
+
 1. Ensure database indexes are created (automatic with migrations)
 2. Archive old logs more frequently
 3. Exclude large JSON fields from auditing (already configured)
@@ -453,6 +492,7 @@ SELECT * FROM pg_indexes WHERE tablename = 'auditlog_logentry';
 ### Issue: Storage Growth
 
 **Diagnosis**:
+
 ```python
 from auditlog.models import LogEntry
 total_logs = LogEntry.objects.count()
@@ -461,6 +501,7 @@ print(f"Estimated storage: {total_logs * 1} KB")
 ```
 
 **Solutions**:
+
 1. Implement automated archival (see Retention Policy)
 2. Reduce retention period for non-critical models
 3. Exclude verbose fields from auditing
@@ -469,10 +510,10 @@ print(f"Estimated storage: {total_logs * 1} KB")
 
 ## References
 
-- **django-auditlog Documentation**: https://django-auditlog.readthedocs.io/
-- **GDPR Article 30**: https://gdpr-info.eu/art-30-gdpr/
-- **SOC 2 Requirements**: https://www.aicpa.org/soc4so
-- **NIST SP 800-92** (Logging Best Practices): https://csrc.nist.gov/publications/detail/sp/800-92/final
+- **django-auditlog Documentation**: <https://django-auditlog.readthedocs.io/>
+- **GDPR Article 30**: <https://gdpr-info.eu/art-30-gdpr/>
+- **SOC 2 Requirements**: <https://www.aicpa.org/soc4so>
+- **NIST SP 800-92** (Logging Best Practices): <https://csrc.nist.gov/publications/detail/sp/800-92/final>
 
 ---
 

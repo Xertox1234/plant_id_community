@@ -61,6 +61,12 @@ confirmed from its own documentation (see todo 701, L16).
 - Deferred by the audit: documents only, no code; the owner should read the
   runbook before it is relied on.
 
+### 2026-11-10 - Processor register written (item 3 only)
+
+- `docs/operations/processors.md` exists, written for todo 707 (L15). It has
+  no agreement links and several "unsourced" cells. The breach runbook, the
+  breach register and the checklist pointer are not started.
+
 ## Notes
 
 P1: the duty exists today, whether or not a breach has happened. A lawyer

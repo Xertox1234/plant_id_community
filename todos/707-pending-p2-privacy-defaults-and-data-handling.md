@@ -73,7 +73,7 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 ## Acceptance Criteria
 
 - [x] Replay records no session without an error (unit test on the config).
-- [ ] `profile_visibility` either changes what another user can see (test) or
+- [x] `profile_visibility` either changes what another user can see (test) or
       is gone from the model and serializer.
 - [x] The block list matches `name+1@x` after `name@x` was blocked, and holds
       no unkeyed hash (tests).
@@ -137,6 +137,34 @@ Shipped:
 Left: M9 enforce-or-remove, Firestore `email_verified` with emulator tests
 (M15), the access-request procedure (L13), processor deletion routes (L15,
 todo 702).
+
+### 2026-11-10 - M9: the three visibility settings are removed
+
+- `profile_visibility`, `show_email` and `show_location` are gone from the
+  model (migration `0024`), serializer, admin and audit log, and from the
+  mobile model, service and the "coming soon" tile. Nothing read them.
+  Tests in `test_visibility_settings_removed.py` failed first; a build that
+  still sends the keys gets 200 and they are ignored.
+- Checked before removing: no endpoint returns another user's email or
+  `location`. The users-app `UserSerializer` goes only to the signed-in
+  user. `first_name` / `last_name` are returned for blog authors and garden
+  event organisers; the Privacy Policy should say so (todo 701).
+- Not changed: the default "My Plants" collection stays `is_public: True`
+  (`signup.py:69`), under the owner's "public by default" decision.
+- Lost on deploy: the stored value of those three columns for every account.
+
+### 2026-11-10 - L13 and L15: the two procedures are written
+
+- L13: `docs/operations/access-requests.md`. Identity check, what to collect
+  from each store, deadlines (20 business days, never past 30 calendar days),
+  and the manual steps the policy promises. There is still no export tool.
+- L15: `docs/operations/processors.md`. Per processor: what it receives, what
+  the deletion job removes, what stays and the route to ask for deletion.
+  The job itself is unchanged: it does not call Sentry, Resend, Plant.id,
+  PlantNet or OpenAI. Cells the providers' documentation did not answer are
+  marked "unsourced".
+- Declined: the "dead `User` columns" box. They are read by `near_me` and
+  the weather alerts (see the correction above), so no migration drops them.
 
 ## Notes
 
