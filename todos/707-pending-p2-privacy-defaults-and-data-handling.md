@@ -171,6 +171,19 @@ todo 702).
 Left in this todo: the access-request procedure (L13) and the processor
 deletion routes (L15), both with todo 702.
 
+### 2026-11-10 - L13 and L15: the two procedures are written
+
+- L13: `docs/operations/access-requests.md`. Identity check, what to collect
+  from each store, deadlines (20 business days, never past 30 calendar days),
+  and the manual steps the policy promises. There is still no export tool.
+- L15: `docs/operations/processors.md`. Per processor: what it receives, what
+  the deletion job removes, what stays and the route to ask for deletion.
+  The job itself is unchanged: it does not call Sentry, Resend, Plant.id,
+  PlantNet or OpenAI. Cells the providers' documentation did not answer are
+  marked "unsourced".
+- Declined: the "dead `User` columns" box. They are read by `near_me` and
+  the weather alerts (see the correction above), so no migration drops them.
+
 ## Notes
 
 Step 1 (replay rate) needed no decision and is done. Step 5 (Storage
