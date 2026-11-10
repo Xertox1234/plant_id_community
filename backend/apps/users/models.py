@@ -183,26 +183,6 @@ class User(AbstractUser):  # type: ignore[django-manager-missing]
         help_text="Users you are following",
     )
 
-    # Privacy Settings
-    profile_visibility = models.CharField(
-        max_length=10,
-        choices=[
-            ("public", "Public - Anyone can see my profile"),
-            ("friends", "Friends Only - Only people I follow can see my profile"),
-            ("private", "Private - Only I can see my profile"),
-        ],
-        default="public",
-        help_text="Control who can see your profile",
-    )
-
-    show_email = models.BooleanField(
-        default=False, help_text="Show email address on your public profile"
-    )
-
-    show_location = models.BooleanField(
-        default=True, help_text="Show location on your public profile"
-    )
-
     # Notification Settings
     email_notifications = models.BooleanField(
         default=True, help_text="Receive email notifications for activity"

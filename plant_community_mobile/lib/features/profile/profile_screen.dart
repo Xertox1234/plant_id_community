@@ -562,22 +562,6 @@ class _SettingsSection extends ConsumerWidget {
             trailing: const Icon(LucideIcons.chevronRight),
             onTap: () => context.push(AppRoutes.forumMyImages),
           ),
-
-          // Privacy settings
-          ListTile(
-            leading: const Icon(LucideIcons.eye),
-            title: const Text('Profile Visibility'),
-            subtitle: Text(profile.profileVisibility),
-            trailing: const Icon(LucideIcons.chevronRight),
-            onTap: () {
-              // TODO: Show profile visibility selector
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Profile visibility selector coming soon!'),
-                ),
-              );
-            },
-          ),
         ],
       ),
     );
