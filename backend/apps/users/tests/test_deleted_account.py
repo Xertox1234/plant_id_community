@@ -49,6 +49,34 @@ def test_is_signup_blocked_by_reason(reason, blocked):
     assert is_signup_blocked("other@example.com") is False
 
 
+@pytest.mark.django_db
+def test_plus_alias_of_a_blocked_address_is_blocked():
+    """Auth audit M10: ``name+1@x`` reaches the same mailbox as ``name@x``."""
+    _deleted("name@example.com", "abuse", 7)
+    assert is_signup_blocked("name+1@example.com") is True
+    assert is_signup_blocked("Name+anything+else@Example.com") is True
+    assert is_signup_blocked("name1@example.com") is False
+
+
+@pytest.mark.django_db
+def test_blocking_an_alias_blocks_the_bare_address():
+    _deleted("name+spam@example.com", "under_13", 8)
+    assert is_signup_blocked("name@example.com") is True
+
+
+def test_email_hash_is_keyed_by_the_server_secret(settings):
+    """Auth audit M10: a database copy alone must not let anyone test an
+    address against the list."""
+    import hashlib
+
+    address = "name@example.com"
+    first = email_hash(address)
+    assert first != hashlib.sha256(address.encode()).hexdigest()
+    assert len(first) == 64
+    settings.SECRET_KEY = "a-different-secret-" + "x" * 50  # pragma: allowlist secret
+    assert email_hash(address) != first
+
+
 def test_signup_blocked_response_shape():
     r = signup_blocked_response()
     assert r.status_code == 403
