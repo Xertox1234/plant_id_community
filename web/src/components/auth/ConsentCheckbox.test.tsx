@@ -7,7 +7,7 @@ describe('ConsentCheckbox', () => {
   it('is unticked by default and labelled with the exact copy', () => {
     render(<ConsentCheckbox checked={false} onChange={vi.fn()} />);
     const box = screen.getByRole('checkbox', {
-      name: 'I am 13 or older, and I have read and accept the Privacy Policy and Terms of Service.',
+      name: 'I am 14 or older, and I have read and accept the Privacy Policy and Terms of Service.',
     });
     expect(box).not.toBeChecked();
   });
@@ -35,7 +35,7 @@ describe('ConsentCheckbox', () => {
   it('toggles when the label text (outside the links) is clicked', async () => {
     const onChange = vi.fn();
     render(<ConsentCheckbox checked={false} onChange={onChange} />);
-    await userEvent.click(screen.getByText(/I am 13 or older/));
+    await userEvent.click(screen.getByText(/I am 14 or older/));
     expect(onChange).toHaveBeenCalledWith(true);
   });
 

@@ -1355,7 +1355,7 @@ class FirebaseExchangeConsentTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         user = User.objects.get(firebase_uid="consent-uid-1")
-        self.assertEqual(user.policy_version_accepted, "2026-11-06")
+        self.assertEqual(user.policy_version_accepted, "2026-11-10")
         self.assertIsNotNone(user.policy_accepted_at)
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")

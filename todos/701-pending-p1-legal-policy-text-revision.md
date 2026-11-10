@@ -5,7 +5,7 @@ issue_id: "701"
 tags: [legal, privacy, policy, web, mobile]
 dependencies: []
 triage: blocked-owner
-blocked_on: operator details for the blanks, and a lawyer pass on the questions below
+blocked_on: operator details for the five blanks (owner, at launch)
 triaged: 2026-11-10
 ---
 
@@ -84,9 +84,9 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 ## Acceptance Criteria
 
 - [ ] `LEGAL_PUBLISH=1 node web/scripts/check-legal-publish.mjs` exits 0.
-- [ ] `grep -c "INAI\|30 días" web/src/content/legal/privacy.es.md` prints 0.
+- [x] `grep -c "INAI\|30 días" web/src/content/legal/privacy.es.md` prints 0.
 - [ ] The policy names every processor country and the Alberta OIPC.
-- [ ] The OpenAI and tracking sentences match what the code does (M12).
+- [x] The OpenAI and tracking sentences match what the code does (M12).
 - [ ] `LEGAL_POLICY_VERSION` is bumped once and existing users are asked to
       accept the new version.
 - [ ] Each lawyer question above has a dated answer recorded in the Work Log.
@@ -97,6 +97,64 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 
 - Deferred by the audit: every item changes policy text or needs the owner or
   a lawyer.
+
+### 2026-11-10 - Version 2026-11-10: code-matching and statute-driven text
+
+Owner decisions (2026-11-10): no lawyer will review; legal questions are
+settled by the statute text, strictest of the three countries; the five
+operator blanks wait for launch. Everything below is a reading of the text,
+not legal advice.
+
+Changed in `privacy.{en,es,fr}.md`, `terms.{en,es,fr}.md`, both consent
+checkboxes and `LEGAL_POLICY_VERSION` (one bump, to `2026-11-10`):
+
+- **H3** Age floor 13 to 14 everywhere (Quebec P-39.1 s. 4.1, the highest
+  floor found among the three countries; s. 4.1 was read from a law-firm
+  summary this session because Légis Québec and CanLII refused the fetch).
+  The admin action label now says "under the minimum age"; the stored reason
+  stays `under_13`. An installed app build shows 13 until the next build.
+- **H5** Spanish notice rebuilt on LFPDPPP (DOF 20-03-2025, last reform
+  14-11-2025) arts. 7, 15 I-VI, 26, 28, 31, 34, 35-36 and 40: twenty business
+  days to answer and fifteen to act, one extension, free, what a request must
+  contain, how to revoke, options to limit use, primary and secondary
+  purposes, processors told apart from transfers, a cookies section, and
+  complaints to the Secretaría Anticorrupción y Buen Gobierno.
+- **M12** OpenAI: the spam screen of posts and private messages from members
+  not yet trusted, and the optional AI features. "No analytics or tracking"
+  now says what is recorded (email clicks, blog views). Error replay only for
+  a session that hits an error (707). The app sends no error reports.
+- **L12** GitHub sign-in removed (no button). Deleted-account hash: removed
+  after 90 days for a self-deletion. Plant.id named as FlowerChecker s.r.o.,
+  Czech Republic (its own privacy notice); PlantNet as France.
+- **L14** Change notice, embeds as third parties, how to remove your own
+  content, automated rejection of a private message and how to ask a person
+  to review it, a sensitive-data statement, what is public on a profile.
+- **L16** Alberta PIPA s. 6(2) and s. 13.1(3) (King's Printer PDF read):
+  countries named, the policy stated to be the written information about
+  providers outside Canada, a contact for questions; Alberta OIPC added.
+- **M21, part** Terms: 30 days' notice of a change that affects rights, with
+  the right to leave; how to remove content. Liability, governing law and the
+  under-18 sentence are unchanged.
+- The under-age deletion paragraph describes what 707 shipped (#1296).
+
+Not done, and why:
+
+- **H1** The DRAFT banner and the five blanks stay. The publish gate still
+  exits 1 by design.
+- **Processor countries (acceptance box open).** Sourced: Railway us-west2
+  (`.railway/railway.ts`), Firestore nam5 (`firebase.json`), FlowerChecker in
+  Brno. Not sourced: where Sentry, Resend, Cloudflare storage, OpenAI and
+  PlantNet actually store data. The policy names each operator's country and
+  says processing may occur elsewhere.
+- **Re-consent.** No code asks an existing account to accept a new version
+  (`consent.py` asks only at sign-up). The app is not live, so none was built.
+  It is needed before a policy change after launch.
+- **M16** The checkbox sentence is still English only and still one box.
+- **Promises that are manual steps for the operator:** emailing account
+  holders before a change, reviewing a rejected private message, sending a
+  portable copy, removing a post on request.
+- **L17 / H9** Trade-name filing and the US app-store age-signal laws: owner
+  items for launch, no code here.
 
 ## Notes
 

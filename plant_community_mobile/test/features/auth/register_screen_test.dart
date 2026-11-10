@@ -10,7 +10,7 @@ import 'package:plant_community_mobile/services/auth_service.dart';
 import '../forum/support/forum_test_support.dart';
 
 const _copy =
-    'I am 13 or older, and I have read and accept the Privacy Policy and '
+    'I am 14 or older, and I have read and accept the Privacy Policy and '
     'Terms of Service.';
 
 void main() {
@@ -117,7 +117,7 @@ void main() {
 
   testWidgets('a real tap on the plain text toggles once', (tester) async {
     final h = await pumpCheckbox(tester);
-    await tester.tapAt(spanCentre(tester, 'I am 13'));
+    await tester.tapAt(spanCentre(tester, 'I am 14'));
     await tester.pump();
     expect(h.value(), isTrue);
     expect(h.opened, isEmpty);

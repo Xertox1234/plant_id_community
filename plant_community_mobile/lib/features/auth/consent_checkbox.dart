@@ -21,7 +21,7 @@ class ConsentCheckbox extends StatefulWidget {
   final Future<void> Function(LegalDoc doc)? onOpenDoc;
 
   static const copy =
-      'I am 13 or older, and I have read and accept the Privacy Policy and '
+      'I am 14 or older, and I have read and accept the Privacy Policy and '
       'Terms of Service.';
 
   @override
@@ -93,7 +93,7 @@ class _ConsentCheckboxState extends State<ConsentCheckbox> {
                         children: [
                           const TextSpan(
                             text:
-                                'I am 13 or older, and I have read and accept '
+                                'I am 14 or older, and I have read and accept '
                                 'the ',
                           ),
                           TextSpan(

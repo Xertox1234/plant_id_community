@@ -41,7 +41,7 @@ export default function ConsentCheckbox({
         }}
         className="text-sm text-ink-2 cursor-pointer"
       >
-        I am 13 or older, and I have read and accept the{' '}
+        I am 14 or older, and I have read and accept the{' '}
         <a href="/privacy" target="_blank" rel="noopener" className={linkClass}>
           Privacy Policy
         </a>{' '}

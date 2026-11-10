@@ -186,7 +186,7 @@ class UserAdmin(BaseUserAdmin):
         self._delete_accounts(request, queryset, DELETED_ACCOUNT_REASON_ABUSE)
 
     @admin.action(
-        description="Delete account (under 13 — blocks re-sign-up)",
+        description="Delete account (under the minimum age — blocks re-sign-up)",
         permissions=["delete_account"],
     )
     def delete_account_under_13(self, request, queryset):

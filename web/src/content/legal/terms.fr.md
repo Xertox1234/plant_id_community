@@ -1,4 +1,4 @@
-<!-- version: 2026-11-06 -->
+<!-- version: 2026-11-10 -->
 
 # Conditions d'utilisation
 
@@ -12,7 +12,7 @@ renseignements personnels.
 
 ## Qui peut utiliser Houseplant MD
 
-Vous devez avoir 13 ans ou plus. Si vous avez moins de 18 ans, vous avez besoin
+Vous devez avoir 14 ans ou plus. Si vous avez moins de 18 ans, vous avez besoin
 de la permission d'un parent ou d'un tuteur.
 
 ## Les conseils sur les plantes ne sont pas une garantie
@@ -40,7 +40,8 @@ peuvent retirer le contenu qui enfreint ces règles.
 
 Ce que vous publiez vous appartient. Vous nous accordez la permission (une
 licence) de le conserver et de l'afficher sur Houseplant MD pour que le service
-fonctionne.
+fonctionne. Vous pouvez modifier vos propres messages du forum, et nous
+demander à [[CONTACT_EMAIL]] d'en retirer.
 
 ## Premium
 
@@ -74,7 +75,11 @@ votre lieu de résidence.
 ## Modifications de ces conditions
 
 Nous pouvons mettre à jour ces conditions. Chaque version est datée, et la
-version en vigueur se trouve toujours à [/terms](/terms).
+version en vigueur se trouve toujours à [/terms](/terms). Si une modification
+touche vos droits ou vos obligations, nous vous en informerons par courriel, ou
+par un avis dans l'application et sur le site Web, au moins 30 jours avant son
+entrée en vigueur. Si vous n'êtes pas d'accord, vous pouvez supprimer votre
+compte avant cette date, sans frais.
 
 ## Nous joindre
 
@@ -84,4 +89,4 @@ Courriel : [[CONTACT_EMAIL]]
 
 ## Date d'entrée en vigueur
 
-Cette version entre en vigueur le 2026-11-06.
+Cette version entre en vigueur le 2026-11-10.
