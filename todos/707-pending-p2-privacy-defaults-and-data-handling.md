@@ -72,15 +72,15 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 
 ## Acceptance Criteria
 
-- [ ] Replay records no session without an error (unit test on the config).
+- [x] Replay records no session without an error (unit test on the config).
 - [ ] `profile_visibility` either changes what another user can see (test) or
       is gone from the model and serializer.
-- [ ] The block list matches `name+1@x` after `name@x` was blocked, and holds
+- [x] The block list matches `name+1@x` after `name@x` was blocked, and holds
       no unkeyed hash (tests).
 - [ ] Emulator tests show an unverified Firebase user cannot write, and
       Storage refuses every upload.
 - [ ] The dead `User` columns are removed by a migration.
-- [ ] M11 has a dated owner decision in the Work Log.
+- [x] M11 has a dated owner decision in the Work Log.
 
 ## Work Log
 
@@ -104,6 +104,39 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
   first: is any build older than 19 still in use, and may the bucket be
   emptied. L11 closes only when the bucket is empty.
 - H6 in the manifest now records the owner's decision (no fallback).
+
+### 2026-11-10 - Owner decisions, and what shipped
+
+Owner decisions (2026-11-10):
+
+- M9: profiles stay public by default. Still open: enforce
+  `profile_visibility` or remove it.
+- M8: email click attribution and blog-view logging stay on.
+- M11: an under-13 deletion reaches whatever the law requires in Canada, the
+  US and Mexico. Read as COPPA, 16 CFR 312.10 (the strictest): delete what
+  was collected from the child. Not legal advice.
+- No build older than 19 is in use, and the Storage bucket may be emptied.
+
+Shipped:
+
+- M11 (this PR): `under_13` erases reported posts at once, deletes the
+  messages the child sent, removes their words from `post_quote` blocks in
+  other posts, and blanks the detail of reports they filed. Limit: words
+  retyped into a plain `quote` block, and a mention of their username in
+  someone else's post, are not found.
+- M10 (#1295): `address_hash()` is an HMAC-SHA256 keyed by `SECRET_KEY`, with
+  `+tag` dropped. No dual lookup (app not live): older rows no longer match.
+- M15, Storage half (#1294): every path denied. The bucket held 4 photos and
+  was emptied 2026-11-10. **The rules still need `firebase deploy --only
+  storage`.** The emulator test was not written.
+- L11: closed by the two lines above once the rules are deployed.
+- L13 correction: `zip_code` / `latitude` / `longitude` are not dead.
+  `garden_calendar/api/views.py` reads them for `near_me` and weather alerts.
+  No API writes them, so they hold no data. Not dropped.
+
+Left: M9 enforce-or-remove, Firestore `email_verified` with emulator tests
+(M15), the access-request procedure (L13), processor deletion routes (L15,
+todo 702).
 
 ## Notes
 
