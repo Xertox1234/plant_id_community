@@ -88,6 +88,13 @@ describe('initSentry', () => {
     expect(names).toEqual(['BrowserTracing', 'Replay']);
   });
 
+  it('records no session unless it hits an error', () => {
+    initSentry();
+    const options = init.mock.calls[0][0];
+    expect(options.replaysSessionSampleRate).toBe(0);
+    expect(options.replaysOnErrorSampleRate).toBe(1.0);
+  });
+
   it('still drops events that carry no exception', () => {
     initSentry();
     expect(init.mock.calls[0][0].beforeSend({ message: 'note' }, {})).toBeNull();
