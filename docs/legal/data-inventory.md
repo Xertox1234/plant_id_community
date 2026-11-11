@@ -1,11 +1,12 @@
 # Data inventory
 
-<!-- version: 2026-11-06 -->
+<!-- version: 2026-11-10 -->
 
 This is the source of truth the Privacy Policy is written from
 (`web/src/content/legal/privacy.{en,fr,es}.md`). When the code changes what it
 collects, where it sends it or how long it keeps it, update this file first,
-then the three policy texts. Taken on 2026-11-06.
+then the three policy texts. Taken on 2026-11-06; brought level with policy
+version 2026-11-10 on 2026-11-11.
 
 ## What is collected
 
@@ -15,7 +16,8 @@ then the three policy texts. Taken on 2026-11-06.
   acceptance, recorded by the server at sign-up).
 - **Scans.** Photos are stored privately and re-encoded without EXIF.
   Undecided scans are deleted after 24 h; kept ones stay until removed or the
-  account is deleted. Results go to Plant.id/Kindwise and PlantNet.
+  account is deleted. The photos go to Plant.id (FlowerChecker s.r.o., Czech
+  Republic) and PlantNet (France).
 - **Garden data** (beds, plants, care tasks, harvests), and Firestore saved
   plants (`users/{uid}/identified_plants`).
 - **Disease-diagnosis location note.** An optional free-text `location` (max
@@ -31,9 +33,12 @@ then the three policy texts. Taken on 2026-11-06.
   detail fields, address and contact details included; the code does no
   masking (the model help text says "masked", but nothing implements it), and
   a `public` event is readable by signed-out visitors.
-- **Garden data** (beds, plants, care tasks, harvests), and Firestore saved
-  plants (`users/{uid}/identified_plants`).
 - **Forum.** Posts, topics, private messages, reports, blocks and mutes.
+  A post shows the member's forum display name or, when none is set, their
+  first and last name.
+- **Automated spam screen.** Posts and private messages from members who are
+  new or not yet trusted can be sent to OpenAI while the screen is on
+  (`WAGTAILFORUM_SPAM_BACKEND`). A refused private message is not kept.
 - **Newsletter.** The subscription.
 - **Push tokens.** FCM/APNs on mobile and web push.
 - **Email.** Delivery and bounce records (90 days), click records (90 days),
@@ -45,13 +50,14 @@ then the three policy texts. Taken on 2026-11-06.
 - **Audit log** (django-auditlog). 90 days. Purpose: security, and a record of
   changes to investigate problems. Records changes to:
   - account and profile: username, email, first/last name, bio, location,
-    hardiness zone, profile visibility, show-email, trust level, active/staff
+    hardiness zone, trust level, active/staff
     flags, groups/permissions, following (never the password), plus plant
     collections and activity entries (`backend/apps/users/auditlog.py`);
   - plant identification requests and results, disease results, saved plants
     and care instructions (`backend/apps/plant_identification/auditlog.py`);
   - garden data (`backend/apps/garden_calendar/auditlog.py`).
-- **Crash reports** (Sentry). Purpose: finding and fixing errors. On the web,
+- **Error reports** (Sentry), from the website and the servers; the app sends
+  none. Purpose: finding and fixing errors. On the web,
   a session that hits an error is recorded, with text masked; no other
   session is.
 
@@ -59,10 +65,10 @@ then the three policy texts. Taken on 2026-11-06.
 
 | Processor | What it receives |
 |-----------|------------------|
-| Plant.id/Kindwise and PlantNet | Photos |
+| Plant.id (FlowerChecker s.r.o., Czech Republic) and PlantNet (France) | Photos |
 | Google Firebase | Login, saved plants, push |
 | Apple | Push |
-| OpenAI | Forum text, only while an optional forum AI feature is switched on |
+| OpenAI | Posts and private messages from new or not-yet-trusted members, while the spam screen is on. While an optional AI feature is on: the title and opening post of public topics (search index) and the text submitted to the feature. No email address |
 | Sentry | Crash reports. On the web, a session that hits an error is recorded, with text masked; no other session is |
 | Cloudflare | Website and file storage |
 | Railway | Servers in the US |
@@ -76,7 +82,14 @@ No ads, no analytics or tracking SDKs, and no sale of data.
 
 ## Storage location
 
-In the United States. This is the cross-border transfer disclosure.
+Servers and database: United States (Railway `us-west2`; Firestore `nam5`).
+Scan photos also go to Plant.id (Czech Republic) and PlantNet (France). The
+other processors are United States companies; the region each account
+actually uses is not sourced (todo 701). This is the cross-border transfer
+disclosure, and the policy's written information about providers outside
+Canada (Alberta PIPA s. 6(2), s. 13.1).
+
+Per-processor detail and deletion routes: `docs/operations/processors.md`.
 
 ## Account deletion
 
@@ -96,9 +109,15 @@ decisions 9–12).
     Purpose: addresses deleted by staff for abuse, or because the user was
     under 14, are blocked from signing up again by this hash. For a
     self-deleted account the hash is only the record that the account was
-    deleted; it does not block sign-up;
+    deleted; it does not block sign-up, and it is removed after 90 days
+    (`PRIVACY_RETENTION_DAYS`);
   - the hashed "don't email this address" marker;
   - moderation records;
   - posts under an open abuse report, until the report is closed;
   - quoted text and mentions in other people's posts;
   - the other person's copy of private messages, shown as from "[deleted]".
+- **Under the minimum age (14).** A staff deletion for this reason goes
+  further: posts under a report are erased at once, the messages the person
+  sent are deleted from the other side's copy, their words are removed from
+  quotes made with the quote button, and the text of reports they filed is
+  erased (#1296).
