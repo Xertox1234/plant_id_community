@@ -274,6 +274,29 @@ class OAuthReconsentTests(TestCase):
         user.refresh_from_db()
         self.assertEqual(user.policy_version_accepted, LEGAL_POLICY_VERSION)
 
+    def test_a_blocked_address_on_an_existing_account_can_still_accept(self):
+        """The block list stops sign-ups; this account already exists."""
+        from apps.users.deletion import email_hash, is_signup_blocked
+        from apps.users.models import DeletedAccount
+
+        user = _user()
+        mark_email_verified(user)
+        DeletedAccount.objects.create(
+            user_id=999_001, email_hash=email_hash(user.email), reason="abuse"
+        )
+        self.assertTrue(is_signup_blocked(user.email))
+        self.assertIn("/signup/finish", self._callback()["Location"])
+
+        response = self.client.post(
+            reverse("v1:users:oauth_finish_signup"),
+            {"accepted_terms": True},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        user.refresh_from_db()
+        self.assertEqual(user.policy_version_accepted, LEGAL_POLICY_VERSION)
+
     def test_callback_started_from_the_sign_up_page_stamps_and_signs_in(self):
         user = _user()
         mark_email_verified(user)

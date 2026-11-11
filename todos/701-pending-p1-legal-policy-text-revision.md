@@ -181,8 +181,6 @@ per-person switch for email click records and blog view logging.
   that would destroy the login, so the refusal has its own code. Those
   builds show "Failed to connect to server" until a build with this change
   is installed: merge and ship the build together.
-- **Limit.** A Django session (allauth's login page, the CMS admin) is not
-  asked; see `backend/docs/patterns/security/authentication.md`.
 - **Regions sourced.** Sentry: `ingest.us.sentry.io` (the server DSN host on
   Railway), United States. Cloudflare R2: both buckets `WNAM` (western North
   America), jurisdiction `default`. Railway `us-west2`, Firestore `nam5`.
@@ -192,6 +190,15 @@ per-person switch for email click records and blog view logging.
   so the website sends no error reports or replays today; the policy
   describes them. Harmless over-disclosure, noted for the owner.
 - `docs/legal/data-inventory.md` brought level with version 2026-11-10.
+- **Blog view logging does not run (read from code, not checked against
+  production data).** `BlogViewTrackingMiddleware` only logs when
+  `request._wagtail_page` is set, and nothing in the code or in Wagtail sets
+  it; only its tests do. So no `BlogPostView` row is written today, and the
+  policy describes a record that is not made. Owner decision needed: wire it
+  up (the blog is read through the API, where the middleware does not see
+  the signed-in user) or remove the logging and its policy sentences.
+- The OAuth finish step no longer applies the sign-up block list to an
+  account that already exists. `create_test_user` stamps the policy version.
 - **Per-person switch built.** `User.usage_records` (migration `0025`, on
   by default). Off, `record_click` writes no `EmailClick` and the blog
   middleware writes no `BlogPostView` for that account; the post's own view

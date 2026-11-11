@@ -306,6 +306,9 @@ def oauth_callback(request, provider):
                 "provider": provider,
                 "user_data": _pending_user_data(user_data),
                 "created_at": int(time.time()),
+                # An account that exists: the finish step must not apply
+                # the sign-up block list to it.
+                "policy_update": True,
             }
             logger.info(f"[AUTH] {provider} sign-in waits for policy consent")
             return HttpResponseRedirect(
@@ -385,8 +388,13 @@ def oauth_finish_signup(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
     provider, user_data = pending
-    # A blocked address is refused before it is asked for consent.
-    if is_signup_blocked(user_data.get("email") or ""):
+    # A blocked address is refused before it is asked for consent. Not an
+    # account that already exists and was parked to accept a changed policy:
+    # the block list stops sign-ups, and the callback signs such an account
+    # in (_find_or_create_user refuses a blocked NEW account by itself).
+    parked = request.session.get(OAUTH_PENDING_SIGNUP_KEY)
+    policy_update = isinstance(parked, dict) and parked.get("policy_update") is True
+    if not policy_update and is_signup_blocked(user_data.get("email") or ""):
         request.session.pop(OAUTH_PENDING_SIGNUP_KEY, None)
         return signup_blocked_response()
     body = request.data if isinstance(request.data, dict) else {}

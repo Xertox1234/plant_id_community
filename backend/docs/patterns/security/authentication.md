@@ -891,8 +891,4 @@ A new path that calls `set_jwt_cookies` or `RefreshToken.for_user` needs it too.
   builds show a generic connection error for `policy_update_required`.
 - Changing `LEGAL_POLICY_VERSION` asks every account again at its next
   sign-in or refresh. Bump it only with a policy text change.
-- Not covered: a Django session (allauth's `/accounts/login/`, the CMS admin,
-  the session the OAuth callback opens). `SessionAuthentication` accepts it
-  without this check. The web client signs out when its refresh is refused,
-  so it does not rely on that session.
 - Tests: `apps/users/tests/test_policy_reconsent.py`.
