@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart' show FirebaseException;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
@@ -357,6 +358,54 @@ void main() {
     );
 
     expect(find.text('Sign in to see your collection'), findsOneWidget);
+  });
+
+  testWidgets('an unverified account is told to verify, not to check its '
+      'connection', (tester) async {
+    // firestore.rules refuse a sign-in whose email is not verified (todo 707).
+    await _pump(
+      tester,
+      ProviderScope(
+        overrides: [
+          currentUserIdProvider.overrideWithValue('test-uid'),
+          _noUndecided,
+          plantsStreamProvider('test-uid').overrideWith(
+            (ref) => Stream.error(
+              FirebaseException(
+                plugin: 'cloud_firestore',
+                code: 'permission-denied',
+              ),
+            ),
+          ),
+        ],
+        child: _wrap(const CollectionScreen()),
+      ),
+    );
+
+    expect(find.text('Verify your email to see your collection'), findsOne);
+    expect(find.text("Couldn't load your collection"), findsNothing);
+  });
+
+  testWidgets('any other stream error keeps the connection message', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      ProviderScope(
+        overrides: [
+          currentUserIdProvider.overrideWithValue('test-uid'),
+          _noUndecided,
+          plantsStreamProvider('test-uid').overrideWith(
+            (ref) => Stream.error(
+              FirebaseException(plugin: 'cloud_firestore', code: 'unavailable'),
+            ),
+          ),
+        ],
+        child: _wrap(const CollectionScreen()),
+      ),
+    );
+
+    expect(find.text("Couldn't load your collection"), findsOne);
   });
 
   testWidgets('renders identified plants from the stream', (tester) async {

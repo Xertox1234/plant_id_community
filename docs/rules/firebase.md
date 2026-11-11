@@ -10,8 +10,10 @@ Compact checklist auto-injected before edits. Long-form:
   raw on the auth path.
 - **Cloud Functions are idempotent** — guard against duplicate event delivery;
   minimize cold-start work (lazy-init heavy clients).
-- **Firestore security rules deny by default** — every collection has explicit
-  read/write rules scoped to the owner.
+- **Firestore security rules deny by default** — a path is opened only when a
+  client uses it, and only to the owner's sign-in with a verified email
+  (`request.auth.token.email_verified == true`). Every rules change gets a case
+  in `scripts/test_firebase_rules_emulator.py` (auth audit M15).
 - IAM follows least privilege — no broad `Editor`/`Owner` service accounts.
 - Secrets via Secret Manager / env, never committed to the repo.
 - **One canonical Firebase credentials setting** — every module (auth exchange,

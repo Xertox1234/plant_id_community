@@ -1,0 +1,73 @@
+name: Firebase rules emulator tests
+
+# Runs firebase/firestore.rules and firebase/storage.rules in the local
+# emulators and asks them who may read and write what
+# (scripts/test_firebase_rules_emulator.py; auth audit M15, todo 707).
+#
+# Why: a rules file is code that nothing else in the repo executes. Before
+# this, the only check was the drift workflow, which proves production serves
+# the committed file, not that the committed file says the right thing.
+#
+# No credentials: the project id starts with "demo-", so the CLI refuses to
+# talk to any real Firebase project, and the emulators accept unsigned tokens.
+#
+# NOT a required status check: it is path-filtered, and a required check that
+# does not run on a PR deadlocks it (see the note at the top of harness-ci.yml).
+
+'on':
+  push:
+    branches: [main]
+    paths:
+      - 'firebase/**.rules'
+      - 'firebase.json'
+      - 'scripts/test_firebase_rules_emulator.py'
+      - '.github/workflows/firebase-rules-emulator.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'firebase/**.rules'
+      - 'firebase.json'
+      - 'scripts/test_firebase_rules_emulator.py'
+      - '.github/workflows/firebase-rules-emulator.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firebase-rules-emulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emulator:
+    name: Firestore and Storage rules in the emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Java (the emulators are jars)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      # Pinned: the version these tests were written against (2026-11-10).
+      - name: Install the Firebase CLI
+        run: npm install --global firebase-tools@14.19.1
+
+      - name: Run the rules tests
+        run: |
+          firebase emulators:exec --only firestore,storage --project demo-rules \
+            "python3 scripts/test_firebase_rules_emulator.py"

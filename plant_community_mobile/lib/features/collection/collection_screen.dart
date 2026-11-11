@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart' show FirebaseException;
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -67,14 +68,29 @@ class CollectionScreen extends ConsumerWidget {
             : ref
                   .watch(plantsStreamProvider(uid))
                   .when(
+                    // Riverpod retries a failed stream for about a minute;
+                    // without this the screen shows a spinner all that time.
+                    skipLoadingOnReload: true,
                     loading: () =>
                         const Center(child: CircularProgressIndicator()),
-                    error: (error, _) => _CenteredMessage(
-                      icon: LucideIcons.cloudOff,
-                      title: "Couldn't load your collection",
-                      subtitle: 'Check your connection and try again.',
-                      ext: ext,
-                    ),
+                    // firestore.rules refuse a sign-in whose email is not
+                    // verified (todo 707), so "check your connection" would
+                    // be the wrong advice for that account.
+                    error: (error, _) => _isPermissionDenied(error)
+                        ? _CenteredMessage(
+                            icon: LucideIcons.mailCheck,
+                            title: 'Verify your email to see your collection',
+                            subtitle:
+                                'Open the link we emailed you, then finish '
+                                'signing in.',
+                            ext: ext,
+                          )
+                        : _CenteredMessage(
+                            icon: LucideIcons.cloudOff,
+                            title: "Couldn't load your collection",
+                            subtitle: 'Check your connection and try again.',
+                            ext: ext,
+                          ),
                     data: (snapshot) => _CollectionBody(
                       snapshot: snapshot,
                       ext: ext,
@@ -85,6 +101,9 @@ class CollectionScreen extends ConsumerWidget {
     );
   }
 }
+
+bool _isPermissionDenied(Object error) =>
+    error is FirebaseException && error.code == 'permission-denied';
 
 /// Renders the populated collection: the undecided scans, the count eyebrow +
 /// sync badge, then either the plant grid (with an "add" tile) or an
