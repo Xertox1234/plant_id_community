@@ -94,7 +94,7 @@ decisions 9–12).
 - **Kept:**
   - a record that the account existed and was deleted, with a hashed email.
     Purpose: addresses deleted by staff for abuse, or because the user was
-    under 13, are blocked from signing up again by this hash. For a
+    under 14, are blocked from signing up again by this hash. For a
     self-deleted account the hash is only the record that the account was
     deleted; it does not block sign-up;
   - the hashed "don't email this address" marker;

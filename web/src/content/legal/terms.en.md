@@ -1,4 +1,4 @@
-<!-- version: 2026-11-06 -->
+<!-- version: 2026-11-10 -->
 
 # Terms of Service
 
@@ -11,7 +11,7 @@ personal information.
 
 ## Who can use Houseplant MD
 
-You must be 13 or older. If you are under 18, you need a parent's or guardian's
+You must be 14 or older. If you are under 18, you need a parent's or guardian's
 permission.
 
 ## Plant advice is not a guarantee
@@ -35,7 +35,8 @@ Moderators review reports and may remove content that breaks these rules.
 ## Your content
 
 You own what you post. You give us permission (a licence) to store and display
-it on Houseplant MD so the service can work.
+it on Houseplant MD so the service can work. You can edit your own forum posts,
+and you can ask us at [[CONTACT_EMAIL]] to remove any of them.
 
 ## Premium
 
@@ -66,7 +67,10 @@ Nothing here removes rights your local law gives you.
 ## Changes to these terms
 
 We may update these terms. Each version is dated, and the current version is
-always at [/terms](/terms).
+always at [/terms](/terms). If a change affects your rights or what you owe, we
+will tell you by email, or by a notice in the app and on the website, at least
+30 days before it takes effect. If you do not agree, you can delete your
+account before then at no cost.
 
 ## Contact
 
@@ -76,4 +80,4 @@ Email: [[CONTACT_EMAIL]]
 
 ## Effective date
 
-This version takes effect on 2026-11-06.
+This version takes effect on 2026-11-10.

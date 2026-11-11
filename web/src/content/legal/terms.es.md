@@ -1,4 +1,4 @@
-<!-- version: 2026-11-06 -->
+<!-- version: 2026-11-10 -->
 
 # Términos de servicio
 
@@ -11,7 +11,7 @@ sus datos personales.
 
 ## Quién puede usar Houseplant MD
 
-Debe tener 13 años o más. Si es menor de 18 años, necesita el permiso de su
+Debe tener 14 años o más. Si es menor de 18 años, necesita el permiso de su
 madre, padre o tutor.
 
 ## Los consejos sobre plantas no son una garantía
@@ -37,7 +37,9 @@ contenido que infrinja estas reglas.
 ## Su contenido
 
 Lo que publica es suyo. Usted nos da permiso (una licencia) para guardarlo y
-mostrarlo en Houseplant MD para que el servicio funcione.
+mostrarlo en Houseplant MD para que el servicio funcione. Puede editar sus
+publicaciones del foro, y puede pedirnos en [[CONTACT_EMAIL]] que eliminemos
+cualquiera de ellas.
 
 ## Premium
 
@@ -71,7 +73,11 @@ de residencia.
 ## Cambios a estos términos
 
 Podemos actualizar estos términos. Cada versión lleva fecha, y la versión
-vigente siempre está en [/terms](/terms).
+vigente siempre está en [/terms](/terms). Si un cambio afecta sus derechos o
+sus obligaciones, se lo comunicaremos por correo electrónico, o con un aviso en
+la aplicación y en el sitio web, al menos 30 días naturales antes de que entre
+en vigor. Si no está de acuerdo, puede eliminar su cuenta antes de esa fecha,
+sin costo.
 
 ## Contacto
 
@@ -81,4 +87,4 @@ Correo: [[CONTACT_EMAIL]]
 
 ## Fecha de entrada en vigor
 
-Esta versión entra en vigor el 2026-11-06.
+Esta versión entra en vigor el 2026-11-10.
