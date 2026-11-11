@@ -214,7 +214,8 @@ class WebOAuthConsentTest(TestCase):
 
     A new account is created only when the sign-up page started the flow with
     ``?accepted_terms=1``, or when the user finishes on ``/signup/finish``.
-    An existing account signs in without the flag and is never stamped.
+    An existing account on the current policy version signs in without the
+    flag; one that is not waits at the same finish step (test_policy_reconsent).
     """
 
     def setUp(self):
@@ -306,9 +307,11 @@ class WebOAuthConsentTest(TestCase):
 
         self.assertNotIn("oauth_accepted_terms", self.client.session)
 
-    def test_callback_existing_user_logs_in_without_consent(self):
+    def test_callback_existing_user_on_the_current_version_logs_in(self):
         existing = User.objects.create_user(
-            username="old_hand", email="newbie@example.com"
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            username="old_hand",
+            email="newbie@example.com",
         )
         mark_email_verified(existing)
         self._seed_state()
@@ -321,7 +324,6 @@ class WebOAuthConsentTest(TestCase):
         )
         self.assertIn("access_token", response.cookies)
         existing.refresh_from_db()
-        self.assertIsNone(existing.policy_version_accepted)
         self.assertIsNone(existing.policy_accepted_at)
         self.assertNotIn("oauth_pending_signup", self.client.session)
 

@@ -118,13 +118,17 @@ class BlogViewTrackingMiddleware:
         try:
             # Use transaction.on_commit to track after response sent
             def track():
-                BlogPostView.objects.create(
-                    post=page,
-                    user=user,
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                    referrer=referrer,
-                )
+                # An account that switched usage records off (todo 701) gets
+                # no row: no user, IP, browser or referrer is kept. The
+                # post's own counter below names nobody and still counts.
+                if user is None or user.usage_records:
+                    BlogPostView.objects.create(
+                        post=page,
+                        user=user,
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                        referrer=referrer,
+                    )
 
                 # Increment post view_count (atomic)
                 BlogPostPage.objects.filter(id=page.id).update(

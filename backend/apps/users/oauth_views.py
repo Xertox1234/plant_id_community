@@ -26,6 +26,7 @@ from .account_links import on_first_provider_link
 from .authentication import set_jwt_cookies
 from .consent import (
     ConsentRequired,
+    confirm_current_policy,
     consent_required_response,
     is_accepted,
     record_policy_acceptance,
@@ -34,6 +35,7 @@ from .constants import (
     OAUTH_PENDING_SIGNUP_TTL_SECONDS,
     OAUTH_PENDING_SIGNUP_USER_DATA_KEYS,
     OAUTH_PROVIDER_TIMEOUT_SECONDS,
+    POLICY_UPDATED_REASON,
     RATE_LIMIT_OAUTH_FINISH,
     SIGNUP_EXPIRED_CODE,
     SIGNUP_EXPIRED_MESSAGE,
@@ -295,6 +297,21 @@ def oauth_callback(request, provider):
             frontend_url = get_oauth_redirect_url(provider)
             return HttpResponseRedirect(f"{frontend_url}?error=user_creation_failed")
 
+        # An existing account that has not accepted the current policy
+        # version waits at the same finish step as a new one (todo 701):
+        # parked in a fresh session, no token issued.
+        if not confirm_current_policy(user, accepted_terms):
+            request.session.cycle_key()
+            request.session[OAUTH_PENDING_SIGNUP_KEY] = {
+                "provider": provider,
+                "user_data": _pending_user_data(user_data),
+                "created_at": int(time.time()),
+            }
+            logger.info(f"[AUTH] {provider} sign-in waits for policy consent")
+            return HttpResponseRedirect(
+                f"{get_signup_finish_url()}?reason={POLICY_UPDATED_REASON}"
+            )
+
         # Log the user in with explicit backend
         django_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         # A sign-up abandoned earlier in this browser is moot once signed in.
@@ -390,6 +407,10 @@ def oauth_finish_signup(request):
             {"error": SIGNUP_FAILED_MESSAGE, "code": SIGNUP_FAILED_CODE},
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    # A no-op for the account just created; stamps an existing account that
+    # was parked here to accept the current version (todo 701).
+    confirm_current_policy(user, True)
 
     django_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
     response: HttpResponse = Response({"success": True})

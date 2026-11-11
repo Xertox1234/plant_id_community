@@ -148,4 +148,54 @@ describe('LoginPage', () => {
     // The password submit button is still distinctly addressable.
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
+  // Todo 701: an account that has not accepted the current policy version is
+  // refused until the same sign-in is sent again with the acceptance.
+  describe('policy re-consent', () => {
+    const refusal = {
+      success: false,
+      error: {
+        message: 'The Privacy Policy and Terms of Service have changed.',
+        code: AuthErrorCode.CONSENT_REQUIRED,
+      },
+    };
+
+    it('shows no consent box until the server asks for it', () => {
+      renderLoginPage();
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    });
+
+    it('shows the box and the server message, and blocks submit until it is ticked', async () => {
+      mockLogin.mockResolvedValue(refusal);
+      renderLoginPage();
+      fillForm('test@example.com', 'pw');
+      submit();
+
+      const box = await screen.findByRole('checkbox');
+      expect(screen.getByText(refusal.error.message)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeDisabled();
+
+      fireEvent.click(box);
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+    });
+
+    it('sends accepted_terms only after the box is ticked', async () => {
+      mockLogin.mockResolvedValueOnce(refusal).mockResolvedValueOnce({ success: true });
+      renderLoginPage();
+      fillForm('test@example.com', 'pw');
+      submit();
+      // pragma: allowlist nextline secret
+      expect(mockLogin).toHaveBeenLastCalledWith({ email: 'test@example.com', password: 'pw' });
+
+      fireEvent.click(await screen.findByRole('checkbox'));
+      submit();
+
+      await waitFor(() =>
+        expect(mockLogin).toHaveBeenLastCalledWith({
+          email: 'test@example.com',
+          password: 'pw', // pragma: allowlist secret
+          accepted_terms: true,
+        })
+      );
+    });
+  });
 });

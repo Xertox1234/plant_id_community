@@ -185,6 +185,67 @@ void main() {
     });
   });
 
+  group('a changed policy on an existing account', () {
+    ApiException policyUpdateRefusal() => ApiException(
+      'The Privacy Policy and Terms of Service have changed.',
+      statusCode: 428,
+      code: 'policy_update_required',
+    );
+
+    test('raises consentRequired with policyUpdate', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      h.api.errors.add(policyUpdateRefusal());
+      h.read();
+
+      await h.signIn(_FakeUser(uid: 'u1'));
+
+      expect(h.state.consentRequired, isTrue);
+      expect(h.state.policyUpdate, isTrue);
+      expect(h.state.error, isNull);
+    });
+
+    test('declining signs out and never deletes the login', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      final u1 = _FakeUser(uid: 'u1', events: h.events);
+      h.api.errors.add(policyUpdateRefusal());
+      h.read();
+      await h.signIn(u1);
+
+      await h.notifier.declineTerms();
+
+      expect(h.events, isNot(contains('user.delete')));
+      expect(h.events, contains('firebase.signOut'));
+      expect(h.state.consentRequired, isFalse);
+    });
+
+    test('accepting resends the exchange with accepted_terms', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      h.api.errors.add(policyUpdateRefusal());
+      h.read();
+      await h.signIn(_FakeUser(uid: 'u1'));
+
+      await h.notifier.acceptTermsAndRetry();
+
+      expect(h.api.exchangeBodies.last['accepted_terms'], isTrue);
+      expect(h.state.isAuthenticated, isTrue);
+    });
+
+    test('a new-account refusal is not a policy update', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      h.api.errors.add(consentRefusal());
+      h.read();
+
+      await h.signIn(_FakeUser(uid: 'u1'));
+
+      expect(h.state.consentRequired, isTrue);
+      expect(h.state.policyUpdate, isFalse);
+    });
+  });
+
   group('declineTerms', () {
     test('declineTerms deletes the firebase user and signs out', () async {
       FlutterSecureStorage.setMockInitialValues({'accepted_terms_uid': 'u1'});

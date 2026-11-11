@@ -61,7 +61,7 @@ describe('LegalDocumentPage', () => {
 
   it('shows the policy version in a footer line', () => {
     renderAt('/privacy?lang=en');
-    expect(screen.getByText('Version 2026-11-10')).toBeInTheDocument();
+    expect(screen.getByText('Version 2026-11-11')).toBeInTheDocument();
   });
 
   it('omits the footer when the document has no version comment', () => {

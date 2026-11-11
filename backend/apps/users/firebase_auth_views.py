@@ -19,7 +19,13 @@ from apps.core.ratelimit import (  # rate-preserving wrapper (Retry-After)
 )
 from apps.plant_identification.constants import RATE_LIMITS
 from apps.users.account_links import on_first_provider_link
-from apps.users.consent import ConsentRequired, consent_required_response, is_accepted
+from apps.users.consent import (
+    ConsentRequired,
+    confirm_current_policy,
+    consent_required_response,
+    is_accepted,
+    policy_updated_response,
+)
 from apps.users.constants import LEGAL_POLICY_VERSION
 from apps.users.deletion import (
     SignupBlocked,
@@ -309,8 +315,10 @@ def _error_body(name: str) -> serializers.Serializer:
         428: OpenApiResponse(
             _error_body("FirebaseTokenExchangeConsentRequired"),
             description="A new account needs `accepted_terms: true` in the "
-            "body; `code` is `consent_required`. Never sent for an existing "
-            "account.",
+            "body; `code` is `consent_required`. An existing account that "
+            "has not accepted the current policy version gets `code` "
+            "`policy_update_required` and no tokens until it resends with "
+            "`accepted_terms: true`.",
         ),
         409: OpenApiResponse(
             _error_body("FirebaseTokenExchangeConflict"),
@@ -421,6 +429,9 @@ def firebase_token_exchange(request: Request) -> Response:
             "error": "Please accept the Privacy Policy and Terms of Service to create an account.",
             "code": "consent_required"
         }
+    An existing account that has not accepted the current policy version
+    gets ``code`` ``policy_update_required`` instead, with
+    ``policy_version``; resending with ``accepted_terms: true`` stamps it.
 
     Response (429 Too Many Requests): the per-IP rate limit, with
     ``Retry-After``. The mobile client keeps the session and retries.
@@ -570,6 +581,14 @@ def firebase_token_exchange(request: Request) -> Response:
             provider=sign_in_provider,
             accepted_terms=is_accepted(request.data.get("accepted_terms")),
         )
+
+        # An existing account that has not accepted the current policy
+        # version gets no tokens until the app resends with accepted_terms
+        # (todo 701). The app answers this 428 with its consent sheet.
+        if not created and not confirm_current_policy(
+            user, is_accepted(request.data.get("accepted_terms"))
+        ):
+            return policy_updated_response()
 
         if created:
             logger.info(f"[FIREBASE AUTH] Created new user: {redact_email(user.email)}")

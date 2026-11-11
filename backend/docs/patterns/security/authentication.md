@@ -867,3 +867,32 @@ nightly `forum-prune-cron` now deletes (todo 485).
 **Last Reviewed**: November 13, 2025
 **Pattern Count**: 16 authentication patterns
 **Status**: ✅ Production-validated across 278+ backend tests
+
+## Policy re-consent on every path that issues tokens (todo 701)
+
+An account whose `policy_version_accepted` is not `LEGAL_POLICY_VERSION` gets
+no tokens until the request carries the JSON boolean `accepted_terms: true`.
+The check is one call, after the identity is proven and the account is known
+to be active:
+
+```python
+if not confirm_current_policy(user, is_accepted(data.get("accepted_terms"))):
+    return policy_updated_response()  # 428, code "policy_update_required"
+```
+
+It is in `login`, `token_refresh` (before the old token is blacklisted, so the
+same token works once the person accepts), the Firebase exchange and the web
+OAuth callback, which parks the profile for `/signup/finish?reason=policy_updated`.
+A new path that calls `set_jwt_cookies` or `RefreshToken.for_user` needs it too.
+
+- The code is **not** `consent_required`. App builds 20 and 21 answer that
+  code with a sheet whose Cancel deletes the Firebase login: right for an
+  account that does not exist yet, destructive for one that does. Those
+  builds show a generic connection error for `policy_update_required`.
+- Changing `LEGAL_POLICY_VERSION` asks every account again at its next
+  sign-in or refresh. Bump it only with a policy text change.
+- Not covered: a Django session (allauth's `/accounts/login/`, the CMS admin,
+  the session the OAuth callback opens). `SessionAuthentication` accepts it
+  without this check. The web client signs out when its refresh is refused,
+  so it does not rely on that session.
+- Tests: `apps/users/tests/test_policy_reconsent.py`.

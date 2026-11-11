@@ -5,6 +5,8 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import GoogleSignInButton from '../../components/auth/GoogleSignInButton';
 import Divider from '../../components/ui/Divider';
+import ConsentCheckbox from '../../components/auth/ConsentCheckbox';
+import { AuthErrorCode } from '../../types/auth';
 import { getEmailError } from '../../utils/validation';
 import { sanitizeInput, sanitizeError } from '../../utils/sanitize';
 import { logger } from '../../utils/logger';
@@ -55,6 +57,11 @@ export default function LoginPage() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  // Set when the server answers that this account must accept the current
+  // Privacy Policy and Terms before it is signed in. The box then appears and
+  // the next submit carries the acceptance.
+  const [needsConsent, setNeedsConsent] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   /**
    * Handle input changes and clear field-specific errors
@@ -127,11 +134,15 @@ export default function LoginPage() {
       const result = await login({
         email: formData.email,
         password: formData.password,
+        ...(needsConsent && acceptedTerms ? { accepted_terms: true } : {}),
       });
 
       if (result.success) {
         // Redirect to the page user was trying to access, or home
         navigate(from, { replace: true });
+      } else if (result.error?.code === AuthErrorCode.CONSENT_REQUIRED) {
+        setNeedsConsent(true);
+        setServerError(String(sanitizeError(result.error.message)));
       } else {
         // Show the readable message from the structured AuthError, not the whole
         // object — String({message,code,...}) renders the literal "[object Object]".
@@ -216,13 +227,21 @@ export default function LoginPage() {
               </a>
             </div>
 
+            {needsConsent && (
+              <ConsentCheckbox
+                checked={acceptedTerms}
+                onChange={setAcceptedTerms}
+                disabled={isSubmitting}
+              />
+            )}
+
             {/* Submit Button */}
             <Button
               type="submit"
               variant="primary"
               size="md"
               loading={isSubmitting}
-              disabled={isSubmitting}
+              disabled={isSubmitting || (needsConsent && !acceptedTerms)}
               className="w-full"
             >
               {isSubmitting ? 'Signing in...' : 'Sign in'}

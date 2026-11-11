@@ -32,7 +32,13 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from . import view_schemas as vs
 from .authentication import RefreshTokenFromCookie, clear_jwt_cookies, set_jwt_cookies
 from .avatars import avatar_file_names, delete_avatar_files_on_commit
-from .consent import record_policy_acceptance, require_consent
+from .consent import (
+    confirm_current_policy,
+    is_accepted,
+    policy_updated_response,
+    record_policy_acceptance,
+    require_consent,
+)
 from .constants import (
     RATE_LIMIT_ONBOARDING_EVENT,
     RATE_LIMIT_PUSH_RESUBSCRIBE,
@@ -331,6 +337,15 @@ def login(request: Request) -> Response:
 
     if user:
         if user.is_active:
+            # The password matched and the account is active. An account that
+            # has not accepted the current policy version gets no tokens
+            # until this request carries accepted_terms (todo 701). Not a
+            # failed attempt: nothing is counted or cleared.
+            if not confirm_current_policy(
+                user, is_accepted(data.get("accepted_terms"))
+            ):
+                return policy_updated_response()
+
             # Clear failed attempts on successful login
             SecurityMonitor._clear_failed_attempts(username)
 
@@ -543,7 +558,15 @@ def token_refresh(request: Request) -> Response:
         # OPTIMIZATION: Fetch user early to avoid multiple queries
         # This prevents N+1 queries by loading the user once at the beginning
         user_id = used_refresh["user_id"]
-        user = User.objects.only("id", "username", "email").get(id=user_id)
+        user = User.objects.only(
+            "id", "username", "email", "policy_version_accepted"
+        ).get(id=user_id)
+
+        # Before the token is burned: refused here, the same refresh token
+        # still works once the request carries accepted_terms (todo 701).
+        body = request.data if isinstance(request.data, Mapping) else {}
+        if not confirm_current_policy(user, is_accepted(body.get("accepted_terms"))):
+            return policy_updated_response()
 
         # A refresh is a sign-in for expire_unverified_accounts (todo 485).
         # The cron runs flushexpiredtokens first, which deletes the rotated

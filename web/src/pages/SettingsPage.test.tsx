@@ -1141,6 +1141,41 @@ describe('MyForumImagesSection (todo 374)', () => {
 });
 
 describe('AccountNotificationSwitchesSection (todo 620)', () => {
+  // Todo 701: the per-person switch for email click and blog view records.
+  describe('usage records', () => {
+    const usageSwitch = () => screen.findByRole('switch', { name: /^Usage records/ });
+
+    it('is not shown when the backend does not send it', async () => {
+      vi.mocked(profileService.fetchProfile).mockResolvedValue(accountProfile);
+      render(<AccountNotificationSwitchesSection />);
+      await screen.findByRole('switch', { name: /^Email notifications/ });
+      expect(screen.queryByRole('switch', { name: /^Usage records/ })).not.toBeInTheDocument();
+    });
+
+    it('shows the stored value and saves only that field', async () => {
+      vi.mocked(profileService.fetchProfile).mockResolvedValue({
+        ...accountProfile,
+        usage_records: true,
+      });
+      vi.mocked(profileService.updateProfile).mockResolvedValue({
+        ...accountProfile,
+        usage_records: false,
+      });
+      render(<AccountNotificationSwitchesSection />);
+
+      const toggle = await usageSwitch();
+      expect(toggle).toBeChecked();
+      fireEvent.click(toggle);
+
+      await waitFor(() =>
+        expect(profileService.updateProfile).toHaveBeenCalledWith({ usage_records: false })
+      );
+      await waitFor(async () => expect(await usageSwitch()).not.toBeChecked());
+      // Off holds back no notification, so the "will not be delivered" note stays away.
+      expect(screen.queryByText(/some of the choices below will not be delivered/)).toBeNull();
+    });
+  });
+
   const emailSwitch = () => screen.findByRole('switch', { name: /^Email notifications/ });
   const forumSwitch = () => screen.findByRole('switch', { name: /^Forum notifications/ });
 

@@ -1,12 +1,12 @@
 # Data inventory
 
-<!-- version: 2026-11-10 -->
+<!-- version: 2026-11-11 -->
 
 This is the source of truth the Privacy Policy is written from
 (`web/src/content/legal/privacy.{en,fr,es}.md`). When the code changes what it
 collects, where it sends it or how long it keeps it, update this file first,
 then the three policy texts. Taken on 2026-11-06; brought level with policy
-version 2026-11-10 on 2026-11-11.
+version 2026-11-11 on 2026-11-11.
 
 ## What is collected
 
@@ -46,6 +46,10 @@ version 2026-11-10 on 2026-11-11.
   and knowing which links in our emails are used.
 - **Blog page views.** IP, user agent and referrer, for 90 days. Purpose: site
   statistics and abuse prevention.
+- **The switch for those two.** `User.usage_records` (on by default; "Usage
+  records" in web Settings and the app profile). Off, no new email click row
+  and no blog view row is written for that account. A signed-out blog visit
+  is still logged.
 - **Rate limiting.** IP addresses held briefly in memory.
 - **Audit log** (django-auditlog). 90 days. Purpose: security, and a record of
   changes to investigate problems. Records changes to:

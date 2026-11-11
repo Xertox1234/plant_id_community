@@ -41,7 +41,9 @@ Future<void> showConsentSheet(BuildContext context) async {
       context: navigator.context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => const ConsentSheet(),
+      builder: (_) => ConsentSheet(
+        policyUpdate: container.read(authServiceProvider).policyUpdate,
+      ),
     );
     if (accepted == true) {
       await auth.acceptTermsAndRetry();
@@ -77,7 +79,11 @@ bool _pageSurvived(NavigatorState navigator, bool pageless, LocalKey? key) {
 /// sign-in screen, or an email account verified on a device that never saw
 /// its box ticked. Pops `true` for Continue, `false` for Cancel.
 class ConsentSheet extends StatefulWidget {
-  const ConsentSheet({super.key});
+  const ConsentSheet({super.key, this.policyUpdate = false});
+
+  /// An existing account accepting a changed policy (428
+  /// `policy_update_required`), not a new one: only the wording differs.
+  final bool policyUpdate;
 
   @override
   State<ConsentSheet> createState() => _ConsentSheetState();
@@ -106,12 +112,20 @@ class _ConsentSheetState extends State<ConsentSheet> {
             children: [
               Semantics(
                 header: true,
-                child: Text('One more step', style: theme.textTheme.titleLarge),
+                child: Text(
+                  widget.policyUpdate
+                      ? 'Our policies have changed'
+                      : 'One more step',
+                  style: theme.textTheme.titleLarge,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
-                'To finish creating your account, accept the Privacy Policy and '
-                'Terms of Service.',
+                widget.policyUpdate
+                    ? 'To keep using your account, accept the updated Privacy '
+                          'Policy and Terms of Service. Cancel signs you out.'
+                    : 'To finish creating your account, accept the Privacy '
+                          'Policy and Terms of Service.',
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: 8),

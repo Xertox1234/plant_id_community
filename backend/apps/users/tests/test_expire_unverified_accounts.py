@@ -18,6 +18,7 @@ import pytest
 from allauth.account.models import EmailAddress
 from allauth.socialaccount.models import SocialAccount
 from apps.users.constants import (
+    LEGAL_POLICY_VERSION,
     UNVERIFIED_ACCOUNT_EXPIRY_DAYS,
     UNVERIFIED_ACCOUNT_SIGNUP_MARGIN_SECONDS,
 )
@@ -92,7 +93,11 @@ def stale_account(username="squat", email="victim@example.com", **fields):
     """An account shaped like a registration: unverified address, default
     collection, forum group, one refresh token, then left for 8 days."""
     user = User.objects.create_user(
-        username=username, email=email, password=PASSWORD, **fields
+        policy_version_accepted=LEGAL_POLICY_VERSION,
+        username=username,
+        email=email,
+        password=PASSWORD,
+        **fields,
     )
     EmailAddress.objects.create(user=user, email=email, verified=False, primary=True)
     create_default_plant_collection(user)

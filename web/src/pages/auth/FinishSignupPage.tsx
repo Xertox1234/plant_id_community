@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import Button from '../../components/ui/Button';
 import ConsentCheckbox from '../../components/auth/ConsentCheckbox';
@@ -10,6 +10,8 @@ const EXPIRED_MESSAGE = 'Your sign-up expired. Please sign in again.';
 const RATE_LIMITED_MESSAGE = 'Too many attempts. Please wait a moment and try again.';
 const CREATED_MESSAGE =
   'Your account was created, but we could not sign you in automatically. Please sign in to continue.';
+const ACCEPTED_MESSAGE =
+  'Your acceptance was saved, but we could not sign you in automatically. Please sign in to continue.';
 const GENERIC_MESSAGE = 'Something went wrong. Please try again.';
 
 type Failure = { message: string; expired: boolean };
@@ -34,6 +36,9 @@ function toFailure(err: unknown): Failure {
  */
 export default function FinishSignupPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // An existing account sent here to accept a changed policy, not a new one.
+  const policyUpdated = searchParams.get('reason') === 'policy_updated';
   const { refreshUser } = useAuth();
   const [accepted, setAccepted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -67,16 +72,20 @@ export default function FinishSignupPage() {
     }
     setCreated(true);
     setIsSubmitting(false);
-    setFailure({ message: CREATED_MESSAGE, expired: true });
+    setFailure({ message: policyUpdated ? ACCEPTED_MESSAGE : CREATED_MESSAGE, expired: true });
   };
 
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 bg-surface">
       <div className="w-full max-w-md min-w-[280px]">
         <div className="text-center mb-8 space-y-2">
-          <h1 className="text-2xl sm:text-3xl font-bold text-ink">One last step</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-ink">
+            {policyUpdated ? 'Our policies have changed' : 'One last step'}
+          </h1>
           <p className="text-sm sm:text-base text-ink-3">
-            Confirm the following to finish creating your account.
+            {policyUpdated
+              ? 'Confirm the following to keep using your account.'
+              : 'Confirm the following to finish creating your account.'}
           </p>
         </div>
 
@@ -110,7 +119,7 @@ export default function FinishSignupPage() {
               disabled={!accepted || isSubmitting || created}
               className="w-full"
             >
-              Finish signing up
+              {policyUpdated ? 'Accept and continue' : 'Finish signing up'}
             </Button>
           </form>
         </div>

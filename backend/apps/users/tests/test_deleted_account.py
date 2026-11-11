@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from apps.users import oauth_views
+from apps.users.constants import LEGAL_POLICY_VERSION
 from apps.users.deletion import (
     SignupBlocked,
     email_hash,
@@ -137,7 +138,10 @@ def test_token_exchange_existing_user_on_list_still_signs_in(mock_verify, client
     from apps.users.email_verification import mark_email_verified
 
     user = User.objects.create_user(
-        username="old", email=BLOCKED, firebase_uid="old-uid"
+        policy_version_accepted=LEGAL_POLICY_VERSION,
+        username="old",
+        email=BLOCKED,
+        firebase_uid="old-uid",
     )
     mark_email_verified(user)
     _deleted(BLOCKED, "abuse", 4)
@@ -223,7 +227,9 @@ def test_oauth_callback_blocked_redirects_with_error(client):
 def test_oauth_callback_existing_user_on_list_still_signs_in(client):
     from apps.users.email_verification import mark_email_verified
 
-    user = User.objects.create_user(username="old2", email=BLOCKED)
+    user = User.objects.create_user(
+        policy_version_accepted=LEGAL_POLICY_VERSION, username="old2", email=BLOCKED
+    )
     mark_email_verified(user)
     _deleted(BLOCKED, "abuse", 6)
     r = _callback(client)

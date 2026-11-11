@@ -28,7 +28,7 @@ describe('getLegalMarkdown', () => {
       it(`${doc}.${lang} is non-empty and carries the version comment`, () => {
         const md = getLegalMarkdown(doc, lang);
         expect(md.length).toBeGreaterThan(0);
-        expect(md).toContain('<!-- version: 2026-11-10 -->');
+        expect(md).toContain('<!-- version: 2026-11-11 -->');
       });
     }
   }
@@ -36,7 +36,7 @@ describe('getLegalMarkdown', () => {
 
 describe('getLegalVersion', () => {
   it('reads the version comment of a document', () => {
-    expect(getLegalVersion(getLegalMarkdown('privacy', 'en'))).toBe('2026-11-10');
+    expect(getLegalVersion(getLegalMarkdown('privacy', 'en'))).toBe('2026-11-11');
   });
 
   it('returns null when there is no version comment', () => {

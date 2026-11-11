@@ -544,6 +544,21 @@ class _SettingsSection extends ConsumerWidget {
             secondary: const Icon(LucideIcons.messagesSquare),
           ),
 
+          SwitchListTile(
+            title: const Text('Usage records'),
+            subtitle: const Text(
+              'On, we record which links in our emails you open and which '
+              'blog posts you read while signed in. Off stops both.',
+            ),
+            value: profile.usageRecords,
+            onChanged: (value) => _applyPreference(
+              context,
+              ref,
+              () => notifier.updateProfile(usageRecords: value),
+            ),
+            secondary: const Icon(LucideIcons.chartNoAxesColumn),
+          ),
+
           const Divider(),
 
           // Digest + per-event matrix, the same fields web Settings edits.

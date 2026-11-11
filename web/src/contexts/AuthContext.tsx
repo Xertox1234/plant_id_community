@@ -44,6 +44,10 @@ function toAuthError(err: unknown, defaultMessage: string): AuthError {
   }
 
   const message = err instanceof Error ? err.message : defaultMessage;
+  // By type, not by wording: the message below is the server's.
+  if (err instanceof authService.PolicyConsentRequiredError) {
+    return { message, code: AuthErrorCode.CONSENT_REQUIRED };
+  }
   const lowerMessage = message.toLowerCase();
 
   // Categorize based on error message patterns

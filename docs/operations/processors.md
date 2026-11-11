@@ -77,6 +77,9 @@ Read on 2026-11-10.
 ## Open
 
 - Agreement (data-processing terms) link for each processor: not collected.
-- Storage country for Sentry, Resend, Cloudflare storage and OpenAI: not
-  sourced (todo 701).
+- Storage region, read 2026-11-11: Sentry ingests at `ingest.us.sentry.io`
+  (United States); both R2 buckets are `WNAM` (western North America) with
+  jurisdiction `default`; Railway `us-west2`; Firestore `nam5`. Still not
+  sourced: Resend's sending region (a dashboard setting) and whether OpenAI
+  processes outside the United States.
 - Every "unsourced" cell above.

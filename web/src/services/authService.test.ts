@@ -16,6 +16,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   login,
+  PolicyConsentRequiredError,
   signup,
   logout,
   getCurrentUser,
@@ -133,6 +134,25 @@ describe('authService', () => {
   // ============================================================================
 
   describe('login', () => {
+    // Todo 701: the 428 for an account that must accept the current policy
+    // version is its own error type, so the login page can ask and resend.
+    it('throws PolicyConsentRequiredError on 428 policy_update_required', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 428,
+        json: async () => ({
+          error: 'The policies have changed.',
+          code: 'policy_update_required',
+        }),
+      });
+
+      const attempt = login(mockLoginCredentials);
+
+      await expect(attempt).rejects.toBeInstanceOf(PolicyConsentRequiredError);
+      await expect(attempt).rejects.toThrow('The policies have changed.');
+      expect(sessionStorageMock.setItem).not.toHaveBeenCalledWith('user', expect.anything());
+    });
+
     it('should authenticate with valid credentials', async () => {
       // Arrange
       fetchMock.mockResolvedValueOnce({

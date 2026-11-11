@@ -71,12 +71,24 @@ GENERATED_USERNAME_ATTEMPTS = 10
 # Version of the Privacy Policy and Terms of Service a sign-up accepts. The
 # server stamps it; a client never sends a version. Bump it when either text
 # changes materially.
-LEGAL_POLICY_VERSION = "2026-11-10"
+LEGAL_POLICY_VERSION = "2026-11-11"
 # Sign-up without an explicit boolean ``true`` consent is refused with HTTP 428.
 CONSENT_REQUIRED_CODE = "consent_required"
 CONSENT_REQUIRED_MESSAGE = (
     "Please accept the Privacy Policy and Terms of Service to create an account."
 )
+# An existing account that has not accepted LEGAL_POLICY_VERSION gets a 428
+# with this code on every path that issues tokens. It is NOT
+# CONSENT_REQUIRED_CODE: app builds 20 and 21 answer that code with a sheet
+# whose Cancel deletes the Firebase login, which is right for an account that
+# does not exist yet and destroys one that does.
+POLICY_UPDATE_REQUIRED_CODE = "policy_update_required"
+POLICY_UPDATED_MESSAGE = (
+    "The Privacy Policy and Terms of Service have changed. "
+    "Please accept them to continue."
+)
+# The ?reason= the web finish page is sent for an existing account.
+POLICY_UPDATED_REASON = "policy_updated"
 
 # Web OAuth sign-up that came back without consent waits in the session for the
 # user to accept on the web app's /signup/finish page, for this long.
