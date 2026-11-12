@@ -233,5 +233,18 @@ void main() {
       expect(find.text('One more step'), findsNothing);
       expect(fake.declineTermsCalls, 1);
     });
+
+    testWidgets('a changed policy is worded as an update, not a sign-up', (
+      tester,
+    ) async {
+      final fake = await pumpApp(tester);
+
+      fake.setAuth(const AuthState(consentRequired: true, policyUpdate: true));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Our policies have changed'), findsOneWidget);
+      expect(find.text('One more step'), findsNothing);
+      expect(find.textContaining('finish creating'), findsNothing);
+    });
   });
 }

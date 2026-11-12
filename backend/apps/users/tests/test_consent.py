@@ -34,7 +34,7 @@ def test_record_policy_acceptance_stamps_server_version():
     with freeze_time("2026-11-07 12:00:00"):
         record_policy_acceptance(user)
     user.refresh_from_db()
-    assert user.policy_version_accepted == LEGAL_POLICY_VERSION == "2026-11-10"
+    assert user.policy_version_accepted == LEGAL_POLICY_VERSION == "2026-11-11"
     assert user.policy_accepted_at == datetime.datetime(
         2026, 11, 7, 12, 0, 0, tzinfo=datetime.timezone.utc
     )

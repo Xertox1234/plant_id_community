@@ -80,6 +80,15 @@ class User(AbstractUser):  # type: ignore[django-manager-missing]
     # that predate the consent step.
     policy_version_accepted = models.CharField(max_length=20, null=True, blank=True)
     policy_accepted_at = models.DateTimeField(null=True, blank=True)
+    # The person's switch for the two records the Privacy Policy lists as
+    # optional (todo 701): which email links they open (EmailClick) and which
+    # blog posts they read (BlogPostView). Off writes neither for this
+    # account. Rows already written age out on their own 90-day retention.
+    usage_records = models.BooleanField(
+        default=True,
+        help_text="Record which email links this person opens and which blog "
+        "posts they read",
+    )
 
     # Profile Information
     bio = models.TextField(

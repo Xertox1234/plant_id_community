@@ -273,6 +273,30 @@ class CustomAccountAdapter(DefaultAccountAdapter):
         side effects (todo 447)."""
         return False
 
+    def pre_login(self, request: HttpRequest, user: Any, **kwargs: Any) -> Any:
+        """Refuse allauth's own sign-in pages (``/accounts/login/``, the
+        sign-in after a password reset or an email confirmation) to an
+        account that has not accepted the current policy version (todo 701).
+        Those pages have no consent box, so the account is sent to the
+        website's sign-in, which asks."""
+        from apps.users.consent import needs_policy_acceptance
+
+        response = super().pre_login(request, user, **kwargs)
+        if response is not None:
+            return response
+        if needs_policy_acceptance(user):
+            from apps.users.constants import POLICY_UPDATED_REASON
+            from apps.users.oauth_views import _frontend_base
+
+            logger.info(
+                "[AUTH] allauth sign-in sent to the website to accept the "
+                f"current policy: {log_safe_user_context(user)}"
+            )
+            return HttpResponseRedirect(
+                f"{_frontend_base()}/login?reason={POLICY_UPDATED_REASON}"
+            )
+        return None
+
     def get_client_ip(self, request: HttpRequest) -> str:
         """The client our own rate limiter sees, so allauth's per-IP limits
         (``/accounts/login/``, password reset) count the same address. Its

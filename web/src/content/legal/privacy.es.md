@@ -1,4 +1,4 @@
-<!-- version: 2026-11-10 -->
+<!-- version: 2026-11-11 -->
 
 # Política de privacidad
 
@@ -90,6 +90,11 @@ correos se usan.
 IP, su navegador (agente de usuario) y la página de la que viene (referente).
 Usamos estos datos para las estadísticas del sitio y para prevenir abusos.
 
+**Cómo desactivar estos dos registros.** En la configuración de su cuenta, el
+interruptor «Usage records» (registros de uso) impide que registremos en qué
+enlaces de nuestros correos hace clic y qué páginas del blog visita con la
+sesión iniciada. Los registros ya hechos se eliminan a los 90 días naturales.
+
 **Limitación de solicitudes.** Guardamos brevemente las direcciones IP en
 memoria.
 
@@ -175,6 +180,8 @@ Usted puede:
 - elegir quién puede ver cada evento que crea;
 - bloquear o silenciar a otros usuarios;
 - editar sus publicaciones del foro, o pedirnos que las eliminemos;
+- desactivar en la configuración de su cuenta el registro de los enlaces de
+  correo en los que hace clic y de las páginas del blog que visita;
 - eliminar su cuenta;
 - escribir a [[CONTACT_EMAIL]] para pedir que limitemos otro uso de sus datos.
 
@@ -342,9 +349,11 @@ Podemos actualizar este aviso de privacidad. Cada versión lleva fecha, y la
 versión vigente siempre está en [/privacy](/privacy). Si un cambio afecta la
 forma en que usamos sus datos, se lo comunicaremos por correo electrónico, o
 con un aviso en la aplicación y en el sitio web, antes de que entre en vigor.
+La próxima vez que inicie sesión después de que una nueva versión entre en
+vigor, le pediremos que la acepte antes de continuar.
 
 ## Fecha de entrada en vigor
 
-Esta versión entra en vigor el 2026-11-10.
+Esta versión entra en vigor el 2026-11-11.
 
 Consulte también nuestros [Términos de servicio](/terms).

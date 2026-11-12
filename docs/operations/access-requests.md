@@ -82,10 +82,12 @@ in the admin and reply saying what was changed.
 ## 5. Objection or withdrawal of consent
 
 - **Email.** Unsubscribe them and confirm.
-- **Email click records and blog-view logging.** There is no per-person
-  switch. Delete their existing rows (`EmailNotification` click records,
-  `BlogPostView`) and say that new records can only be stopped by closing the
-  account. This gap is recorded in todo 701.
+- **Email click records and blog-view logging.** The person can turn both
+  off themselves: "Usage records" in the website's settings or the app's
+  profile. Staff can set the same field (`usage_records`) on the user in the
+  admin. Off, no new `EmailClick` or `BlogPostView` row is written for the
+  account. To clear the past as well, delete their existing rows; otherwise
+  they age out in 90 days.
 - **A private message the spam screen refused.** The message was not kept.
   Look at the screen's log entry for the time they give, and reply with what
   happened and whether their account's standing was changed.

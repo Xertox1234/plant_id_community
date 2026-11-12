@@ -87,7 +87,7 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 - [x] `grep -c "INAI\|30 días" web/src/content/legal/privacy.es.md` prints 0.
 - [ ] The policy names every processor country and the Alberta OIPC.
 - [x] The OpenAI and tracking sentences match what the code does (M12).
-- [ ] `LEGAL_POLICY_VERSION` is bumped once and existing users are asked to
+- [x] `LEGAL_POLICY_VERSION` is bumped once and existing users are asked to
       accept the new version.
 - [ ] Each lawyer question above has a dated answer recorded in the Work Log.
 
@@ -162,6 +162,70 @@ Not done, and why:
   portable copy, removing a post on request.
 - **L17 / H9** Trade-name filing and the US app-store age-signal laws: owner
   items for launch, no code here.
+
+### 2026-11-11 - Re-consent, regions, and the data inventory
+
+Owner decisions (2026-11-11): block at sign-in until the current version is
+accepted; production settings may be read for the storage regions; build a
+per-person switch for email click records and blog view logging.
+
+- **Re-consent built.** `confirm_current_policy` runs in `login`,
+  `token_refresh`, the Firebase exchange and the web OAuth callback and
+  finish step: an account not on `LEGAL_POLICY_VERSION` gets 428
+  `policy_update_required` until the request carries `accepted_terms: true`.
+  Web: the login page shows the consent box when asked; a Google sign-in is
+  sent to the finish page, worded as an update. App: the consent sheet is
+  worded as an update, and Cancel signs out without deleting the login.
+- **Why a new code.** Builds 20 and 21 answer `consent_required` with a
+  sheet whose Cancel deletes the Firebase login. For an existing account
+  that would destroy the login, so the refusal has its own code. Those
+  builds show "Failed to connect to server" until a build with this change
+  is installed: merge and ship the build together.
+- **Regions sourced.** Sentry: `ingest.us.sentry.io` (the server DSN host on
+  Railway), United States. Cloudflare R2: both buckets `WNAM` (western North
+  America), jurisdiction `default`. Railway `us-west2`, Firestore `nam5`.
+  OpenAI: United States company, no data-residency option set in code. Not
+  sourced: Resend's sending region (a dashboard setting).
+- **Found on the way.** The published website bundle carries no Sentry DSN,
+  so the website sends no error reports or replays today; the policy
+  describes them. Harmless over-disclosure, noted for the owner.
+- `docs/legal/data-inventory.md` brought level with version 2026-11-10.
+- **Blog view logging does not run (read from code, not checked against
+  production data).** `BlogViewTrackingMiddleware` only logs when
+  `request._wagtail_page` is set, and nothing in the code or in Wagtail sets
+  it; only its tests do. So no `BlogPostView` row is written today, and the
+  policy describes a record that is not made. Owner decision needed: wire it
+  up (the blog is read through the API, where the middleware does not see
+  the signed-in user) or remove the logging and its policy sentences.
+- The OAuth finish step no longer applies the sign-up block list to an
+  account that already exists. `create_test_user` stamps the policy version.
+- **Per-person switch built.** `User.usage_records` (migration `0025`, on
+  by default). Off, `record_click` writes no `EmailClick` and the blog
+  middleware writes no `BlogPostView` for that account; the post's own view
+  counter still counts. The toggle is "Usage records" in web Settings and the
+  app profile, and the field is in the admin. A signed-out blog visit is
+  still logged: there is no account to hold a switch.
+- **Policy version `2026-11-11`.** All six documents: a paragraph on the
+  switch, the Spanish limit-use list names it, and the change section says a
+  new version is asked for at the next sign-in. One bump. With re-consent
+  live, every account is asked at its next sign-in.
+
+### 2026-11-12 - Fixed the items found on the way
+
+- **Blog view logging now runs.** The blog API's post route
+  (`BlogPostPageViewSet.detail_view`, cached and uncached reads alike) calls
+  `record_blog_view`, with the API's own user, so a JWT sign-in is seen and
+  the usage-records switch applies. The middleware stays but still never
+  fires. Tests: `apps/blog/tests/test_view_recording.py` drive the real
+  route. The policy text needed no change: it already described this.
+- **Session sign-ins wait for the current version.** The API ignores a
+  session of an account that must accept; `/cms/`, `/admin/` and allauth's
+  pages refuse it and point to the website. Tests:
+  `apps/users/tests/test_policy_session_paths.py`. Each guard's test failed
+  with the guard disabled.
+- **Website Sentry still off.** Needs the owner: a DSN and the Cloudflare
+  Workers Builds variable `VITE_SENTRY_DSN` (the Cloudflare token here cannot
+  write build settings).
 
 ## Notes
 

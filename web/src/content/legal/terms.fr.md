@@ -1,4 +1,4 @@
-<!-- version: 2026-11-10 -->
+<!-- version: 2026-11-11 -->
 
 # Conditions d'utilisation
 
@@ -89,4 +89,4 @@ Courriel : [[CONTACT_EMAIL]]
 
 ## Date d'entrée en vigueur
 
-Cette version entre en vigueur le 2026-11-10.
+Cette version entre en vigueur le 2026-11-11.

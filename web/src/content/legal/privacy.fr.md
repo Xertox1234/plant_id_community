@@ -1,4 +1,4 @@
-<!-- version: 2026-11-10 -->
+<!-- version: 2026-11-11 -->
 
 # Politique de confidentialité
 
@@ -98,6 +98,12 @@ livrer les courriels et à savoir quels liens de nos courriels sont utilisés.
 enregistrons votre adresse IP, votre navigateur (agent utilisateur) et la page
 d'où vous venez (référent). Ces données servent aux statistiques du site
 et à prévenir les abus.
+
+**Désactiver ces deux registres.** Dans les paramètres de votre compte,
+l'interrupteur « Usage records » (registres d'utilisation) nous empêche
+d'enregistrer les liens de nos courriels sur lesquels vous cliquez et les
+pages du blogue que vous consultez une fois connecté. Les registres déjà
+créés sont supprimés après 90 jours.
 
 **Limitation du débit.** Nous gardons brièvement les adresses IP en mémoire
 pour prévenir les abus, comme un trop grand nombre de requêtes.
@@ -279,10 +285,12 @@ Nous pouvons mettre à jour cette politique. Chaque version est datée, et la
 version en vigueur se trouve toujours à [/privacy](/privacy). Si une
 modification touche la façon dont nous utilisons vos renseignements, nous vous
 en informerons par courriel, ou par un avis dans l'application et sur le site
-Web, avant son entrée en vigueur.
+Web, avant son entrée en vigueur. À votre prochaine connexion après l'entrée
+en vigueur d'une nouvelle version, nous vous demandons de l'accepter avant de
+continuer.
 
 ## Date d'entrée en vigueur
 
-Cette version entre en vigueur le 2026-11-10.
+Cette version entre en vigueur le 2026-11-11.
 
 Voir aussi nos [Conditions d'utilisation](/terms).

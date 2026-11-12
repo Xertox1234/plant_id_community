@@ -696,12 +696,18 @@ PREVIEW_FRAME_SRC = ("'self'", HEADLESS_PREVIEW_CLIENT_ORIGIN)
 # Use custom user model
 AUTH_USER_MODEL = "users.User"
 
+# The /cms/ sign-in refuses an account that has not accepted the current
+# policy version and sends it to the website to accept (todo 701).
+WAGTAILADMIN_USER_LOGIN_FORM = "apps.users.login_forms.PolicyCheckedWagtailLoginForm"
+
 # Django REST Framework settings
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "apps.users.authentication.CookieJWTAuthentication",
         "rest_framework_simplejwt.authentication.JWTAuthentication",  # Fallback
-        "rest_framework.authentication.SessionAuthentication",
+        # Session sign-in, ignored for an account that must accept the
+        # current policy version first (todo 701).
+        "apps.users.authentication.PolicyCheckedSessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticatedOrReadOnly",

@@ -21,6 +21,7 @@ from apps.users.account_links import deliver_provider_linked_notice
 from apps.users.constants import (
     ACCOUNT_MAIL_MAX_RETRIES,
     ACCOUNT_MAIL_RETRY_DELAY,
+    LEGAL_POLICY_VERSION,
     VERIFICATION_EMAIL_CAP,
     VERIFICATION_EMAIL_WINDOW_DAYS,
 )
@@ -56,7 +57,12 @@ def _is_revoked(refresh) -> bool:
 
 
 def _verified_login_account(username="owner", email="owner@example.com"):
-    user = User.objects.create_user(username=username, email=email, password=PASSWORD)
+    user = User.objects.create_user(
+        policy_version_accepted=LEGAL_POLICY_VERSION,
+        username=username,
+        email=email,
+        password=PASSWORD,
+    )
     mark_email_verified(user)
     return user
 

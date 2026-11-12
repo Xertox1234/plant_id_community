@@ -14,6 +14,13 @@ class UsersConfig(AppConfig):
         # rather than silently un-documenting auth across the whole API.
         import apps.users.schema  # noqa: F401
         import apps.users.signals
+        from apps.users.login_forms import PolicyCheckedAdminLoginForm
+
+        # The /admin/ sign-in refuses an account that has not accepted the
+        # current policy version, as /cms/ does (todo 701).
+        from django.contrib import admin
+
+        admin.site.login_form = PolicyCheckedAdminLoginForm
 
         # Register audit log only if auditlog app is installed and migrated
         # This prevents RuntimeError during initial migrations

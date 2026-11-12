@@ -1,4 +1,4 @@
-<!-- version: 2026-11-10 -->
+<!-- version: 2026-11-11 -->
 
 # Términos de servicio
 
@@ -87,4 +87,4 @@ Correo: [[CONTACT_EMAIL]]
 
 ## Fecha de entrada en vigor
 
-Esta versión entra en vigor el 2026-11-10.
+Esta versión entra en vigor el 2026-11-11.

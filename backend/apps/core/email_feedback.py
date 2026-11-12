@@ -589,10 +589,15 @@ def _record_click(notification_uuid: str, link: str, *, now=None) -> bool:
     now = now or timezone.now()
     row = (
         EmailNotification.objects.filter(uuid=notification_uuid)
-        .only("pk", "user", "sent_at")
+        .only("pk", "user", "sent_at", "user__usage_records")
+        .select_related("user")
         .first()
     )
     if row is None or row.sent_at is None:
+        return False
+    # The recipient switched these records off (todo 701). The redirect still
+    # works; the click is just not written.
+    if row.user is not None and not row.user.usage_records:
         return False
     if now - row.sent_at > timedelta(days=EMAIL_CLICK_ATTRIBUTION_DAYS):
         return False

@@ -11,7 +11,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.http import HttpRequest, HttpResponse
 from rest_framework import exceptions
-from rest_framework.authentication import CSRFCheck
+from rest_framework.authentication import CSRFCheck, SessionAuthentication
 from rest_framework.request import Request
 from rest_framework_simplejwt.authentication import AuthUser, JWTAuthentication
 from rest_framework_simplejwt.tokens import RefreshToken, Token
@@ -241,3 +241,30 @@ class RefreshTokenFromCookie:
             refresh_token = request.data.get("refresh")
 
         return refresh_token
+
+
+class PolicyCheckedSessionAuthentication(SessionAuthentication):
+    """Session sign-in for the API, refused to an account that has not
+    accepted the current policy version (todo 701).
+
+    The token paths (login, refresh, app exchange, OAuth) ask for acceptance;
+    a Django session opened by the CMS, the admin or allauth's own pages did
+    not, and DRF's ``SessionAuthentication`` honoured it on every endpoint.
+    Such a session is treated as signed out, never as an error: raising here
+    would also refuse the login request that carries the acceptance.
+    """
+
+    def authenticate(self, request: Request) -> Optional[Tuple[User, None]]:
+        from apps.users.consent import needs_policy_acceptance
+
+        result = cast(Optional[Tuple[User, None]], super().authenticate(request))
+        if result is None:
+            return None
+        user = result[0]
+        if needs_policy_acceptance(user):
+            logger.info(
+                "[AUTH] Session ignored until the current policy is accepted: "
+                f"{log_safe_user_context(user)}"
+            )
+            return None
+        return result

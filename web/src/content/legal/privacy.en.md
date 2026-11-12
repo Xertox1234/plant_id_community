@@ -1,4 +1,4 @@
-<!-- version: 2026-11-10 -->
+<!-- version: 2026-11-11 -->
 
 # Privacy Policy
 
@@ -82,6 +82,10 @@ records to deliver email, and to know which links in our emails are used.
 **Blog page views.** When you view a blog page, we record your IP address,
 browser (user agent) and the page you came from (referrer). We use this for site
 statistics and to prevent abuse.
+
+**Turning these two records off.** In your account settings, the "Usage
+records" switch stops us recording which email links you click and which blog
+pages you view while signed in. Records already made are deleted after 90 days.
 
 **Rate limiting.** We hold IP addresses briefly in memory to stop abuse, such
 as too many requests.
@@ -235,10 +239,11 @@ belongs to someone under 14, we delete it, as described above.
 We may update this policy. Each version is dated, and the current version is
 always at [/privacy](/privacy). If a change affects how we use your
 information, we will tell you by email, or by a notice in the app and on the
-website, before it takes effect.
+website, before it takes effect. The next time you sign in after a new
+version takes effect, we ask you to accept it before you continue.
 
 ## Effective date
 
-This version takes effect on 2026-11-10.
+This version takes effect on 2026-11-11.
 
 See also our [Terms of Service](/terms).
