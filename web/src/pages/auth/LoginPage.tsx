@@ -1,5 +1,5 @@
 import { useState, FormEvent, ChangeEvent } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
@@ -60,7 +60,10 @@ export default function LoginPage() {
   // Set when the server answers that this account must accept the current
   // Privacy Policy and Terms before it is signed in. The box then appears and
   // the next submit carries the acceptance.
-  const [needsConsent, setNeedsConsent] = useState(false);
+  // The server's own sign-in pages send such an account here with
+  // ?reason=policy_updated, so the box is shown from the start.
+  const [searchParams] = useSearchParams();
+  const [needsConsent, setNeedsConsent] = useState(searchParams.get('reason') === 'policy_updated');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   /**

@@ -210,6 +210,23 @@ per-person switch for email click records and blog view logging.
   new version is asked for at the next sign-in. One bump. With re-consent
   live, every account is asked at its next sign-in.
 
+### 2026-11-12 - Fixed the items found on the way
+
+- **Blog view logging now runs.** The blog API's post route
+  (`BlogPostPageViewSet.detail_view`, cached and uncached reads alike) calls
+  `record_blog_view`, with the API's own user, so a JWT sign-in is seen and
+  the usage-records switch applies. The middleware stays but still never
+  fires. Tests: `apps/blog/tests/test_view_recording.py` drive the real
+  route. The policy text needed no change: it already described this.
+- **Session sign-ins wait for the current version.** The API ignores a
+  session of an account that must accept; `/cms/`, `/admin/` and allauth's
+  pages refuse it and point to the website. Tests:
+  `apps/users/tests/test_policy_session_paths.py`. Each guard's test failed
+  with the guard disabled.
+- **Website Sentry still off.** Needs the owner: a DSN and the Cloudflare
+  Workers Builds variable `VITE_SENTRY_DSN` (the Cloudflare token here cannot
+  write build settings).
+
 ## Notes
 
 P1 because consent is already being recorded against a draft. Not legal

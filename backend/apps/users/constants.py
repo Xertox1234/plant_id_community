@@ -89,6 +89,12 @@ POLICY_UPDATED_MESSAGE = (
 )
 # The ?reason= the web finish page is sent for an existing account.
 POLICY_UPDATED_REASON = "policy_updated"
+# What a password sign-in on a Django page (CMS, admin, allauth) says to an
+# account that must accept first: those pages have no consent box.
+POLICY_UPDATED_SIGN_IN_ON_WEBSITE_MESSAGE = (
+    "The Privacy Policy and Terms of Service have changed. "
+    "Sign in on the website once to accept them, then sign in here."
+)
 
 # Web OAuth sign-up that came back without consent waits in the session for the
 # user to accept on the web app's /signup/finish page, for this long.

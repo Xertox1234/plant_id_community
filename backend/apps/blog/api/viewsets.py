@@ -679,6 +679,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         if cached_response:
             elapsed = (time.time() - start_time) * 1000
             logger.info(f"[PERF] Blog post '{slug}' cached response in {elapsed:.2f}ms")
+            self._record_view(request, instance)
             return Response(cached_response)
 
         # Cache miss - call Wagtail's detail_view
@@ -686,11 +687,33 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         # Cache the response for future requests (Phase 2.2)
         if response.status_code == 200:
+            self._record_view(request, instance)
             BlogCacheService.set_blog_post(slug, response.data)
             elapsed = (time.time() - start_time) * 1000
             logger.info(f"[PERF] Blog post '{slug}' cold response in {elapsed:.2f}ms")
 
         return response
+
+    @staticmethod
+    def _record_view(request, page):
+        """
+        Log this read of ``page`` for the view counts and trending lists.
+
+        The website and the app read a post here, so this is where a view is
+        recorded (todo 701). ``request.user`` is the DRF user, so a JWT
+        sign-in is seen; an account with usage records off gets no row.
+        """
+        from ..middleware import record_blog_view
+
+        try:
+            record_blog_view(
+                page,
+                user=request.user,
+                request=getattr(request, "_request", request),
+            )
+        except Exception:
+            # A failed count must never cost the reader the post.
+            logger.exception("[ANALYTICS] Could not record a blog view")
 
     def retrieve(self, request, *args, **kwargs):
         """

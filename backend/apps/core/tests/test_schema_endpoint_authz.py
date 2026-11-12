@@ -15,6 +15,7 @@ import time, so the gating CANNOT be exercised via `@override_settings`. These
 tests verify the real, configured behavior instead.
 """
 
+from apps.users.constants import LEGAL_POLICY_VERSION
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -50,8 +51,12 @@ class SchemaEndpointNonStaffDenialTests(TestCase):
 
     def setUp(self):
         # No password needed — force_login() bypasses password auth.
+        # On the current policy version: a session of an account that must
+        # accept is ignored by the API (todo 701).
         self.user = User.objects.create_user(
-            username="member", email="member@example.com"
+            username="member",
+            email="member@example.com",
+            policy_version_accepted=LEGAL_POLICY_VERSION,
         )
 
     def test_non_staff_user_is_denied(self):
@@ -105,6 +110,7 @@ class SchemaEndpointStaffAccessTests(TestCase):
             username="staffer",
             email="staffer@example.com",
             is_staff=True,
+            policy_version_accepted=LEGAL_POLICY_VERSION,
         )
 
     def test_staff_can_reach_all_three_endpoints(self):

@@ -164,6 +164,16 @@ describe('LoginPage', () => {
       expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
     });
 
+    it('shows the box from the start when sent here with reason=policy_updated', () => {
+      render(
+        <MemoryRouter initialEntries={['/login?reason=policy_updated']}>
+          <LoginPage />
+        </MemoryRouter>
+      );
+      expect(screen.getByRole('checkbox')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeDisabled();
+    });
+
     it('shows the box and the server message, and blocks submit until it is ticked', async () => {
       mockLogin.mockResolvedValue(refusal);
       renderLoginPage();

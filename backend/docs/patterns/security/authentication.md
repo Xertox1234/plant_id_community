@@ -892,3 +892,18 @@ A new path that calls `set_jwt_cookies` or `RefreshToken.for_user` needs it too.
 - Changing `LEGAL_POLICY_VERSION` asks every account again at its next
   sign-in or refresh. Bump it only with a policy text change.
 - Tests: `apps/users/tests/test_policy_reconsent.py`.
+
+**Session sign-ins** have no consent box, so they refuse instead of asking:
+
+- The API's session authenticator is `PolicyCheckedSessionAuthentication`
+  (`apps/users/authentication.py`). A session of an account that must accept
+  is treated as signed out, never raised as an error: an error would also
+  refuse the login request that carries `accepted_terms`.
+- `/cms/` (`WAGTAILADMIN_USER_LOGIN_FORM`) and `/admin/`
+  (`admin.site.login_form`, set in `UsersConfig.ready`) use the forms in
+  `apps/users/login_forms.py`, whose `confirm_login_allowed` tells the account
+  to sign in on the website once.
+- allauth's pages (`/accounts/login/`, the sign-in after a password reset)
+  go through `CustomAccountAdapter.pre_login`, which redirects to the
+  website's `/login`.
+- Tests: `apps/users/tests/test_policy_session_paths.py`.
