@@ -129,7 +129,7 @@ def record_blog_view(page, *, user, request):
 
     # Bot detection (simple check)
     if _is_bot(user_agent):
-        logger.debug(f"[ANALYTICS] Skipping bot view tracking: {user_agent[:50]}")
+        logger.debug("[ANALYTICS] Skipping bot view tracking")
         return
 
     # Deduplication: Check if same user/IP viewed this post recently
@@ -137,9 +137,8 @@ def record_blog_view(page, *, user, request):
         f"{VIEW_TRACKING_CACHE_PREFIX}:{page.id}:{user.id if user else ip_address}"
     )
     if cache.get(cache_key):
-        logger.debug(
-            f"[ANALYTICS] Duplicate view prevented: {page.title} ({cache_key})"
-        )
+        # Never the key: it holds the reader's IP address.
+        logger.debug(f"[ANALYTICS] Duplicate view prevented: post {page.id}")
         return
 
     # Track the view
