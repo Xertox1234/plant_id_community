@@ -20,10 +20,10 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.13'
           cache: 'pip'
@@ -94,7 +94,7 @@ jobs:
 
       - name: Upload pip-audit report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: pip-audit-report
           path: backend/pip-audit-report.json
@@ -102,7 +102,7 @@ jobs:
 
       - name: Comment PR with vulnerabilities (if any)
         if: steps.audit.outcome == 'failure' && github.event_name == 'pull_request'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             github.rest.issues.createComment({
@@ -120,10 +120,10 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
 
@@ -240,7 +240,7 @@ jobs:
 
       - name: Upload npm audit report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: npm-audit-report
           path: npm-audit-reports/
@@ -248,7 +248,7 @@ jobs:
 
       - name: Comment PR with vulnerabilities (if any)
         if: steps.audit.outcome == 'failure' && github.event_name == 'pull_request'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             github.rest.issues.createComment({
@@ -263,7 +263,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -275,7 +275,7 @@ jobs:
           cache: true
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
@@ -296,7 +296,7 @@ jobs:
 
       - name: Upload SBOM
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: flutter-sbom
           path: plant_community_mobile/sbom.json
@@ -304,7 +304,7 @@ jobs:
 
       - name: Upload Flutter outdated report (if exists)
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: flutter-outdated-report
           path: plant_community_mobile/flutter-outdated.json
@@ -313,7 +313,7 @@ jobs:
 
       - name: Comment PR with outdated packages (if any)
         if: failure() && github.event_name == 'pull_request'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             github.rest.issues.createComment({
@@ -345,7 +345,7 @@ jobs:
       # fetch-depth: 0 is load-bearing. At the default depth 1 the base commit
       # is absent, `git show $BASE:file` fails, and a gate that cannot read its
       # own baseline would pass unconditionally.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -376,7 +376,7 @@ jobs:
 
       - name: Set up Python
         if: steps.scope.outputs.pip == 'true'
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
@@ -418,7 +418,7 @@ jobs:
 
       - name: Set up Node.js
         if: steps.scope.outputs.npm_dirs != ''
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
 
@@ -513,7 +513,7 @@ jobs:
       issues: write
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # Three steps, not one. The verdict has to be computed BEFORE the alarm
       # runs and the gate fails: the previous single step ended in `exit 1`,
