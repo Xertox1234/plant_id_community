@@ -55,22 +55,18 @@ def create_trending_index_concurrently(apps, schema_editor):
     with connection.cursor() as cursor:
         # Step 1: Drop existing index from migration 0011 if it exists
         # Use IF EXISTS to avoid errors if already dropped
-        cursor.execute(
-            """
+        cursor.execute("""
             DROP INDEX IF EXISTS blog_view_trending_idx;
-        """
-        )
+        """)
         print("✅ Dropped existing blog_view_trending_idx index")
 
         # Step 2: Create index with CONCURRENTLY option
         # Note: CONCURRENTLY cannot run inside a transaction block
         # Django migrations auto-commit individual operations for PostgreSQL
-        cursor.execute(
-            """
+        cursor.execute("""
             CREATE INDEX CONCURRENTLY blog_view_trending_idx
             ON blog_blogpostview (viewed_at, post_id);
-        """
-        )
+        """)
         print("✅ Created blog_view_trending_idx with CONCURRENTLY (zero downtime)")
 
 
@@ -86,11 +82,9 @@ def drop_trending_index_concurrently(apps, schema_editor):
 
     with connection.cursor() as cursor:
         # Drop with CONCURRENTLY for zero-downtime rollback
-        cursor.execute(
-            """
+        cursor.execute("""
             DROP INDEX CONCURRENTLY IF EXISTS blog_view_trending_idx;
-        """
-        )
+        """)
         print("✅ Dropped blog_view_trending_idx with CONCURRENTLY")
 
 

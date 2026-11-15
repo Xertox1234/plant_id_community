@@ -39,7 +39,7 @@ repos:
   # Git Security (Issue #1 Prevention)
   # ===================================
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v6.0.0
     hooks:
       # Prevent committing large files
       - id: check-added-large-files
@@ -132,7 +132,7 @@ repos:
   # Python Code Quality
   # ===================================
   - repo: https://github.com/psf/black
-    rev: 24.1.1
+    rev: 26.10.1
     hooks:
       - id: black
         name: Format Python code with Black
@@ -152,7 +152,7 @@ repos:
         files: ^backend/.*\.py$
 
   - repo: https://github.com/pycqa/isort
-    rev: 5.13.2
+    rev: 9.0.2
     hooks:
       - id: isort
         name: Sort Python imports
@@ -285,7 +285,7 @@ repos:
   # Markdown Linting
   # ===================================
   - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.39.0
+    rev: v0.50.0
     hooks:
       - id: markdownlint
         name: Lint Markdown files
@@ -310,7 +310,7 @@ repos:
   # Trailing Whitespace & File Endings
   # ===================================
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v6.0.0
     hooks:
       - id: mixed-line-ending
         name: Fix mixed line endings
