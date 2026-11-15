@@ -12,9 +12,12 @@
 #     version` to decline it for good.
 #   - Nothing newer than 7 days is proposed (`cooldown`), so a release that is
 #     yanked or found malicious in its first week never reaches a PR.
-#   - No `ignore` rule filters by update type: an ignore rule must never be able
-#     to hold back a security fix that happens to be a major bump (soupsieve
-#     2.9 -> 4.0, #1302).
+#   - No BLANKET `ignore` rule filters by update type: an ignore rule must never
+#     be able to hold back a security fix that happens to be a major bump
+#     (soupsieve 2.9 -> 4.0, #1302). The only update-type ignores below name
+#     one build tool, one types package and the base image, each a decision
+#     already taken; none of them ships in the running app's request path
+#     except the base image, whose patch releases still arrive by rebuild.
 #
 # Runs Tuesday, the day after the weekly security scan (Monday 09:00 UTC).
 #
@@ -64,6 +67,10 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 30
+    ignore:
+      # @types/node follows the Node version in .nvmrc (24), not npm's latest.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-patch:
         patterns: ["*"]
@@ -87,6 +94,11 @@ updates:
       pub-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      # The FlutterFire majors only resolve together (they share
+      # firebase_core), so four separate PRs would each fail alone.
+      firebase-majors:
+        patterns: ["firebase_*", "cloud_firestore*"]
+        update-types: ["major"]
 
   # Android build plugins (AGP, Kotlin, google-services).
   - package-ecosystem: "gradle"
@@ -102,6 +114,13 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 30
+    ignore:
+      # AGP 9 / Gradle 9 are one coupled move, tracked in todo 713. Remove
+      # these two entries in the PR that makes it.
+      - dependency-name: "com.android.application"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "gradle-wrapper"
+        update-types: ["version-update:semver-major"]
     groups:
       gradle-minor-patch:
         patterns: ["*"]
@@ -137,6 +156,14 @@ updates:
       prefix: "chore(deps)"
     cooldown:
       default-days: 7
+    ignore:
+      # Stay on the 3.13 line: a new Python line (3.13 -> 3.14 is a "minor"
+      # here) is a planned upgrade across the image, .python-version and CI,
+      # not a Dependabot bump. Runtime pins are tracked in todo 709.
+      - dependency-name: "python"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
 
   # .pre-commit-config.yaml hook revs: one PR for all of them.
   - package-ecosystem: "pre-commit"
