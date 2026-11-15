@@ -10,7 +10,7 @@
 #      wagtail_forum`. RAILPACK copies only requirements.txt before `pip install`
 #      and fails ("not a valid editable requirement"). Here we `COPY . .` first,
 #      so the local package path exists at install time.
-FROM python:3.13-slim
+FROM python:3.15-slim
 
 # System deps: libpq for psycopg, build-essential as a safety net for any
 # dependency that lacks a cp313 wheel, gettext for `msgfmt` (the compilemessages
