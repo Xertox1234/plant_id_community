@@ -48,10 +48,10 @@ jobs:
       JWT_SECRET_KEY: 'ci-jwt-key-for-backend-checks-abcdefghijklmnopqrstuvwxyz1234567890-different'
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
           cache: pip
@@ -69,7 +69,7 @@ jobs:
         run: python manage.py check
 
       - name: Restore pre-commit hook environments
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-lint-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
@@ -204,10 +204,10 @@ jobs:
       TREFLE_API_KEY: 'ci-placeholder-trefle-key-00000000000000'  # pragma: allowlist secret
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
           cache: pip
