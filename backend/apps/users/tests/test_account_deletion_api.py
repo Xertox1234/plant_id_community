@@ -245,7 +245,11 @@ def test_mobile_disabled_firebase_user_needs_reauth(
 def test_mobile_auth_time_in_the_future_needs_reauth(
     client, user, queued, django_capture_on_commit_callbacks
 ):
-    with _verified(age=-61):
+    # 120 s ahead, not 61: `_verified` stamps auth_time when the patch is
+    # built and the view compares it against its own later clock, so a 61 s
+    # offset is back inside the 60 s skew once the request takes over a
+    # second (CI did, on #1311: 202 instead of 403).
+    with _verified(age=-120):
         response = _post(
             _bearer(client, user),
             DELETE_URL,

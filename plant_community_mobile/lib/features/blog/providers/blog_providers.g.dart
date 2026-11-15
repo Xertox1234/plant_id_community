@@ -99,7 +99,7 @@ abstract class _$BlogPosts extends $AsyncNotifier<BlogFeed> {
   FutureOr<BlogFeed> build(String? tag);
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<AsyncValue<BlogFeed>, BlogFeed>;
     final element =
         ref.element
@@ -109,7 +109,7 @@ abstract class _$BlogPosts extends $AsyncNotifier<BlogFeed> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args));
   }
 }
 

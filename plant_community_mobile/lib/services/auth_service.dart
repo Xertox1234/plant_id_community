@@ -1305,7 +1305,7 @@ class AuthService extends _$AuthService {
   /// gone (todo 558 finding 1). The next completed sign-in fetches it again
   /// ([_refetchAccountProfile]).
   void _clearAccountProfile() {
-    if (ref.exists(userProfileServiceProvider)) {
+    if (ref.read(userProfileServiceProvider.exists)) {
       ref.read(userProfileServiceProvider.notifier).clear();
     }
   }
