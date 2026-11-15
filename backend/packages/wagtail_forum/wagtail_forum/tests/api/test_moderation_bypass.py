@@ -25,7 +25,9 @@ from django.core.cache import cache
 from django.test import override_settings
 from rest_framework.test import APIClient
 from wagtail_forum.models import ForumProfile, Message, Post, Topic, TrustLevel
-from wagtail_forum.tests.api.test_direct_messages_api import _RECORDING_PATH
+from wagtail_forum.tests.api.test_direct_messages_api import (
+    _RECORDING_PATH,
+)
 from wagtail_forum.tests.api.test_direct_messages_api import (
     _RecordingSpamBackend as RecordingSpamBackend,
 )

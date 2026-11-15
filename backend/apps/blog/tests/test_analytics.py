@@ -749,13 +749,11 @@ class TrendingIndexTests(TestCase):
 
         # Verify index exists in database
         with connection.cursor() as cursor:
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT indexname FROM pg_indexes
                 WHERE tablename = 'blog_blogpostview'
                 AND indexname = 'blog_view_trending_idx'
-            """
-            )
+            """)
             index_exists = cursor.fetchone()
 
             self.assertIsNotNone(
