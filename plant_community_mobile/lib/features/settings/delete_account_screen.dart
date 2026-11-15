@@ -66,7 +66,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     // and `ref` is unusable after dispose. The 202 must still sign out.
     final auth = ref.read(authServiceProvider.notifier);
     final deletion = ref.read(accountDeletionServiceProvider);
-    final profile = ref.exists(userProfileServiceProvider)
+    final profile = ref.read(userProfileServiceProvider.exists)
         ? ref.read(userProfileServiceProvider.notifier)
         : null;
     final clearOfflineCache = ref.read(firestoreOfflineCacheClearerProvider);

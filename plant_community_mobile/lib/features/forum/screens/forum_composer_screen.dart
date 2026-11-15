@@ -220,7 +220,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     if (!_isReply) return false;
     if (_lockedByServer) return true;
     final topic = topicDetailProvider(widget.args.topicId!);
-    if (!ref.exists(topic)) return false;
+    if (!ref.read(topic.exists)) return false;
     return ref.watch(topic).asData?.value.isLocked ?? false;
   }
 
@@ -232,7 +232,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     try {
       final fresh = await _api.fetchTopicDetail(topicId, peek: true);
       final topic = topicDetailProvider(topicId);
-      if (mounted && ref.exists(topic)) {
+      if (mounted && ref.read(topic.exists)) {
         ref.read(topic.notifier).applyPeek(fresh);
       }
       return fresh.isLocked;

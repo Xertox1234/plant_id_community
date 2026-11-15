@@ -142,7 +142,7 @@ class _ForumNewGroupScreenState extends ConsumerState<ForumNewGroupScreen> {
       _fingerprint = null;
       // The inbox underneath (if mounted) gets the new row at the top —
       // spliced, never invalidated, so its loaded pages survive.
-      if (ref.exists(conversationsFeedProvider)) {
+      if (ref.read(conversationsFeedProvider.exists)) {
         ref.read(conversationsFeedProvider.notifier).applyActivity(row);
       }
       if (!mounted) return;

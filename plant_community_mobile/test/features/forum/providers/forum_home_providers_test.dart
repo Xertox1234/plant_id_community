@@ -55,7 +55,7 @@ void main() {
     // The home goes away: the peek is released with it.
     scope.close();
     await container.pump();
-    expect(container.exists(latestRepliesProvider(5)), isFalse);
+    expect(container.read(latestRepliesProvider(5).exists), isFalse);
   });
 
   test('homeRecentTopics asks for ten', () async {

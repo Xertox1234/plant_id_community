@@ -230,7 +230,7 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       await _openCard(tester, 'Topic 1');
       expect(api.latestRepliesCalls(1), 1);
-      expect(container.exists(latestRepliesProvider(1)), isTrue);
+      expect(container.read(latestRepliesProvider(1).exists), isTrue);
 
       // The home goes away: its peeks go with it.
       await tester.pumpWidget(
@@ -240,7 +240,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(container.exists(latestRepliesProvider(1)), isFalse);
+      expect(container.read(latestRepliesProvider(1).exists), isFalse);
     });
   });
 

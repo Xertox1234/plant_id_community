@@ -145,7 +145,7 @@ abstract class _$UserProfileService extends $AsyncNotifier<UserProfile?> {
   FutureOr<UserProfile?> build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<AsyncValue<UserProfile?>, UserProfile?>;
     final element =
         ref.element
@@ -155,6 +155,6 @@ abstract class _$UserProfileService extends $AsyncNotifier<UserProfile?> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
