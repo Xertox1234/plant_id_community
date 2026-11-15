@@ -71,3 +71,17 @@ One PR per row, in this order:
 ### 2026-11-15 - Filed
 
 - Filed from the stack audit.
+
+### 2026-11-15 - Sentry 11 (#1329)
+
+- `@sentry/react` 10.73.0 -> 11.8.0. As Dependabot wrote it the PR was green
+  and wrong: Sentry 11 streams spans by default and no longer calls
+  `beforeSendTransaction`, so a traced page's token URL left the browser
+  unscrubbed. `web/src/config/sentry.wire.test.ts` runs the real SDK and
+  failed on that; `sentry.test.ts` mocks the SDK and could not see it.
+- Fixed with `traceLifecycle: 'static'` (keeps the transaction model and the
+  existing scrub) and an explicit `dataCollection` set to the v10 baseline.
+- STILL OPEN: `'static'` is a compatibility mode Sentry plans to remove in a
+  later major. Before then, move the scrub to `beforeSendSpan` (streamed span
+  format) and drop `traceLifecycle`. The wire test stays as the proof.
+- `dataCollection` has no test: nothing observable in jsdom changed with it.
