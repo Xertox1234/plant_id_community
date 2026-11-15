@@ -179,7 +179,9 @@ def _refresh_profile(author_id):
     # callable so the user lookup only runs on the create branch.
     profile, _ = ForumProfile.objects.get_or_create(
         user_id=author_id,
-        defaults={
+        # django-stubs 6.1 types defaults values as field values only; Django
+        # calls a callable default on the create branch (QuerySet.get_or_create).
+        defaults={  # type: ignore[misc]
             "read_watermark_at": lambda: (
                 ForumProfile.initial_read_watermark_for_user_id(author_id)
             ),

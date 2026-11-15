@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # The newest release of each package that is known to need its shim. Bump a
 # ceiling only after confirming the new release still calls the deprecated API.
 TAGGIT_SHIM_MAX_VERSION = (6, 1, 0)
-WAGTAIL_SHIM_MAX_VERSION = (8, 0)
+WAGTAIL_SHIM_MAX_VERSION = (8, 1)
 
 TAGGIT_DEPRECATED_CALL = "quote_name_unless_alias"
 # A bare call only: mailers.get_connection( or a name ending in it is not the

@@ -168,9 +168,12 @@ def test_refusal_logged_once_per_window(small_limit, frozen_clock, caplog):
     finally:
         gate_logger.removeHandler(caplog.handler)
     assert results == [ACCEPTED] * LIMIT + [LIMITED] * LIMIT
+    # Counted by record identity: pytest 9.2 attaches its own capture handler
+    # to non-propagating loggers, so with the handler added above the same
+    # record lands in caplog.records twice.
     lines = [
         r.getMessage()
-        for r in caplog.records
+        for r in {id(r): r for r in caplog.records}.values()
         if "[FORUM_LIVE] connect rate limited" in r.getMessage()
     ]
     assert len(lines) == 1
