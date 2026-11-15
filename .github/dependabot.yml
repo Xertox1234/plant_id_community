@@ -91,14 +91,24 @@ updates:
       default-days: 7
       semver-major-days: 30
     groups:
+      # Every FlutterFire package, any update size, in ONE PR of its own.
+      # They share firebase_core and only resolve together, and a "minor"
+      # bump of one can force a major of the rest: #1321, titled minor/patch,
+      # carried firebase_core 5, firebase_auth 7, cloud_firestore 7 and
+      # firebase_messaging 17 because firebase_messaging_platform_interface
+      # 4.11 needs them. A Firebase PR always needs a device check (todo 713).
+      firebase:
+        patterns:
+          - "firebase_*"
+          - "cloud_firestore*"
+          - "fake_cloud_firestore"
       pub-minor-patch:
         patterns: ["*"]
+        exclude-patterns:
+          - "firebase_*"
+          - "cloud_firestore*"
+          - "fake_cloud_firestore"
         update-types: ["minor", "patch"]
-      # The FlutterFire majors only resolve together (they share
-      # firebase_core), so four separate PRs would each fail alone.
-      firebase-majors:
-        patterns: ["firebase_*", "cloud_firestore*"]
-        update-types: ["major"]
 
   # Android build plugins (AGP, Kotlin, google-services).
   - package-ecosystem: "gradle"
