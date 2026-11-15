@@ -44,7 +44,7 @@ abstract class _$Boards extends $AsyncNotifier<List<ForumBoard>> {
   FutureOr<List<ForumBoard>> build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref =
         this.ref as $Ref<AsyncValue<List<ForumBoard>>, List<ForumBoard>>;
     final element =
@@ -55,7 +55,7 @@ abstract class _$Boards extends $AsyncNotifier<List<ForumBoard>> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -145,7 +145,7 @@ abstract class _$BoardTopics
   FutureOr<PagedList<ForumTopicListItem>> build(String boardSlug);
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref =
         this.ref
             as $Ref<
@@ -163,7 +163,7 @@ abstract class _$BoardTopics
               Object?,
               Object?
             >;
-    element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args));
   }
 }
 
@@ -215,7 +215,7 @@ final class TopicDetailProvider
   }
 }
 
-String _$topicDetailHash() => r'4b9880bdebf92e67690efb44a6a1570870c6132c';
+String _$topicDetailHash() => r'f1024cc9dd6aa60e175de7c3bc626776a34b294c';
 
 /// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
 /// bookmark toggle and the accepted-answer mark/clear (todo 341).
@@ -258,7 +258,7 @@ abstract class _$TopicDetail extends $AsyncNotifier<ForumTopicDetail> {
   FutureOr<ForumTopicDetail> build(int topicId);
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref =
         this.ref as $Ref<AsyncValue<ForumTopicDetail>, ForumTopicDetail>;
     final element =
@@ -269,7 +269,7 @@ abstract class _$TopicDetail extends $AsyncNotifier<ForumTopicDetail> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args));
   }
 }
 
@@ -364,7 +364,7 @@ abstract class _$ForumUserProfile extends $AsyncNotifier<ForumProfile> {
   FutureOr<ForumProfile> build(String username);
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<AsyncValue<ForumProfile>, ForumProfile>;
     final element =
         ref.element
@@ -374,7 +374,7 @@ abstract class _$ForumUserProfile extends $AsyncNotifier<ForumProfile> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args));
   }
 }
 
@@ -451,7 +451,7 @@ abstract class _$AuthorBlockChanges extends $Notifier<AuthorBlockChange?> {
   AuthorBlockChange? build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<AuthorBlockChange?, AuthorBlockChange?>;
     final element =
         ref.element
@@ -461,7 +461,7 @@ abstract class _$AuthorBlockChanges extends $Notifier<AuthorBlockChange?> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -556,7 +556,7 @@ abstract class _$TopicPosts extends $AsyncNotifier<PagedList<ForumPost>> {
   FutureOr<PagedList<ForumPost>> build(int topicId);
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref =
         this.ref
             as $Ref<AsyncValue<PagedList<ForumPost>>, PagedList<ForumPost>>;
@@ -571,7 +571,7 @@ abstract class _$TopicPosts extends $AsyncNotifier<PagedList<ForumPost>> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args));
   }
 }
 
@@ -619,7 +619,7 @@ abstract class _$RecentTopics extends $AsyncNotifier<List<ForumTopicStub>> {
   FutureOr<List<ForumTopicStub>> build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref =
         this.ref
             as $Ref<AsyncValue<List<ForumTopicStub>>, List<ForumTopicStub>>;
@@ -634,7 +634,7 @@ abstract class _$RecentTopics extends $AsyncNotifier<List<ForumTopicStub>> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -932,7 +932,7 @@ abstract class _$ExpandedActivityTopic extends $Notifier<int?> {
   int? build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<int?, int?>;
     final element =
         ref.element
@@ -942,7 +942,7 @@ abstract class _$ExpandedActivityTopic extends $Notifier<int?> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -987,7 +987,7 @@ abstract class _$NotificationsFeed
   FutureOr<PagedList<ForumNotification>> build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref =
         this.ref
             as $Ref<
@@ -1005,7 +1005,7 @@ abstract class _$NotificationsFeed
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -1089,7 +1089,7 @@ abstract class _$ConversationsFeed
   FutureOr<PagedList<ForumConversation>> build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref =
         this.ref
             as $Ref<
@@ -1107,7 +1107,7 @@ abstract class _$ConversationsFeed
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -1192,7 +1192,7 @@ abstract class _$BookmarksFeed
   FutureOr<PagedList<ForumTopicListItem>> build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref =
         this.ref
             as $Ref<
@@ -1210,7 +1210,7 @@ abstract class _$BookmarksFeed
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -1273,7 +1273,7 @@ final class ConversationThreadProvider
 }
 
 String _$conversationThreadHash() =>
-    r'e432289bc0bd44472f2507f53a19c31346249d0d';
+    r'97e5b2b1f1d58103a40ee445f31c490f29859d6a';
 
 /// A 1:1 DM thread with [username] (todo 339): resolves the conversation
 /// (absent until first send), pages older messages, and sends.
@@ -1326,7 +1326,7 @@ abstract class _$ConversationThread
   FutureOr<ConversationThreadState> build(String username);
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref =
         this.ref
             as $Ref<
@@ -1344,7 +1344,7 @@ abstract class _$ConversationThread
               Object?,
               Object?
             >;
-    element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args));
   }
 }
 
@@ -1417,7 +1417,7 @@ final class GroupConversationThreadProvider
 }
 
 String _$groupConversationThreadHash() =>
-    r'7b1e012813f8397c54895a34271f8d4bae45c7fb';
+    r'299cfae70610662d4a5f393341dbf1dde30c89b2';
 
 /// A group DM thread by conversation id (todo 350). Same state shape and
 /// paging as [ConversationThread]; sends through the by-id endpoint and
@@ -1476,7 +1476,7 @@ abstract class _$GroupConversationThread
   FutureOr<ConversationThreadState> build(int conversationId);
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref =
         this.ref
             as $Ref<
@@ -1494,7 +1494,7 @@ abstract class _$GroupConversationThread
               Object?,
               Object?
             >;
-    element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args));
   }
 }
 
@@ -1658,7 +1658,7 @@ abstract class _$MentionSearch extends $Notifier<MentionSearchState> {
   MentionSearchState build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<MentionSearchState, MentionSearchState>;
     final element =
         ref.element
@@ -1668,7 +1668,7 @@ abstract class _$MentionSearch extends $Notifier<MentionSearchState> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -1724,7 +1724,7 @@ abstract class _$ForumSearch extends $Notifier<ForumSearchResult> {
   ForumSearchResult build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<ForumSearchResult, ForumSearchResult>;
     final element =
         ref.element
@@ -1734,6 +1734,6 @@ abstract class _$ForumSearch extends $Notifier<ForumSearchResult> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }

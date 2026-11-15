@@ -413,7 +413,7 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         sub.close(); // the screen is left: the autoDispose feed goes
         await Future<void>.delayed(Duration.zero);
-        expect(container.exists(blogPostsProvider('t')), isFalse);
+        expect(container.read(blogPostsProvider('t').exists), isFalse);
         if (fail) api.postsError = ApiException('offline');
         gate.complete();
 

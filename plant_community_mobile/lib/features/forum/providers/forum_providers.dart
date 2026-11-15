@@ -172,7 +172,7 @@ class TopicDetail extends _$TopicDetail {
     final latest = state.asData?.value ?? current;
     final updated = latest.copyWith(isBookmarked: bookmarked);
     state = AsyncData(updated);
-    if (ref.exists(bookmarksFeedProvider)) {
+    if (ref.read(bookmarksFeedProvider.exists)) {
       ref
           .read(bookmarksFeedProvider.notifier)
           .applyBookmark(updated, bookmarked: bookmarked);
@@ -1099,7 +1099,7 @@ class ConversationThread extends _$ConversationThread {
     // refetch (invalidate); the inbox row is spliced in place IF the inbox
     // is alive — invalidating it would collapse its loaded pages to page 1.
     ref.invalidate(unreadConversationCountProvider);
-    if (ref.exists(conversationsFeedProvider)) {
+    if (ref.read(conversationsFeedProvider.exists)) {
       ref.read(conversationsFeedProvider.notifier).markRead(conversation.id);
     }
     return ConversationThreadState(
@@ -1188,7 +1188,7 @@ class ConversationThread extends _$ConversationThread {
         ),
       );
       final row = latest.conversation;
-      if (row != null && ref.exists(conversationsFeedProvider)) {
+      if (row != null && ref.read(conversationsFeedProvider.exists)) {
         ref
             .read(conversationsFeedProvider.notifier)
             .applyActivity(
@@ -1246,7 +1246,7 @@ class GroupConversationThread extends _$GroupConversationThread {
     // Reading marks my participant row read server-side — same badge /
     // inbox-splice discipline as the direct thread.
     ref.invalidate(unreadConversationCountProvider);
-    if (ref.exists(conversationsFeedProvider)) {
+    if (ref.read(conversationsFeedProvider.exists)) {
       ref.read(conversationsFeedProvider.notifier).markRead(conversationId);
     }
     return ConversationThreadState(
@@ -1265,7 +1265,7 @@ class GroupConversationThread extends _$GroupConversationThread {
   /// `null` means the GET 404'd (see [ForumApi.fetchConversation]); any
   /// other failure propagates as the provider's error state.
   Future<ForumConversation?> _resolveConversation(ForumApi api) async {
-    if (ref.exists(conversationsFeedProvider)) {
+    if (ref.read(conversationsFeedProvider.exists)) {
       final rows = ref.read(conversationsFeedProvider).asData?.value.items;
       if (rows != null) {
         for (final row in rows) {
@@ -1342,7 +1342,7 @@ class GroupConversationThread extends _$GroupConversationThread {
         ),
       );
       final row = latest.conversation;
-      if (row != null && ref.exists(conversationsFeedProvider)) {
+      if (row != null && ref.read(conversationsFeedProvider.exists)) {
         ref
             .read(conversationsFeedProvider.notifier)
             .applyActivity(
@@ -1402,7 +1402,7 @@ class GroupConversationThread extends _$GroupConversationThread {
           conversationId: conversationId,
           username: myUsername,
         );
-    if (ref.exists(conversationsFeedProvider)) {
+    if (ref.read(conversationsFeedProvider.exists)) {
       ref.read(conversationsFeedProvider.notifier).remove(conversationId);
     }
   }
@@ -1412,7 +1412,7 @@ class GroupConversationThread extends _$GroupConversationThread {
     if (current != null) {
       state = AsyncData(current.copyWith(conversation: row));
     }
-    if (ref.exists(conversationsFeedProvider)) {
+    if (ref.read(conversationsFeedProvider.exists)) {
       ref.read(conversationsFeedProvider.notifier).replaceRow(row);
     }
   }
