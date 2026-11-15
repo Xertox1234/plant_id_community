@@ -65,7 +65,7 @@ dependencies:
   html: ^0.15.7  # Parse sanitized forum StreamField paragraph HTML for rendering
 
   # Secure Storage
-  flutter_secure_storage: ^10.0.0  # Secure JWT token storage
+  flutter_secure_storage: ^11.2.0  # Secure JWT token storage
 
   # Notifications
   flutter_local_notifications: ^21.0.0  # Local notification scheduling
