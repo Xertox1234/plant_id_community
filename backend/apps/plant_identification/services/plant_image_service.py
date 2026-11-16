@@ -294,7 +294,7 @@ class PlantImageService:
         """
         names = [str(name) for name in tag_names]
         lowered = {name.lower() for name in names}
-        sources = [s for s in ("unsplash", "pexels") if s in lowered]
+        sources: List[str] = [s for s in ("unsplash", "pexels") if s in lowered]
         if "ai_generated" in lowered:
             sources.append("ai")
         if len(sources) != 1:
