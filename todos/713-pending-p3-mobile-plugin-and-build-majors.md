@@ -130,6 +130,10 @@ Source: `flutter pub outdated` in `plant_community_mobile/` on Flutter 3.47.9,
   the token API.
 - `pubspec.lock`: `test_api` back to 0.7.12 (the Flutter SDK pins it;
   Dependabot's lock had 0.7.14).
+- #1331 cannot build for Android until #1319 is merged: firebase-auth
+  25.0.0 is compiled with Kotlin 2.4 and main is on Kotlin 2.2
+  (`:firebase_auth:compileDebugKotlin`, "metadata is 2.4.0, expected version
+  is 2.2.0"). #1319 brings Kotlin 2.4.21. Merge #1319, then rebase #1331.
 - firebase_messaging 17 also moves to Firebase iOS SDK 13 and Android BoM 35
   with minSdk 24 (the app is already on 24; iOS floor 16.0).
 
