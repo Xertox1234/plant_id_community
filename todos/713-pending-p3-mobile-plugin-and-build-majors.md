@@ -112,6 +112,27 @@ Source: `flutter pub outdated` in `plant_community_mobile/` on Flutter 3.47.9,
 - `.github/dependabot.yml` now puts every FlutterFire package in one
   `firebase` group of any update size (#1323), replacing `firebase-majors`.
 
+### 2026-11-16 - #1331: the push "migration" is not a rename
+
+- `register()` / `onRegistered` in firebase_messaging 17.0.1 hand out a
+  Firebase installation ID (FID), not a registration token (package source,
+  `lib/src/messaging.dart`). The backend stores tokens and sends with
+  `messaging.Message(token=...)`; firebase-admin 7.7.0 takes a FID in a
+  separate `fid=` field. Moving the app alone would register FIDs as tokens
+  and every push to them would fail.
+- #1331 therefore keeps `getToken` / `onTokenRefresh` (still in the package,
+  deprecated) with two `// ignore: deprecated_member_use` lines in
+  `lib/services/push_registration_service.dart`. `flutter analyze` clean,
+  `flutter test` 1839 passed. No device check done.
+- A real move needs both sides: a device row that says whether it holds a
+  token or a FID, `fid=` on send, and builds already installed keep sending
+  tokens. Not started; needs an owner decision before the package removes
+  the token API.
+- `pubspec.lock`: `test_api` back to 0.7.12 (the Flutter SDK pins it;
+  Dependabot's lock had 0.7.14).
+- firebase_messaging 17 also moves to Firebase iOS SDK 13 and Android BoM 35
+  with minSdk 24 (the app is already on 24; iOS floor 16.0).
+
 ## Notes
 
 Needs the owner's phones, so a sweep will stop at the device check.
