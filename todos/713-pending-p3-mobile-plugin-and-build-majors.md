@@ -95,6 +95,23 @@ Source: `flutter pub outdated` in `plant_community_mobile/` on Flutter 3.47.9,
 
 - Filed from the stack audit.
 
+### 2026-11-15 - Minors merged; four device-gated PRs open
+
+- #1325 (merged): pub minor/patch, 14 updates, with regenerated providers
+  and 19 `ref.exists(p)` -> `ref.read(p.exists)` rewrites for Riverpod 3.5.
+- #1315 (merged): cupertino_icons 1.0.9 -> 2.0.0. Analyzer and tests pass;
+  icons not looked at on a device.
+- Open, waiting for the owner's phones: #1319 (AGP 8.13.2, Kotlin 2.4.21,
+  google-services 4.5.0; CI green after moving jvmTarget to
+  `kotlin { compilerOptions }`), #1314 (flutter_secure_storage 11.2.0, CI
+  green), #1332 (permission_handler 13.0.2, CI green).
+- #1331 (Firebase group, 6 updates): CI red. firebase_messaging 17
+  deprecates `getToken` and `onTokenRefresh` in
+  `lib/services/push_registration_service.dart` (use `register()` /
+  `onRegistered`); that migration is not written.
+- `.github/dependabot.yml` now puts every FlutterFire package in one
+  `firebase` group of any update size (#1323), replacing `firebase-majors`.
+
 ## Notes
 
 Needs the owner's phones, so a sweep will stop at the device check.
