@@ -173,7 +173,7 @@ redis==7.4.0
 referencing==0.37.0
 requests==2.34.2
 rich==14.2.0
-rpds-py==0.28.0
+rpds-py==2026.9.1
 rsa==4.9.1
 ruff==0.15.17  # lint gate (pyproject [tool.ruff]; pin == ruff-pre-commit rev in .pre-commit-config.yaml) + F401 auto-fix at edit time; NOT a formatter — black+isort own formatting
 s3transfer==0.19.3
@@ -211,7 +211,7 @@ wagtail-headless-preview==0.9.0
 watchfiles==1.3.0
 wcwidth==0.9.4
 webencodings==0.6.1
-websockets==17.2
+websockets==17.4
 whitenoise==6.12.0
 Willow==1.12.0
 yarl==1.25.1
