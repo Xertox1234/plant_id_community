@@ -1,4 +1,5 @@
 import copy
+from collections.abc import Callable
 from typing import Any
 
 from django.conf import settings
@@ -263,7 +264,7 @@ MISSING = object()
 # answers MISSING). Registration lives here rather than in Django settings so
 # the hook is explicit and testable (``test_conf``), and so an unregistered
 # host is byte-for-byte the pre-hook behaviour.
-_override_providers = []
+_override_providers: list[Callable[[str], Any]] = []
 
 
 def register_override_provider(provider):

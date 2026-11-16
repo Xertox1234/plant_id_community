@@ -18,6 +18,9 @@ import type { BrowserOptions, Event, EventHint } from '@sentry/react';
 import { logger } from '../utils/logger';
 import { scrubBreadcrumb, scrubEvent, scrubRecordingEvent } from './sentryScrub';
 
+// Header and query-parameter name fragments Sentry 10 withheld by default.
+const SENTRY_V10_DENY = ['forwarded', '-ip', 'remote-', 'via', '-user'];
+
 /**
  * Initialize Sentry error tracking
  * Call this once at app startup (main.tsx)
@@ -62,6 +65,31 @@ export function initSentry(): void {
 
     // Performance monitoring (adjust as needed)
     tracesSampleRate: 0.1, // 10% of transactions
+
+    // Sentry 11 streams spans by default and then never calls
+    // beforeSendTransaction, which is where token URLs are scrubbed below
+    // (sentry.wire.test.ts sends one through the real SDK). 'static' keeps
+    // the transaction model and that hook. Sentry plans to remove 'static'
+    // in a later major: before then, move the scrub to beforeSendSpan.
+    traceLifecycle: 'static',
+
+    // Sentry 11 collects more by default (cookies, user info, request and
+    // response bodies). This is the v10 baseline from Sentry's migration
+    // guide: nothing more leaves the browser than before the upgrade.
+    dataCollection: {
+      userInfo: false,
+      cookies: false,
+      httpHeaders: {
+        request: { deny: SENTRY_V10_DENY },
+        response: { deny: SENTRY_V10_DENY },
+      },
+      httpBodies: [],
+      urlQueryParams: { deny: SENTRY_V10_DENY },
+      genAI: { inputs: false, outputs: false },
+      databaseQueryData: false,
+      queues: false,
+      graphQL: { document: false, variables: false },
+    },
 
     // Release tracking (optional - useful for sourcemaps)
     // release: import.meta.env.VITE_APP_VERSION,

@@ -963,7 +963,7 @@ void main() {
       watching.pause();
       await pumpEventQueue();
       expect(
-        harness.container.exists(userProfileServiceProvider),
+        harness.container.read(userProfileServiceProvider.exists),
         isTrue,
         reason: 'a paused listener still keeps an autoDispose provider',
       );
@@ -1068,7 +1068,10 @@ void main() {
         'django-jwt',
       );
       expect(builds.count, 0);
-      expect(harness.container.exists(userProfileServiceProvider), isFalse);
+      expect(
+        harness.container.read(userProfileServiceProvider.exists),
+        isFalse,
+      );
     });
   });
 

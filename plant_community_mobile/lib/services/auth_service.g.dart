@@ -107,7 +107,7 @@ final class AuthServiceProvider
   }
 }
 
-String _$authServiceHash() => r'c3b12871d46c38916ea9a0553ee194041253ca2e';
+String _$authServiceHash() => r'7fca401e57b9cbdcb6013c60010669421bc9537e';
 
 /// Authentication service that handles Firebase Auth + Django JWT
 ///
@@ -136,7 +136,7 @@ abstract class _$AuthService extends $Notifier<AuthState> {
   AuthState build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<AuthState, AuthState>;
     final element =
         ref.element
@@ -146,6 +146,6 @@ abstract class _$AuthService extends $Notifier<AuthState> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }

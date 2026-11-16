@@ -33,7 +33,7 @@ dependencies:
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
+  cupertino_icons: ^2.0.0
 
   # Firebase
   firebase_core: ^4.15.2  # >=4.15.1 pins Firebase iOS SDK 12.19.3 (Firestore eMudhra CA fix)
@@ -49,20 +49,20 @@ dependencies:
   go_router: ^17.0.0
 
   # Image Handling
-  image_picker: ^1.2.0
+  image_picker: ^1.2.4
   cached_network_image: ^3.4.1
-  flutter_cache_manager: ^3.4.1  # Private scan-photo cache, emptied on sign-out (scan-2 audit M7)
+  flutter_cache_manager: ^3.5.0  # Private scan-photo cache, emptied on sign-out (scan-2 audit M7)
 
   # HTTP
-  dio: ^5.8.1
+  dio: ^5.11.1
   http: ^1.2.2  # For weather API calls
   http_parser: ^4.1.2  # MediaType for multipart part Content-Types
 
   # Utils
   intl: ^0.20.1
   uuid: ^4.5.2
-  logger: ^2.5.0
-  html: ^0.15.4  # Parse sanitized forum StreamField paragraph HTML for rendering
+  logger: ^2.8.0
+  html: ^0.15.7  # Parse sanitized forum StreamField paragraph HTML for rendering
 
   # Secure Storage
   flutter_secure_storage: ^10.0.0  # Secure JWT token storage
@@ -70,7 +70,7 @@ dependencies:
   # Notifications
   flutter_local_notifications: ^21.0.0  # Local notification scheduling
 
-  path_provider: ^2.1.5  # For database file paths
+  path_provider: ^2.1.6  # For database file paths
   path: ^1.9.1  # Path manipulation
 
   # Permissions
@@ -85,12 +85,12 @@ dependencies:
 
   # Opens forum links in the in-app browser (SFSafariViewController / Custom
   # Tab). Only http(s) is ever handed to it (todo 424).
-  url_launcher: ^6.3.2
+  url_launcher: ^6.3.3
   # The device's IANA zone ("America/Denver") for quiet hours; Dart's own
   # DateTime.timeZoneName is only an abbreviation (todo 624, owner decision
   # 2026-10-13).
   flutter_timezone: ^5.1.1
-  camera: ^0.12.0+2
+  camera: ^0.12.2
 
 dev_dependencies:
   flutter_test:
@@ -110,7 +110,7 @@ dev_dependencies:
   flutter_lints: ^6.0.0
 
   # Code generation
-  build_runner: ^2.7.1
+  build_runner: ^2.17.1
   riverpod_generator: ^4.0.0+1
   flutter_dotenv: ^6.0.0  # Legacy tests/docs only; runtime config uses --dart-define
   fake_cloud_firestore: ^4.1.1

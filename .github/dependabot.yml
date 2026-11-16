@@ -15,7 +15,8 @@
 #   - No BLANKET `ignore` rule filters by update type: an ignore rule must never
 #     be able to hold back a security fix that happens to be a major bump
 #     (soupsieve 2.9 -> 4.0, #1302). The only update-type ignores below name
-#     one build tool, one types package and the base image, each a decision
+#     one build tool, the TypeScript compiler (a dev tool), one types package
+#     and the base image, each a decision
 #     already taken; none of them ships in the running app's request path
 #     except the base image, whose patch releases still arrive by rebuild.
 #
@@ -46,6 +47,22 @@ updates:
       semver-major-days: 30
     ignore:
       - dependency-name: "ruff"
+      # Wagtail 8.0 AND 8.1 both require django-treebeard<6.0 (#1317 could
+      # not install). Remove when a Wagtail release lifts the cap.
+      - dependency-name: "django-treebeard"
+        versions: [">=6"]
+      # django-ai-core 0.1.6 requires any-llm-sdk>=1.23, a move tracked in
+      # todo 711; it broke the whole minor/patch group (#1322). Remove this
+      # entry in the PR that takes any-llm-sdk 1.x.
+      - dependency-name: "django-ai-core"
+        versions: [">=0.1.6"]
+      # llm (wagtail-ai's backend) needs sqlite-utils 4 from 0.32 and
+      # openai>3 from 0.33; sqlite-migrate 0.2 needs sqlite-utils 4 too.
+      # Same move as above (todo 711).
+      - dependency-name: "llm"
+        versions: [">=0.32"]
+      - dependency-name: "sqlite-migrate"
+        versions: [">=0.2"]
     groups:
       backend-minor-patch:
         patterns: ["*"]
@@ -71,9 +88,25 @@ updates:
       # @types/node follows the Node version in .nvmrc (24), not npm's latest.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # TypeScript 7 cannot install: typescript-eslint (8.72.2, and its
+      # canary) requires typescript <6.1.0, so #1330 failed `npm ci`. Remove
+      # this entry when typescript-eslint accepts 7 (todo 712).
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
+      # vitest, @vitest/ui and @vitest/coverage-v8 peer-pin each other to
+      # the exact same version, so they only install together: #1311 and
+      # #1312 each bumped one and both failed `npm ci` with ERESOLVE. One PR
+      # for the set, any update size (the Vitest 5 move is todo 712).
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
       npm-minor-patch:
         patterns: ["*"]
+        exclude-patterns:
+          - "vitest"
+          - "@vitest/*"
         update-types: ["minor", "patch"]
 
   # Flutter app.
@@ -91,14 +124,24 @@ updates:
       default-days: 7
       semver-major-days: 30
     groups:
+      # Every FlutterFire package, any update size, in ONE PR of its own.
+      # They share firebase_core and only resolve together, and a "minor"
+      # bump of one can force a major of the rest: #1321, titled minor/patch,
+      # carried firebase_core 5, firebase_auth 7, cloud_firestore 7 and
+      # firebase_messaging 17 because firebase_messaging_platform_interface
+      # 4.11 needs them. A Firebase PR always needs a device check (todo 713).
+      firebase:
+        patterns:
+          - "firebase_*"
+          - "cloud_firestore*"
+          - "fake_cloud_firestore"
       pub-minor-patch:
         patterns: ["*"]
+        exclude-patterns:
+          - "firebase_*"
+          - "cloud_firestore*"
+          - "fake_cloud_firestore"
         update-types: ["minor", "patch"]
-      # The FlutterFire majors only resolve together (they share
-      # firebase_core), so four separate PRs would each fail alone.
-      firebase-majors:
-        patterns: ["firebase_*", "cloud_firestore*"]
-        update-types: ["major"]
 
   # Android build plugins (AGP, Kotlin, google-services).
   - package-ecosystem: "gradle"

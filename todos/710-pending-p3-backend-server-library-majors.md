@@ -69,3 +69,14 @@ One PR per package, in this order, each after todo 708 lands:
 ### 2026-11-15 - Filed
 
 - Filed from the stack audit. Wave 1 of the backend majors.
+
+### 2026-11-15 - gunicorn minor taken; websockets 17 checked locally
+
+- #1333 (merged): gunicorn 26.0.0 -> 26.2.0 and uvicorn 0.46 -> 0.54 as part
+  of the minor/patch group. The majors in this todo are untouched.
+- #1318 (websockets 15.0.1 -> 17.2): open, auto-merge armed after a rebase
+  onto #1333. Local check with uvicorn 0.54 on a spare port: the forum
+  socket handshakes and closes 4503 (flag off) and 4401 (flag on, no
+  sign-in), identical under 15.0.1 and 17.2. NOT checked: a signed-in
+  socket held open with pings, and production. The "one live socket in
+  production" criterion is still open.

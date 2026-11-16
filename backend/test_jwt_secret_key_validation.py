@@ -8,6 +8,7 @@ in all environments and cannot fall back to SECRET_KEY.
 Usage:
     python test_jwt_secret_key_validation.py
 """
+
 import os
 import subprocess
 import sys

@@ -71,3 +71,33 @@ One PR per row, in this order:
 ### 2026-11-15 - Filed
 
 - Filed from the stack audit.
+
+### 2026-11-15 - Sentry 11 (#1329)
+
+- `@sentry/react` 10.73.0 -> 11.8.0. As Dependabot wrote it the PR was green
+  and wrong: Sentry 11 streams spans by default and no longer calls
+  `beforeSendTransaction`, so a traced page's token URL left the browser
+  unscrubbed. `web/src/config/sentry.wire.test.ts` runs the real SDK and
+  failed on that; `sentry.test.ts` mocks the SDK and could not see it.
+- Fixed with `traceLifecycle: 'static'` (keeps the transaction model and the
+  existing scrub) and an explicit `dataCollection` set to the v10 baseline.
+- STILL OPEN: `'static'` is a compatibility mode Sentry plans to remove in a
+  later major. Before then, move the scrub to `beforeSendSpan` (streamed span
+  format) and drop `traceLifecycle`. The wire test stays as the proof.
+- `dataCollection` has no test: nothing observable in jsdom changed with it.
+
+### 2026-11-15 - Vitest 5 and jest-dom 7 merged; TypeScript 7 declined for now
+
+- #1324 (merged): @testing-library/jest-dom 6.9.1 -> 7.0.1.
+- #1328 (merged): vitest, @vitest/ui, @vitest/coverage-v8 4.1.12 -> 5.0.5.
+  Vitest 5 changed `Assertion<T>` to `Assertion<R, T>`, so jest-dom's own
+  type augmentation stopped merging; `web/src/tests/jest-dom-vitest.d.ts`
+  attaches the matchers to `Matchers<R, T>`. Delete it when jest-dom ships
+  Vitest 5 types.
+- #1330 (TypeScript 6.0.3 -> 7.0.2): DECLINED for now. `npm ci` fails:
+  @typescript-eslint/eslint-plugin 8.72.2 (latest) and 8.72.3-alpha.8
+  (canary) both require `typescript >=4.8.4 <6.1.0`. `dependabot.yml`
+  ignores the TypeScript major until typescript-eslint accepts 7; remove
+  that entry then.
+- jsdom 31: no Dependabot PR yet.
+- Playwright suite not run after the Vitest PR.
