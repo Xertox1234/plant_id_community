@@ -7,6 +7,7 @@ import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/providers/forum_providers.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
+import 'package:plant_community_mobile/features/forum/widgets/author_identity.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_avatar_cluster.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_activity_card.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_latest_replies_view.dart';
@@ -22,6 +23,8 @@ ForumRecentTopic _topic(
   bool isUnread = false,
   bool isSolved = false,
   String? title,
+  List<String> thumbnailUrls = const [],
+  List<ForumAuthor> repliers = const [],
 }) => ForumRecentTopic(
   id: id,
   slug: 'topic-$id',
@@ -32,6 +35,8 @@ ForumRecentTopic _topic(
   isUnread: isUnread,
   isSolved: isSolved,
   imageUrl: imageUrl,
+  thumbnailUrls: thumbnailUrls,
+  repliers: repliers,
 );
 
 ForumLatestReply _reply(int id, String excerpt, {String name = 'Iris'}) =>
@@ -131,9 +136,8 @@ Future<void> _tapCard(WidgetTester tester, int id) =>
 
 void main() {
   group('ForumActivityCard', () {
-    testWidgets('picture card opens the topic and never fetches replies', (
-      tester,
-    ) async {
+    testWidgets('a picture topic is collapsed with one small thumbnail, and '
+        'expands on tap like any other', (tester) async {
       final api = FakeForumApi()..latestRepliesByTopic = {1: _peek()};
       final opened = <int>[];
       await _pump(tester, api, [
@@ -141,24 +145,108 @@ void main() {
       ], opened: opened);
       // Bounded pumps: a CachedNetworkImage placeholder never settles.
       await tester.pump();
-      expect(find.byType(CachedNetworkImage), findsOneWidget);
-      expect(
-        tester
-            .widget<CachedNetworkImage>(find.byType(CachedNetworkImage))
-            .memCacheWidth,
-        375,
-      );
-      await _tapCard(tester, 1);
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(opened, [1]);
+      final image = find.byType(CachedNetworkImage);
+      expect(image, findsOneWidget);
+      // Decoded at the size drawn (56 pt at 1x), not the screen's width.
+      expect(tester.widget<CachedNetworkImage>(image).memCacheWidth, 56);
+      expect(tester.getSize(image).width, lessThan(60));
+      // Collapsed: nothing fetched, nothing opened.
       expect(_bodyOf(1), findsNothing);
       expect(api.latestRepliesCalls(1), 0);
+
+      await _tapCard(tester, 1);
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(opened, isEmpty);
+      expect(_bodyOf(1), findsOneWidget);
+      expect(api.latestRepliesCalls(1), 1);
+    });
+
+    testWidgets('several pictures are stacked, never more than three', (
+      tester,
+    ) async {
+      final api = FakeForumApi();
+      await _pump(tester, api, [
+        _topic(
+          1,
+          imageUrl: 'https://example.test/wide.jpg',
+          thumbnailUrls: [
+            for (var i = 0; i < 5; i++) 'https://example.test/$i.jpg',
+          ],
+        ),
+        _topic(2),
+      ]);
+      await tester.pump();
+      final images = find.descendant(
+        of: _card(1),
+        matching: find.byType(CachedNetworkImage),
+      );
+      expect(images, findsNWidgets(3));
+      // The list wins over the single wide image, first picture in front
+      // (painted last).
+      expect(
+        tester.widgetList<CachedNetworkImage>(images).map((w) => w.imageUrl),
+        [
+          'https://example.test/2.jpg',
+          'https://example.test/1.jpg',
+          'https://example.test/0.jpg',
+        ],
+      );
+      expect(
+        find.descendant(
+          of: _card(2),
+          matching: find.byType(CachedNetworkImage),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('two or more repliers show stacked avatars; one does not', (
+      tester,
+    ) async {
+      final api = FakeForumApi();
+      final iris = author(username: 'iris', displayName: 'Iris');
+      await _pump(tester, api, [
+        _topic(
+          1,
+          repliers: [
+            iris,
+            author(username: 'sam', displayName: 'Sam'),
+            author(username: 'will', displayName: 'Will'),
+            author(username: 'mona', displayName: 'Mona'),
+          ],
+        ),
+        // The same person twice is still one voice: no stack.
+        _topic(2, repliers: [iris, iris]),
+        _topic(3),
+      ]);
+      Finder avatars(int id) =>
+          find.descendant(of: _card(id), matching: find.byType(AuthorAvatar));
+      Finder bubble(int id) => find.descendant(
+        of: _card(id),
+        matching: find.byIcon(LucideIcons.messageCircle),
+      );
+      // Capped at three; the avatars stand in for the reply icon.
+      expect(avatars(1), findsNWidgets(3));
+      expect(bubble(1), findsNothing);
+      for (final id in [2, 3]) {
+        expect(avatars(id), findsNothing);
+        expect(bubble(id), findsOneWidget);
+      }
+      // They overlap: three 23 pt discs take less than three widths.
+      final left = tester.getTopLeft(avatars(1).last).dx;
+      final right = tester.getTopRight(avatars(1).first).dx;
+      expect(right - left, lessThan(23 * 3));
+      expect(tester.takeException(), isNull);
     });
 
     for (final size in const [Size(320, 640), Size(375, 812)]) {
       for (final scale in const [1.0, 2.0]) {
-        testWidgets('text-card chevron is at the right content edge, '
-            '${size.width.toInt()}pt x$scale', (tester) async {
+        testWidgets('the chevron is at the right content edge with or '
+            'without a picture, ${size.width.toInt()}pt x$scale', (
+          tester,
+        ) async {
           final api = FakeForumApi();
           await _pump(
             tester,
@@ -167,28 +255,33 @@ void main() {
             size: size,
             textScale: scale,
           );
-          final textRight = tester
+          double chevronRight(int id) => tester
               .getTopRight(
                 find.descendant(
-                  of: _card(1),
+                  of: _card(id),
                   matching: find.byIcon(LucideIcons.chevronDown),
                 ),
               )
               .dx;
+          expect(
+            (chevronRight(1) - chevronRight(2)).abs(),
+            lessThanOrEqualTo(1),
+          );
+          // The picture stack ends on the same edge.
           final pictureRight = tester
               .getTopRight(
                 find.descendant(
                   of: _card(2),
-                  matching: find.byIcon(LucideIcons.chevronRight),
+                  matching: find.byType(CachedNetworkImage),
                 ),
               )
               .dx;
-          expect((textRight - pictureRight).abs(), lessThanOrEqualTo(1));
+          expect((pictureRight - chevronRight(2)).abs(), lessThanOrEqualTo(3));
         });
       }
     }
 
-    testWidgets('text card expands to the solution plus the 2 newest', (
+    testWidgets('a card expands to the solution plus the 2 newest', (
       tester,
     ) async {
       final api = FakeForumApi()..latestRepliesByTopic = {1: _peek()};
@@ -356,7 +449,7 @@ void main() {
       );
     });
 
-    testWidgets('the text card reports its expanded state', (tester) async {
+    testWidgets('the card reports its expanded state', (tester) async {
       final handle = tester.ensureSemantics();
       final api = FakeForumApi()..latestRepliesByTopic = {1: _peek()};
       await _pump(tester, api, [_topic(1, isUnread: true)]);
@@ -392,6 +485,28 @@ void main() {
       final open = tester.getSemantics(find.text('Open topic'));
       expect(open.label, 'Open topic');
       expect(open.flagsCollection.isButton, isTrue);
+      handle.dispose();
+    });
+
+    testWidgets('the label says when a topic has photos', (tester) async {
+      final handle = tester.ensureSemantics();
+      final api = FakeForumApi();
+      await _pump(tester, api, [
+        _topic(1, imageUrl: 'https://example.test/a.jpg'),
+        _topic(
+          2,
+          thumbnailUrls: ['https://example.test/a.jpg', 'https://x.test/b.jpg'],
+        ),
+      ]);
+      await tester.pump();
+      expect(
+        tester.getSemantics(find.text('Topic 1')).label,
+        'Care, Topic 1, 4 replies, 2h, Has a photo',
+      );
+      expect(
+        tester.getSemantics(find.text('Topic 2')).label,
+        'Care, Topic 2, 4 replies, 2h, Has photos',
+      );
       handle.dispose();
     });
 
@@ -442,7 +557,7 @@ void main() {
           final name =
               '${size.width.toInt()}x${size.height.toInt()}, x$scale, '
               '${brightness.name}';
-          testWidgets('no overflow, expanded and picture: $name', (
+          testWidgets('no overflow, expanded and stacked: $name', (
             tester,
           ) async {
             final long =
@@ -462,14 +577,26 @@ void main() {
               api,
               [
                 _topic(1, isSolved: true, isUnread: true, title: long),
-                _topic(2, imageUrl: 'https://example.test/b.jpg', title: long),
+                _topic(
+                  2,
+                  title: long,
+                  isUnread: true,
+                  thumbnailUrls: [
+                    for (var i = 0; i < 3; i++) 'https://example.test/$i.jpg',
+                  ],
+                  repliers: [
+                    author(username: 'iris', displayName: 'Iris'),
+                    author(username: 'sam', displayName: 'Sam'),
+                    author(username: 'will', displayName: 'Will'),
+                  ],
+                ),
               ],
               brightness: brightness,
               size: size,
               textScale: scale,
             );
             await tester.tap(find.text(long).first);
-            // Bounded pumps: the picture card's placeholder never settles.
+            // Bounded pumps: a picture's placeholder never settles.
             for (var i = 0; i < 10; i++) {
               await tester.pump(const Duration(milliseconds: 50));
             }

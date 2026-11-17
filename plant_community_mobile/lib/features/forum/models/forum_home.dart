@@ -9,6 +9,16 @@ import 'package:flutter/foundation.dart';
 import 'forum_author.dart';
 import 'forum_topic.dart';
 
+/// [_authors], each person once (first one wins): a stack of avatars never
+/// shows the same face twice.
+List<ForumAuthor> _distinctAuthors(dynamic value) {
+  final seen = <String>{};
+  return [
+    for (final author in _authors(value))
+      if (seen.add(author.username)) author,
+  ];
+}
+
 DateTime? _date(dynamic value) {
   if (value is String && value.isNotEmpty) {
     return DateTime.tryParse(value)?.toLocal();
@@ -40,6 +50,8 @@ class ForumRecentTopic {
     this.isUnread = false,
     this.thumbnailUrl,
     this.imageUrl,
+    this.thumbnailUrls = const [],
+    this.repliers = const [],
   });
 
   final int id;
@@ -56,7 +68,29 @@ class ForumRecentTopic {
   /// A wide image for the card, or `null` (older servers never send it).
   final String? imageUrl;
 
-  bool get hasPicture => imageUrl != null;
+  /// Small square crops of the opening post's pictures, first one first
+  /// (at most [maxThumbnails]). Empty from an older server.
+  final List<String> thumbnailUrls;
+
+  /// The people who replied most recently, newest first (a short list, not
+  /// everyone). Empty from an older server.
+  final List<ForumAuthor> repliers;
+
+  /// The most pictures a card stacks.
+  static const int maxThumbnails = 3;
+
+  /// The pictures the collapsed card stacks. An older server sends no list:
+  /// fall back to its one image ([imageUrl] first: it is sharper than the
+  /// 80 px [thumbnailUrl], and only it carries a link card's picture).
+  List<String> get thumbnails {
+    if (thumbnailUrls.isNotEmpty) {
+      // A `Set` keeps first-seen order: the same picture is never stacked
+      // on itself.
+      return thumbnailUrls.toSet().take(maxThumbnails).toList(growable: false);
+    }
+    final one = imageUrl ?? thumbnailUrl;
+    return one == null ? const [] : [one];
+  }
 
   factory ForumRecentTopic.fromJson(Map<String, dynamic> json) {
     final board = json['board'];
@@ -79,6 +113,11 @@ class ForumRecentTopic {
       isUnread: json['is_unread'] as bool? ?? false,
       thumbnailUrl: json['thumbnail_url'] as String?,
       imageUrl: json['image_url'] as String?,
+      thumbnailUrls: (json['thumbnail_urls'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .where((url) => url.isNotEmpty)
+          .toList(growable: false),
+      repliers: _distinctAuthors(json['repliers']),
     );
   }
 }

@@ -714,11 +714,18 @@ class RecentTopics extends _$RecentTopics {
   }
 }
 
-/// The home activity feed — the ten most recent topics with solved/unread
-/// state and a wide image. Distinct from [RecentTopics], the offline mirror.
+/// How many topics the forum home's Recent activity shows (owner decision
+/// 2026-11-16: the three latest, each collapsed).
+const int kHomeRecentTopicsLimit = 3;
+
+/// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
+/// with solved/unread state, pictures and recent repliers. Distinct from
+/// [RecentTopics], the offline mirror.
 @Riverpod(retry: forumRetry)
 Future<List<ForumRecentTopic>> homeRecentTopics(Ref ref) {
-  return ref.watch(forumApiProvider).fetchRecentTopics(limit: 10);
+  return ref
+      .watch(forumApiProvider)
+      .fetchRecentTopics(limit: kHomeRecentTopicsLimit);
 }
 
 /// A topic's latest-replies peek. Kept alive while the forum home is mounted

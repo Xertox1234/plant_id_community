@@ -116,9 +116,9 @@ FakeForumApi _fullApi() => FakeForumApi()
       isUnread: true,
       isSolved: true,
     ),
-    // No picture card here: its CachedNetworkImage reaches for
-    // path_provider, which has no plugin under test. The picture card's own
-    // 320x640 / 2.0x matrix lives in forum_activity_card_test.dart.
+    // No picture here: a CachedNetworkImage reaches for path_provider, which
+    // has no plugin under test. The card's own 320x640 / 2.0x matrix, with
+    // pictures and avatars stacked, lives in forum_activity_card_test.dart.
     _topic(2, title: 'Fungus gnats everywhere'),
     for (var i = 3; i <= 11; i++) _topic(i),
   ]
@@ -354,11 +354,12 @@ void main() {
         top(find.text("Who's online")),
         lessThan(top(find.byType(ForumHomeFooter))),
       );
-      // Ten cards, though the feed returned eleven.
+      // Three cards, though the feed returned eleven.
       expect(
         find.byType(ForumActivityCard, skipOffstage: false),
-        findsNWidgets(10),
+        findsNWidgets(3),
       );
+      expect(api.recentTopicsLimits, [3]);
     });
 
     testWidgets('signed out: no season; activity and Who\'s online show', (

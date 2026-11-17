@@ -2504,6 +2504,8 @@ RECENT_TOPICS_SCHEMA = {
                     "is_pinned": {"type": "boolean"},
                     "thumbnail_url": {"type": "string", "nullable": True},
                     "image_url": {"type": "string", "nullable": True},
+                    "thumbnail_urls": {"type": "array", "items": {"type": "string"}},
+                    "repliers": {"type": "array", "items": AUTHOR_SCHEMA},
                     "is_solved": {"type": "boolean"},
                     "is_unread": {"type": "boolean"},
                 },
@@ -2527,6 +2529,15 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
     first link card's cached preview image), plus `is_solved` (accepted answer
     set) and `is_unread` (per-viewer; always False for anonymous — safe
     because authenticated responses are served private/no-store).
+
+    For the collapsed mobile card each row also carries `thumbnail_urls` (up
+    to RECENT_TOPICS_THUMBNAILS fill-160x160 crops of the opening post's
+    images in body order; with none, the same single fallback `image_url`
+    uses) and `repliers` (up to RECENT_TOPICS_REPLIERS authors of live
+    replies, most recent first). Repliers follow the feed's own HIDE rule: a
+    member the viewer blocked or muted is left out, and so is a deleted
+    account. Both are batched: one query for every topic's reply authors and
+    one for the users, whatever the page size.
     """
 
     permission_classes = [AllowAny]
@@ -2575,7 +2586,11 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         # to it when the topic has no uploaded image (owner decision
         # 2026-11-03). link_preview_envelope only ever yields our own storage's
         # URL for a name our image cache wrote, never a third-party address.
-        image_id_by_topic = {}
+        max_thumbs = get_setting("RECENT_TOPICS_THUMBNAILS")
+        image_id_by_topic: dict[int, int] = {}
+        # Every image block of the opening post, in body order (capped): the
+        # collapsed card's thumbnail stack.
+        image_ids_by_topic: dict[int, list[int]] = {}
         preview_url_by_topic = {}
         for post in Post.objects.filter(
             topic_id__in=topic_ids, is_opening_post=True, live=True
@@ -2599,13 +2614,52 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                 # attachment fallback right after seeds real ints into the same
                 # map, so this has to yield an int, not merely be hashable.
                 pk = image_block_pk(block.get("value"))
-                if pk is not None:
-                    image_id_by_topic[post.topic_id] = pk
-                    break
+                if pk is None:
+                    continue
+                image_id_by_topic.setdefault(post.topic_id, pk)
+                stack = image_ids_by_topic.setdefault(post.topic_id, [])
+                if pk not in stack and len(stack) < max_thumbs:
+                    stack.append(pk)
         for att in ForumIdentificationAttachment.objects.filter(
             topic_id__in=topic_ids, image_id__isnull=False
         ).only("topic_id", "image_id"):
+            if att.image_id is None:  # the filter's guarantee, spelled for mypy
+                continue
             image_id_by_topic.setdefault(att.topic_id, att.image_id)
+            image_ids_by_topic.setdefault(att.topic_id, [att.image_id])
+
+        # Who replied, newest first: ONE grouped query for the whole page,
+        # cut to the cap per topic in Python (a per-topic LIMIT would be a
+        # query per topic). Same visibility as the latest-replies peek: live
+        # replies only, no deleted accounts, and nobody the viewer hid.
+        max_repliers = get_setting("RECENT_TOPICS_REPLIERS")
+        replier_ids_by_topic: dict[int, list[int]] = {}
+        reply_authors = (
+            _exclude_blocked_authors(
+                Post.objects.filter(
+                    topic_id__in=topic_ids,
+                    live=True,
+                    is_opening_post=False,
+                    author_id__isnull=False,
+                ),
+                request.user,
+            )
+            .values("topic_id", "author_id")
+            .annotate(last_post=Max("created_at"))
+            .order_by("topic_id", "-last_post", "-author_id")
+        )
+        for row in reply_authors:
+            ids = replier_ids_by_topic.setdefault(row["topic_id"], [])
+            if len(ids) < max_repliers:
+                ids.append(row["author_id"])
+        replier_ids = {pk for ids in replier_ids_by_topic.values() for pk in ids}
+        repliers_by_id = (
+            get_user_model()
+            .objects.select_related("wagtail_forum_profile__avatar")
+            .in_bulk(replier_ids)
+            if replier_ids
+            else {}
+        )
 
         from wagtail.images import get_image_model
 
@@ -2619,12 +2673,17 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         # then iterates the queryset, which preserves prefetch_related.
         images = (
             get_image_model()
-            .objects.prefetch_renditions("fill-80x80", "fill-720x400")
-            .in_bulk(set(image_id_by_topic.values()))
+            .objects.prefetch_renditions("fill-80x80", "fill-720x400", "fill-160x160")
+            .in_bulk(
+                set(image_id_by_topic.values())
+                | {pk for ids in image_ids_by_topic.values() for pk in ids}
+            )
         )
 
-        def rendition_url(topic, spec):
-            image = images.get(image_id_by_topic.get(topic.pk))
+        def rendition_url(topic, spec, image_id=None):
+            image = images.get(
+                image_id if image_id is not None else image_id_by_topic.get(topic.pk)
+            )
             if image is None:
                 return None
             try:
@@ -2652,6 +2711,24 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                 topic.pk
             )
 
+        def thumbs(topic):
+            urls = [
+                url
+                for image_id in image_ids_by_topic.get(topic.pk, ())
+                if (url := rendition_url(topic, "fill-160x160", image_id))
+            ]
+            if urls:
+                return urls
+            preview_url = preview_url_by_topic.get(topic.pk)
+            return [preview_url] if preview_url else []
+
+        def repliers(topic):
+            return [
+                serialize_forum_author(repliers_by_id[pk], request)
+                for pk in replier_ids_by_topic.get(topic.pk, ())
+                if pk in repliers_by_id
+            ]
+
         return Response(
             {
                 "results": [
@@ -2669,6 +2746,8 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                         "is_pinned": t.is_pinned,
                         "thumbnail_url": thumb(t),
                         "image_url": wide(t),
+                        "thumbnail_urls": thumbs(t),
+                        "repliers": repliers(t),
                         "is_solved": t.solved_post_id is not None,
                         "is_unread": t.is_unread,
                     }
