@@ -3,7 +3,7 @@ status: pending
 priority: p3
 issue_id: "710"
 tags: [backend, dependencies, dependabot, upgrade]
-dependencies: ["708"]
+dependencies: []
 triage: ready
 triaged: 2026-11-17
 owner_decision: "Bump now against requirements.txt without waiting for 708; AC3 prod boot + live forum socket check is owner-only (2026-11-17)"
