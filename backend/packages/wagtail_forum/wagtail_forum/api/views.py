@@ -2531,9 +2531,10 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
     because authenticated responses are served private/no-store).
 
     For the collapsed mobile card each row also carries `thumbnail_urls` (up
-    to RECENT_TOPICS_THUMBNAILS fill-160x160 crops of the opening post's
-    images in body order; with none, the same single fallback `image_url`
-    uses) and `repliers` (up to RECENT_TOPICS_REPLIERS authors of live
+    to RECENT_TOPICS_THUMBNAILS pictures of the opening post in body order:
+    a fill-160x160 crop for an uploaded image, the cached preview image for a
+    link card; with no image block the identification attachment leads) and
+    `repliers` (up to RECENT_TOPICS_REPLIERS authors of live
     replies, most recent first). Repliers follow the feed's own HIDE rule: a
     member the viewer blocked or muted is left out, and so is a deleted
     account. Both are batched: one query for every topic's reply authors and
@@ -2588,23 +2589,26 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         # URL for a name our image cache wrote, never a third-party address.
         max_thumbs = get_setting("RECENT_TOPICS_THUMBNAILS")
         image_id_by_topic: dict[int, int] = {}
-        # Every image block of the opening post, in body order (capped): the
-        # collapsed card's thumbnail stack.
-        image_ids_by_topic: dict[int, list[int]] = {}
-        preview_url_by_topic = {}
+        # Every picture of the opening post, in body order (capped): the
+        # collapsed card's thumbnail stack. An int is an image block's pk, a
+        # str is a link card's cached image URL: a card's picture is a
+        # picture too, so two cards stack like two uploads (owner report
+        # 2026-11-17).
+        stack_by_topic: dict[int, list[int | str]] = {}
+        preview_url_by_topic: dict[int, str] = {}
         for post in Post.objects.filter(
             topic_id__in=topic_ids, is_opening_post=True, live=True
         ).only("topic_id", "body"):
             for block in post.body.raw_data:
-                if (
-                    block.get("type") == "link_preview"
-                    and post.topic_id not in preview_url_by_topic
-                ):
+                if block.get("type") == "link_preview":
                     preview_url = link_preview_envelope(block.get("value"), request)[
                         "image_url"
                     ]
                     if preview_url:
-                        preview_url_by_topic[post.topic_id] = preview_url
+                        preview_url_by_topic.setdefault(post.topic_id, preview_url)
+                        stack = stack_by_topic.setdefault(post.topic_id, [])
+                        if preview_url not in stack and len(stack) < max_thumbs:
+                            stack.append(preview_url)
                 if block.get("type") != "image":
                     continue
                 # image_block_pk, not the raw value: since 0037 the value is an
@@ -2617,7 +2621,7 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                 if pk is None:
                     continue
                 image_id_by_topic.setdefault(post.topic_id, pk)
-                stack = image_ids_by_topic.setdefault(post.topic_id, [])
+                stack = stack_by_topic.setdefault(post.topic_id, [])
                 if pk not in stack and len(stack) < max_thumbs:
                     stack.append(pk)
         for att in ForumIdentificationAttachment.objects.filter(
@@ -2625,8 +2629,13 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         ).only("topic_id", "image_id"):
             if att.image_id is None:  # the filter's guarantee, spelled for mypy
                 continue
-            image_id_by_topic.setdefault(att.topic_id, att.image_id)
-            image_ids_by_topic.setdefault(att.topic_id, [att.image_id])
+            # The attachment stands in only for a post with no image block,
+            # and then it leads the stack, ahead of any link card's picture.
+            if att.topic_id not in image_id_by_topic:
+                image_id_by_topic[att.topic_id] = att.image_id
+                stack = stack_by_topic.setdefault(att.topic_id, [])
+                stack.insert(0, att.image_id)
+                del stack[max_thumbs:]
 
         # Who replied, newest first: ONE grouped query for the whole page,
         # cut to the cap per topic in Python (a per-topic LIMIT would be a
@@ -2676,7 +2685,12 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
             .objects.prefetch_renditions("fill-80x80", "fill-720x400", "fill-160x160")
             .in_bulk(
                 set(image_id_by_topic.values())
-                | {pk for ids in image_ids_by_topic.values() for pk in ids}
+                | {
+                    entry
+                    for stack in stack_by_topic.values()
+                    for entry in stack
+                    if isinstance(entry, int)
+                }
             )
         )
 
@@ -2712,15 +2726,17 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
             )
 
         def thumbs(topic):
-            urls = [
+            return [
                 url
-                for image_id in image_ids_by_topic.get(topic.pk, ())
-                if (url := rendition_url(topic, "fill-160x160", image_id))
+                for entry in stack_by_topic.get(topic.pk, ())
+                if (
+                    url := (
+                        entry
+                        if isinstance(entry, str)
+                        else rendition_url(topic, "fill-160x160", entry)
+                    )
+                )
             ]
-            if urls:
-                return urls
-            preview_url = preview_url_by_topic.get(topic.pk)
-            return [preview_url] if preview_url else []
 
         def repliers(topic):
             return [

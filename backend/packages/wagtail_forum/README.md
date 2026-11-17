@@ -564,7 +564,7 @@ Things worth knowing before changing this:
 | `WAGTAILFORUM_PUBLIC_READ_CACHE_SECONDS` | `60` | Shared-cache TTL for **anonymous** board list, topic list, search, recent topics, experts rails, and the event hero only, so a CDN can offload public reads. Authenticated responses are always `private, no-store`. Topic detail and post list are never shared-cached (view counting; moderated-away content must stop serving immediately). Tradeoff: a just-removed topic can linger in the anon-cached *list* for up to this TTL. |
 | `WAGTAILFORUM_RECENT_TOPICS_DEFAULT_LIMIT` | `5` | Default row count for `GET topics/recent/` (the landing "Active now" rail) when `?limit=` is omitted. |
 | `WAGTAILFORUM_RECENT_TOPICS_MAX_LIMIT` | `20` | Cap on `?limit=` for `GET topics/recent/`. Bounded because each row may resolve a thumbnail rendition. |
-| `WAGTAILFORUM_RECENT_TOPICS_THUMBNAILS` | `3` | Max `thumbnail_urls` per row in `GET topics/recent/`: fill-160x160 crops of the opening post's images, in body order. |
+| `WAGTAILFORUM_RECENT_TOPICS_THUMBNAILS` | `3` | Max `thumbnail_urls` per row in `GET topics/recent/`: the opening post's pictures in body order, a fill-160x160 crop for an uploaded image and the cached preview image for a link card. |
 | `WAGTAILFORUM_RECENT_TOPICS_REPLIERS` | `3` | Max `repliers` per row in `GET topics/recent/`: authors of live replies, most recent first. Members the viewer blocked or muted, and deleted accounts, are left out. |
 | `WAGTAILFORUM_LATEST_REPLIES_LIMIT` | `3` | Items in `GET topics/<id>/latest-replies/` (the expanded home activity card). The accepted answer, when shown, counts toward it. |
 | `WAGTAILFORUM_LATEST_REPLIES_EXCERPT_CHARS` | `160` | Length of each plain-text reply excerpt in `GET topics/<id>/latest-replies/`. |
