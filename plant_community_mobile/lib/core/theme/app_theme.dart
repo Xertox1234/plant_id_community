@@ -245,7 +245,11 @@ class AppTheme {
         focusElevation: 4,
         hoverElevation: 6,
         splashColor: colors.secondary.withValues(alpha: 0.24),
-        shape: const CircleBorder(),
+        // A stadium, not a circle: on a square FAB the two are the same
+        // shape, but a CircleBorder on an extended FAB paints a circle in the
+        // middle of the pill and leaves the icon and label outside it.
+        shape: const StadiumBorder(),
+        extendedTextStyle: AppTypography.button,
       ),
 
       // ── inputs ──────────────────────────────────────────────────────────

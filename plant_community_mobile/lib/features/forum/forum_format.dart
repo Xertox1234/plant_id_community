@@ -41,6 +41,37 @@ ForumQuoteDraft? forumQuoteDraft(ForumPost post) {
   );
 }
 
+const _monthNames = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/// Time label for a row in a topic list: [forumRelativeTime] within a week,
+/// then a short date a reader can scan ("Aug 16"; "Aug 16, 2025" in another
+/// year) instead of the ISO form. Returns an empty string for null.
+String forumListTime(DateTime? dt, {DateTime? now}) {
+  if (dt == null) return '';
+  final reference = now ?? DateTime.now();
+  if (reference.difference(dt).inDays < 7) {
+    return forumRelativeTime(dt, now: reference);
+  }
+  final local = dt.toLocal();
+  final label = '${_monthNames[local.month - 1]} ${local.day}';
+  return local.year == reference.toLocal().year
+      ? label
+      : '$label, ${local.year}';
+}
+
 /// Compact relative-time label for forum timestamps ("just now", "5m", "3h",
 /// "2d", or an absolute date beyond a week). Returns an empty string for null.
 String forumRelativeTime(DateTime? dt, {DateTime? now}) {

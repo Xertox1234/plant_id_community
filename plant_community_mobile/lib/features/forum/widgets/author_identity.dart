@@ -26,6 +26,7 @@ class AuthorIdentity extends StatelessWidget {
     this.avatarRadius = 16,
     this.nameStyle,
     this.showTrustBadge = true,
+    this.showAvatar = true,
   });
 
   final ForumAuthor author;
@@ -34,12 +35,14 @@ class AuthorIdentity extends StatelessWidget {
   final TextStyle? nameStyle;
 
   /// Whether to render the [TrustBadge] after the name. Defaults to `true`
-  /// (matches `PostCard`'s original behavior). `TopicCard` passes `false` —
-  /// its stat row only budgets half its available slack for this widget (the
-  /// other half goes to a trailing `Spacer()`), and the badge's ~56px of
-  /// fixed, non-shrinkable width was never part of `TopicCard`'s original
-  /// design (final whole-branch review, todo 317).
+  /// (matches `PostCard`). `TopicCard` passes `false`: a topic row's meta
+  /// line carries the name and the topic's status, not the author's rank.
   final bool showTrustBadge;
+
+  /// Whether to lead with the avatar. `TopicCard` passes `false`: its row
+  /// already leads with the avatar, in a slot every row shares, and only the
+  /// name belongs in the meta line.
+  final bool showAvatar;
 
   @override
   Widget build(BuildContext context) {
@@ -51,8 +54,10 @@ class AuthorIdentity extends StatelessWidget {
       // disturb that layout.
       mainAxisSize: MainAxisSize.min,
       children: [
-        AuthorAvatar(author: author, radius: avatarRadius),
-        const SizedBox(width: AppSpacing.sm),
+        if (showAvatar) ...[
+          AuthorAvatar(author: author, radius: avatarRadius),
+          const SizedBox(width: AppSpacing.sm),
+        ],
         Flexible(
           child: Text(
             author.name,
