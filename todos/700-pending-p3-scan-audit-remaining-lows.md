@@ -4,6 +4,9 @@ priority: p3
 issue_id: "700"
 tags: [scan, plant-id, celery, quota]
 dependencies: []
+triage: ready
+triaged: 2026-11-17
+owner_decision: "L3: keep fail-open on Redis outage and add a Sentry alert; L15: option 2, accept rare duplicate scan-finished push, no migration (2026-11-17)"
 ---
 
 # Scan 2.0 audit: the two remaining low findings

@@ -4,6 +4,9 @@ priority: p3
 issue_id: "709"
 tags: [ci, runtime, python, node, dependencies]
 dependencies: []
+triage: ready
+triaged: 2026-11-17
+owner_decision: "Python line: stay on 3.13, pin the Dockerfile to a patch (python:3.13.x-slim). Prod Postgres/Redis versions (AC4) are owner-only, not read by the agent (2026-11-17)"
 ---
 
 # Runtime versions disagree between CI, the image and the version files
