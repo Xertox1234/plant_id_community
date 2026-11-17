@@ -101,6 +101,18 @@ def test_a_failing_sentry_never_breaks_the_quota_check(redis_down):
         assert QuotaManager().reserve_plant_id() is True
 
 
+def test_a_failed_send_does_not_start_the_throttle_window(redis_down):
+    """Review round 1 (todo 700): when Sentry raises, nothing was delivered, so
+    the next fail-open tries again instead of staying silent for the window."""
+    with patch.object(
+        qm.sentry_sdk, "capture_message", side_effect=[RuntimeError, None]
+    ) as capture:
+        QuotaManager().can_call_plant_id()
+        QuotaManager().can_call_plant_id()
+        QuotaManager().can_call_plant_id()
+    assert capture.call_count == 2
+
+
 def test_healthy_redis_raises_no_alert(sentry):
     client = Mock()
     client.ping.return_value = True

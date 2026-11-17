@@ -66,6 +66,11 @@ def _alert_plant_id_fail_open(reason: str) -> None:
             level="error",
         )
     except Exception as exc:  # noqa: BLE001 - alerting must never propagate
+        # Nothing reached Sentry, so hand the throttle window back: the next
+        # fail-open tries again instead of staying silent for the full window.
+        with _fail_open_alert_lock:
+            if _last_fail_open_alert == now:
+                _last_fail_open_alert = last
         logger.warning(
             "[QUOTA] Sentry fail-open alert not sent (%s)", type(exc).__name__
         )

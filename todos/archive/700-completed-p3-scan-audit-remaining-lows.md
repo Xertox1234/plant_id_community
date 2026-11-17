@@ -106,3 +106,15 @@ justify. The owner chose to bundle the remaining lows into one todo.
 ### 2026-11-17 - Completed by the todo sweep (run 2026-11-17-1802)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-17 - Review round 1: non-blocking findings (PR #1356)
+
+Round 1 was clean (no blocking findings); seven lows, handled by hand:
+
+- **Fixed.** `tasks.py` final `notified_at` mark under `autoretry_for=(OperationalError,)` re-ran the whole fan-out on a DB blip (reported three times). It is a duplicate path that main's claim-first order did not have, so this PR introduced it. The mark now catches `OperationalError`, logs it and returns. Test `test_notify_db_error_on_the_mark_does_not_fan_out_again`: one push, job left unmarked. Mutation check: catching another exception type fails it.
+- **Fixed.** `quota_manager.py` stamped the alert throttle before `capture_message`, so a failed Sentry send silenced the next 300 s. A failed send now hands the window back. Test `test_a_failed_send_does_not_start_the_throttle_window`: two sends over three fail-opens. Mutation check: removing the reset fails it.
+- **Fixed (docstring).** `OperationalError` mid fan-out and two overlapping runs for one job can also send a duplicate. Both are now named in the `notify_scan_job_finished` docstring as the at-least-once trade-off the owner accepted on 2026-11-17 (option 2). The "starts from a clean row" claim is removed.
+- **Fixed (rename).** `test_notify_killed_between_claim_and_fan_out_...` is now `test_notify_killed_mid_fan_out_still_pushes_on_redelivery`: the claim no longer exists.
+- **Declined.** `test_notify_is_acked_late` checks only the decorator attributes. Broker redelivery is Celery's job and is not unit-testable here; the redelivery tests drive the task body.
+
+`pytest test_quota_manager.py test_scan_task.py`: 34 passed.

@@ -239,9 +239,15 @@ def notify_scan_job_finished(self, job_id: int) -> None:
     killed mid fan-out leaves the job unmarked and the redelivery sends it.
     The trade-off (owner decision 2026-11-17): a death between the fan-out
     and the mark sends the push twice. The device-side collapse key folds an
-    undelivered duplicate. A job already marked notified sends nothing, and
-    nothing is claimed before the sends, so an ``OperationalError`` retry
-    starts from a clean row.
+    undelivered duplicate. A job already marked notified sends nothing.
+
+    Duplicates the same trade-off accepts: an ``OperationalError`` raised
+    mid fan-out retries the task and re-sends to the devices already
+    enqueued, and two overlapping runs for one job (a duplicate enqueue, a
+    retry racing a redelivery) can both send. An ``OperationalError`` on the
+    final mark is NOT retried: every send is already enqueued, so a retry
+    would only fan out a second time. It is logged and the job stays
+    unmarked.
     """
     job = (
         ScanJob.objects.filter(
@@ -268,9 +274,16 @@ def notify_scan_job_finished(self, job_id: int) -> None:
                 job_id,
                 type(exc).__name__,
             )
-    ScanJob.objects.filter(pk=job_id, notified_at__isnull=True).update(
-        notified_at=timezone.now()
-    )
+    try:
+        ScanJob.objects.filter(pk=job_id, notified_at__isnull=True).update(
+            notified_at=timezone.now()
+        )
+    except OperationalError as exc:
+        logger.warning(
+            "[FCM] scan push sent but job=%s not marked notified: %s",
+            job_id,
+            type(exc).__name__,
+        )
 
 
 @shared_task(

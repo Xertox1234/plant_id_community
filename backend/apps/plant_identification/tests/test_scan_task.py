@@ -25,6 +25,7 @@ from apps.plant_identification.tasks import (
 from celery.exceptions import SoftTimeLimitExceeded
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from django.db import OperationalError
 from django.test import override_settings
 from django.utils import timezone
 from PIL import Image
@@ -555,7 +556,7 @@ def test_notify_is_acked_late_and_requeued_on_worker_loss():
 
 
 @pytest.mark.django_db
-def test_notify_killed_between_claim_and_fan_out_still_pushes_on_redelivery(user, fcm):
+def test_notify_killed_mid_fan_out_still_pushes_on_redelivery(user, fcm):
     """L15: a death before the fan-out leaves the job unmarked; the redelivered
     message sends the push."""
     job = _job(user)
@@ -609,3 +610,27 @@ def test_notify_killed_after_fan_out_sends_twice_the_accepted_trade_off(user, fc
     assert fcm.call_count == 2
     notify_scan_job_finished.delay(job.pk)
     assert fcm.call_count == 2
+
+
+@pytest.mark.django_db
+def test_notify_db_error_on_the_mark_does_not_fan_out_again(user, fcm):
+    """Review round 1 (todo 700): an OperationalError on the final mark is
+    logged, not retried, since every send is already enqueued; a retry would
+    push every device a second time."""
+    job = _job(user)
+    ScanJob.objects.filter(pk=job.pk).update(status="done", charged_as="diagnose")
+
+    real_filter = ScanJob.objects.filter
+
+    def blip_on_the_mark(*args, **kwargs):
+        qs = real_filter(*args, **kwargs)
+        if "status__in" not in kwargs:  # the post-fan-out mark
+            raise OperationalError("connection reset")
+        return qs
+
+    with patch.object(ScanJob.objects, "filter", side_effect=blip_on_the_mark):
+        notify_scan_job_finished.delay(job.pk)
+
+    assert fcm.call_count == 1
+    job.refresh_from_db()
+    assert job.notified_at is None
