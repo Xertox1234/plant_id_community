@@ -332,7 +332,7 @@ void main() {
   });
 
   group('forum home sections', () {
-    testWidgets('order: forums, season, experts, activity, online, footer', (
+    testWidgets('order: season, experts, forums, activity, online, footer', (
       tester,
     ) async {
       final api = _fullApi()
@@ -349,9 +349,9 @@ void main() {
       final experts = top(find.textContaining('Experts'));
       final forums = top(find.text('General'));
       final activity = top(find.text('Recent activity'));
-      expect(forums, lessThan(season));
       expect(season, lessThan(experts));
-      expect(experts, lessThan(activity));
+      expect(experts, lessThan(forums));
+      expect(forums, lessThan(activity));
       expect(
         top(find.text("Who's online")),
         lessThan(top(find.byType(ForumHomeFooter))),

@@ -29,8 +29,9 @@ const Duration _sectionFade = Duration(milliseconds: 200);
 const int _slotCount = 6;
 const double _rise = 8;
 
-/// Community forum home (spec 2026-11-02 §5): the forums by category, your
-/// season, experts, recent activity, who's online and the footer, top to bottom.
+/// Community forum home (spec 2026-11-02 §5): your season,
+/// experts, the forums by category, recent activity, who's online and the
+/// footer, top to bottom.
 class ForumScreen extends ConsumerStatefulWidget {
   const ForumScreen({super.key});
 
@@ -164,15 +165,15 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
               Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (isAuthenticated) slot(0, const _YourSeasonSection()),
+                  slot(1, const _ExpertsSection()),
                   slot(
-                    0,
+                    2,
                     const Padding(
                       padding: EdgeInsets.only(bottom: _sectionGap),
                       child: _ForumsSection(),
                     ),
                   ),
-                  if (isAuthenticated) slot(1, const _YourSeasonSection()),
-                  slot(2, const _ExpertsSection()),
                   slot(
                     3,
                     const Padding(
@@ -323,7 +324,7 @@ class _ForumsSection extends ConsumerWidget {
     final categoriesAsync = ref.watch(categoriesProvider);
     return _sectionState(
       categoriesAsync,
-      loading: const _BoardsSkeleton(),
+      loading: const _ForumsSkeleton(),
       error: _SectionError(
         message: 'Could not load forums.',
         onRetry: () => ref.invalidate(categoriesProvider),
@@ -521,8 +522,8 @@ class _SeasonSkeleton extends StatelessWidget {
 }
 
 /// Three rows shaped like board rows: a 40pt tile and two lines.
-class _BoardsSkeleton extends StatelessWidget {
-  const _BoardsSkeleton();
+class _ForumsSkeleton extends StatelessWidget {
+  const _ForumsSkeleton();
 
   @override
   Widget build(BuildContext context) {
@@ -558,7 +559,7 @@ class _BoardsSkeleton extends StatelessWidget {
       ),
     );
     return _Skeleton(
-      label: 'Loading boards',
+      label: 'Loading forums',
       child: CanopyGroupedCard(rows: [row(0.7), row(0.5), row(0.6)]),
     );
   }
