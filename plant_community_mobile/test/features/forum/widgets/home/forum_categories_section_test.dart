@@ -352,6 +352,58 @@ void main() {
       expect(find.byIcon(LucideIcons.chevronRight), findsNWidgets(2));
     });
 
+    testWidgets('forums and links share ONE card per category', (tester) async {
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: [
+            _category(
+              1,
+              'General',
+              [_forum(1, 'Alpha'), _forum(2, 'Beta')],
+              links: [_link(1, 'Care guide')],
+            ),
+          ],
+          onForumTap: (_) {},
+          onLinkTap: (_) {},
+        ),
+      );
+      final card = find.descendant(
+        of: find.byKey(const ValueKey('category-1')),
+        matching: find.byType(CanopyGroupedCard),
+      );
+      expect(card, findsOneWidget);
+      for (final t in ['Alpha', 'Beta', 'Care guide']) {
+        expect(
+          find.descendant(of: card, matching: find.text(t)),
+          findsOneWidget,
+        );
+      }
+      double y(String t) => tester.getTopLeft(find.text(t)).dy;
+      expect(y('Beta'), lessThan(y('Care guide')));
+    });
+
+    testWidgets('a links-only category draws one card', (tester) async {
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: [
+            _category(
+              1,
+              'Links',
+              const [],
+              links: [_link(1, 'One'), _link(2, 'Two')],
+            ),
+          ],
+          onForumTap: (_) {},
+          onLinkTap: (_) {},
+        ),
+      );
+      expect(find.byType(CanopyGroupedCard), findsOneWidget);
+      expect(find.text('One'), findsOneWidget);
+      expect(find.text('Two'), findsOneWidget);
+    });
+
     testWidgets('a category with only links draws heading and rows', (
       tester,
     ) async {

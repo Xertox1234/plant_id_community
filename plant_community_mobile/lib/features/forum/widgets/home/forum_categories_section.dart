@@ -55,27 +55,20 @@ class ForumCategoriesSection extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _CategoryHeader(category: category),
-              if (forums.isNotEmpty)
-                CanopyGroupedCard(
-                  rows: [
-                    for (final forum in forums)
-                      _ForumRow(
-                        forum: forum,
-                        onTap: () => forum.isLocked
-                            ? onLockedTap?.call(forum)
-                            : onForumTap(forum),
-                      ),
-                  ],
-                ),
-              if (showLinks) ...[
-                if (forums.isNotEmpty) const SizedBox(height: AppSpacing.sm),
-                CanopyGroupedCard(
-                  rows: [
+              CanopyGroupedCard(
+                rows: [
+                  for (final forum in forums)
+                    _ForumRow(
+                      forum: forum,
+                      onTap: () => forum.isLocked
+                          ? onLockedTap?.call(forum)
+                          : onForumTap(forum),
+                    ),
+                  if (showLinks)
                     for (final link in category.links)
                       _LinkRow(link: link, onTap: () => onLinkTap!(link)),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ],
           ),
         ),
