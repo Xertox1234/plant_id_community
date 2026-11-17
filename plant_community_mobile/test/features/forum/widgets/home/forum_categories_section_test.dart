@@ -9,6 +9,7 @@ import 'package:plant_community_mobile/features/forum/services/forum_sync_store.
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_categories_section.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
+import 'package:plant_community_mobile/shared/widgets/canopy_accents.dart';
 
 import '../../support/forum_test_support.dart';
 
@@ -132,6 +133,29 @@ void main() {
       expect(find.text('12 topics · 80 posts · 2h'), findsOneWidget);
       handle.dispose();
     });
+
+    for (final unread in [true, false]) {
+      testWidgets('a ${unread ? 'unread' : 'read'} row is announced once', (
+        tester,
+      ) async {
+        final handle = tester.ensureSemantics();
+        await _pump(
+          tester,
+          ForumCategoriesSection(
+            categories: [
+              _category(1, 'General', [
+                _forum(1, 'Plant identification', hasUnread: unread),
+              ]),
+            ],
+            onForumTap: (_) {},
+          ),
+        );
+        final label = tester.getSemantics(find.byType(CanopyPressable)).label;
+        expect('Plant identification'.allMatches(label), hasLength(1));
+        expect(label.contains('unread'), unread);
+        handle.dispose();
+      });
+    }
 
     testWidgets('a category with only links or locked forums is skipped', (
       tester,

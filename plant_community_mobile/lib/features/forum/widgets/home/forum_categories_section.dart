@@ -124,56 +124,58 @@ class _ForumRow extends StatelessWidget {
     return CanopyPressable(
       onTap: onTap,
       style: CanopyPressStyle.highlight,
-      semanticLabel: forum.hasUnread
-          ? [
-              forum.title,
-              if (forum.description.isNotEmpty) forum.description,
-              counts,
-              'unread',
-            ].join(', ')
-          : null,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: 12,
-        ),
-        child: Row(
-          children: [
-            CanopyAccentTile(
-              icon: identity.icon,
-              emoji: identity.emoji,
-              tone: identity.tone.colorOf(canopy),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    forum.title,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (forum.description.isNotEmpty)
-                    Text(
-                      forum.description,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.bodySm.copyWith(color: canopy.ink2),
-                    ),
-                  const SizedBox(height: 2),
-                  Text(
-                    counts,
-                    style: AppTypography.label.copyWith(color: canopy.ink3),
-                  ),
-                ],
+      // One label for the row; the visible texts are excluded below so they
+      // are not announced a second time.
+      semanticLabel: [
+        forum.title,
+        if (forum.description.isNotEmpty) forum.description,
+        counts,
+        if (forum.hasUnread) 'unread',
+      ].join(', '),
+      child: ExcludeSemantics(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: 12,
+          ),
+          child: Row(
+            children: [
+              CanopyAccentTile(
+                icon: identity.icon,
+                emoji: identity.emoji,
+                tone: identity.tone.colorOf(canopy),
               ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            if (forum.hasUnread) ...[
-              ExcludeSemantics(
-                child: SizedBox.square(
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      forum.title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (forum.description.isNotEmpty)
+                      Text(
+                        forum.description,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.bodySm.copyWith(
+                          color: canopy.ink2,
+                        ),
+                      ),
+                    const SizedBox(height: 2),
+                    Text(
+                      counts,
+                      style: AppTypography.label.copyWith(color: canopy.ink3),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              if (forum.hasUnread) ...[
+                SizedBox.square(
                   dimension: 8,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
@@ -182,11 +184,11 @@ class _ForumRow extends StatelessWidget {
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
+                const SizedBox(width: AppSpacing.sm),
+              ],
+              Icon(LucideIcons.chevronRight, size: 18, color: canopy.ink3),
             ],
-            Icon(LucideIcons.chevronRight, size: 18, color: canopy.ink3),
-          ],
+          ),
         ),
       ),
     );
