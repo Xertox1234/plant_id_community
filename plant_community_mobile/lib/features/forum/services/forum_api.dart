@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../services/api_service.dart';
 import '../models/models.dart';
+import 'forum_link_launcher.dart' show openableForumLink;
 
 /// HTTP contract for the Wagtail forum REST API (`/api/v1/forum/...`).
 ///
@@ -13,6 +14,12 @@ import '../models/models.dart';
 abstract class ForumApi {
   /// The category-grouped forum index (`GET /forum/categories/`).
   Future<List<ForumCategory>> fetchCategories();
+
+  /// Where a link forum opens. Untracked: its `link_url`. Tracked: the
+  /// `Location` of `GET /forum/links/{id}/go/` (the server counts the click
+  /// and answers 302), falling back to `link_url` on any failure. Always
+  /// null unless the result is an absolute http(s) address.
+  Future<Uri?> resolveLink(ForumLink link);
 
   /// First page (when [cursorUrl] is null) or a subsequent page (pass the
   /// absolute `next` URL from a prior [CursorPage]).
@@ -425,6 +432,27 @@ class HttpForumApi implements ForumApi {
         .whereType<Map<String, dynamic>>()
         .map(ForumCategory.fromJson)
         .toList(growable: false);
+  }
+
+  @override
+  Future<Uri?> resolveLink(ForumLink link) async {
+    final fallback = openableForumLink(link.linkUrl);
+    if (!link.trackClicks) return fallback;
+    try {
+      final resp = await _api.get(
+        '/forum/links/${link.id}/go/',
+        options: Options(
+          followRedirects: false,
+          validateStatus: (s) => s == 302,
+        ),
+      );
+      final location = resp.headers.value('location');
+      final target = location == null ? null : openableForumLink(location);
+      return target ?? fallback;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[FORUM] link click not counted: $e');
+      return fallback;
+    }
   }
 
   @override

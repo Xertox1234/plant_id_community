@@ -11,7 +11,10 @@ import '../../services/auth_service.dart';
 import '../../shared/widgets/brand_mark.dart';
 import '../../shared/widgets/canopy_accents.dart';
 import '../../shared/widgets/canopy_surfaces.dart';
+import 'models/models.dart';
 import 'providers/forum_providers.dart';
+import 'services/forum_api.dart';
+import 'services/forum_link_launcher.dart';
 import 'widgets/forum_experts_strip.dart';
 import 'widgets/home/forum_activity_card.dart';
 import 'widgets/home/forum_categories_section.dart';
@@ -329,7 +332,8 @@ class _ForumsSection extends ConsumerWidget {
         message: 'Could not load forums.',
         onRetry: () => ref.invalidate(categoriesProvider),
       ),
-      data: (categories) => categories.isEmpty
+      data: (categories) =>
+          categories.every((c) => c.forums.isEmpty && c.links.isEmpty)
           ? const _EmptyLine('No forums yet.')
           : ForumCategoriesSection(
               categories: categories,
@@ -338,8 +342,32 @@ class _ForumsSection extends ConsumerWidget {
                 pathParameters: {'slug': board.slug},
                 extra: board.title,
               ),
+              onLinkTap: (link) => _openLink(context, ref, link),
             ),
     );
+  }
+
+  Future<void> _openLink(
+    BuildContext context,
+    WidgetRef ref,
+    ForumLink link,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final launch = ref.read(forumExternalLinkLauncherProvider);
+    final uri = await ref.read(forumApiProvider).resolveLink(link);
+    var opened = false;
+    if (uri != null) {
+      try {
+        opened = await launch(uri);
+      } catch (_) {
+        opened = false;
+      }
+    }
+    if (!opened) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text("This link can't be opened.")),
+      );
+    }
   }
 }
 
