@@ -206,6 +206,11 @@ class PushRegistrationService {
 
       await _refreshSubscription?.cancel();
       if (epoch != _epoch) return; // cancel() is an await too (review sweep)
+      // firebase_messaging 17 deprecates onTokenRefresh and getToken for
+      // register() and onRegistered, which hand out a Firebase installation
+      // ID, not a registration token. The backend stores and sends to
+      // tokens, so the token API stays until both sides move (todo 713).
+      // ignore: deprecated_member_use
       _refreshSubscription = messaging.onTokenRefresh.listen(
         registerToken,
         onError: (Object e) {
@@ -234,6 +239,7 @@ class PushRegistrationService {
     // A denied permission still yields a valid token on Android — the tray
     // stays silent but registration works, so proceed regardless; [status]
     // carries the permission separately.
+    // ignore: deprecated_member_use (see syncAfterLogin; todo 713)
     final token = await messaging.getToken();
     if (epoch != _epoch) return; // signed out while fetching the token
     if (token == null || token.isEmpty) {

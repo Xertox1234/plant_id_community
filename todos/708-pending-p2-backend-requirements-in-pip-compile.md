@@ -82,6 +82,16 @@ PR #1303).
 - Filed from the stack audit, with Dependabot version updates turned back on
   in PR #1303. Blocks todos 710 and 711.
 
+### 2026-11-15 - First Dependabot group showed the cost (#1322 / #1333)
+
+- The first backend minor/patch group (106 bumps) could not install: it
+  raised `django-ai-core`, `llm` and `sqlite-migrate` past what their
+  parents and siblings allow, and left `psutil` (new, via `ipython`)
+  unpinned. Repaired by hand in #1333 with a dry-run install loop;
+  `.github/dependabot.yml` now ignores those versions (#1326).
+- Each hold in `dependabot.yml` is a hand-kept copy of a constraint
+  `pip-compile` would read from the packages. This todo removes the need.
+
 ## Notes
 
 p2 because it decides whether the weekly backend PR is mergeable at all. `uv`

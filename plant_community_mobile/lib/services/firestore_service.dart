@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
 import '../models/plant.dart';
 
 part 'firestore_service.g.dart';
@@ -208,7 +209,11 @@ class FirestoreService extends _$FirestoreService {
         .doc(userId)
         .collection('identified_plants')
         .orderBy('timestamp', descending: true)
-        .snapshots()
+        // Metadata changes are asked for because the sync badge reads
+        // isFromCache and hasPendingWrites. Without them, a server answer
+        // that matches the cached list sends no second event, and the badge
+        // stays on "Offline" for good.
+        .snapshots(includeMetadataChanges: true)
         .map((snapshot) {
           if (kDebugMode) {
             debugPrint(

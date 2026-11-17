@@ -3,6 +3,7 @@ Admin configuration for Plant Identification models.
 """
 
 from django.contrib import admin
+from django.contrib.admin.options import ActionLocation
 from django.utils.html import format_html
 
 from .models import (
@@ -360,7 +361,9 @@ class ScanJobAdmin(admin.ModelAdmin):
         # stays view-only because get_actions drops the bulk delete.
         return super().has_delete_permission(request, obj)
 
-    def get_actions(self, request):
-        actions = super().get_actions(request)
+    def get_actions(self, request, action_location=ActionLocation.CHANGE_LIST):
+        # Django 6.1 passes action_location; an override without it is
+        # deprecated (RemovedInDjango2028Warning).
+        actions = super().get_actions(request, action_location=action_location)
         actions.pop("delete_selected", None)
         return actions

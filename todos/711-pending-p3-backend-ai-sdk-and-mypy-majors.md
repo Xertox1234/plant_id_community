@@ -75,3 +75,12 @@ Source: `pip list --outdated` and `pip show` in `backend/venv`, 2026-11-15.
 ### 2026-11-15 - Filed
 
 - Filed from the stack audit. Wave 2 of the backend majors.
+
+### 2026-11-15 - Four Dependabot holds point here (#1326)
+
+- `.github/dependabot.yml` ignores `django-ai-core` >=0.1.6 (needs
+  any-llm-sdk >=1.23), `llm` >=0.32 (needs sqlite-utils 4; >=0.33 needs
+  openai >3) and `sqlite-migrate` >=0.2 (needs sqlite-utils 4). Remove
+  those entries in the PR that takes the AI SDK majors.
+- django-stubs 6.0.3 -> 6.1.2 landed in #1333 with four type fixes. mypy
+  itself is still 1.x.
