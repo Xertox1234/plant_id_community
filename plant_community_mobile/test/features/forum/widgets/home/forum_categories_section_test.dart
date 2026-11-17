@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -481,6 +483,57 @@ void main() {
       expect(opened, [Uri.parse('https://example.com/resolved')]);
       expect(api.resolveLinkCalls, [1]);
       expect(find.text("This link can't be opened."), findsNothing);
+    });
+
+    testWidgets('a second tap while a link is resolving is ignored', (
+      tester,
+    ) async {
+      final opened = <Uri>[];
+      final gate = Completer<void>();
+      final api = FakeForumApi()
+        ..categories = [
+          _category(1, 'Reading', const [], links: [_link(1, 'Care guide')]),
+        ]
+        ..resolvedLink = Uri.parse('https://example.com/resolved')
+        ..resolveLinkGate = gate;
+      await tester.pumpWidget(
+        _wrapHome(
+          api,
+          launcher: (uri) async {
+            opened.add(uri);
+            return true;
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Care guide'));
+      await tester.pump();
+      await tester.tap(find.text('Care guide'));
+      await tester.pump();
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(api.resolveLinkCalls, [1]);
+      expect(opened, hasLength(1));
+
+      await tester.tap(find.text('Care guide'));
+      await tester.pumpAndSettle();
+      expect(api.resolveLinkCalls, [1, 1]);
+      expect(opened, hasLength(2));
+    });
+
+    testWidgets('a launcher that throws shows the message', (tester) async {
+      final api = FakeForumApi()
+        ..categories = [
+          _category(1, 'Reading', const [], links: [_link(1, 'Care guide')]),
+        ]
+        ..resolvedLink = Uri.parse('https://example.com/resolved');
+      await tester.pumpWidget(
+        _wrapHome(api, launcher: (uri) async => throw Exception('no browser')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Care guide'));
+      await tester.pumpAndSettle();
+      expect(find.text("This link can't be opened."), findsOneWidget);
     });
 
     testWidgets('a null resolve or a refused launch shows the message', (

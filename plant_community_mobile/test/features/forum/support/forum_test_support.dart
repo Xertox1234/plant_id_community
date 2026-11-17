@@ -419,9 +419,13 @@ class FakeForumApi implements ForumApi {
   Uri? resolvedLink;
   final List<int> resolveLinkCalls = [];
 
+  /// When set, [resolveLink] waits for it: holds a link open in flight.
+  Completer<void>? resolveLinkGate;
+
   @override
   Future<Uri?> resolveLink(ForumLink link) async {
     resolveLinkCalls.add(link.id);
+    await resolveLinkGate?.future;
     return resolvedLink;
   }
 
