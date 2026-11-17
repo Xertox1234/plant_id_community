@@ -839,24 +839,21 @@ If critical issues are discovered post-deployment:
    git push origin main
    ```
 
-2. **Rotate compromised secrets**
+2. **Rotate compromised secrets** where they live: Railway service variables
+   for the backend (redeploy both `plant_id_community` and
+   `forum-prune-cron`), and the provider's console for an API key.
 
    ```bash
    # Generate new SECRET_KEY
    python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
-
-   # Update in production environment
-   heroku config:set SECRET_KEY="new-key-here"  # pragma: allowlist secret
    ```
 
-3. **Check for data breach**
-
-   ```bash
-   # Review logs for suspicious activity
-   tail -f /var/log/django/security.log | grep "WARN\|ERROR"
-   ```
-
-4. **Notify team** via incident response protocol
+3. **If personal information may have been exposed**, follow
+   [`docs/operations/breach-runbook.md`](operations/breach-runbook.md) from its
+   first step, and record the incident in
+   [`docs/operations/breach-register.md`](operations/breach-register.md) even
+   if it turns out not to be notifiable. The runbook holds the regulators, the
+   deadlines and what each notice must say.
 
 ---
 
