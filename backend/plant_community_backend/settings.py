@@ -417,6 +417,13 @@ if _IS_TEST_RUN:
         )
 
 
+# Redis client timeouts, in seconds (todo 710). redis-py 8 made 5 s the
+# default read timeout; every pool that runs a blocking command needs a read
+# timeout longer than its longest block, or an idle wait raises TimeoutError.
+REDIS_SOCKET_CONNECT_TIMEOUT = 5
+REDIS_CACHE_SOCKET_TIMEOUT = 20  # > CACHE_LOCK_TIMEOUT (15 s lock BLPOP)
+REDIS_CHANNEL_LAYER_SOCKET_TIMEOUT = 15  # > channels_redis brpop_timeout (5 s)
+
 # Cache configuration with Redis fallback to dummy cache
 try:
     # Try Redis configuration if available
@@ -426,7 +433,16 @@ try:
     redis_client = redis.from_url(redis_url)
     redis_client.ping()  # Test connection
 
-    _redis_pool_kwargs: dict[str, Any] = {"retry_on_timeout": True}
+    # redis-py 8 defaults socket_timeout to 5 s (7.x waited forever). The
+    # distributed lock on this pool BLPOPs for up to CACHE_LOCK_TIMEOUT (15 s,
+    # apps/plant_identification/constants.py), and a read timeout shorter than
+    # that turns a contended lock into a TimeoutError (todo 710). Connects keep
+    # a short timeout of their own.
+    _redis_pool_kwargs: dict[str, Any] = {
+        "retry_on_timeout": True,
+        "socket_timeout": REDIS_CACHE_SOCKET_TIMEOUT,
+        "socket_connect_timeout": REDIS_SOCKET_CONNECT_TIMEOUT,
+    }
     if not redis_url.startswith("unix://"):
         # TCP-only: a Unix-socket connection rejects them with a TypeError that
         # IGNORE_EXCEPTIONS then hides, silently disabling the cache. Sweep
@@ -1033,7 +1049,17 @@ _REDIS_CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [_redis_url],
+            # A host dict, not a bare URL, so the pool gets a read timeout
+            # longer than the BZPOPMIN each receive() blocks on; under
+            # redis-py 8's 5 s default an idle socket's receive raised
+            # TimeoutError (todo 710).
+            "hosts": [
+                {
+                    "address": _redis_url,
+                    "socket_timeout": REDIS_CHANNEL_LAYER_SOCKET_TIMEOUT,
+                    "socket_connect_timeout": REDIS_SOCKET_CONNECT_TIMEOUT,
+                }
+            ],
         },
     },
 }
