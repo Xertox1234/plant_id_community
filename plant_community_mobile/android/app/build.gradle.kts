@@ -36,6 +36,14 @@ val keystoreProperties = Properties().apply {
     }
 }
 
+// Kotlin 2.4 made the old `android { kotlinOptions { jvmTarget = "11" } }`
+// string form a compile error; the target is set through compilerOptions.
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
+    }
+}
+
 android {
     namespace = "com.plantcommunity.plant_community_mobile"
     compileSdk = flutter.compileSdkVersion
@@ -45,10 +53,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
         isCoreLibraryDesugaringEnabled = true
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
     }
 
     defaultConfig {
@@ -123,5 +127,5 @@ flutter {
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
