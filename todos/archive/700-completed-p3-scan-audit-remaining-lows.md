@@ -118,3 +118,14 @@ Round 1 was clean (no blocking findings); seven lows, handled by hand:
 - **Declined.** `test_notify_is_acked_late` checks only the decorator attributes. Broker redelivery is Celery's job and is not unit-testable here; the redelivery tests drive the task body.
 
 `pytest test_quota_manager.py test_scan_task.py`: 34 passed.
+
+### 2026-11-17 - Review round 2: non-blocking findings (PR #1356)
+
+Round 2 was clean (no blocking findings). Doc-only fixes, no code change:
+
+- **Fixed (docstring).** The round-1 docstring said an `OperationalError` mid fan-out re-sends to devices already enqueued. It cannot: each per-device `.delay` is inside `except Exception`. The docstring now says a DB error before the fan-out (job or token lookup) retries, and a failed per-device enqueue is logged and skipped.
+- **Fixed (docstring).** On the Redis broker, a killed worker's notify message comes back after the visibility timeout (about 1 h by default), not at once. This is now stated.
+- **Fixed.** The `docs/audits/2026-11-05-scan-2.md` L3/L15 links pointed at the pre-archive path; both now point at `todos/archive/700-completed-...`.
+- **Declined.** Overlapping runs for one job both sending (medium, plus a low asking for a test): this is the at-least-once trade-off the owner accepted on 2026-11-17 (option 2), and it is named in the docstring. A lease or lock would bring back the claim the decision removed.
+- **Declined.** Sentry stack locals and `logger.error(f"...{e}")` in the quota except paths can carry the exception text. That is pre-existing on main, not introduced here, and redis-py errors carry host:port, not the password.
+- **Declined.** The mark-failure log uses the existing `[FCM]` domain prefix this task already uses; a bounded retry of the mark alone would add a second retry path for a case already logged.

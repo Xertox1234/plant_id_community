@@ -241,13 +241,14 @@ def notify_scan_job_finished(self, job_id: int) -> None:
     and the mark sends the push twice. The device-side collapse key folds an
     undelivered duplicate. A job already marked notified sends nothing.
 
-    Duplicates the same trade-off accepts: an ``OperationalError`` raised
-    mid fan-out retries the task and re-sends to the devices already
-    enqueued, and two overlapping runs for one job (a duplicate enqueue, a
-    retry racing a redelivery) can both send. An ``OperationalError`` on the
-    final mark is NOT retried: every send is already enqueued, so a retry
-    would only fan out a second time. It is logged and the job stays
-    unmarked.
+    The same trade-off accepts two overlapping runs for one job (a duplicate
+    enqueue, a retry racing a redelivery) both sending. An ``OperationalError``
+    before the fan-out (the job or token lookup) retries the task; a failed
+    per-device enqueue is logged and skipped. One on the final mark is NOT
+    retried: every send is already enqueued, so a retry would only fan out a
+    second time. It is logged and the job stays unmarked. On the Redis broker
+    a killed worker's message comes back after the transport's visibility
+    timeout (about 1 h by default), not at once.
     """
     job = (
         ScanJob.objects.filter(
