@@ -437,7 +437,11 @@ try:
     # distributed lock on this pool BLPOPs for up to CACHE_LOCK_TIMEOUT (15 s,
     # apps/plant_identification/constants.py), and a read timeout shorter than
     # that turns a contended lock into a TimeoutError (todo 710). Connects keep
-    # a short timeout of their own.
+    # a short timeout of their own. The read timeout covers every op on this
+    # pool, so against a hung Redis a cache call now waits up to ~20 s (twice
+    # that with retry_on_timeout) before IGNORE_EXCEPTIONS swallows it; 7.x
+    # waited forever. The `renditions` pool runs no blocking command, so it
+    # keeps redis-py's 5 s default: give it a longer one before blocking on it.
     _redis_pool_kwargs: dict[str, Any] = {
         "retry_on_timeout": True,
         "socket_timeout": REDIS_CACHE_SOCKET_TIMEOUT,

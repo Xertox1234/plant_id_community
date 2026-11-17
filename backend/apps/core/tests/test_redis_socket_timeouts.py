@@ -30,6 +30,11 @@ class RedisSocketTimeoutInvariantTests(SimpleTestCase):
         self.assertIsInstance(host, dict, "a bare URL gets redis-py's 5 s default")
         self.assertEqual(host["address"], settings_module._redis_url)
         self.assertGreater(host["socket_timeout"], RedisChannelLayer.brpop_timeout)
+        # The active setting, not just the dict it is built from: a Redis layer
+        # in use must be this one (only DEBUG/test runs fall back to in-memory).
+        active = settings.CHANNEL_LAYERS["default"]
+        if active["BACKEND"] == "channels_redis.core.RedisChannelLayer":
+            self.assertEqual(active, settings_module._REDIS_CHANNEL_LAYERS["default"])
 
     def test_cache_pool_read_timeout_outlasts_the_lock_wait(self) -> None:
         self.assertGreater(settings.REDIS_CACHE_SOCKET_TIMEOUT, CACHE_LOCK_TIMEOUT)

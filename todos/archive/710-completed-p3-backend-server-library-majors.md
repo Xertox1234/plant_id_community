@@ -138,3 +138,12 @@ One PR per package, in this order, each after todo 708 lands:
 ### 2026-11-17 - Completed by the todo sweep (run 2026-11-17-2229)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-17 - Review round 1: non-blocking findings (PR #1365)
+
+Round 1 was clean (no blocking findings); four lows, handled by hand:
+
+- **Fixed.** `test_redis_socket_timeouts.py` read only the private `_REDIS_CHANNEL_LAYERS` dict, so a re-pointed active `CHANNEL_LAYERS` would stay green. It now also asserts that an active Redis channel layer is that dict. Mutation check: an active layer with a bare-URL host fails it (1 failed, 2 passed); restored, 3 passed.
+- **Fixed (comment).** The 20 s read timeout covers every op on the `default` cache pool. Against a hung Redis a cache call now waits up to ~20 s (twice that with `retry_on_timeout`) before `IGNORE_EXCEPTIONS` swallows it, where 7.x waited forever. The `settings.py` comment now says so, and says the `renditions` pool keeps redis-py's 5 s default because it runs no blocking command.
+- **Declined.** A separate client for the lock with a short timeout on plain cache ops: that is a bigger change than this bump needs, and the bounded 20 s wait is already an improvement on main's unbounded one.
+- **Declined.** `REDIS_CACHE_SOCKET_TIMEOUT = 20` relating to `CACHE_LOCK_TIMEOUT` (15) only through a comment: the test already pins `20 > CACHE_LOCK_TIMEOUT`.
