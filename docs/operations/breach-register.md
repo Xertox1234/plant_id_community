@@ -18,6 +18,9 @@ Rules for this file:
   usernames or other details that identify a person. Where a list of the
   people affected is needed, keep it outside the repository and say in
   "Notes" where it is.
+- Commit a row only after the breach is contained and its fix has merged.
+  Until then the live record stays private: a row naming the cause would
+  publish an unfixed hole.
 - Change a row by adding to it (a dated line in "Notes"), never by rewriting
   what an earlier entry said.
 

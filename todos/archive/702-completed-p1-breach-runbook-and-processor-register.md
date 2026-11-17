@@ -149,6 +149,35 @@ checked against the code first.
   `forum-prune-cron` env). Fixed: the step says to set the new value on every
   declaring service and redeploy both.
 
+### 2026-11-17 - Review round 2: non-blocking findings (PR #1352)
+
+No blocking findings. All fixed by hand (docs only, so no test). Each claim
+was checked first.
+
+- medium (three reviewers), runbook compromised-account step: the round-1 fix
+  said blacklisting Django refresh tokens contains the account. It does not:
+  the Firebase exchange (`backend/apps/users/firebase_auth_views.py`,
+  `verify_id_token(check_revoked=True)`) re-mints JWTs for a live Firebase
+  session. This PR introduced it, so it is fixed, not declined. The step is now
+  its own bullet: revoke the Firebase side too
+  (`firebase_admin.auth.revoke_refresh_tokens(uid)` or disable the user),
+  force a password reset, and note the 15-minute access-token window
+  (`JWT_ACCESS_TOKEN_LIFETIME`, default 15).
+- medium, runbook step 1: opening the public register row "now" would publish
+  an unfixed hole. Fixed: keep a private record first and commit the row only
+  after containment and the merged fix. The same rule was added to
+  `docs/operations/breach-register.md`.
+- low, runbook: `SECRET_KEY` rotation also ends Django sessions (CMS admins,
+  web session logins) and voids password-reset links. Fixed.
+- low (two reviewers), runbook: the two-service key list left out
+  `PLANT_ID_API_KEY` (`.railway/railway.ts`, `forum-prune-cron` env). Fixed:
+  the list is now illustrative and points to `railway.ts` as the source.
+- low, `docs/operations/processors.md` Google web sign-in row: no OAuth token
+  is stored (`backend/apps/users/oauth_views.py` writes only a `SocialAccount`
+  row). Fixed.
+- low, `docs/audits/2026-11-10-auth-legal.md`: the H4/M20 link pointed at the
+  pending todo path this PR archives. Fixed: it now points at the archived path.
+
 ## Notes
 
 P1: the duty exists today, whether or not a breach has happened. A lawyer

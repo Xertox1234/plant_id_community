@@ -21,24 +21,34 @@ the other operator fields (owner decision 2026-11-17).
 
 ## 0. The first hour
 
-1. **Write it down.** Open a row in `docs/operations/breach-register.md` now,
-   with the time you found out. Every deadline below runs from the day you
-   knew, or reasonably believed, that a breach happened, not from the day the
-   cause was found.
+1. **Write it down.** Start a private record now (outside this public
+   repository), with the time you found out. Every deadline below runs from
+   the day you knew, or reasonably believed, that a breach happened, not from
+   the day the cause was found. Do not commit the row to
+   `docs/operations/breach-register.md` until the breach is contained and the
+   fix has merged: the register is public, and its cause column would publish
+   an open hole.
 2. **Stop it.** Contain before you investigate:
    - Leaked secret: rotate it where it lives (Railway variables for the
      backend, the provider's console for an API key). Set the new value on
-     **every** service that declares it in `.railway/railway.ts`:
-     `SECRET_KEY`, `JWT_SECRET_KEY` and the `R2_*` keys are on both
-     `plant_id_community` and `forum-prune-cron`. Redeploy both.
-     - Only `JWT_SECRET_KEY` signs members out: JWTs are signed with it
-       (`SIMPLE_JWT["SIGNING_KEY"]`), not with `SECRET_KEY`. The mobile app
-       can still trade its Firebase session for a new JWT, so for an
-       account known to be compromised also revoke its refresh tokens
-       (`apps.users.account_links.revoke_refresh_tokens`).
-     - Rotating `SECRET_KEY` voids every signed link already emailed
-       (unsubscribe, click redirect, account deletion, email verification).
-       That is expected; say so if people ask.
+     **every** service that declares it in `.railway/railway.ts` (many keys,
+     the secret keys, `PLANT_ID_API_KEY` and the `R2_*` keys among them, are
+     on both `plant_id_community` and `forum-prune-cron`), then redeploy both.
+     - Rotating `JWT_SECRET_KEY` ends members' JWT sessions (JWTs are signed
+       with it, `SIMPLE_JWT["SIGNING_KEY"]`).
+     - Rotating `SECRET_KEY` ends Django sessions (Wagtail `/cms/` admins,
+       web session logins) and voids every signed link already emailed
+       (unsubscribe, click redirect, account deletion, email verification)
+       and every password-reset link. That is expected; say so if people ask.
+   - Compromised member account: blacklisting its Django refresh tokens
+     (`apps.users.account_links.revoke_refresh_tokens`) is not enough. The
+     mobile app trades a live Firebase session for a new JWT pair, so also
+     revoke the Firebase side (`firebase_admin.auth.revoke_refresh_tokens(uid)`,
+     or disable the Firebase user); the exchange checks for revocation
+     (`verify_id_token(check_revoked=True)`) and then refuses it. Force a
+     password reset. Access tokens already issued stay valid for up to
+     15 minutes (`JWT_ACCESS_TOKEN_LIFETIME`) unless `JWT_SECRET_KEY` is
+     rotated too.
    - Leaked database or Redis credentials: rotate them in Railway, then
      redeploy both services (`plant_id_community` and `forum-prune-cron`).
    - Bug exposing data: revert the change (`git revert`, a pull request, the
