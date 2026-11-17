@@ -230,6 +230,13 @@ DEFAULTS: dict[str, Any] = {
     # host owns its account-wide email policy, e.g. a master email switch
     # (todo 620); the package never names host user fields.
     "DIGEST_RECIPIENT_FILTER": None,
+    # Dotted path to a host callable(user) -> the URL of the account's own
+    # photo (absolute or site-relative), or None. Asked only for an author
+    # whose forum profile has no avatar, so a member who set a photo on their
+    # account is not shown as an initial in the forum. It runs once per
+    # author per row: it must read fields already loaded on the user and
+    # never query. The package never names host user fields.
+    "AUTHOR_AVATAR_FALLBACK": None,
     "EMAIL_SITE_URL": None,  # absolute origin for email links; None = settings.SITE_URL
     # Per-channel notification preferences (todo 343): the matrix a member
     # gets when they have not chosen otherwise. In-app is always on and is

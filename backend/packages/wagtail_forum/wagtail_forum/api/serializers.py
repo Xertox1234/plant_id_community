@@ -1,7 +1,9 @@
+import logging
 import math
 from typing import Any
 
 from django.utils import timezone
+from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 from wagtail.blocks import RichTextBlock
@@ -35,6 +37,8 @@ from ..models.messages import (
     MESSAGE_PREVIEW_CHARS,
 )
 from .sanitize import image_block_pk, validate_forum_body
+
+logger = logging.getLogger(__name__)
 
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
     from drf_spectacular.types import OpenApiTypes
@@ -169,6 +173,21 @@ def _deleted_author():
     }
 
 
+def _fallback_avatar_url(user):
+    """The host's own photo for `user`, via ``AUTHOR_AVATAR_FALLBACK``, or
+    None. Only asked when the forum profile has no avatar."""
+    path = get_setting("AUTHOR_AVATAR_FALLBACK")
+    if not path:
+        return None
+    try:
+        return import_string(path)(user) or None
+    except Exception:
+        # A photo is decoration: a broken hook must cost the avatar, never
+        # the topic list it sits in.
+        logger.exception("[FORUM] AUTHOR_AVATAR_FALLBACK failed for user=%s", user.pk)
+        return None
+
+
 def serialize_forum_author(user, request=None):
     """Unified author object for EVERY topic + post payload (H26): `author`,
     `last_post_author`, and a post's author all share this shape.
@@ -194,8 +213,10 @@ def serialize_forum_author(user, request=None):
     # no-avatar case.
     if profile and profile.avatar_id and profile.avatar:
         avatar = profile.avatar.file.url
-        if request is not None:
-            avatar = request.build_absolute_uri(avatar)
+    else:
+        avatar = _fallback_avatar_url(user)
+    if avatar and request is not None:
+        avatar = request.build_absolute_uri(avatar)
     return {
         "username": user.get_username(),
         "display_name": display_name,

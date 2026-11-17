@@ -1092,6 +1092,10 @@ WAGTAILFORUM_DIGEST_UNSUBSCRIBE = "apps.users.email_unsubscribe.digest_unsubscri
 WAGTAILFORUM_DIGEST_RECIPIENT_FILTER = (
     "apps.users.notification_policy.digest_recipient_filter"
 )
+# One photo everywhere: an author with no forum avatar is shown with their
+# account photo (User.avatar, the one the mobile and web profile screens set)
+# instead of an initial.
+WAGTAILFORUM_AUTHOR_AVATAR_FALLBACK = "apps.forum_host.avatars.account_avatar_url"
 # This API's own public origin (e.g. https://api.houseplant-md.com). SITE_URL
 # is the WEB app's. Set, every list email carries an RFC 8058 one-click
 # List-Unsubscribe URL on this origin plus List-Unsubscribe-Post; unset, the
