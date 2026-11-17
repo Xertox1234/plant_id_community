@@ -21,11 +21,15 @@ class CanopyAccentTile extends StatelessWidget {
     required this.icon,
     required this.tone,
     this.size = 40,
+    this.emoji,
   });
 
   final IconData icon;
   final Color tone;
   final double size;
+
+  /// Server-set emoji shown instead of [icon]; same tile box and tone.
+  final String? emoji;
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +44,23 @@ class CanopyAccentTile extends StatelessWidget {
             border: Border.all(color: tone.withValues(alpha: 0.30)),
           ),
           child: Center(
-            child: Icon(icon, size: size * 0.5, color: tone),
+            child: emoji == null
+                ? Icon(icon, size: size * 0.5, color: tone)
+                // Fixed to the tile (no text scaling) and scaled down rather
+                // than clipped, so a ZWJ sequence can never overflow the box.
+                : Padding(
+                    padding: EdgeInsets.all(size * 0.2),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        emoji!,
+                        textScaler: TextScaler.noScaling,
+                        maxLines: 1,
+                        softWrap: false,
+                        style: TextStyle(fontSize: size * 0.5, height: 1),
+                      ),
+                    ),
+                  ),
           ),
         ),
       ),
@@ -56,11 +76,16 @@ class CanopyChip extends StatelessWidget {
     required this.label,
     required this.tone,
     this.icon,
+    this.emoji,
   });
 
   final String label;
   final Color tone;
   final IconData? icon;
+
+  /// Server-set emoji shown instead of [icon]; fixed to the icon's box (no
+  /// text scaling, scaled down rather than clipped) so it cannot overflow.
+  final String? emoji;
 
   @override
   Widget build(BuildContext context) {
@@ -74,7 +99,21 @@ class CanopyChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (icon != null) ...[
+            if (emoji != null) ...[
+              SizedBox.square(
+                dimension: 12,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    emoji!,
+                    textScaler: TextScaler.noScaling,
+                    maxLines: 1,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+            ] else if (icon != null) ...[
               Icon(icon, size: 12, color: tone),
               const SizedBox(width: 4),
             ],

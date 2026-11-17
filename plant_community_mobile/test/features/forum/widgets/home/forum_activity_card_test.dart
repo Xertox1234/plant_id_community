@@ -11,7 +11,10 @@ import 'package:plant_community_mobile/features/forum/widgets/author_identity.da
 import 'package:plant_community_mobile/features/forum/widgets/forum_avatar_cluster.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_activity_card.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_latest_replies_view.dart';
+import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
+import 'package:plant_community_mobile/features/forum/utils/board_identity.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
+import 'package:plant_community_mobile/shared/widgets/canopy_accents.dart';
 
 import '../../support/forum_test_support.dart';
 
@@ -135,6 +138,55 @@ Future<void> _tapCard(WidgetTester tester, int id) =>
     tester.tap(find.text('Topic $id'));
 
 void main() {
+  group('ForumActivityCard board identity', () {
+    testWidgets('a board in the feed shows its server icon and colour', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..categories = [
+          categoryOf(const [
+            ForumBoard(
+              id: 1,
+              title: 'Care',
+              slug: 'care',
+              description: '',
+              topicCount: 1,
+              postCount: 1,
+              icon: '🪴',
+              colour: 'orchid',
+            ),
+          ]),
+        ];
+      await _pump(tester, api, [_topic(1)]);
+      await tester.pump();
+      await tester.pump();
+      final chip = find.byType(CanopyChip);
+      expect(
+        find.descendant(of: chip, matching: find.text('🪴')),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<CanopyChip>(chip).tone,
+        tester.element(chip).canopy.sky,
+      );
+    });
+
+    testWidgets('a board not in the feed falls back to the slug identity', (
+      tester,
+    ) async {
+      await _pump(tester, FakeForumApi(), [_topic(1)]);
+      await tester.pump();
+      await tester.pump();
+      final chip = find.byType(CanopyChip);
+      expect(tester.widget<CanopyChip>(chip).emoji, isNull);
+      expect(
+        tester.widget<CanopyChip>(chip).tone,
+        boardIdentity('care').tone.colorOf(tester.element(chip).canopy),
+      );
+      expect(find.text('Care'), findsOneWidget);
+    });
+  });
+
   group('ForumActivityCard', () {
     testWidgets('a picture topic is collapsed with one small thumbnail, and '
         'expands on tap like any other', (tester) async {

@@ -39,20 +39,35 @@ Duration? forumRetry(int retryCount, Object error) {
   return ProviderContainer.defaultRetry(retryCount, error);
 }
 
-/// Forum boards (not paginated).
-@riverpod
-class Boards extends _$Boards {
+/// The forum index: categories, each with its forums and links, in the
+/// server's order (`GET /forum/categories/`). The feed is per member (unread
+/// dots, locked forums), so it is refetched when the viewer changes.
+@Riverpod(retry: forumRetry)
+class Categories extends _$Categories {
   @override
-  Future<List<ForumBoard>> build() {
-    return ref.watch(forumApiProvider).fetchBoards();
+  Future<List<ForumCategory>> build() {
+    return ref.watch(forumApiProvider).fetchCategories();
   }
 
   Future<void> refresh() async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(
-      () => ref.read(forumApiProvider).fetchBoards(),
+      () => ref.read(forumApiProvider).fetchCategories(),
     );
   }
+}
+
+/// Every forum a member can post in, in feed order: the flat list the topic
+/// screen's header and the search filter read. Derived from [categoriesProvider]
+/// (no request of its own); locked forums are left out.
+@riverpod
+Future<List<ForumBoard>> boards(Ref ref) async {
+  final categories = await ref.watch(categoriesProvider.future);
+  return [
+    for (final c in categories)
+      for (final f in c.forums)
+        if (!f.isLocked) f,
+  ];
 }
 
 /// Topics in a board, cursor-paginated with [loadMore].

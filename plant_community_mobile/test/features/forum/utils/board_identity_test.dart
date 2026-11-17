@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
+import 'package:plant_community_mobile/features/forum/models/forum_board.dart';
 import 'package:plant_community_mobile/features/forum/utils/board_identity.dart';
 
 void main() {
@@ -70,5 +71,48 @@ void main() {
         expect(CanopyTone.orchid.colorOf(c), c.sky);
       });
     }
+  });
+
+  group('boardIdentityOf', () {
+    ForumBoard board({
+      String slug = 'x',
+      String icon = '',
+      String colour = '',
+    }) => ForumBoard(
+      id: 1,
+      title: 'T',
+      slug: slug,
+      description: '',
+      topicCount: 0,
+      postCount: 0,
+      icon: icon,
+      colour: colour,
+    );
+
+    test('server colour and icon win', () {
+      final i = boardIdentityOf(
+        board(slug: 'care-problems', icon: '🪴', colour: 'orchid'),
+      );
+      expect(i.tone, CanopyTone.orchid);
+      expect(i.emoji, '🪴');
+    });
+    test('each falls back on its own', () {
+      final i = boardIdentityOf(board(slug: 'care-problems', colour: 'orchid'));
+      expect(i.emoji, isNull);
+      expect(i.icon, LucideIcons.droplet);
+      expect(i.tone, CanopyTone.orchid);
+      final j = boardIdentityOf(board(slug: 'care-problems', icon: '🪴'));
+      expect(j.emoji, '🪴');
+      expect(j.tone, CanopyTone.pollen);
+    });
+    test('unknown colour name falls back to the slug tone', () {
+      for (final c in ['teal', 'Sage', ' sage', 'SAGE']) {
+        expect(
+          boardIdentityOf(board(slug: 'care-problems', colour: c)).tone,
+          CanopyTone.pollen,
+          reason: c,
+        );
+      }
+    });
   });
 }

@@ -64,6 +64,7 @@ class _ForumSearchScreenState extends ConsumerState<ForumSearchScreen> {
                     children: [
                       Expanded(
                         child: boardsAsync.when(
+                          skipLoadingOnReload: true,
                           loading: () => const SizedBox.shrink(),
                           error: (error, _) => const SizedBox.shrink(),
                           data: (boards) => DropdownButtonFormField<String?>(

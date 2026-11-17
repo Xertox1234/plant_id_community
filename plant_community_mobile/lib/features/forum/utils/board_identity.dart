@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/theme/green_thumb_extension.dart';
+import '../models/forum_board.dart';
 
 /// Accent tone of a board. Mirrors the web's `TileTone`; each maps to a Canopy
 /// accent token, so light mode gets the darkened accents automatically.
@@ -25,11 +26,15 @@ class BoardIdentity {
     required this.tone,
     required this.icon,
     required this.chipLabel,
+    this.emoji,
   });
 
   final CanopyTone tone;
   final IconData icon;
   final String chipLabel;
+
+  /// Server-set emoji; when non-null it replaces [icon] in the tile.
+  final String? emoji;
 }
 
 /// Port of `web/src/utils/hashString.ts`: 31x rolling hash over UTF-16 code
@@ -82,3 +87,20 @@ BoardIdentity boardIdentity(String slug, {String fallbackLabel = ''}) =>
       icon: LucideIcons.leaf,
       chipLabel: fallbackLabel.isEmpty ? slug : fallbackLabel,
     );
+
+/// Identity for [board]: the server's `colour` (exactly `sage`, `pollen`,
+/// `bloom` or `orchid`) and non-empty `icon` emoji win; each falls back on its
+/// own to the slug's identity. Never throws on an unknown colour name.
+BoardIdentity boardIdentityOf(ForumBoard board) {
+  final base = boardIdentity(board.slug, fallbackLabel: board.title);
+  CanopyTone? tone;
+  for (final t in CanopyTone.values) {
+    if (t.name == board.colour) tone = t;
+  }
+  return BoardIdentity(
+    tone: tone ?? base.tone,
+    icon: base.icon,
+    chipLabel: base.chipLabel,
+    emoji: board.icon.isEmpty ? null : board.icon,
+  );
+}

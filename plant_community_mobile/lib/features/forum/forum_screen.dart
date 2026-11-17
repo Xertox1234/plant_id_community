@@ -14,7 +14,7 @@ import '../../shared/widgets/canopy_surfaces.dart';
 import 'providers/forum_providers.dart';
 import 'widgets/forum_experts_strip.dart';
 import 'widgets/home/forum_activity_card.dart';
-import 'widgets/home/forum_boards_section.dart';
+import 'widgets/home/forum_categories_section.dart';
 import 'widgets/home/forum_home_footer.dart';
 import 'widgets/home/forum_season_card.dart';
 import 'widgets/home/forum_whos_online.dart';
@@ -29,8 +29,9 @@ const Duration _sectionFade = Duration(milliseconds: 200);
 const int _slotCount = 6;
 const double _rise = 8;
 
-/// Community forum home (spec 2026-11-02 §5): your season, experts, boards,
-/// recent activity, who's online and the footer, top to bottom.
+/// Community forum home (spec 2026-11-02 §5): your season,
+/// experts, the forums by category, recent activity, who's online and the
+/// footer, top to bottom.
 class ForumScreen extends ConsumerStatefulWidget {
   const ForumScreen({super.key});
 
@@ -56,7 +57,7 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
 
   Future<void> _refresh(bool isAuthenticated) async {
     ref.read(expandedActivityTopicProvider.notifier).collapse();
-    ref.invalidate(boardsProvider);
+    ref.invalidate(categoriesProvider);
     ref.invalidate(homeRecentTopicsProvider);
     ref.invalidate(latestRepliesProvider);
     ref.invalidate(communityStatsProvider);
@@ -68,10 +69,12 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
 
   /// A block or a new viewer (sign-in, sign-out, account switch) changes
   /// what the home may show: who is online, unread dots, the open peek
-  /// (spec §4). Drop the per-viewer data; boards and the offline mirror are
-  /// the same for everyone and stay.
+  /// (spec §4). Drop the per-viewer data. The forum feed is per member too
+  /// (unread dots, locked forums), so it goes with it; only the offline mirror
+  /// is the same for everyone and stays.
   void _resetForViewer() {
     ref.read(expandedActivityTopicProvider.notifier).collapse();
+    ref.invalidate(categoriesProvider);
     ref.invalidate(homeRecentTopicsProvider);
     ref.invalidate(latestRepliesProvider);
     ref.invalidate(communityStatsProvider);
@@ -168,7 +171,7 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
                     2,
                     const Padding(
                       padding: EdgeInsets.only(bottom: _sectionGap),
-                      child: _BoardsSection(),
+                      child: _ForumsSection(),
                     ),
                   ),
                   slot(
@@ -312,35 +315,30 @@ class _ExpertsSection extends ConsumerWidget {
   }
 }
 
-class _BoardsSection extends ConsumerWidget {
-  const _BoardsSection();
+/// The forums by category: each category a header over one card of forums.
+class _ForumsSection extends ConsumerWidget {
+  const _ForumsSection();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final boardsAsync = ref.watch(boardsProvider);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const _SectionHeader('Boards'),
-        _sectionState(
-          boardsAsync,
-          loading: const _BoardsSkeleton(),
-          error: _SectionError(
-            message: 'Could not load boards.',
-            onRetry: () => ref.invalidate(boardsProvider),
-          ),
-          data: (boards) => boards.isEmpty
-              ? const _EmptyLine('No boards yet.')
-              : ForumBoardsSection(
-                  boards: boards,
-                  onTap: (board) => context.pushNamed(
-                    'forumBoard',
-                    pathParameters: {'slug': board.slug},
-                    extra: board.title,
-                  ),
-                ),
-        ),
-      ],
+    final categoriesAsync = ref.watch(categoriesProvider);
+    return _sectionState(
+      categoriesAsync,
+      loading: const _ForumsSkeleton(),
+      error: _SectionError(
+        message: 'Could not load forums.',
+        onRetry: () => ref.invalidate(categoriesProvider),
+      ),
+      data: (categories) => categories.isEmpty
+          ? const _EmptyLine('No forums yet.')
+          : ForumCategoriesSection(
+              categories: categories,
+              onForumTap: (board) => context.pushNamed(
+                'forumBoard',
+                pathParameters: {'slug': board.slug},
+                extra: board.title,
+              ),
+            ),
     );
   }
 }
@@ -524,8 +522,8 @@ class _SeasonSkeleton extends StatelessWidget {
 }
 
 /// Three rows shaped like board rows: a 40pt tile and two lines.
-class _BoardsSkeleton extends StatelessWidget {
-  const _BoardsSkeleton();
+class _ForumsSkeleton extends StatelessWidget {
+  const _ForumsSkeleton();
 
   @override
   Widget build(BuildContext context) {
@@ -561,7 +559,7 @@ class _BoardsSkeleton extends StatelessWidget {
       ),
     );
     return _Skeleton(
-      label: 'Loading boards',
+      label: 'Loading forums',
       child: CanopyGroupedCard(rows: [row(0.7), row(0.5), row(0.6)]),
     );
   }
