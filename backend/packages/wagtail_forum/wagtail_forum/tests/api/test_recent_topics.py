@@ -926,6 +926,81 @@ def test_recent_topics_thumbnail_urls_fall_back_like_image_url():
     assert preview_url.endswith(_PREVIEW_NAME)
 
 
+def _card(name):
+    return {
+        "type": "link_preview",
+        "value": {"url": "https://example.com/" + name[-12:], "image": name},
+    }
+
+
+@pytest.mark.django_db
+def test_recent_topics_thumbnail_urls_stack_every_link_card_image():
+    """Two link cards are two pictures (owner report 2026-11-17: a topic with
+    two cards showed one). The same cached image twice is one picture, and a
+    card whose image is not ours contributes nothing."""
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    second = "forum/link-previews/" + "b" * 64 + ".webp"
+    topic = _plain_topic(board, author, "cards", timezone.now())
+    Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[
+            {"type": "paragraph", "value": "picture 1"},
+            _card(_PREVIEW_NAME),
+            _card("https://evil.example/x.png"),
+            _card(_PREVIEW_NAME),
+            {"type": "paragraph", "value": "picture 2"},
+            _card(second),
+        ],
+    )
+
+    row = APIClient().get("/forum/topics/recent/").data["results"][0]
+
+    assert [url.rsplit("/", 1)[-1] for url in row["thumbnail_urls"]] == [
+        _PREVIEW_NAME.rsplit("/", 1)[-1],
+        second.rsplit("/", 1)[-1],
+    ]
+    # image_url is still the first card's picture alone.
+    assert row["image_url"].endswith(_PREVIEW_NAME)
+
+
+@pytest.mark.django_db
+def test_recent_topics_thumbnail_urls_mix_uploads_and_cards_in_body_order():
+    """Uploaded images and link-card images share one stack, in the order the
+    post shows them, capped at RECENT_TOPICS_THUMBNAILS."""
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    image = get_image_model().objects.create(
+        title="up.jpg",
+        file=get_test_image_file(),
+        collection=get_forum_image_collection(),
+    )
+    names = ["forum/link-previews/" + c * 64 + ".webp" for c in "bcd"]
+    topic = _plain_topic(board, author, "mixed", timezone.now())
+    Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[
+            _card(names[0]),
+            {"type": "image", "value": image.id},
+            _card(names[1]),
+            _card(names[2]),
+        ],
+    )
+
+    urls = APIClient().get("/forum/topics/recent/").data["results"][0]["thumbnail_urls"]
+
+    assert len(urls) == 3
+    assert urls[0].endswith(names[0])
+    assert "fill-160x160" in urls[1]
+    assert urls[2].endswith(names[1])
+
+
 @pytest.mark.django_db
 def test_recent_topics_repliers_newest_first_distinct_and_capped():
     board = _board()
