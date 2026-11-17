@@ -63,8 +63,23 @@ def _strip_frame_vars(container) -> None:
             frame.pop("vars", None)
 
 
+# Request headers that hold a credential the SDK does not know to strip
+# (it only knows Authorization / Cookie and friends). X-Forum-Unlock carries
+# a member's password-forum unlock tokens.
+SECRET_REQUEST_HEADERS = frozenset({"x-forum-unlock"})
+
+
+def _strip_secret_headers(event) -> None:
+    headers = (event.get("request") or {}).get("headers")
+    if isinstance(headers, dict):
+        for name in [h for h in headers if str(h).lower() in SECRET_REQUEST_HEADERS]:
+            headers[name] = "[Filtered]"
+
+
 def before_send(event, hint):
-    """Drop frame variables from the operational-alert events only."""
+    """Filter credential headers from every event, and drop frame variables
+    from the operational-alert events only."""
+    _strip_secret_headers(event)
     if is_alert_event(event):
         _strip_frame_vars(event.get("exception"))
         _strip_frame_vars(event.get("threads"))
