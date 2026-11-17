@@ -46,7 +46,11 @@ kotlin {
 
 android {
     namespace = "com.plantcommunity.plant_community_mobile"
-    compileSdk = flutter.compileSdkVersion
+    // flutter_local_notifications 23 needs compileSdk 37 at a minimum (its
+    // README); Flutter 3.47.9's default is 36. Go back to
+    // flutter.compileSdkVersion once that reaches 37. targetSdk stays on the
+    // Flutter default: compileSdk only changes which APIs we can build against.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

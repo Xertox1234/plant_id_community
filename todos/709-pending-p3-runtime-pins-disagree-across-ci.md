@@ -78,3 +78,11 @@ Source: stack audit, 2026-11-15.
 ### 2026-11-15 - Filed
 
 - Filed from the stack audit.
+
+### 2026-11-17 - Implemented by the todo sweep (run 2026-11-17-1802)
+
+- Python line decision (owner, 2026-11-17): stay on 3.13 and pin a patch. `.python-version`, `backend/.python-version` and `backend/Dockerfile` (`python:3.13.18-slim`) now all say 3.13.18, the newest 3.13 that has a `-slim` tag on Docker Hub and an actions/python-versions build for Ubuntu 22.04, 24.04 and 26.04 (both checked 2026-11-17). The floating `3.13-slim` tag already resolved to it, so the deploy does not change Python.
+- Drift left on purpose: Dependabot's docker entry bumps only the Dockerfile line, so a patch PR must move both version files too. That is written next to the `FROM` and in `backend/docs/deployment/railway.md`. No guard was added.
+- `firebase-rules-emulator.yml`, `firebase-rules-drift.yml` and `harness-ci.yml` move from Python 3.12 to 3.13. The emulator job moves from Node 22 to 24 (firebase-tools 14.19.1 declares `node >=20`). None of them needed the older runtime.
+- Root `package.json`: `@playwright/test` and `react-error-boundary` removed. Nothing at the root imports them; both design scripts load Playwright through `web/package.json`. The root lock was regenerated (71 lines gone), and the root `npm audit --package-lock-only` finds 0 vulnerabilities.
+- AC4 (production Postgres and Redis versions) is the owner's: read them off Railway and record them here. CI is still on `pgvector/pgvector:pg16` and `redis:7`.

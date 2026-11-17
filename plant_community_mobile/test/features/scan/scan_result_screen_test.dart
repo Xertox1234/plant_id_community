@@ -202,7 +202,14 @@ Future<GoRouter> _pumpPushed(
       ),
       GoRoute(
         path: '/scans/:id',
-        builder: (_, s) => ScanResultScreen(jobId: s.pathParameters['id']!),
+        // An animated page, as in the app (`_buildPageWithTransition`), so a
+        // pop takes frames. go_router 18 checks for material_ui's MaterialApp,
+        // not package:flutter's, and gives a `builder:` route here a
+        // NoTransitionPage, which pops in one frame (todo 713).
+        pageBuilder: (_, s) => MaterialPage<void>(
+          key: s.pageKey,
+          child: ScanResultScreen(jobId: s.pathParameters['id']!),
+        ),
         routes: [
           GoRoute(
             path: 'full',

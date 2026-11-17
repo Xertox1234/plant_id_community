@@ -115,8 +115,10 @@ show:
   `-e ./packages/wagtail_forum` requirement. The hand-written Dockerfile
   declares NO `ARG`s and `COPY . .`s before installing — see its header
   comments.
-- **Python version** is pinned by `backend/.python-version` (canonical) and
-  must stay in sync with the Dockerfile's `FROM python:3.13-slim`.
+- **Python version** is one patch, written in three places that must agree:
+  `.python-version`, `backend/.python-version` and the Dockerfile's
+  `FROM python:3.13.18-slim` (todo 709). A Dependabot patch bump changes only
+  the Dockerfile, so move both version files in the same PR.
 - **`collectstatic` runs at BUILD time** (a `RUN` step), never at container
   start: on the slim runtime image the filesystem copies ~3 s/file (262 files
   ≈ 13 min), which eats the whole healthcheck window so gunicorn never starts.

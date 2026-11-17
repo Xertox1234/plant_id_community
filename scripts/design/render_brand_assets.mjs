@@ -55,9 +55,9 @@ const REPO = resolve(HERE, '..', '..');
 
 // Resolve Playwright from web/node_modules, matching
 // verify_canopy_tokens_in_browser.mjs. A bare `import 'playwright'` resolves
-// relative to THIS file and finds the repo root's older @playwright/test, whose
-// Chromium build is not the one installed -- the launch then fails with a
-// browser-not-found that reads like a missing install rather than a wrong one.
+// relative to THIS file, from the repo root, which has no Playwright (todo 709
+// removed the root's older @playwright/test, whose Chromium build was not the
+// one installed).
 const require = createRequire(resolve(REPO, 'web/package.json'));
 const { chromium } = require('playwright');
 const MOBILE = join(REPO, 'plant_community_mobile');

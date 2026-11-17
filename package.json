@@ -1,9 +1,5 @@
 {
   "name": "plant_id_community",
-  "dependencies": {
-    "@playwright/test": "^1.65.0",
-    "react-error-boundary": "^6.1.6"
-  },
   "devDependencies": {
     "railway": "^3.16.0",
     "wrangler": "^4.158.0"

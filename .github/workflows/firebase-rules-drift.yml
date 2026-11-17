@@ -78,7 +78,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
+          python-version: '3.13'
 
       - name: Install dependencies
         run: pip install 'google-auth==2.50.0' 'requests==2.32.5'
