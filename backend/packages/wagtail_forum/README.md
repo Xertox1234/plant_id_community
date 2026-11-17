@@ -242,6 +242,17 @@ notifications and the digest leave it out. The flat `/forum/boards/` list (the
 Flutter app's) leaves a locked forum out until the app has an unlock screen.
 Staff and moderators bypass the password.
 
+A client with no session (the mobile app) keeps a forum unlocked with a token:
+the unlock answers `{"unlocked": true, "unlock_token": "..."}` (`unlock_token`
+is null when there was nothing to unlock), and the client sends the token back
+in an `X-Forum-Unlock` header, comma-separated for several forums (only the
+first 20 are read). A token opens its forum only for the member it was made for,
+only while the forum keeps the password it was made against, and only for
+`WAGTAILFORUM_FORUM_UNLOCK_TOKEN_MAX_AGE_SECONDS`. The server keeps no list of
+tokens: changing the password ends every one of them. A bad, expired or foreign
+token is ignored, and anonymous requests ignore the header, so their responses
+stay publicly cacheable.
+
 **Display settings** (todo 669; the *Display* and *Rules* tabs). `is_closed`
 (phpBB "locked"; named so because `is_locked` above already means an
 un-unlocked password forum) refuses new topics and replies with 403
@@ -561,6 +572,7 @@ Things worth knowing before changing this:
 | `WAGTAILFORUM_TOPIC_READ_DEDUP_SECONDS` | `900` (15 min) | Read-marker dedup window. Deliberately **separate** from the view-count window — they gate unrelated concerns and only happen to share a default. |
 | `WAGTAILFORUM_FORUM_UNLOCK_MAX_FAILURES` | `5` | Wrong passwords one member may try on one password forum per window before `POST boards/{slug}/unlock/` answers 429 (todo 680). Only a wrong password counts; the right one clears the count. |
 | `WAGTAILFORUM_FORUM_UNLOCK_WINDOW_SECONDS` | `900` (15 min) | The window of the count above, from the first wrong password; also the 429's `Retry-After`. |
+| `WAGTAILFORUM_FORUM_UNLOCK_TOKEN_MAX_AGE_SECONDS` | `2592000` (30 days) | How long an `unlock_token` from `POST boards/{slug}/unlock/` opens its forum when sent back in `X-Forum-Unlock`. A new password ends every token sooner. |
 | `WAGTAILFORUM_PUBLIC_READ_CACHE_SECONDS` | `60` | Shared-cache TTL for **anonymous** board list, topic list, search, recent topics, experts rails, and the event hero only, so a CDN can offload public reads. Authenticated responses are always `private, no-store`. Topic detail and post list are never shared-cached (view counting; moderated-away content must stop serving immediately). Tradeoff: a just-removed topic can linger in the anon-cached *list* for up to this TTL. |
 | `WAGTAILFORUM_RECENT_TOPICS_DEFAULT_LIMIT` | `5` | Default row count for `GET topics/recent/` (the landing "Active now" rail) when `?limit=` is omitted. |
 | `WAGTAILFORUM_RECENT_TOPICS_MAX_LIMIT` | `20` | Cap on `?limit=` for `GET topics/recent/`. Bounded because each row may resolve a thumbnail rendition. |

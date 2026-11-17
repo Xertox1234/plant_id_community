@@ -41,7 +41,7 @@ from rest_framework.views import APIView
 from ..conf import get_setting
 from ..models import Forum, ForumProfile, ForumRead, ForumSubscription, ForumWatchLevel
 from ..models.boards import FORUM_PASSWORD_MAX_LENGTH, LINK_URL_SCHEMES
-from ..services.forum_permissions import remember_unlocked
+from ..services.forum_permissions import make_unlock_token, remember_unlocked
 from .serializers import CollapsedCategoriesSerializer
 from .versioning import UnversionedForumAPIMixin
 from .views import _get_board, _visible_boards, _visible_rows
@@ -176,7 +176,14 @@ class ForumUnlockSerializer(serializers.Serializer):
 
 UNLOCKED_SCHEMA = {
     "type": "object",
-    "properties": {"unlocked": {"type": "boolean"}},
+    "properties": {
+        "unlocked": {"type": "boolean"},
+        # A signed unlock for a client with no session (spec 2026-11-17
+        # §7.4): sent back in `X-Forum-Unlock`. Null when there was nothing
+        # to unlock.
+        "unlock_token": {"type": "string", "nullable": True},
+    },
+    "required": ["unlocked", "unlock_token"],
 }
 
 
@@ -191,6 +198,11 @@ class ForumUnlockView(UnversionedForumAPIMixin, APIView):
     anonymous response may be edge-cached for every guest. The unlock is
     stored in the Django session with the member's id, so it ends with the
     session and never carries over to another account on the same browser.
+
+    The answer also carries an ``unlock_token`` for a client with no session
+    (the mobile app, spec 2026-11-17 §7.4), which sends it back in the
+    ``X-Forum-Unlock`` header: valid for this member, this forum and its
+    current password, for ``FORUM_UNLOCK_TOKEN_MAX_AGE_SECONDS``.
     """
 
     permission_classes = [IsAuthenticated]
@@ -200,7 +212,11 @@ class ForumUnlockView(UnversionedForumAPIMixin, APIView):
         responses={200: UNLOCKED_SCHEMA, 400: dict, 401: dict, 404: dict, 429: dict},
         description=(
             "Unlock a password-protected forum for the rest of this session. "
-            "400 for a wrong password; 429 (with Retry-After) once too many "
+            "`unlock_token` opens it without a session: send it back in the "
+            "`X-Forum-Unlock` header (comma-separated, up to 20 tokens). It "
+            "is valid for this member and this forum until the password "
+            "changes or 30 days pass; null when there was nothing to "
+            "unlock. 400 for a wrong password; 429 (with Retry-After) once too many "
             "wrong passwords were tried on this forum. 404 for a hidden or "
             "unknown forum."
         ),
@@ -217,7 +233,8 @@ class ForumUnlockView(UnversionedForumAPIMixin, APIView):
             not forum.password_hash
             or _visible_boards(request=request).filter(pk=forum.pk).exists()
         ):
-            return Response({"unlocked": True})  # nothing to unlock
+            # Nothing to unlock: no password, or this request already sees it.
+            return Response({"unlocked": True, "unlock_token": None})
         key = _unlock_failures_key(request.user.pk, forum.pk)
         window = int(get_setting("FORUM_UNLOCK_WINDOW_SECONDS"))
         if int(cache.get(key, 0)) >= int(get_setting("FORUM_UNLOCK_MAX_FAILURES")):
@@ -240,7 +257,9 @@ class ForumUnlockView(UnversionedForumAPIMixin, APIView):
             raise ValidationError({"password": ["Wrong password."]})
         cache.delete(key)
         remember_unlocked(request, forum)
-        return Response({"unlocked": True})
+        return Response(
+            {"unlocked": True, "unlock_token": make_unlock_token(request.user, forum)}
+        )
 
 
 WATCH_LEVEL_SCHEMA = {

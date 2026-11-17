@@ -270,3 +270,291 @@ def test_an_overlong_password_is_refused_before_it_is_hashed(locked):
 
     assert resp.status_code == 400
     check.assert_not_called()
+
+
+# --- Unlock token for cookie-less clients (spec 2026-11-17 §7.4) -------------
+
+TOPICS_URL = "/forum/boards/club/topics/"
+
+
+def _token(client):
+    resp = _unlock(client)
+    assert resp.status_code == 200
+    token = resp.json()["unlock_token"]
+    assert isinstance(token, str) and token
+    return token
+
+
+def _no_session(user):
+    """A client with no session at all: what the mobile app sends."""
+    client = APIClient()
+    client.force_authenticate(user)
+    return client
+
+
+def _row_with(client, token):
+    rows = client.get("/forum/categories/", HTTP_X_FORUM_UNLOCK=token).json()
+    return next(f for c in rows["results"] for f in c["forums"] if f["slug"] == "club")
+
+
+def test_unlock_returns_a_token_that_opens_the_topic_list_without_a_session(locked):
+    client, member = _member()
+    token = _token(client)
+    fresh = _no_session(member)
+
+    assert fresh.get(TOPICS_URL).status_code == 403
+    assert fresh.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=token).status_code == 200
+    topic_url = f"/forum/topics/{locked['topic'].pk}/"
+    assert fresh.get(topic_url, HTTP_X_FORUM_UNLOCK=token).status_code == 200
+
+
+def test_token_of_another_member_is_refused(locked):
+    client, _ = _member()
+    token = _token(client)
+    other = _no_session(User.objects.create_user(username="other"))
+
+    resp = other.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=token)
+
+    assert resp.status_code == 403
+    assert resp.json()["code"] == "forum_locked"
+
+
+def test_token_for_another_forum_is_refused(locked):
+    make_forum(name="Den", slug="den", password_hash=make_password(PASSWORD))
+    client, member = _member()
+    den_token = client.post(
+        "/forum/boards/den/unlock/", {"password": PASSWORD}, format="json"
+    ).json()["unlock_token"]
+    fresh = _no_session(member)
+
+    assert fresh.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=den_token).status_code == 403
+    assert (
+        fresh.get("/forum/boards/den/topics/", HTTP_X_FORUM_UNLOCK=den_token)
+    ).status_code == 200
+
+
+def test_token_dies_when_the_password_changes(locked):
+    client, member = _member()
+    token = _token(client)
+    forum = locked["forum"]
+    forum.password_hash = make_password(
+        "a-rotated-fake-password"
+    )  # pragma: allowlist secret
+    forum.save(update_fields=["password_hash"])
+
+    resp = _no_session(member).get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=token)
+
+    assert resp.status_code == 403
+
+
+def test_token_dies_when_the_password_is_removed_and_set_again(locked):
+    client, member = _member()
+    token = _token(client)
+    forum = locked["forum"]
+    forum.password_hash = ""
+    forum.save(update_fields=["password_hash"])
+    forum.password_hash = make_password(PASSWORD)  # a new salt: a new hash
+    forum.save(update_fields=["password_hash"])
+
+    assert (
+        _no_session(member).get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=token).status_code
+        == 403
+    )
+
+
+def test_expired_token_is_refused(locked):
+    import time as real_time
+
+    from wagtail_forum.services.forum_permissions import make_unlock_token
+
+    client, member = _member()
+    month_ago = real_time.time() - 31 * 24 * 60 * 60
+    with mock.patch("django.core.signing.time.time", return_value=month_ago):
+        old = _token(client)  # the endpoint's own token, signed 31 days ago
+    fresh = _no_session(member)
+
+    assert fresh.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=old).status_code == 403
+    new = make_unlock_token(member, locked["forum"])
+    assert fresh.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=new).status_code == 200
+    with override_settings(WAGTAILFORUM_FORUM_UNLOCK_TOKEN_MAX_AGE_SECONDS=60):
+        assert fresh.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=new).status_code == 200
+    with override_settings(
+        WAGTAILFORUM_FORUM_UNLOCK_TOKEN_MAX_AGE_SECONDS=32 * 24 * 60 * 60
+    ):
+        assert fresh.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=old).status_code == 200
+
+
+def test_anonymous_request_with_a_token_stays_locked_and_cacheable(locked):
+    client, _ = _member()
+    token = _token(client)
+    guest = APIClient()
+
+    assert guest.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=token).status_code == 403
+    resp = guest.get("/forum/categories/", HTTP_X_FORUM_UNLOCK=token)
+    row = next(
+        f for c in resp.json()["results"] for f in c["forums"] if f["slug"] == "club"
+    )
+    assert row["is_locked"] is True
+    assert resp["Cache-Control"].startswith("public")
+    assert "x-forum-unlock" not in resp.get("Vary", "").lower()
+
+
+def test_garbage_and_too_many_tokens_are_ignored(locked):
+    client, member = _member()
+    token = _token(client)
+    fresh = _no_session(member)
+
+    for junk in ("garbage", ",,,", "a:b:c", "éé", "x" * 5000, " , "):
+        assert fresh.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=junk).status_code == 403
+    # A well-signed value that is not our payload shape.
+    from django.core import signing
+
+    for payload in ([1, 2], {"u": member.pk}, {"u": str(member.pk), "f": 1, "p": 1}):
+        odd = signing.dumps(payload, salt="wagtail_forum.forum_unlock_token")
+        assert fresh.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=odd).status_code == 403
+    # A token signed with another salt (a session-style value) is refused.
+    forged = signing.dumps(
+        {"u": member.pk, "f": locked["forum"].pk, "p": "x"}, salt="other"
+    )
+    assert fresh.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=forged).status_code == 403
+    assert (
+        fresh.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=f" junk , {token} ").status_code
+        == 200
+    )
+
+
+def test_only_the_first_twenty_tokens_are_read(locked):
+    client, member = _member()
+    token = _token(client)
+    fresh = _no_session(member)
+
+    twenty_first = ",".join(["junk"] * 20 + [token])
+    assert fresh.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=twenty_first).status_code == 403
+    twentieth = ",".join(["junk"] * 19 + [token, "junk"])
+    assert fresh.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=twentieth).status_code == 200
+
+
+def test_a_client_with_no_session_unlocks_and_gets_a_token(locked):
+    # The mobile app's own flow: no cookie session before the unlock, and
+    # the token used later from another client that carries no cookie.
+    _, member = _member()
+    app = _no_session(member)
+
+    resp = app.post(TOPICS_URL.replace("topics/", "unlock/"), {"password": PASSWORD})
+    token = resp.json()["unlock_token"]
+    later = _no_session(member)
+
+    assert resp.status_code == 200
+    assert isinstance(token, str) and token
+    assert later.get(TOPICS_URL).status_code == 403
+    assert later.get(TOPICS_URL, HTTP_X_FORUM_UNLOCK=token).status_code == 200
+
+
+def test_resolving_tokens_costs_one_query_whatever_their_number(locked):
+    from django.db import connection
+    from django.test import RequestFactory
+    from django.test.utils import CaptureQueriesContext
+    from wagtail_forum.services.forum_permissions import (
+        make_unlock_token,
+        unlocked_forum_ids,
+    )
+
+    member = User.objects.create_user(username="counted")
+    forums = [locked["forum"]] + [
+        make_forum(name=f"F{i}", slug=f"f{i}", password_hash=make_password(PASSWORD))
+        for i in range(5)
+    ]
+    tokens = [make_unlock_token(member, forum) for forum in forums]
+
+    def resolve(header):
+        request = RequestFactory().get("/", HTTP_X_FORUM_UNLOCK=header)
+        request.user = member
+        with CaptureQueriesContext(connection) as ctx:
+            ids = unlocked_forum_ids(request)
+        return sorted(ids), len(ctx.captured_queries)
+
+    one_ids, one_queries = resolve(tokens[0])
+    all_ids, all_queries = resolve(",".join(tokens))
+
+    assert one_ids == [forums[0].pk]
+    assert all_ids == sorted(f.pk for f in forums)
+    assert one_queries == all_queries == 1
+
+
+def test_a_request_without_headers_or_session_does_not_crash(locked):
+    from types import SimpleNamespace
+
+    from wagtail_forum.services.forum_permissions import unlocked_forum_ids
+
+    member = User.objects.create_user(username="bare")
+
+    assert unlocked_forum_ids(SimpleNamespace(user=member)) == []
+
+
+def test_member_can_create_a_topic_and_reply_with_a_token(locked):
+    from wagtail_forum.models import ForumProfile, TrustLevel
+    from wagtail_forum.workflow import ensure_default_workflow
+
+    ensure_default_workflow()
+    client, member = _member()
+    profile = ForumProfile.for_user(member)
+    profile.trust_level = TrustLevel.MEMBER
+    profile.save(update_fields=["trust_level"])
+    token = _token(client)
+    fresh = _no_session(member)
+    body = [{"type": "paragraph", "value": "<p>Hello there.</p>"}]
+
+    created = fresh.post(
+        TOPICS_URL,
+        {"title": "A new topic", "slug": "new-topic", "body": body},
+        format="json",
+        HTTP_X_FORUM_UNLOCK=token,
+    )
+    assert created.status_code == 201, created.data
+    reply = fresh.post(
+        f"/forum/topics/{locked['topic'].pk}/posts/",
+        {"body": body},
+        format="json",
+        HTTP_X_FORUM_UNLOCK=token,
+    )
+    assert reply.status_code == 201, reply.data
+    # Without the token the same calls are refused.
+    assert (
+        fresh.post(
+            f"/forum/topics/{locked['topic'].pk}/posts/", {"body": body}, format="json"
+        ).status_code
+        == 404
+    )
+
+
+def test_categories_row_is_unlocked_with_a_token(locked):
+    client, member = _member()
+    token = _token(client)
+    fresh = _no_session(member)
+
+    assert _row_with(fresh, "")["is_locked"] is True
+    row = _row_with(fresh, token)
+    assert row["is_locked"] is False
+    assert row["last_post_at"] is not None
+
+
+def test_nothing_to_unlock_returns_null_token(locked):
+    make_forum(name="Open", slug="open")
+    client, _ = _member()
+
+    open_resp = client.post(
+        "/forum/boards/open/unlock/", {"password": "x"}, format="json"
+    )
+    assert open_resp.status_code == 200
+    assert open_resp.json() == {"unlocked": True, "unlock_token": None}
+    _token(client)
+    again = _unlock(client)  # already unlocked in this session
+    assert again.json() == {"unlocked": True, "unlock_token": None}
+
+
+def test_session_unlock_still_works_without_a_token(locked):
+    client, _ = _member()
+    _token(client)
+
+    assert client.get(TOPICS_URL).status_code == 200
+    assert _row(client)["is_locked"] is False
