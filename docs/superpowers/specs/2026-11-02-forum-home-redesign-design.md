@@ -7,6 +7,23 @@ Approved mockup: [`2026-11-02-forum-home-redesign-mockup.html`](2026-11-02-forum
 the mockup disagree, this document wins: the mockup's numbers, board descriptions and
 reply text are placeholders.
 
+> **Amended 2026-11-16 (owner, PR #1344).** Recent activity changed after this
+> spec shipped. Where the sections below disagree with this note, this note wins:
+>
+> - **Three topics**, not ten.
+> - **One collapsed card for every topic.** The picture card is gone. A topic's
+>   pictures are a small stack (56 pt, at most three distinct pictures) at the
+>   card's trailing edge, and a topic with a picture expands in place like any
+>   other card.
+> - **Stacked reply avatars** (at most three distinct people) stand in for the
+>   reply icon once two or more people have replied.
+> - **"Open topic"** in the expanded card is a small trailing pill with a 48 pt
+>   tap area, not a full-width button. The thread's avatar cluster shows three.
+> - **Feed (§6.2):** `GET forum/topics/recent/` also sends `thumbnail_urls` (up
+>   to three `fill-160x160` crops of the opening post's images) and `repliers`
+>   (up to three authors of live replies, newest first, without deleted
+>   accounts or members the viewer blocked or muted).
+
 ## 1. Intent
 
 The owner's words: the Flutter forum home "feels green and crammed together". The boards
