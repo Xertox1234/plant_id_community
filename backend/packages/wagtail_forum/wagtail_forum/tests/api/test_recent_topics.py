@@ -463,7 +463,11 @@ def test_recent_topics_query_count_is_pinned():
     assert len(resp.data["results"]) == 5
     # 6 -> 5 (todo 665): boards are Forum rows, so the
     # PageViewRestriction query behind the page-era `.public()` is gone.
-    assert len(ctx.captured_queries) == 5
+    # 5 -> 6 (2026-11-16): one grouped query for every topic's reply authors
+    # (`repliers`). This fixture has no replies, so the users lookup that
+    # follows it is skipped; with replies it is one more, still flat
+    # (test_recent_topics_repliers_query_count_is_flat).
+    assert len(ctx.captured_queries) == 6
 
 
 @pytest.mark.django_db
@@ -502,6 +506,7 @@ def test_recent_topics_rendition_prefetch_is_flat_when_cache_cold():
             # Wagtail's Rendition.cache_backend lookup is what's cold).
             image.get_rendition("fill-80x80")
             image.get_rendition("fill-720x400")  # image_url's wide rendition
+            image.get_rendition("fill-160x160")  # thumbnail_urls' crop
             Post.objects.create(
                 topic=topic,
                 author=author,
@@ -823,3 +828,201 @@ def test_recent_topics_uploaded_image_beats_link_preview():
 
     row = APIClient().get("/forum/topics/recent/").data["results"][0]
     assert "fill-720x400" in row["image_url"]
+
+
+# ---- thumbnail_urls + repliers (the collapsed mobile card, 2026-11-16) ----
+
+
+def _reply(topic, author, minutes_ago, live=True):
+    post = Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=False,
+        live=live,
+        body=[{"type": "paragraph", "value": "<p>reply</p>"}],
+    )
+    # created_at is auto_now_add: set the order explicitly.
+    Post.objects.filter(pk=post.pk).update(
+        created_at=timezone.now() - datetime.timedelta(minutes=minutes_ago)
+    )
+    return post
+
+
+@pytest.mark.django_db
+def test_recent_topics_thumbnail_urls_lists_opening_post_images_in_order():
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    collection = get_forum_image_collection()
+    images = [
+        get_image_model().objects.create(
+            title=f"s{i}.jpg", file=get_test_image_file(), collection=collection
+        )
+        for i in range(4)
+    ]
+    topic = _plain_topic(board, author, "stack", timezone.now())
+    Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[
+            {"type": "image", "value": images[0].id},
+            {"type": "paragraph", "value": "<p>between</p>"},
+            # The same image twice is one thumbnail.
+            {"type": "image", "value": images[0].id},
+            *[{"type": "image", "value": image.id} for image in images[1:]],
+        ],
+    )
+    plain = _plain_topic(
+        board, author, "plain", timezone.now() - datetime.timedelta(hours=1)
+    )
+
+    resp = APIClient().get("/forum/topics/recent/")
+
+    by_id = {r["id"]: r for r in resp.data["results"]}
+    urls = by_id[topic.id]["thumbnail_urls"]
+    # Capped at RECENT_TOPICS_THUMBNAILS (3) of the 4 distinct images.
+    assert len(urls) == 3
+    assert len(set(urls)) == 3
+    assert all("fill-160x160" in url for url in urls)
+    assert all(url.startswith("http://testserver") for url in urls)
+    expected = [
+        "http://testserver" + image.get_rendition("fill-160x160").url
+        for image in images[:3]
+    ]
+    assert urls == expected
+    assert by_id[plain.id]["thumbnail_urls"] == []
+
+
+@pytest.mark.django_db
+def test_recent_topics_thumbnail_urls_fall_back_like_image_url():
+    """No image block: the identification attachment, else the link card."""
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    now = timezone.now()
+    attachment_image = get_image_model().objects.create(
+        title="att.jpg",
+        file=get_test_image_file(),
+        collection=get_forum_image_collection(),
+    )
+    with_attachment = _plain_topic(board, author, "att", now)
+    ForumIdentificationAttachment.objects.create(
+        topic=with_attachment,
+        image=attachment_image,
+        provider="plant_id",
+        candidates=[],
+    )
+    with_preview = _preview_topic(
+        board, author, "preview", now - datetime.timedelta(hours=1), _PREVIEW_NAME
+    )
+
+    by_id = {
+        r["id"]: r for r in APIClient().get("/forum/topics/recent/").data["results"]
+    }
+
+    (attachment_url,) = by_id[with_attachment.id]["thumbnail_urls"]
+    assert "fill-160x160" in attachment_url
+    (preview_url,) = by_id[with_preview.id]["thumbnail_urls"]
+    assert preview_url.endswith(_PREVIEW_NAME)
+
+
+@pytest.mark.django_db
+def test_recent_topics_repliers_newest_first_distinct_and_capped():
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    names = ["bea", "cy", "dee", "eli"]
+    users = {name: User.objects.create_user(username=name) for name in names}
+    topic = _plain_topic(board, author, "busy", timezone.now())
+    Post.objects.create(topic=topic, author=author, is_opening_post=True, live=True)
+    _reply(topic, users["bea"], 40)
+    _reply(topic, users["cy"], 30)
+    _reply(topic, users["dee"], 20)
+    _reply(topic, users["eli"], 10)
+    # bea again, newest of all: listed once, first.
+    _reply(topic, users["bea"], 1)
+    # Not people to show: a hidden reply and a deleted account's reply.
+    _reply(topic, User.objects.create_user(username="hidden"), 0, live=False)
+    _reply(topic, None, 0)
+    quiet = _plain_topic(
+        board, author, "quiet", timezone.now() - datetime.timedelta(hours=1)
+    )
+    Post.objects.create(topic=quiet, author=author, is_opening_post=True, live=True)
+
+    by_id = {
+        r["id"]: r for r in APIClient().get("/forum/topics/recent/").data["results"]
+    }
+
+    # Capped at RECENT_TOPICS_REPLIERS (3); the opening post is not a reply.
+    assert [a["username"] for a in by_id[topic.id]["repliers"]] == [
+        "bea",
+        "eli",
+        "dee",
+    ]
+    assert set(by_id[topic.id]["repliers"][0]) >= {
+        "username",
+        "display_name",
+        "avatar",
+    }
+    assert by_id[quiet.id]["repliers"] == []
+
+
+@pytest.mark.django_db
+def test_recent_topics_repliers_hide_members_the_viewer_blocked():
+    from wagtail_forum.models import UserBlock
+
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    viewer = User.objects.create_user(username="viewer")
+    blocked = User.objects.create_user(username="blocked")
+    friend = User.objects.create_user(username="friend")
+    topic = _plain_topic(board, author, "mixed", timezone.now())
+    Post.objects.create(topic=topic, author=author, is_opening_post=True, live=True)
+    _reply(topic, friend, 10)
+    _reply(topic, blocked, 1)
+    UserBlock.objects.create(blocker=viewer, blocked=blocked)
+
+    anonymous = APIClient().get("/forum/topics/recent/").data["results"][0]
+    client = APIClient()
+    client.force_authenticate(viewer)
+    member = client.get("/forum/topics/recent/").data["results"][0]
+
+    assert [a["username"] for a in anonymous["repliers"]] == ["blocked", "friend"]
+    assert [a["username"] for a in member["repliers"]] == ["friend"]
+
+
+@pytest.mark.django_db
+def test_recent_topics_repliers_query_count_is_flat():
+    """Repliers cost two queries for the page (reply authors, then users),
+    not two per topic: 2 topics and 6 topics with replies cost the same."""
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    repliers = [User.objects.create_user(username=f"r{i}") for i in range(3)]
+    now = timezone.now()
+    client = APIClient()
+
+    def build(prefix, count):
+        for i in range(count):
+            topic = _plain_topic(
+                board, author, f"{prefix}-{i}", now - datetime.timedelta(minutes=i)
+            )
+            Post.objects.create(
+                topic=topic, author=author, is_opening_post=True, live=True
+            )
+            for n, user in enumerate(repliers):
+                _reply(topic, user, n + 1)
+
+    def measure():
+        client.get("/forum/topics/recent/")  # warm one-time lookups
+        with CaptureQueriesContext(connection) as ctx:
+            resp = client.get("/forum/topics/recent/", {"limit": 20})
+        assert resp.status_code == 200
+        assert all(len(r["repliers"]) == 3 for r in resp.data["results"])
+        return len(ctx), len(resp.data["results"])
+
+    build("a", 2)
+    count_two, rows_two = measure()
+    build("b", 4)
+    count_six, rows_six = measure()
+
+    assert (rows_two, rows_six) == (2, 6)
+    assert count_two == count_six

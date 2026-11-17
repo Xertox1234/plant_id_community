@@ -345,13 +345,13 @@ class _BoardsSection extends ConsumerWidget {
   }
 }
 
-/// Recent activity: up to ten cards from `GET forum/topics/recent/`. No
+/// Recent activity: the three latest cards from `GET forum/topics/recent/`. No
 /// "View all": forum search cannot sort by latest activity yet, so there is
 /// no list for it to open.
 class _RecentActivitySection extends ConsumerWidget {
   const _RecentActivitySection();
 
-  static const int _maxTopics = 10;
+  static const int _maxTopics = kHomeRecentTopicsLimit;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

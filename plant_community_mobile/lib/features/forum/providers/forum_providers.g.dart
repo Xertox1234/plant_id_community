@@ -638,14 +638,16 @@ abstract class _$RecentTopics extends $AsyncNotifier<List<ForumTopicStub>> {
   }
 }
 
-/// The home activity feed — the ten most recent topics with solved/unread
-/// state and a wide image. Distinct from [RecentTopics], the offline mirror.
+/// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
+/// with solved/unread state, pictures and recent repliers. Distinct from
+/// [RecentTopics], the offline mirror.
 
 @ProviderFor(homeRecentTopics)
 final homeRecentTopicsProvider = HomeRecentTopicsProvider._();
 
-/// The home activity feed — the ten most recent topics with solved/unread
-/// state and a wide image. Distinct from [RecentTopics], the offline mirror.
+/// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
+/// with solved/unread state, pictures and recent repliers. Distinct from
+/// [RecentTopics], the offline mirror.
 
 final class HomeRecentTopicsProvider
     extends
@@ -657,8 +659,9 @@ final class HomeRecentTopicsProvider
     with
         $FutureModifier<List<ForumRecentTopic>>,
         $FutureProvider<List<ForumRecentTopic>> {
-  /// The home activity feed — the ten most recent topics with solved/unread
-  /// state and a wide image. Distinct from [RecentTopics], the offline mirror.
+  /// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
+  /// with solved/unread state, pictures and recent repliers. Distinct from
+  /// [RecentTopics], the offline mirror.
   HomeRecentTopicsProvider._()
     : super(
         from: null,
@@ -685,7 +688,7 @@ final class HomeRecentTopicsProvider
   }
 }
 
-String _$homeRecentTopicsHash() => r'a73787f331011d02d6ebc24b693927ede272eeff';
+String _$homeRecentTopicsHash() => r'9c128c8fb5413bf569b79784cc9532d836cc58ff';
 
 /// A topic's latest-replies peek. Kept alive while the forum home is mounted
 /// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the

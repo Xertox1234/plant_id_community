@@ -106,6 +106,11 @@ DEFAULTS: dict[str, Any] = {
     # because each row may resolve a thumbnail rendition.
     "RECENT_TOPICS_DEFAULT_LIMIT": 5,
     "RECENT_TOPICS_MAX_LIMIT": 20,
+    # Per row: how many of the opening post's images `thumbnail_urls` carries
+    # and how many reply authors `repliers` carries (the collapsed home card
+    # stacks both).
+    "RECENT_TOPICS_THUMBNAILS": 3,
+    "RECENT_TOPICS_REPLIERS": 3,
     # topics/<id>/latest-replies/ (the expanded home activity card): items
     # shown (the accepted answer counts toward it), excerpt length, and how
     # many participant avatars the card carries.
