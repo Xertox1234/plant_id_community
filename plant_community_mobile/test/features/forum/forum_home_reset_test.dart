@@ -215,6 +215,7 @@ void main() {
       ).setAuth(AuthState(jwtToken: 'a2', firebaseUser: _FakeUser('ada')));
       await tester.pumpAndSettle();
       expect(_counts(api), start);
+      expect(api.fetchCategoriesCalls, feedStart);
 
       _auth(
         container,
@@ -278,7 +279,7 @@ void main() {
         expect(find.text('Could not load forums.'), findsOneWidget);
         expect(find.text('Could not load recent topics.'), findsOneWidget);
         expect(find.text('Could not load your stats.'), findsOneWidget);
-        expect(find.bySemanticsLabel('Loading boards'), findsNothing);
+        expect(find.bySemanticsLabel('Loading forums'), findsNothing);
         expect(find.bySemanticsLabel('Loading recent topics'), findsNothing);
         expect(find.bySemanticsLabel('Loading your stats'), findsNothing);
 

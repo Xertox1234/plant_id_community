@@ -121,6 +121,15 @@ void main() {
       expect(api.recentTopicsLimits, hasLength(1));
     });
 
+    testWidgets('categories: one fetch for a 403', (tester) async {
+      final api = FakeForumApi()
+        ..categoriesError = ApiException('no', statusCode: 403);
+      final container = _container(api);
+      container.listen(categoriesProvider, (_, _) {});
+      await settleRetries(tester);
+      expect(api.fetchCategoriesCalls, 1);
+    });
+
     testWidgets('communityStats: one fetch for a 404', (tester) async {
       final api = FakeForumApi()
         ..communityStatsError = ApiException('gone', statusCode: 404);

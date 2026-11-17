@@ -76,11 +76,16 @@ class CanopyChip extends StatelessWidget {
     required this.label,
     required this.tone,
     this.icon,
+    this.emoji,
   });
 
   final String label;
   final Color tone;
   final IconData? icon;
+
+  /// Server-set emoji shown instead of [icon]; fixed to the icon's box (no
+  /// text scaling, scaled down rather than clipped) so it cannot overflow.
+  final String? emoji;
 
   @override
   Widget build(BuildContext context) {
@@ -94,7 +99,21 @@ class CanopyChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (icon != null) ...[
+            if (emoji != null) ...[
+              SizedBox.square(
+                dimension: 12,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    emoji!,
+                    textScaler: TextScaler.noScaling,
+                    maxLines: 1,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+            ] else if (icon != null) ...[
               Icon(icon, size: 12, color: tone),
               const SizedBox(width: 4),
             ],

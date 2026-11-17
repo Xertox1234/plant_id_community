@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
+import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 import 'package:plant_community_mobile/features/forum/forum_screen.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
@@ -19,10 +20,15 @@ ForumBoard _forum(
   bool hasUnread = false,
   bool isLocked = false,
   DateTime? lastPostAt,
+  String? slug,
+  String icon = '',
+  String colour = '',
 }) => ForumBoard(
   id: id,
   title: title,
-  slug: 'f$id',
+  slug: slug ?? 'f$id',
+  icon: icon,
+  colour: colour,
   description: '',
   topicCount: 12,
   postCount: 80,
@@ -107,6 +113,89 @@ void main() {
       );
       expect(find.text('🌿 General'), findsOneWidget);
       expect(find.text('Community'), findsOneWidget);
+    });
+
+    testWidgets('a forum shows the server icon and colour, not the slug\'s', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: [
+            _category(1, 'General', [
+              // care-problems is hardcoded droplet + pollen; the server wins.
+              _forum(
+                1,
+                'Care',
+                slug: 'care-problems',
+                icon: '🪴',
+                colour: 'orchid',
+              ),
+            ]),
+          ],
+          onForumTap: (_) {},
+        ),
+      );
+      expect(find.text('🪴'), findsOneWidget);
+      final tile = tester.widget<CanopyAccentTile>(
+        find.byType(CanopyAccentTile),
+      );
+      final canopy = tester.element(find.byType(CanopyAccentTile)).canopy;
+      expect(tile.tone, canopy.sky);
+      expect(tile.emoji, '🪴');
+    });
+
+    testWidgets('the unread dot shows on an unread row only', (tester) async {
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: [
+            _category(1, 'General', [
+              _forum(1, 'Unread one', hasUnread: true),
+              _forum(2, 'Read one'),
+            ]),
+          ],
+          onForumTap: (_) {},
+        ),
+      );
+      expect(find.byKey(const ValueKey('unread-dot')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Unread one'),
+            matching: find.byType(CanopyPressable),
+          ),
+          matching: find.byKey(const ValueKey('unread-dot')),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Read one'),
+            matching: find.byType(CanopyPressable),
+          ),
+          matching: find.byKey(const ValueKey('unread-dot')),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a category header is announced by title only', (tester) async {
+      final handle = tester.ensureSemantics();
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: [
+            _category(1, 'General', [_forum(1, 'A')], icon: '🌿'),
+          ],
+          onForumTap: (_) {},
+        ),
+      );
+      final node = tester.getSemantics(find.text('🌿 General'));
+      expect(node.label, 'General');
+      expect(node.flagsCollection.isHeader, isTrue);
+      handle.dispose();
     });
 
     testWidgets('unread dot and last activity show', (tester) async {
@@ -224,8 +313,9 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('Could not load forums.'), findsOneWidget);
-      expect(find.text('Retry'), findsWidgets);
-      expect(find.text('Recent activity'), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      // Recent activity built too: its empty-state line is not the feed's.
+      expect(find.text('Nothing here yet.'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(minutes: 2));
     });

@@ -27,7 +27,7 @@ final class CategoriesProvider
     : super(
         from: null,
         argument: null,
-        retry: null,
+        retry: forumRetry,
         name: r'categoriesProvider',
         isAutoDispose: true,
         dependencies: null,
@@ -42,7 +42,7 @@ final class CategoriesProvider
   Categories create() => Categories();
 }
 
-String _$categoriesHash() => r'44a6e10b5a9e41ca200a490ee66caaeca9f676be';
+String _$categoriesHash() => r'233ba39156db86fc7cefdf2f0d4dd0b242e2c048';
 
 /// The forum index: categories, each with its forums and links, in the
 /// server's order (`GET /forum/categories/`). The feed is per member (unread

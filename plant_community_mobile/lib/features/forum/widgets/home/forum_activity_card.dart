@@ -69,6 +69,18 @@ class ForumActivityCard extends ConsumerWidget {
 
 String _replies(int n) => '$n ${n == 1 ? 'reply' : 'replies'}';
 
+/// Identity of [topic]'s board: the server's icon and colour when the board is
+/// in the (already loaded) forum feed, else the slug's. Never waits on the
+/// feed and never starts a request: [boardsProvider] only reads what the home
+/// already fetched.
+BoardIdentity _identityOf(WidgetRef ref, ForumRecentTopic topic) {
+  final boards = ref.watch(boardsProvider).value;
+  final board = boards?.where((b) => b.slug == topic.board.slug).firstOrNull;
+  return board != null
+      ? boardIdentityOf(board)
+      : boardIdentity(topic.board.slug, fallbackLabel: topic.board.title);
+}
+
 /// The words a screen reader hears for the card's header.
 String _cardLabel(ForumRecentTopic topic, String chip) {
   final time = forumRelativeTime(topic.lastPostAt);
@@ -84,21 +96,19 @@ String _cardLabel(ForumRecentTopic topic, String chip) {
   ].join(', ');
 }
 
-class _BoardChip extends StatelessWidget {
+class _BoardChip extends ConsumerWidget {
   const _BoardChip({required this.topic});
 
   final ForumRecentTopic topic;
 
   @override
-  Widget build(BuildContext context) {
-    final identity = boardIdentity(
-      topic.board.slug,
-      fallbackLabel: topic.board.title,
-    );
+  Widget build(BuildContext context, WidgetRef ref) {
+    final identity = _identityOf(ref, topic);
     return CanopyChip(
       label: identity.chipLabel,
       tone: identity.tone.colorOf(context.canopy),
       icon: identity.icon,
+      emoji: identity.emoji,
     );
   }
 }
@@ -263,7 +273,7 @@ class _ThumbnailStack extends StatelessWidget {
   }
 }
 
-class _Card extends StatelessWidget {
+class _Card extends ConsumerWidget {
   const _Card({
     required this.topic,
     required this.expanded,
@@ -277,14 +287,11 @@ class _Card extends StatelessWidget {
   final VoidCallback onOpen;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final canopy = context.canopy;
     final reduce = MediaQuery.disableAnimationsOf(context);
-    final identity = boardIdentity(
-      topic.board.slug,
-      fallbackLabel: topic.board.title,
-    );
+    final identity = _identityOf(ref, topic);
     final thumbnails = topic.thumbnails;
     final header = ExcludeSemantics(
       child: Column(

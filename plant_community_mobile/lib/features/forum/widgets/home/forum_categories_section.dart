@@ -89,8 +89,11 @@ class _CategoryHeader extends StatelessWidget {
     final icon = category.icon.trim();
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      // Only the title is announced (as a header); the emoji's name is not.
       child: Semantics(
         header: true,
+        label: category.title,
+        excludeSemantics: true,
         child: Text(
           icon.isEmpty ? category.title : '$icon ${category.title}',
           style: AppTypography.h3.copyWith(
@@ -176,6 +179,7 @@ class _ForumRow extends StatelessWidget {
               const SizedBox(width: AppSpacing.sm),
               if (forum.hasUnread) ...[
                 SizedBox.square(
+                  key: const ValueKey('unread-dot'),
                   dimension: 8,
                   child: DecoratedBox(
                     decoration: BoxDecoration(

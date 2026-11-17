@@ -1,6 +1,8 @@
-/// A forum board (category). Mirrors the backend `BoardSerializer`
+/// A forum (board). Mirrors both the backend `BoardSerializer`
 /// (`wagtail_forum/api/serializers.py`): `{id, title, slug, description,
-/// topic_count, post_count}`. Boards are not paginated.
+/// topic_count, post_count}`, and the forum rows of `GET /forum/categories/`,
+/// which add `icon`, `colour`, `has_unread`, `is_locked`, `is_closed`,
+/// `can_post` and `last_post_at`. Boards are not paginated.
 class ForumBoard {
   const ForumBoard({
     required this.id,

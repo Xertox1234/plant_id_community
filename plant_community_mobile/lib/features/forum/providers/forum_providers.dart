@@ -42,7 +42,7 @@ Duration? forumRetry(int retryCount, Object error) {
 /// The forum index: categories, each with its forums and links, in the
 /// server's order (`GET /forum/categories/`). The feed is per member (unread
 /// dots, locked forums), so it is refetched when the viewer changes.
-@riverpod
+@Riverpod(retry: forumRetry)
 class Categories extends _$Categories {
   @override
   Future<List<ForumCategory>> build() {

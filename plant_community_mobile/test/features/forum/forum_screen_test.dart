@@ -63,13 +63,13 @@ void main() {
     await tester.pump();
 
     expect(find.byType(CircularProgressIndicator), findsNothing);
-    expect(find.bySemanticsLabel('Loading boards'), findsOneWidget);
+    expect(find.bySemanticsLabel('Loading forums'), findsOneWidget);
     expect(find.bySemanticsLabel('Loading recent topics'), findsOneWidget);
 
     api.categoriesGate.complete(const []);
     api.recentGate.complete(const []);
     await tester.pumpAndSettle();
-    expect(find.bySemanticsLabel('Loading boards'), findsNothing);
+    expect(find.bySemanticsLabel('Loading forums'), findsNothing);
     expect(find.textContaining('No forums yet'), findsOneWidget);
     expect(find.textContaining('Nothing here yet'), findsOneWidget);
     handle.dispose();
