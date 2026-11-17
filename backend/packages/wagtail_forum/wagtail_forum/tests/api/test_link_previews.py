@@ -1306,15 +1306,18 @@ def test_539_item3_an_accepted_body_still_warms_its_embeds(monkeypatch):
 
 
 def test_539_item4_a_raw_angle_bracket_in_a_link_keeps_its_discount():
-    """nh3 leaves a raw ``>`` (and ``<``) inside a quoted attribute value;
-    the start tag ends at the first ``>`` outside quotes."""
+    """nh3 up to 0.2 leaves a raw ``>`` (and ``<``) inside a quoted attribute
+    value; nh3 0.3 writes ``&gt;`` / ``&lt;``. Either way the link keeps its
+    address and the start tag ends at the first ``>`` outside quotes."""
+    import html
+
     from wagtail_forum.api.sanitize import _server_markup_chars, sanitize_rich_text
 
     marked = ' target="_blank" rel="noopener noreferrer nofollow"'
     markup = len(json.dumps(marked)) - 2
     for href in ("https://x.example/?q=a>b", "https://x.example/?q=a<b"):
         cleaned = sanitize_rich_text(f'<p><a href="{href}" title="c>d">x</a></p>')
-        assert href in cleaned
+        assert f'href="{href}"' in html.unescape(cleaned)
         assert _server_markup_chars(cleaned) == markup
 
 

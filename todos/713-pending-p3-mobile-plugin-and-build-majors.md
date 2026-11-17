@@ -95,6 +95,48 @@ Source: `flutter pub outdated` in `plant_community_mobile/` on Flutter 3.47.9,
 
 - Filed from the stack audit.
 
+### 2026-11-15 - Minors merged; four device-gated PRs open
+
+- #1325 (merged): pub minor/patch, 14 updates, with regenerated providers
+  and 19 `ref.exists(p)` -> `ref.read(p.exists)` rewrites for Riverpod 3.5.
+- #1315 (merged): cupertino_icons 1.0.9 -> 2.0.0. Analyzer and tests pass;
+  icons not looked at on a device.
+- Open, waiting for the owner's phones: #1319 (AGP 8.13.2, Kotlin 2.4.21,
+  google-services 4.5.0; CI green after moving jvmTarget to
+  `kotlin { compilerOptions }`), #1314 (flutter_secure_storage 11.2.0, CI
+  green), #1332 (permission_handler 13.0.2, CI green).
+- #1331 (Firebase group, 6 updates): CI red. firebase_messaging 17
+  deprecates `getToken` and `onTokenRefresh` in
+  `lib/services/push_registration_service.dart` (use `register()` /
+  `onRegistered`); that migration is not written.
+- `.github/dependabot.yml` now puts every FlutterFire package in one
+  `firebase` group of any update size (#1323), replacing `firebase-majors`.
+
+### 2026-11-16 - #1331: the push "migration" is not a rename
+
+- `register()` / `onRegistered` in firebase_messaging 17.0.1 hand out a
+  Firebase installation ID (FID), not a registration token (package source,
+  `lib/src/messaging.dart`). The backend stores tokens and sends with
+  `messaging.Message(token=...)`; firebase-admin 7.7.0 takes a FID in a
+  separate `fid=` field. Moving the app alone would register FIDs as tokens
+  and every push to them would fail.
+- #1331 therefore keeps `getToken` / `onTokenRefresh` (still in the package,
+  deprecated) with two `// ignore: deprecated_member_use` lines in
+  `lib/services/push_registration_service.dart`. `flutter analyze` clean,
+  `flutter test` 1839 passed. No device check done.
+- A real move needs both sides: a device row that says whether it holds a
+  token or a FID, `fid=` on send, and builds already installed keep sending
+  tokens. Not started; needs an owner decision before the package removes
+  the token API.
+- `pubspec.lock`: `test_api` back to 0.7.12 (the Flutter SDK pins it;
+  Dependabot's lock had 0.7.14).
+- #1331 cannot build for Android until #1319 is merged: firebase-auth
+  25.0.0 is compiled with Kotlin 2.4 and main is on Kotlin 2.2
+  (`:firebase_auth:compileDebugKotlin`, "metadata is 2.4.0, expected version
+  is 2.2.0"). #1319 brings Kotlin 2.4.21. Merge #1319, then rebase #1331.
+- firebase_messaging 17 also moves to Firebase iOS SDK 13 and Android BoM 35
+  with minSdk 24 (the app is already on 24; iOS floor 16.0).
+
 ## Notes
 
 Needs the owner's phones, so a sweep will stop at the device check.

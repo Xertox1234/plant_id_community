@@ -535,8 +535,13 @@ def test_recheck_db_error_keeps_socket(fast_recheck, caplog):
     finally:
         lg.removeHandler(caplog.handler)
     assert len(calls) >= 4  # it kept checking after the errors
+    # Counted by record identity: pytest 9.2 attaches its own capture handler
+    # to non-propagating loggers, so with the handler added above the same
+    # record lands in caplog.records twice.
     failed = [
-        r for r in caplog.records if "[FORUM_LIVE] recheck failed" in r.getMessage()
+        r
+        for r in {id(r): r for r in caplog.records}.values()
+        if "[FORUM_LIVE] recheck failed" in r.getMessage()
     ]
     assert len(failed) == 1
     assert "OperationalError" in failed[0].getMessage()
