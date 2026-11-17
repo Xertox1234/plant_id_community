@@ -148,6 +148,15 @@ Source: `flutter pub outdated` in `plant_community_mobile/` on Flutter 3.47.9,
 - Gradle 9 / AGP 9 taken: AGP 9.1.1 and the Gradle 9.3.1 wrapper, the newest pair Flutter 3.47.9 lists as supported (`maxKnownAndSupportedGradleVersion`). The `android.builtInKotlin=false` / `android.newDsl=false` flags stay, because they are Flutter's own AGP 9 migration. The build warns that the app and five plugins (firebase_auth, firebase_core, google_sign_in_android, image_picker_android, url_launcher_android) still apply KGP, so the move to Built-in Kotlin is left for later. Both gradle `ignore` entries are gone from `.github/dependabot.yml`. CI's Java 17 meets AGP 9's floor.
 - `flutter analyze` is clean, `flutter test` passes, and `flutter build appbundle --release` (signed) and `flutter build ios --release --no-codesign` both succeed. `ios/Podfile.lock` did not change. Still owed: the owner's combined iPhone + Android device check.
 
+### 2026-11-17 - Review round 1: non-blocking findings (PR #1359, hand-landed)
+
+Two fresh-context reviewers (correctness, Flutter checklist); no blocking findings.
+
+- **Recorded.** go_router 18's `isMaterialApp` looks for material_ui's `MaterialApp`, and this app uses package:flutter's `MaterialApp.router`, so every `builder:` route now gets a `NoTransitionPage`. In the app that is the `StatefulShellRoute.indexedStack` shell page, `errorBuilder` and the debug-only ThemePreview route. Every leaf route uses `pageBuilder: _buildPageWithTransition`, so the visible transitions do not change; there are no Hero widgets and no route-type checks in `lib/`. Worth watching in the device check.
+- **Fixed.** `.github/workflows/mobile-ci.yml` comments still described the old Gradle 8.12 wrapper; now they name Gradle 9.3.1 / AGP 9.1.1 and the JDK 17 floor.
+- **Declined.** `flutter_local_notifications` has no Dart call site in `lib/` (native registration only). Dropping it would also drop the compileSdk 37 need, but removing a dependency is out of scope for a version-bump PR; worth a look on its own.
+- **Declined.** `compileSdk = 37` is hardcoded (commented with its revert condition), and `android.builtInKotlin=false` / `android.newDsl=false` are AGP 9 transitional opt-outs removed in AGP 10. Both are a deferred migration for the next AGP major, not a defect now.
+
 ## Notes
 
 Needs the owner's phones, so a sweep will stop at the device check.
