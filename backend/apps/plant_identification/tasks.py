@@ -3,8 +3,9 @@
 ``run_scan_job`` claims a pending job, runs the providers on its stored
 photos, and finalizes it with one conditional UPDATE, so a cancel or a stale
 expiry that lands meanwhile always wins. ``notify_scan_job_finished`` sends
-the "finished" push once per job, and ``send_scan_push_to_device`` delivers
-it to one device.
+the "finished" push at least once per job (a rare duplicate is the accepted
+price of never losing one, todo 700 L15), and ``send_scan_push_to_device``
+delivers it to one device.
 """
 
 from __future__ import annotations
@@ -227,26 +228,38 @@ def expire_undecided_scan_jobs() -> int:
     retry_backoff=SCAN_PUSH_RETRY_DELAY,
     max_retries=SCAN_PUSH_MAX_RETRIES,
     ignore_result=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
 )
 def notify_scan_job_finished(self, job_id: int) -> None:
-    """Send the "finished" push for one job, once.
+    """Send the "finished" push for one job, at least once (todo 700 L15).
 
-    The claim sets ``notified_at`` on a finished job that has none, so a
-    second run sends nothing. Everything after the claim runs under a guard
-    that releases it on any escape, so an ``OperationalError`` retry can
-    claim again instead of finding the job already marked notified.
+    ``notified_at`` is set only AFTER the per-device sends are enqueued, and
+    the message is acked late and re-queued when its worker dies, so a worker
+    killed mid fan-out leaves the job unmarked and the redelivery sends it.
+    The trade-off (owner decision 2026-11-17): a death between the fan-out
+    and the mark sends the push twice. The device-side collapse key folds an
+    undelivered duplicate. A job already marked notified sends nothing.
+
+    The same trade-off accepts two overlapping runs for one job (a duplicate
+    enqueue, a retry racing a redelivery) both sending. An ``OperationalError``
+    before the fan-out (the job or token lookup) retries the task; a failed
+    per-device enqueue is logged and skipped. One on the final mark is NOT
+    retried: every send is already enqueued, so a retry would only fan out a
+    second time. It is logged and the job stays unmarked. On the Redis broker
+    a killed worker's message comes back after the transport's visibility
+    timeout (about 1 h by default), not at once.
     """
-    claimed = ScanJob.objects.filter(
-        pk=job_id, notified_at__isnull=True, status__in=FINISHED_STATUSES
-    ).update(notified_at=timezone.now())
-    if not claimed:
+    job = (
+        ScanJob.objects.filter(
+            pk=job_id, notified_at__isnull=True, status__in=FINISHED_STATUSES
+        )
+        .only("uuid", "status", "user_id")
+        .first()
+    )
+    if job is None:
         return
-    try:
-        job = ScanJob.objects.only("uuid", "status", "user_id").get(pk=job_id)
-        tokens = device_tokens_for_users([job.user_id]).get(job.user_id, [])
-    except BaseException:
-        ScanJob.objects.filter(pk=job_id).update(notified_at=None)
-        raise
+    tokens = device_tokens_for_users([job.user_id]).get(job.user_id, [])
     data = {"event": SCAN_JOB_EVENT, "job_id": str(job.uuid), "status": job.status}
     content = list(SCAN_PUSH_FAILED if job.status == "failed" else SCAN_PUSH_READY)
     for token in tokens:
@@ -262,6 +275,16 @@ def notify_scan_job_finished(self, job_id: int) -> None:
                 job_id,
                 type(exc).__name__,
             )
+    try:
+        ScanJob.objects.filter(pk=job_id, notified_at__isnull=True).update(
+            notified_at=timezone.now()
+        )
+    except OperationalError as exc:
+        logger.warning(
+            "[FCM] scan push sent but job=%s not marked notified: %s",
+            job_id,
+            type(exc).__name__,
+        )
 
 
 @shared_task(
