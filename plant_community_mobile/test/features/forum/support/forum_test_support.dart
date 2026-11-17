@@ -86,11 +86,27 @@ class FakeUserProfileService extends UserProfileService {
   }
 }
 
+/// One category holding [boards]: the shape most tests need for the feed.
+ForumCategory categoryOf(
+  List<ForumBoard> boards, {
+  int id = 1,
+  String title = 'General',
+}) => ForumCategory(
+  id: id,
+  title: title,
+  slug: title.toLowerCase(),
+  description: '',
+  icon: '',
+  colour: '',
+  hasUnread: false,
+  forums: boards,
+  links: const [],
+);
+
 /// Configurable fake [ForumApi] for forum tests. Read fixtures are set as
 /// fields; writes record the `Idempotency-Key` they received and can be made
 /// to fail a fixed number of times to exercise retry/idempotency.
 class FakeForumApi implements ForumApi {
-  List<ForumBoard> boards = const [];
   ForumTopicDetail? topicDetail;
   CursorPage<ForumTopicListItem> topics = const CursorPage(items: []);
   CursorPage<ForumPost> posts = const CursorPage(items: []);
@@ -393,17 +409,6 @@ class FakeForumApi implements ForumApi {
   ApiException? failNotificationSettingsWith;
   final List<Map<String, Object?>> notificationSettingsUpdates = [];
   ApiException? failNotificationSettingsUpdateWith;
-
-  Object? boardsError;
-  int fetchBoardsCalls = 0;
-
-  @override
-  Future<List<ForumBoard>> fetchBoards() async {
-    fetchBoardsCalls++;
-    final err = boardsError;
-    if (err != null) throw err;
-    return boards;
-  }
 
   List<ForumCategory> categories = [];
   Object? categoriesError;

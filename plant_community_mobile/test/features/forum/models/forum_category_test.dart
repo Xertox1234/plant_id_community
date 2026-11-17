@@ -50,7 +50,11 @@ void main() {
     expect(c.title, '');
     expect(c.forums, isEmpty);
     expect(c.links, isEmpty);
-    final b = ForumBoard.fromJson({'id': 2, 'last_post_at': null, 'icon': null});
+    final b = ForumBoard.fromJson({
+      'id': 2,
+      'last_post_at': null,
+      'icon': null,
+    });
     expect(b.icon, '');
     expect(b.lastPostAt, isNull);
     expect(b.isLocked, isFalse);

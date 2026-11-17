@@ -14,11 +14,11 @@ import 'support/forum_test_support.dart';
 
 /// Holds the boards and the activity feed in flight.
 class _PendingApi extends FakeForumApi {
-  final boardsGate = Completer<List<ForumBoard>>();
+  final categoriesGate = Completer<List<ForumCategory>>();
   final recentGate = Completer<List<ForumRecentTopic>>();
 
   @override
-  Future<List<ForumBoard>> fetchBoards() => boardsGate.future;
+  Future<List<ForumCategory>> fetchCategories() => categoriesGate.future;
 
   @override
   Future<List<ForumRecentTopic>> fetchRecentTopics({int limit = 10}) =>
@@ -40,9 +40,9 @@ void main() {
     await tester.pumpWidget(_wrap(FakeForumApi()));
     await tester.pumpAndSettle();
 
-    expect(find.text('Boards'), findsOneWidget);
+    expect(find.text('Boards'), findsNothing);
     expect(find.text('Recent activity'), findsOneWidget);
-    expect(find.textContaining('No boards yet'), findsOneWidget);
+    expect(find.textContaining('No forums yet'), findsOneWidget);
     expect(find.textContaining('Nothing here yet'), findsOneWidget);
   });
 
@@ -66,11 +66,11 @@ void main() {
     expect(find.bySemanticsLabel('Loading boards'), findsOneWidget);
     expect(find.bySemanticsLabel('Loading recent topics'), findsOneWidget);
 
-    api.boardsGate.complete(const []);
+    api.categoriesGate.complete(const []);
     api.recentGate.complete(const []);
     await tester.pumpAndSettle();
     expect(find.bySemanticsLabel('Loading boards'), findsNothing);
-    expect(find.textContaining('No boards yet'), findsOneWidget);
+    expect(find.textContaining('No forums yet'), findsOneWidget);
     expect(find.textContaining('Nothing here yet'), findsOneWidget);
     handle.dispose();
   });

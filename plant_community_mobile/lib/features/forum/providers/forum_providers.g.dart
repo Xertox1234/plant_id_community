@@ -8,15 +8,87 @@ part of 'forum_providers.dart';
 
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // ignore_for_file: type=lint, type=warning
-/// Forum boards (not paginated).
+/// The forum index: categories, each with its forums and links, in the
+/// server's order (`GET /forum/categories/`). The feed is per member (unread
+/// dots, locked forums), so it is refetched when the viewer changes.
 
-@ProviderFor(Boards)
+@ProviderFor(Categories)
+final categoriesProvider = CategoriesProvider._();
+
+/// The forum index: categories, each with its forums and links, in the
+/// server's order (`GET /forum/categories/`). The feed is per member (unread
+/// dots, locked forums), so it is refetched when the viewer changes.
+final class CategoriesProvider
+    extends $AsyncNotifierProvider<Categories, List<ForumCategory>> {
+  /// The forum index: categories, each with its forums and links, in the
+  /// server's order (`GET /forum/categories/`). The feed is per member (unread
+  /// dots, locked forums), so it is refetched when the viewer changes.
+  CategoriesProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'categoriesProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$categoriesHash();
+
+  @$internal
+  @override
+  Categories create() => Categories();
+}
+
+String _$categoriesHash() => r'44a6e10b5a9e41ca200a490ee66caaeca9f676be';
+
+/// The forum index: categories, each with its forums and links, in the
+/// server's order (`GET /forum/categories/`). The feed is per member (unread
+/// dots, locked forums), so it is refetched when the viewer changes.
+
+abstract class _$Categories extends $AsyncNotifier<List<ForumCategory>> {
+  FutureOr<List<ForumCategory>> build();
+  @$mustCallSuper
+  @override
+  WhenComplete runBuild() {
+    final ref =
+        this.ref as $Ref<AsyncValue<List<ForumCategory>>, List<ForumCategory>>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<AsyncValue<List<ForumCategory>>, List<ForumCategory>>,
+              AsyncValue<List<ForumCategory>>,
+              Object?,
+              Object?
+            >;
+    return element.handleCreate(ref, build);
+  }
+}
+
+/// Every forum a member can post in, in feed order: the flat list the topic
+/// screen's header and the search filter read. Derived from [categoriesProvider]
+/// (no request of its own); locked forums are left out.
+
+@ProviderFor(boards)
 final boardsProvider = BoardsProvider._();
 
-/// Forum boards (not paginated).
+/// Every forum a member can post in, in feed order: the flat list the topic
+/// screen's header and the search filter read. Derived from [categoriesProvider]
+/// (no request of its own); locked forums are left out.
+
 final class BoardsProvider
-    extends $AsyncNotifierProvider<Boards, List<ForumBoard>> {
-  /// Forum boards (not paginated).
+    extends
+        $FunctionalProvider<
+          AsyncValue<List<ForumBoard>>,
+          List<ForumBoard>,
+          FutureOr<List<ForumBoard>>
+        >
+    with $FutureModifier<List<ForumBoard>>, $FutureProvider<List<ForumBoard>> {
+  /// Every forum a member can post in, in feed order: the flat list the topic
+  /// screen's header and the search filter read. Derived from [categoriesProvider]
+  /// (no request of its own); locked forums are left out.
   BoardsProvider._()
     : super(
         from: null,
@@ -33,31 +105,17 @@ final class BoardsProvider
 
   @$internal
   @override
-  Boards create() => Boards();
-}
+  $FutureProviderElement<List<ForumBoard>> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
 
-String _$boardsHash() => r'3d4413bfd0114dee61d95ae0665b4d8131a50afb';
-
-/// Forum boards (not paginated).
-
-abstract class _$Boards extends $AsyncNotifier<List<ForumBoard>> {
-  FutureOr<List<ForumBoard>> build();
-  @$mustCallSuper
   @override
-  WhenComplete runBuild() {
-    final ref =
-        this.ref as $Ref<AsyncValue<List<ForumBoard>>, List<ForumBoard>>;
-    final element =
-        ref.element
-            as $ClassProviderElement<
-              AnyNotifier<AsyncValue<List<ForumBoard>>, List<ForumBoard>>,
-              AsyncValue<List<ForumBoard>>,
-              Object?,
-              Object?
-            >;
-    return element.handleCreate(ref, build);
+  FutureOr<List<ForumBoard>> create(Ref ref) {
+    return boards(ref);
   }
 }
+
+String _$boardsHash() => r'708bb88e79cd770ac13148f7b21a651436ed972a';
 
 /// Topics in a board, cursor-paginated with [loadMore].
 

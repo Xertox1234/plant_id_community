@@ -29,15 +29,17 @@ ForumRecentTopic _topic(int id) => ForumRecentTopic(
 );
 
 FakeForumApi _api() => FakeForumApi()
-  ..boards = const [
-    ForumBoard(
-      id: 1,
-      title: 'Care',
-      slug: 'care',
-      description: 'Light, water, soil.',
-      topicCount: 1,
-      postCount: 1,
-    ),
+  ..categories = [
+    categoryOf(const [
+      ForumBoard(
+        id: 1,
+        title: 'Care',
+        slug: 'care',
+        description: 'Light, water, soil.',
+        topicCount: 1,
+        postCount: 1,
+      ),
+    ]),
   ]
   ..recentTopics = [_topic(1), _topic(2)]
   ..experts = [expert(username: 'fern', online: true)]
@@ -127,6 +129,7 @@ void main() {
       await _openCard(tester, 'Topic 1');
       expect(find.byType(ForumLatestRepliesView), findsOneWidget);
       final before = _counts(api);
+      final feedBefore = api.fetchCategoriesCalls;
 
       container
           .read(authorBlockChangesProvider.notifier)
@@ -134,6 +137,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final after = _counts(api);
+      expect(api.fetchCategoriesCalls, greaterThan(feedBefore));
       expect(after.topics, before.topics + 1);
       expect(after.stats, before.stats + 1);
       expect(after.experts, before.experts + 1);
@@ -153,11 +157,13 @@ void main() {
       expect(find.byType(ForumSeasonCard), findsNothing);
       await _openCard(tester, 'Topic 2');
       final before = _counts(api);
+      final feedBefore = api.fetchCategoriesCalls;
 
       _auth(container).setAuth(const AuthState(jwtToken: 'jwt'));
       await tester.pumpAndSettle();
 
       final after = _counts(api);
+      expect(api.fetchCategoriesCalls, greaterThan(feedBefore));
       expect(after.topics, before.topics + 1);
       expect(after.stats, before.stats + 1);
       expect(after.experts, before.experts + 1);
@@ -176,11 +182,13 @@ void main() {
       );
       await _openCard(tester, 'Topic 1');
       final before = _counts(api);
+      final feedBefore = api.fetchCategoriesCalls;
 
       _auth(container).setAuth(const AuthState());
       await tester.pumpAndSettle();
 
       final after = _counts(api);
+      expect(api.fetchCategoriesCalls, greaterThan(feedBefore));
       expect(after.topics, before.topics + 1);
       expect(after.stats, before.stats + 1);
       expect(after.experts, before.experts + 1);
@@ -199,6 +207,7 @@ void main() {
         auth: AuthState(jwtToken: 'a1', firebaseUser: _FakeUser('ada')),
       );
       final start = _counts(api);
+      final feedStart = api.fetchCategoriesCalls;
 
       // Same member, new token: nothing changes for the viewer.
       _auth(
@@ -212,6 +221,7 @@ void main() {
       ).setAuth(AuthState(jwtToken: 'b1', firebaseUser: _FakeUser('bob')));
       await tester.pumpAndSettle();
       final after = _counts(api);
+      expect(api.fetchCategoriesCalls, greaterThan(feedStart));
       expect(after.topics, start.topics + 1);
       expect(after.stats, start.stats + 1);
       expect(after.me, start.me + 1);
@@ -251,7 +261,7 @@ void main() {
     ]) {
       testWidgets('boards, recent activity and season: $label', (tester) async {
         final api = _api()
-          ..boardsError = error
+          ..categoriesError = error
           ..recentTopicsError = error
           ..failMyStatsWith = error;
         await _pump(
@@ -265,7 +275,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 50));
         await tester.pump(const Duration(milliseconds: 500));
 
-        expect(find.text('Could not load boards.'), findsOneWidget);
+        expect(find.text('Could not load forums.'), findsOneWidget);
         expect(find.text('Could not load recent topics.'), findsOneWidget);
         expect(find.text('Could not load your stats.'), findsOneWidget);
         expect(find.bySemanticsLabel('Loading boards'), findsNothing);
@@ -274,13 +284,13 @@ void main() {
 
         // Riverpod is still retrying behind the error.
         await tester.pump(const Duration(seconds: 3));
-        expect(api.fetchBoardsCalls, greaterThan(1));
+        expect(api.fetchCategoriesCalls, greaterThan(1));
         expect(api.recentTopicsLimits.length, greaterThan(1));
-        expect(find.text('Could not load boards.'), findsOneWidget);
+        expect(find.text('Could not load forums.'), findsOneWidget);
 
         // Retry works once the network is back.
         api
-          ..boardsError = null
+          ..categoriesError = null
           ..recentTopicsError = null
           ..failMyStatsWith = null;
         final retries = find.text('Retry').evaluate().length;
@@ -290,7 +300,7 @@ void main() {
         }
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
-        expect(find.text('Could not load boards.'), findsNothing);
+        expect(find.text('Could not load forums.'), findsNothing);
         expect(find.text('Could not load recent topics.'), findsNothing);
         expect(find.text('Could not load your stats.'), findsNothing);
         expect(find.text('Care'), findsWidgets);

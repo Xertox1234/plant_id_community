@@ -43,14 +43,16 @@ class ForumTopicsScreen extends ConsumerWidget {
       ),
     );
     final title = boardTitle ?? board?.title ?? 'Topics';
-    final identity = boardIdentity(boardSlug, fallbackLabel: title);
+    final identity = board != null
+        ? boardIdentityOf(board)
+        : boardIdentity(boardSlug, fallbackLabel: title);
     final tone = identity.tone.colorOf(context.canopy);
 
     // Both: the header's counts come from the boards list, so a refresh that
     // only refetched the topics would leave "7 topics" above eight rows.
     void refresh() {
       ref.invalidate(boardTopicsProvider(boardSlug));
-      ref.invalidate(boardsProvider);
+      ref.invalidate(categoriesProvider);
     }
 
     return Scaffold(
@@ -60,7 +62,12 @@ class ForumTopicsScreen extends ConsumerWidget {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CanopyAccentTile(icon: identity.icon, tone: tone, size: 30),
+            CanopyAccentTile(
+              icon: identity.icon,
+              emoji: identity.emoji,
+              tone: tone,
+              size: 30,
+            ),
             const SizedBox(width: 10),
             Flexible(
               child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -127,7 +134,7 @@ class ForumTopicsScreen extends ConsumerWidget {
     );
     if (result == true) {
       ref.invalidate(boardTopicsProvider(boardSlug));
-      ref.invalidate(boardsProvider);
+      ref.invalidate(categoriesProvider);
     }
   }
 }

@@ -11,8 +11,6 @@ import '../models/models.dart';
 /// to override the provider, not mock the transport). [HttpForumApi] is the
 /// dio-backed production implementation.
 abstract class ForumApi {
-  Future<List<ForumBoard>> fetchBoards();
-
   /// The category-grouped forum index (`GET /forum/categories/`).
   Future<List<ForumCategory>> fetchCategories();
 
@@ -418,16 +416,6 @@ class HttpForumApi implements ForumApi {
 
   Options _idempotent(String key) =>
       Options(headers: {_idempotencyHeader: key});
-
-  @override
-  Future<List<ForumBoard>> fetchBoards() async {
-    final resp = await _api.get('/forum/boards/');
-    final data = resp.data as Map<String, dynamic>;
-    return (data['results'] as List<dynamic>? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(ForumBoard.fromJson)
-        .toList(growable: false);
-  }
 
   @override
   Future<List<ForumCategory>> fetchCategories() async {

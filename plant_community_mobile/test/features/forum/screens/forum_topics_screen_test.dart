@@ -37,7 +37,9 @@ void main() {
       tester,
     ) async {
       final api = FakeForumApi()
-        ..boards = const [_board]
+        ..categories = [
+          categoryOf(const [_board]),
+        ]
         ..topics = CursorPage(
           items: [
             topic(id: 1, title: 'Monstera albo'),
@@ -59,7 +61,7 @@ void main() {
       tester,
     ) async {
       final api = FakeForumApi()
-        ..boardsError = Exception('offline')
+        ..categoriesError = Exception('offline')
         ..topics = CursorPage(items: [topic(id: 1, title: 'Monstera albo')]);
 
       await tester.pumpWidget(_wrap(api));
@@ -79,23 +81,28 @@ void main() {
       tester,
     ) async {
       final api = FakeForumApi()
-        ..boards = const [_board]
+        ..categories = [
+          categoryOf(const [_board]),
+        ]
         ..topics = CursorPage(items: [topic(id: 1, title: 'Monstera albo')]);
 
       await tester.pumpWidget(_wrap(api));
       await tester.pumpAndSettle();
-      final before = api.fetchBoardsCalls;
+      final before = api.fetchCategoriesCalls;
 
       await tester.fling(find.byType(ListView), const Offset(0, 400), 1000);
       await tester.pumpAndSettle();
 
-      expect(api.fetchBoardsCalls, before + 1);
+      expect(api.fetchCategoriesCalls, before + 1);
     });
 
     testWidgets('an empty board says so, and offers no button signed out', (
       tester,
     ) async {
-      final api = FakeForumApi()..boards = const [_board];
+      final api = FakeForumApi()
+        ..categories = [
+          categoryOf(const [_board]),
+        ];
 
       await tester.pumpWidget(_wrap(api, loggedIn: false));
       await tester.pumpAndSettle();
