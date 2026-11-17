@@ -50,6 +50,58 @@ void main() {
     expect(tester.getSize(find.byType(CanopyAccentTile)), const Size(40, 40));
   });
 
+  testWidgets('tile shows a multi-codepoint emoji without overflow', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        const CanopyAccentTile(
+          icon: LucideIcons.leaf,
+          tone: _tone,
+          emoji: '👩\u200d🌾',
+        ),
+      ),
+    );
+    expect(find.text('👩\u200d🌾'), findsOneWidget);
+    expect(find.byIcon(LucideIcons.leaf), findsNothing);
+    expect(tester.takeException(), isNull);
+    expect(tester.getSize(find.byType(CanopyAccentTile)), const Size(40, 40));
+  });
+
+  testWidgets('tile emoji stays inside the box at large text scale', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.build(Brightness.dark, AppDensity.cozy),
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(3)),
+          child: const Scaffold(
+            body: Center(
+              child: CanopyAccentTile(
+                icon: LucideIcons.leaf,
+                tone: _tone,
+                emoji: '👩\u200d🌾',
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    expect(tester.getSize(find.byType(CanopyAccentTile)), const Size(40, 40));
+    // The text may lay out wider than the box; the FittedBox must scale it
+    // down into the padded interior rather than let it spill.
+    final fitted = tester.getSize(
+      find.descendant(
+        of: find.byType(CanopyAccentTile),
+        matching: find.byType(FittedBox),
+      ),
+    );
+    expect(fitted.width, lessThanOrEqualTo(40));
+    expect(fitted.height, lessThanOrEqualTo(40));
+  });
+
   testWidgets('chip takes fill and text colour from the tone', (tester) async {
     await tester.pumpWidget(
       _wrap(

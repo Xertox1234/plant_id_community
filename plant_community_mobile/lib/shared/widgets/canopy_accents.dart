@@ -21,11 +21,15 @@ class CanopyAccentTile extends StatelessWidget {
     required this.icon,
     required this.tone,
     this.size = 40,
+    this.emoji,
   });
 
   final IconData icon;
   final Color tone;
   final double size;
+
+  /// Server-set emoji shown instead of [icon]; same tile box and tone.
+  final String? emoji;
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +44,23 @@ class CanopyAccentTile extends StatelessWidget {
             border: Border.all(color: tone.withValues(alpha: 0.30)),
           ),
           child: Center(
-            child: Icon(icon, size: size * 0.5, color: tone),
+            child: emoji == null
+                ? Icon(icon, size: size * 0.5, color: tone)
+                // Fixed to the tile (no text scaling) and scaled down rather
+                // than clipped, so a ZWJ sequence can never overflow the box.
+                : Padding(
+                    padding: EdgeInsets.all(size * 0.2),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        emoji!,
+                        textScaler: TextScaler.noScaling,
+                        maxLines: 1,
+                        softWrap: false,
+                        style: TextStyle(fontSize: size * 0.5, height: 1),
+                      ),
+                    ),
+                  ),
           ),
         ),
       ),
