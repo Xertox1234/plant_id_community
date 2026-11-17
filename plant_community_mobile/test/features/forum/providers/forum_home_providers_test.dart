@@ -58,14 +58,15 @@ void main() {
     expect(container.read(latestRepliesProvider(5).exists), isFalse);
   });
 
-  test('homeRecentTopics asks for ten', () async {
+  test('homeRecentTopics asks for three', () async {
     final api = FakeForumApi();
     final container = _container(api);
     container.listen(homeRecentTopicsProvider, (_, _) {});
 
     await container.read(homeRecentTopicsProvider.future);
 
-    expect(api.recentTopicsLimits, [10]);
+    expect(api.recentTopicsLimits, [kHomeRecentTopicsLimit]);
+    expect(kHomeRecentTopicsLimit, 3);
   });
 
   test('communityStats returns the API value', () async {

@@ -30,6 +30,11 @@ void main() {
         'is_solved': true,
         'is_unread': true,
         'image_url': 'https://x/i.jpg',
+        'thumbnail_urls': ['https://x/a.jpg', 'https://x/b.jpg'],
+        'repliers': [
+          {'username': 'iris', 'display_name': 'Iris'},
+          {'username': 'sam', 'display_name': 'Sam'},
+        ],
       });
       expect(t.id, 7);
       expect(t.slug, 'fiddle-leaf');
@@ -44,7 +49,8 @@ void main() {
       expect(t.isUnread, isTrue);
       expect(t.thumbnailUrl, 'https://x/t.jpg');
       expect(t.imageUrl, 'https://x/i.jpg');
-      expect(t.hasPicture, isTrue);
+      expect(t.thumbnails, ['https://x/a.jpg', 'https://x/b.jpg']);
+      expect(t.repliers.map((a) => a.username), ['iris', 'sam']);
     });
 
     test('an older server defaults the new keys', () {
@@ -61,8 +67,68 @@ void main() {
       expect(t.imageUrl, isNull);
       expect(t.isUnread, isFalse);
       expect(t.isSolved, isFalse);
-      expect(t.hasPicture, isFalse);
+      expect(t.thumbnails, isEmpty);
+      expect(t.repliers, isEmpty);
       expect(t.lastPostAt, isNull);
+    });
+  });
+
+  group('ForumRecentTopic.thumbnails', () {
+    ForumRecentTopic topic(Map<String, dynamic> extra) =>
+        ForumRecentTopic.fromJson({
+          'id': 1,
+          'slug': 's',
+          'title': 'T',
+          'board': {'id': 1, 'name': 'B', 'slug': 'b'},
+          'reply_count': 0,
+          ...extra,
+        });
+
+    test('an older server\'s one image is the only thumbnail', () {
+      expect(
+        topic({
+          'thumbnail_url': 'https://x/t.jpg',
+          'image_url': 'https://x/i.jpg',
+        }).thumbnails,
+        ['https://x/i.jpg'],
+      );
+      expect(topic({'thumbnail_url': 'https://x/t.jpg'}).thumbnails, [
+        'https://x/t.jpg',
+      ]);
+    });
+
+    test('a repeated picture or replier is listed once', () {
+      final t = topic({
+        'thumbnail_urls': [
+          'https://x/a.jpg',
+          'https://x/a.jpg',
+          'https://x/b.jpg',
+          'https://x/a.jpg',
+          'https://x/c.jpg',
+          'https://x/d.jpg',
+        ],
+        'repliers': [
+          {'username': 'iris', 'display_name': 'Iris'},
+          {'username': 'iris', 'display_name': 'Iris D'},
+          {'username': 'sam', 'display_name': 'Sam'},
+        ],
+      });
+      expect(t.thumbnails, [
+        'https://x/a.jpg',
+        'https://x/b.jpg',
+        'https://x/c.jpg',
+      ]);
+      expect(t.repliers.map((a) => a.username), ['iris', 'sam']);
+      expect(t.repliers.first.displayName, 'Iris');
+    });
+
+    test('never more than maxThumbnails', () {
+      expect(
+        topic({
+          'thumbnail_urls': [for (var i = 0; i < 5; i++) 'https://x/$i.jpg'],
+        }).thumbnails,
+        hasLength(ForumRecentTopic.maxThumbnails),
+      );
     });
   });
 

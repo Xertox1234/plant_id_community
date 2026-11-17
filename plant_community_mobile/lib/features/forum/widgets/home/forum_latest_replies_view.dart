@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../../core/constants/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
@@ -66,9 +67,70 @@ class ForumLatestRepliesView extends ConsumerWidget {
           ),
           child: state,
         ),
-        const SizedBox(height: 14),
-        ClayButton(label: 'Open topic', fullWidth: true, onPressed: onOpen),
+        const SizedBox(height: 2),
+        Align(
+          alignment: Alignment.centerRight,
+          child: _OpenTopicLink(onOpen: onOpen),
+        ),
       ],
+    );
+  }
+}
+
+/// "Open topic" as a quiet trailing link, not a full-width CTA: the card is
+/// a peek, and a big button outweighed the replies above it (owner,
+/// 2026-11-16). The pill is small; its tap area is still 48 pt tall.
+class _OpenTopicLink extends StatelessWidget {
+  const _OpenTopicLink({required this.onOpen});
+
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final canopy = context.canopy;
+    final ink = Theme.of(context).colorScheme.onSurface;
+    final radius = BorderRadius.circular(AppSpacing.rPill);
+    // Its own node, so the surrounding replies are not read as its label.
+    return Semantics(
+      container: true,
+      button: true,
+      child: InkWell(
+        onTap: onOpen,
+        borderRadius: radius,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Center(
+            widthFactor: 1,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: canopy.surface2,
+                borderRadius: radius,
+                border: Border.all(color: canopy.line),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        'Open topic',
+                        style: AppTypography.buttonSm.copyWith(color: ink),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(LucideIcons.arrowRight, size: 15, color: ink),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -121,7 +183,7 @@ class _Loaded extends StatelessWidget {
               if (data.participants.isNotEmpty) ...[
                 AuthorAvatarCluster(
                   authors: data.participants,
-                  max: 5,
+                  max: 3,
                   radius: 12,
                 ),
                 const SizedBox(width: AppSpacing.sm),

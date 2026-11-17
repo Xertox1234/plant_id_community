@@ -13,6 +13,7 @@ import '../../forum_format.dart';
 import '../../models/models.dart';
 import '../../providers/forum_providers.dart';
 import '../../utils/board_identity.dart';
+import '../author_identity.dart';
 import 'forum_latest_replies_view.dart';
 
 /// Open: height grows on emphasized-decelerate (spec §8.3).
@@ -24,12 +25,20 @@ const Duration _closeDuration = Duration(milliseconds: 200);
 /// The content waits this long after the height starts growing.
 const Duration _fadeDelay = Duration(milliseconds: 80);
 
+/// Side of one picture in the collapsed card's stack.
+const double _thumbSize = 56;
+
+/// How far each picture behind the first one shows.
+const double _thumbPeek = 10;
+
 /// One topic in the forum home's Recent activity.
 ///
-/// A topic with a picture is a **picture card**: tapping it calls [onOpen]
-/// and it never expands. Any other topic is a **text card**: tapping it
-/// expands it in place to show the latest replies
-/// ([ForumLatestRepliesView]); one card is open at a time
+/// Every card starts **collapsed**: board chip, title, reply count and time,
+/// with the opening post's pictures stacked at the trailing edge
+/// ([ForumRecentTopic.thumbnails]) and, once two or more people have
+/// replied, their avatars stacked beside the count. Tapping it expands it in
+/// place to show the latest replies ([ForumLatestRepliesView], which holds
+/// the "Open topic" button); one card is open at a time
 /// ([expandedActivityTopicProvider]).
 class ForumActivityCard extends ConsumerWidget {
   const ForumActivityCard({
@@ -43,13 +52,10 @@ class ForumActivityCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (topic.hasPicture) {
-      return _PictureCard(topic: topic, onOpen: onOpen);
-    }
     final expanded = ref.watch(
       expandedActivityTopicProvider.select((open) => open == topic.id),
     );
-    return _TextCard(
+    return _Card(
       topic: topic,
       expanded: expanded,
       onToggle: () {
@@ -64,19 +70,17 @@ class ForumActivityCard extends ConsumerWidget {
 String _replies(int n) => '$n ${n == 1 ? 'reply' : 'replies'}';
 
 /// The words a screen reader hears for the card's header.
-String _cardLabel(
-  ForumRecentTopic topic,
-  String chip, {
-  required bool includeState,
-}) {
+String _cardLabel(ForumRecentTopic topic, String chip) {
   final time = forumRelativeTime(topic.lastPostAt);
+  final photos = topic.thumbnails.length;
   return [
     chip,
     topic.title,
     _replies(topic.replyCount),
     if (time.isNotEmpty) time,
-    if (includeState && topic.isSolved) 'Solved',
-    if (includeState && topic.isUnread) 'New replies',
+    if (photos > 0) photos == 1 ? 'Has a photo' : 'Has photos',
+    if (topic.isSolved) 'Solved',
+    if (topic.isUnread) 'New replies',
   ].join(', ');
 }
 
@@ -99,7 +103,7 @@ class _BoardChip extends StatelessWidget {
   }
 }
 
-/// Reply count and time, in Geist Mono.
+/// Who replied, reply count and time, in Geist Mono.
 class _Meta extends StatelessWidget {
   const _Meta({required this.topic, this.trailing});
 
@@ -111,6 +115,10 @@ class _Meta extends StatelessWidget {
     final canopy = context.canopy;
     final style = AppTypography.label.copyWith(color: canopy.ink3);
     final time = forumRelativeTime(topic.lastPostAt);
+    // One avatar says nothing the count does not: the stack is for a thread
+    // with several voices.
+    final distinct = {for (final a in topic.repliers) a.username}.length;
+    final repliers = distinct >= 2 ? topic.repliers : const <ForumAuthor>[];
     // A Wrap: at large text the pieces drop to a second line, never clip.
     return Wrap(
       spacing: 14,
@@ -120,8 +128,13 @@ class _Meta extends StatelessWidget {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(LucideIcons.messageCircle, size: 14, color: canopy.ink3),
-            const SizedBox(width: 5),
+            if (repliers.isNotEmpty) ...[
+              _ReplierStack(authors: repliers),
+              const SizedBox(width: 7),
+            ] else ...[
+              Icon(LucideIcons.messageCircle, size: 14, color: canopy.ink3),
+              const SizedBox(width: 5),
+            ],
             Text('${topic.replyCount}', style: style),
           ],
         ),
@@ -132,83 +145,126 @@ class _Meta extends StatelessWidget {
   }
 }
 
-class _PictureCard extends StatelessWidget {
-  const _PictureCard({required this.topic, required this.onOpen});
+/// The latest repliers' avatars, overlapping. Decoration only: the card's
+/// label already says how many replies there are.
+class _ReplierStack extends StatelessWidget {
+  const _ReplierStack({required this.authors});
 
-  final ForumRecentTopic topic;
-  final VoidCallback onOpen;
+  final List<ForumAuthor> authors;
+
+  static const int _max = 3;
+  static const double _radius = 10;
+  static const double _ring = 1.5;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final canopy = context.canopy;
-    final identity = boardIdentity(
-      topic.board.slug,
-      fallbackLabel: topic.board.title,
-    );
-    // Decode no wider than the screen needs (the card is never wider).
-    final cacheWidth =
-        (MediaQuery.sizeOf(context).width *
-                MediaQuery.devicePixelRatioOf(context))
-            .round();
-    return CanopyPressable(
-      onTap: onOpen,
-      style: CanopyPressStyle.scale,
-      semanticLabel: _cardLabel(topic, identity.chipLabel, includeState: false),
-      child: CanopyCard(
-        padding: const EdgeInsets.all(14),
-        child: ExcludeSemantics(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: _BoardChip(topic: topic),
-              ),
-              const SizedBox(height: 10),
-              Text(topic.title, style: theme.textTheme.titleLarge),
-              const SizedBox(height: 12),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppSpacing.rSm),
-                child: AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: CachedNetworkImage(
-                    imageUrl: topic.imageUrl!,
-                    fit: BoxFit.cover,
-                    memCacheWidth: cacheWidth,
-                    placeholder: (context, _) =>
-                        ColoredBox(color: canopy.surface3),
-                    // Keep the card's height when the image fails.
-                    errorWidget: (context, _, _) => ColoredBox(
-                      color: canopy.surface3,
-                      child: Center(
-                        child: Icon(
-                          LucideIcons.imageOff,
-                          size: 20,
-                          color: canopy.ink3,
-                        ),
-                      ),
-                    ),
+    // Each person once, whoever built the list.
+    final seen = <String>{};
+    final shown = [
+      for (final author in authors)
+        if (seen.add(author.username)) author,
+    ].take(_max).toList(growable: false);
+    const size = (_radius + _ring) * 2;
+    const step = _radius * 1.3;
+    return SizedBox(
+      width: size + step * (shown.length - 1),
+      height: size,
+      child: Stack(
+        children: [
+          // Painted last-to-first so the newest replier sits on top.
+          for (var i = shown.length - 1; i >= 0; i--)
+            Positioned(
+              left: i * step,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.surface,
+                    width: _ring,
                   ),
                 ),
+                child: AuthorAvatar(author: shown[i], radius: _radius),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(child: _Meta(topic: topic)),
-                  Icon(LucideIcons.chevronRight, size: 16, color: canopy.ink3),
-                ],
-              ),
-            ],
-          ),
-        ),
+            ),
+        ],
       ),
     );
   }
 }
 
-class _TextCard extends StatelessWidget {
-  const _TextCard({
+/// The opening post's pictures as a small stack: the first one in front, the
+/// others peeking out behind it to the right.
+class _ThumbnailStack extends StatelessWidget {
+  const _ThumbnailStack({required this.urls});
+
+  final List<String> urls;
+
+  @override
+  Widget build(BuildContext context) {
+    final canopy = context.canopy;
+    // Decode at the size drawn, not the size sent.
+    final cacheWidth = (_thumbSize * MediaQuery.devicePixelRatioOf(context))
+        .round();
+    final count = urls.length;
+
+    Widget picture(int i) {
+      // Each one behind is a little smaller, so the stack reads as depth.
+      final side = _thumbSize - i * 8;
+      return Positioned(
+        left: i * _thumbPeek + (i * 8),
+        top: i * 4,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppSpacing.rSm),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.surface,
+              width: 1.5,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(1.5),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppSpacing.rSm - 1.5),
+              child: SizedBox.square(
+                dimension: side - 3,
+                child: CachedNetworkImage(
+                  imageUrl: urls[i],
+                  fit: BoxFit.cover,
+                  memCacheWidth: cacheWidth,
+                  placeholder: (context, _) =>
+                      ColoredBox(color: canopy.surface3),
+                  // Keep the slot when the image fails.
+                  errorWidget: (context, _, _) => ColoredBox(
+                    color: canopy.surface3,
+                    child: Center(
+                      child: Icon(
+                        LucideIcons.imageOff,
+                        size: 16,
+                        color: canopy.ink3,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      width: _thumbSize + (count - 1) * _thumbPeek,
+      height: _thumbSize,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [for (var i = count - 1; i >= 0; i--) picture(i)],
+      ),
+    );
+  }
+}
+
+class _Card extends StatelessWidget {
+  const _Card({
     required this.topic,
     required this.expanded,
     required this.onToggle,
@@ -229,6 +285,7 @@ class _TextCard extends StatelessWidget {
       topic.board.slug,
       fallbackLabel: topic.board.title,
     );
+    final thumbnails = topic.thumbnails;
     final header = ExcludeSemantics(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -294,19 +351,40 @@ class _TextCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Text(topic.title, style: theme.textTheme.titleLarge),
-          const SizedBox(height: 12),
-          _Meta(
-            topic: topic,
-            trailing: topic.isUnread
-                ? Text(
-                    'New replies',
-                    style: AppTypography.micro.copyWith(
-                      color: canopy.clay,
-                      fontWeight: FontWeight.w600,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      topic.title,
+                      style: theme.textTheme.titleLarge,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  )
-                : null,
+                    const SizedBox(height: 10),
+                    _Meta(
+                      topic: topic,
+                      trailing: topic.isUnread
+                          ? Text(
+                              'New replies',
+                              style: AppTypography.micro.copyWith(
+                                color: canopy.clay,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            )
+                          : null,
+                    ),
+                  ],
+                ),
+              ),
+              if (thumbnails.isNotEmpty) ...[
+                const SizedBox(width: AppSpacing.md),
+                _ThumbnailStack(urls: thumbnails),
+              ],
+            ],
           ),
         ],
       ),
@@ -315,7 +393,7 @@ class _TextCard extends StatelessWidget {
       onTap: onToggle,
       style: CanopyPressStyle.scale,
       expanded: expanded,
-      semanticLabel: _cardLabel(topic, identity.chipLabel, includeState: true),
+      semanticLabel: _cardLabel(topic, identity.chipLabel),
       child: CanopyCard(
         padding: const EdgeInsets.all(14),
         child: Column(
