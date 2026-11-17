@@ -33,7 +33,7 @@ permissions:
 jobs:
   backend-checks:
     name: Install dependencies and run Django checks
-    # Python 3.13.9 has no Ubuntu 26.04 build; keep the runner compatible with .python-version.
+    # Pinned runner: .python-version's patch must have an actions/python-versions build for it (3.13.9 had none for 26.04).
     runs-on: ubuntu-24.04
 
     defaults:

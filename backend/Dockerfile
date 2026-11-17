@@ -10,7 +10,12 @@
 #      wagtail_forum`. RAILPACK copies only requirements.txt before `pip install`
 #      and fails ("not a valid editable requirement"). Here we `COPY . .` first,
 #      so the local package path exists at install time.
-FROM python:3.13-slim
+#
+# Pinned to a patch (todo 709, owner decision 2026-11-17: stay on 3.13), so a
+# deploy never changes Python on its own and Dependabot proposes patch bumps.
+# Keep the same patch in `.python-version` and `backend/.python-version`: CI's
+# backend jobs read the root file, and Dependabot bumps only this line.
+FROM python:3.13.18-slim
 
 # System deps: libpq for psycopg, build-essential as a safety net for any
 # dependency that lacks a cp313 wheel, gettext for `msgfmt` (the compilemessages

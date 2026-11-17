@@ -73,9 +73,10 @@ jobs:
       - uses: actions/checkout@v7
 
       # Pinned (2026-10-25): ubuntu-latest moved to 26.04, whose default JDK
-      # is 25 (25.0.4.1). The pinned Gradle 8.12 wrapper cannot run on Java 25,
-      # so `assembleDebug` died with the bare message "25.0.4.1". Bump this
-      # together with the Gradle/AGP review noted on the Flutter pin below.
+      # is 25 (25.0.4.1). The Gradle 8.12 wrapper pinned then could not run on
+      # Java 25, so `assembleDebug` died with the bare message "25.0.4.1".
+      # Gradle 9.3.1 / AGP 9.1.1 (todo 713) need JDK 17 at least; revisit this
+      # pin on the next Gradle/AGP bump.
       - name: Set up Java
         uses: actions/setup-java@v5
         with:

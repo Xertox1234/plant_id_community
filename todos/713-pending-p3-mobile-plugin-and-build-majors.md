@@ -140,6 +140,23 @@ Source: `flutter pub outdated` in `plant_community_mobile/` on Flutter 3.47.9,
 - firebase_messaging 17 also moves to Firebase iOS SDK 13 and Android BoM 35
   with minSdk 24 (the app is already on 24; iOS floor 16.0).
 
+### 2026-11-17 - Implemented by the todo sweep (run 2026-11-17-1802)
+
+- Rows already merged on main: Firebase set #1331, flutter_secure_storage #1314, permission_handler #1332, cupertino_icons #1315 (AGP 8.13.2 / Kotlin 2.4.21 came in #1319). This PR bumps the other four, as the owner decided on 2026-11-17: go_router 18.1.4, flutter_local_notifications 23.0.2, cached_network_image 4.0.7, lucide_icons_flutter 4.0.3. Nothing else moved in `pubspec.lock` except their own transitive packages (octo_image 2.1.5 among them).
+- Changelogs read from the pub cache. go_router 18 and cached_network_image 4 move to `material_ui`. go_router 18 checks for material_ui's `MaterialApp`, not package:flutter's, so in this app any `builder:` route gets a `NoTransitionPage`. The app's own routes all use `pageBuilder` (`_buildPageWithTransition`), so they keep their fade. Only `errorBuilder` and the debug-only theme preview lose the Material slide, and there are no `Hero` widgets. One test, `scan_result_screen_test.dart` "a double tap retries once (L10)", relied on the animated pop. Its pushed `/scans/:id` route is now a `MaterialPage`, as in the app; the assertions are unchanged.
+- flutter_local_notifications 23 needs compileSdk 37 and AGP 9.1.1 or newer. `android/app/build.gradle.kts` sets `compileSdk = 37` (Flutter 3.47.9's default is 36); targetSdk stays on the Flutter default. Lucide 4 renamed no icon the app uses, and the analyzer is clean.
+- Gradle 9 / AGP 9 taken: AGP 9.1.1 and the Gradle 9.3.1 wrapper, the newest pair Flutter 3.47.9 lists as supported (`maxKnownAndSupportedGradleVersion`). The `android.builtInKotlin=false` / `android.newDsl=false` flags stay, because they are Flutter's own AGP 9 migration. The build warns that the app and five plugins (firebase_auth, firebase_core, google_sign_in_android, image_picker_android, url_launcher_android) still apply KGP, so the move to Built-in Kotlin is left for later. Both gradle `ignore` entries are gone from `.github/dependabot.yml`. CI's Java 17 meets AGP 9's floor.
+- `flutter analyze` is clean, `flutter test` passes, and `flutter build appbundle --release` (signed) and `flutter build ios --release --no-codesign` both succeed. `ios/Podfile.lock` did not change. Still owed: the owner's combined iPhone + Android device check.
+
+### 2026-11-17 - Review round 1: non-blocking findings (PR #1359, hand-landed)
+
+Two fresh-context reviewers (correctness, Flutter checklist); no blocking findings.
+
+- **Recorded.** go_router 18's `isMaterialApp` looks for material_ui's `MaterialApp`, and this app uses package:flutter's `MaterialApp.router`, so every `builder:` route now gets a `NoTransitionPage`. In the app that is the `StatefulShellRoute.indexedStack` shell page, `errorBuilder` and the debug-only ThemePreview route. Every leaf route uses `pageBuilder: _buildPageWithTransition`, so the visible transitions do not change; there are no Hero widgets and no route-type checks in `lib/`. Worth watching in the device check.
+- **Fixed.** `.github/workflows/mobile-ci.yml` comments still described the old Gradle 8.12 wrapper; now they name Gradle 9.3.1 / AGP 9.1.1 and the JDK 17 floor.
+- **Declined.** `flutter_local_notifications` has no Dart call site in `lib/` (native registration only). Dropping it would also drop the compileSdk 37 need, but removing a dependency is out of scope for a version-bump PR; worth a look on its own.
+- **Declined.** `compileSdk = 37` is hardcoded (commented with its revert condition), and `android.builtInKotlin=false` / `android.newDsl=false` are AGP 9 transitional opt-outs removed in AGP 10. Both are a deferred migration for the next AGP major, not a defect now.
+
 ## Notes
 
 Needs the owner's phones, so a sweep will stop at the device check.

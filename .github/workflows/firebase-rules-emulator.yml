@@ -56,12 +56,12 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
+          python-version: '3.13'
 
       # Pinned: the version these tests were written against (2026-11-10).
       - name: Install the Firebase CLI
