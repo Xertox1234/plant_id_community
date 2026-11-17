@@ -11,7 +11,10 @@ import '../../services/auth_service.dart';
 import '../../shared/widgets/brand_mark.dart';
 import '../../shared/widgets/canopy_accents.dart';
 import '../../shared/widgets/canopy_surfaces.dart';
+import 'models/models.dart';
 import 'providers/forum_providers.dart';
+import 'services/forum_api.dart';
+import 'services/forum_link_launcher.dart';
 import 'widgets/forum_experts_strip.dart';
 import 'widgets/home/forum_activity_card.dart';
 import 'widgets/home/forum_categories_section.dart';
@@ -316,11 +319,20 @@ class _ExpertsSection extends ConsumerWidget {
 }
 
 /// The forums by category: each category a header over one card of forums.
-class _ForumsSection extends ConsumerWidget {
+class _ForumsSection extends ConsumerStatefulWidget {
   const _ForumsSection();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ForumsSection> createState() => _ForumsSectionState();
+}
+
+class _ForumsSectionState extends ConsumerState<_ForumsSection> {
+  /// True while a link is being resolved and opened: a second tap would
+  /// count the click twice and open the browser twice.
+  bool _opening = false;
+
+  @override
+  Widget build(BuildContext context) {
     final categoriesAsync = ref.watch(categoriesProvider);
     return _sectionState(
       categoriesAsync,
@@ -329,7 +341,8 @@ class _ForumsSection extends ConsumerWidget {
         message: 'Could not load forums.',
         onRetry: () => ref.invalidate(categoriesProvider),
       ),
-      data: (categories) => categories.isEmpty
+      data: (categories) =>
+          categories.every((c) => c.forums.isEmpty && c.links.isEmpty)
           ? const _EmptyLine('No forums yet.')
           : ForumCategoriesSection(
               categories: categories,
@@ -338,8 +351,38 @@ class _ForumsSection extends ConsumerWidget {
                 pathParameters: {'slug': board.slug},
                 extra: board.title,
               ),
+              onLinkTap: _openLink,
             ),
     );
+  }
+
+  Future<void> _openLink(ForumLink link) async {
+    if (_opening) return;
+    _opening = true;
+    try {
+      await _resolveAndOpen(link);
+    } finally {
+      _opening = false;
+    }
+  }
+
+  Future<void> _resolveAndOpen(ForumLink link) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final launch = ref.read(forumExternalLinkLauncherProvider);
+    final uri = await ref.read(forumApiProvider).resolveLink(link);
+    var opened = false;
+    if (uri != null) {
+      try {
+        opened = await launch(uri);
+      } catch (_) {
+        opened = false;
+      }
+    }
+    if (!opened) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text("This link can't be opened.")),
+      );
+    }
   }
 }
 

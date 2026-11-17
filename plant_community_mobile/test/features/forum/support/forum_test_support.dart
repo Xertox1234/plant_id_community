@@ -414,6 +414,21 @@ class FakeForumApi implements ForumApi {
   Object? categoriesError;
   int fetchCategoriesCalls = 0;
 
+  /// What [resolveLink] answers (null = "can't be opened"), and the ids it
+  /// was asked about.
+  Uri? resolvedLink;
+  final List<int> resolveLinkCalls = [];
+
+  /// When set, [resolveLink] waits for it: holds a link open in flight.
+  Completer<void>? resolveLinkGate;
+
+  @override
+  Future<Uri?> resolveLink(ForumLink link) async {
+    resolveLinkCalls.add(link.id);
+    await resolveLinkGate?.future;
+    return resolvedLink;
+  }
+
   @override
   Future<List<ForumCategory>> fetchCategories() async {
     fetchCategoriesCalls++;

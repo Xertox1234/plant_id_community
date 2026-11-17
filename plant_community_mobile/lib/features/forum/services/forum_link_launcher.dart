@@ -13,6 +13,14 @@ final forumLinkLauncherProvider = Provider<ForumLinkLauncher>(
       (uri) => launchUrl(uri, mode: LaunchMode.inAppBrowserView),
 );
 
+/// Opens a link forum's address in the system browser (outside the app), as
+/// the web row opens a new tab. A separate seam from [forumLinkLauncherProvider]
+/// so tests can assert it independently.
+final forumExternalLinkLauncherProvider = Provider<ForumLinkLauncher>(
+  (ref) =>
+      (uri) => launchUrl(uri, mode: LaunchMode.externalApplication),
+);
+
 /// The [Uri] a post's `href` may be opened as, or null when it must not be.
 ///
 /// Only absolute `http`/`https` links with a host pass. `javascript:`,

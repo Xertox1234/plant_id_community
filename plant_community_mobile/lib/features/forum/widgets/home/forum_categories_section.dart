@@ -55,18 +55,20 @@ class ForumCategoriesSection extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _CategoryHeader(category: category),
-              if (forums.isNotEmpty)
-                CanopyGroupedCard(
-                  rows: [
-                    for (final forum in forums)
-                      _ForumRow(
-                        forum: forum,
-                        onTap: () => forum.isLocked
-                            ? onLockedTap?.call(forum)
-                            : onForumTap(forum),
-                      ),
-                  ],
-                ),
+              CanopyGroupedCard(
+                rows: [
+                  for (final forum in forums)
+                    _ForumRow(
+                      forum: forum,
+                      onTap: () => forum.isLocked
+                          ? onLockedTap?.call(forum)
+                          : onForumTap(forum),
+                    ),
+                  if (showLinks)
+                    for (final link in category.links)
+                      _LinkRow(link: link, onTap: () => onLinkTap!(link)),
+                ],
+              ),
             ],
           ),
         ),
@@ -191,6 +193,75 @@ class _ForumRow extends StatelessWidget {
                 const SizedBox(width: AppSpacing.sm),
               ],
               Icon(LucideIcons.chevronRight, size: 18, color: canopy.ink3),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LinkRow extends StatelessWidget {
+  const _LinkRow({required this.link, required this.onTap});
+
+  final ForumLink link;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final canopy = context.canopy;
+    final tone = boardIdentity(link.slug).tone.colorOf(canopy);
+    final clicks = link.clickCount;
+    // Mirrors the web row: the count shows only for a tracked link.
+    final label = link.trackClicks && clicks != null
+        ? 'External link · ${_count(clicks, 'click')}'
+        : 'External link';
+    return CanopyPressable(
+      onTap: onTap,
+      style: CanopyPressStyle.highlight,
+      semanticLabel: [
+        link.title,
+        if (link.description.isNotEmpty) link.description,
+        label.replaceFirst(' · ', ', '),
+      ].join(', '),
+      child: ExcludeSemantics(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: 12,
+          ),
+          child: Row(
+            children: [
+              CanopyAccentTile(icon: LucideIcons.externalLink, tone: tone),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      link.title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (link.description.isNotEmpty)
+                      Text(
+                        link.description,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.bodySm.copyWith(
+                          color: canopy.ink2,
+                        ),
+                      ),
+                    const SizedBox(height: 2),
+                    Text(
+                      label,
+                      style: AppTypography.label.copyWith(color: canopy.ink3),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
