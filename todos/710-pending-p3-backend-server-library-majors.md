@@ -6,7 +6,7 @@ tags: [backend, dependencies, dependabot, upgrade]
 dependencies: []
 triage: ready
 triaged: 2026-11-17
-owner_decision: "Bump now against requirements.txt without waiting for 708; AC3 prod boot + live forum socket check is owner-only (2026-11-17)"
+owner_decision: "Bump the four remaining packages (cachetools 8, gunicorn 27, redis 8, django-js-asset) against requirements.txt now; websockets 17.4 already on main; AC3 prod boot + live forum socket reply is the owner's (2026-11-17)"
 ---
 
 # Backend majors, wave 1: gunicorn, websockets, redis client, cachetools
