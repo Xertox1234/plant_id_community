@@ -61,6 +61,10 @@ PLANTNET_CACHE_TIMEOUT = CACHE_TIMEOUT_24_HOURS
 PLANT_ID_MONTHLY_QUOTA = 100  # 100 identifications per month
 PLANT_ID_DAILY_QUOTA = 3  # ~3 per day (100/30)
 PLANT_ID_QUOTA_WARNING_THRESHOLD = 0.8  # Warn at 80% usage
+# The Plant.id caps fail OPEN when Redis is down (owner decision 2026-11-17,
+# todo 700 L3); each fail-open raises a Sentry alert, at most once per this
+# many seconds per process, because every allowance GET takes that path.
+PLANT_ID_QUOTA_FAIL_OPEN_ALERT_SECONDS = 300
 
 # PlantNet API Limits (Free Tier)
 PLANTNET_DAILY_QUOTA = 500  # 500 requests per day

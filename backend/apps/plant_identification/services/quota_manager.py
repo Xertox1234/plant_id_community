@@ -13,15 +13,19 @@ Features:
 """
 
 import logging
+import threading
+import time as monotonic_time
 from datetime import datetime, time, timedelta
 from datetime import timezone as dt_timezone
 from typing import Any, Dict, Optional, cast
 
+import sentry_sdk
 from django.conf import settings
 from django_redis import get_redis_connection
 from redis import Redis
 
 from ..constants import (
+    PLANT_ID_QUOTA_FAIL_OPEN_ALERT_SECONDS,
     PLANT_ID_QUOTA_WARNING_THRESHOLD,
     PLANTNET_DAILY_QUOTA,
     PLANTNET_HOURLY_QUOTA,
@@ -33,6 +37,38 @@ from ..constants import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Process-local on purpose: the Django cache is Redis, the thing that is down.
+_fail_open_alert_lock = threading.Lock()
+_last_fail_open_alert: Optional[float] = None
+
+
+def _alert_plant_id_fail_open(reason: str) -> None:
+    """Tell Sentry the Plant.id caps are not being enforced (todo 700 L3).
+
+    The owner chose to keep failing open on a Redis outage (2026-11-17) and
+    to be alerted instead. ``reason`` is a fixed phrase or an exception class
+    name, never the exception text: a Redis error can carry the connection
+    URL. Throttled to one event per ``PLANT_ID_QUOTA_FAIL_OPEN_ALERT_SECONDS``
+    per process, since every allowance GET can land here. Like
+    ``circuit_monitoring._alert``, alerting never breaks the call it reports.
+    """
+    global _last_fail_open_alert
+    now = monotonic_time.monotonic()
+    with _fail_open_alert_lock:
+        last = _last_fail_open_alert
+        if last is not None and now - last < PLANT_ID_QUOTA_FAIL_OPEN_ALERT_SECONDS:
+            return
+        _last_fail_open_alert = now
+    try:
+        sentry_sdk.capture_message(
+            f"Plant.id quota failing open, caps not enforced ({reason})",
+            level="error",
+        )
+    except Exception as exc:  # noqa: BLE001 - alerting must never propagate
+        logger.warning(
+            "[QUOTA] Sentry fail-open alert not sent (%s)", type(exc).__name__
+        )
 
 
 class QuotaExceeded(Exception):
@@ -125,28 +161,42 @@ class QuotaManager:
 
         Returns:
             True iff daily + calls + reserve <= the daily cap and
-            monthly + calls <= the monthly cap. Fails open when Redis is down.
+            monthly + calls <= the monthly cap. Fails open when Redis is down
+            (owner decision 2026-11-17, todo 700 L3) and alerts Sentry.
         """
-        if not self.redis_client:
+        client = self.redis_client
+        if client is None:
             # Redis unavailable - allow call (fail open)
             logger.warning(
                 "[QUOTA] Redis unavailable, allowing Plant.id call (no quota tracking)"
             )
+            _alert_plant_id_fail_open("Redis unavailable")
             return True
 
         try:
+            # Read directly, not via get_plant_id_*_usage: those swallow a
+            # Redis error as 0, which would fail open without the alert.
             daily_ok = (
-                self.get_plant_id_daily_usage() + calls + reserve
+                self._read_count(client, QUOTA_KEY_PREFIX_PLANT_ID_DAILY)
+                + calls
+                + reserve
                 <= settings.PLANT_ID_DAILY_QUOTA
             )
             monthly_ok = (
-                self.get_plant_id_monthly_usage() + calls
+                self._read_count(client, QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY) + calls
                 <= settings.PLANT_ID_MONTHLY_QUOTA
             )
             return bool(daily_ok and monthly_ok)
         except Exception as e:
             logger.error(f"[QUOTA] Error checking Plant.id quota: {e}")
+            _alert_plant_id_fail_open(type(e).__name__)
             return True  # Fail open
+
+    @staticmethod
+    def _read_count(client: Redis, key: str) -> int:
+        """One counter's value; a Redis error propagates to the caller."""
+        count = cast(Optional[bytes], client.get(key))
+        return int(count) if count else 0
 
     def get_plant_id_daily_usage(self) -> int:
         """
@@ -196,7 +246,7 @@ class QuotaManager:
         with DECRBY and the claim refused. A claim that was not spent (a cache
         hit after it, an open circuit, a failed first call) is handed back
         with ``release_plant_id``. Fails open when Redis is down, like
-        ``can_call_plant_id``.
+        ``can_call_plant_id``, and alerts Sentry (todo 700 L3).
 
         Args:
             calls: API calls about to be made (a diagnosis makes 2).
@@ -207,6 +257,7 @@ class QuotaManager:
             logger.warning(
                 "[QUOTA] Redis unavailable, allowing Plant.id call (no quota tracking)"
             )
+            _alert_plant_id_fail_open("Redis unavailable")
             return True
         daily_key = QUOTA_KEY_PREFIX_PLANT_ID_DAILY
         monthly_key = QUOTA_KEY_PREFIX_PLANT_ID_MONTHLY
@@ -224,6 +275,7 @@ class QuotaManager:
                 return False
         except Exception as e:
             logger.error(f"[QUOTA] Error reserving Plant.id quota: {e}")
+            _alert_plant_id_fail_open(type(e).__name__)
             return True  # Fail open
         logger.info(
             f"[QUOTA] Plant.id usage: {daily}/{settings.PLANT_ID_DAILY_QUOTA} daily, "
