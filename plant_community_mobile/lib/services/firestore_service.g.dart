@@ -143,7 +143,7 @@ final class FirestoreServiceProvider
   }
 }
 
-String _$firestoreServiceHash() => r'0e345266d8775efccb5625dd93a1c7aa7055a743';
+String _$firestoreServiceHash() => r'2cf7fb790a1885b2b3ebabb5a340231442358e57';
 
 /// Firestore service for offline data persistence and cross-device sync
 ///
