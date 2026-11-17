@@ -20,7 +20,10 @@ I was not focused on mobile aspect of the project."
 
 1. The forum tab opens on a traditional index: each category is a header with its forums
    listed under it, in the order set in `/cms/`.
-2. The index is the first thing on the forum tab (owner: "Yes, top").
+2. The index stays where the Boards card is today, under Experts. Nothing else on the
+   forum tab moves or changes (owner, 2026-11-17, after seeing a build with the index
+   moved to the top: "I did not ask for a redesign... I wanted categorized discussion
+   forums").
 3. A forum created or restyled in `/cms/` looks right on the phone without an app release:
    its name, description, icon and colour come from the server.
 4. Link forums and password forums appear on the phone and work.
@@ -91,8 +94,9 @@ The owner was shown A and B on 2026-11-17 and raised no objection to A.
 
 ### 7.1 Layout
 
-New order on the forum tab: **Forums**, Your season (signed-in only), Experts, Recent
-activity. The section title "Boards" goes; the category names are the headings.
+The order of the forum tab does not change: Your season (signed-in only), Experts,
+**Forums by category** (where "Boards" is today), Recent activity, Who's online. The
+section title "Boards" goes; the category names are the headings.
 
 ```
 GENERAL                                ⌄
@@ -257,7 +261,8 @@ Owner:
 
 - Traditional index of categories and forums on the phone (2026-11-17).
 - Link forums and password forums get phone screens (2026-11-17).
-- The index goes at the top of the forum tab (2026-11-17).
+- The index keeps the Boards card's place under Experts; an earlier "top of the tab"
+  answer was withdrawn the same day (2026-11-17).
 
 Proposed by Claude, for the owner to check:
 

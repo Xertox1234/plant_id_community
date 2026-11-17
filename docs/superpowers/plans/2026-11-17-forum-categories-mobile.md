@@ -214,8 +214,8 @@ testWidgets('tile shows a multi-codepoint emoji without overflow', (t) async {
   `hasUnread`; the counts line becomes `"12 topics · 80 posts · 2h"` using
   `forumRelativeTime(board.lastPostAt)` when `lastPostAt` is set. Row semantics label
   includes "unread" when the dot shows.
-- `forum_screen.dart`: slot order becomes Forums, Your season (signed-in), Experts, Recent
-  activity. `_BoardsSection` becomes `_ForumsSection` with no "Boards" header; copy:
+- `forum_screen.dart`: the slot order does NOT change (Your season, Experts, Forums,
+  Recent activity; owner decision 2026-11-17). `_BoardsSection` becomes `_ForumsSection` with no "Boards" header; copy:
   "Could not load forums." and "No forums yet.". `_refresh` invalidates
   `categoriesProvider` in place of `boardsProvider`. `_resetForViewer` now also
   invalidates `categoriesProvider`; rewrite its comment (the feed is per member).
@@ -238,7 +238,8 @@ testWidgets('feed error shows Retry and the other sections still build', ...
   // expect 'Could not load forums.' and find 'Recent activity'
 ```
 
-In `forum_home_layout_test.dart`: assert the Forums section's top is above "Experts".
+In `forum_home_layout_test.dart`: assert season above Experts above the Forums section
+above Recent activity.
 In `forum_home_reset_test.dart`: after the fake auth switches user,
 `expect(api.fetchCategoriesCalls, greaterThan(before))`; same after sign-out.
 
@@ -256,7 +257,7 @@ In `forum_home_reset_test.dart`: after the fake auth switches user,
   body has exactly `{"results","intro"}`. Run it. Expected: PASS (no backend code changes).
 - [ ] **Step 2:** Run the app on the iOS simulator against live data; screenshot the forum
   tab in light and dark. Expected: GENERAL over four forums, COMMUNITY over Show & tell,
-  at the top of the tab.
+  under Experts, where the Boards card was.
 - [ ] **Step 3:** Open the PR. Body lists the screenshots and says links, password forums
   and collapsing follow in later PRs.
 
