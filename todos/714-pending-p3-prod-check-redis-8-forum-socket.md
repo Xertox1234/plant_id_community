@@ -30,7 +30,11 @@ After the 710 PR deploys to Railway:
 2. Open a forum topic in the web app or the mobile app, leave the socket idle for
    more than 5 s (longer is better: a minute), then post a reply from another
    session and watch it arrive live.
-3. Record the date and what you saw in the Work Log below.
+3. Confirm the Railway Redis server is version 6 or newer (`INFO server`,
+   `redis_version`). redis-py 8 speaks RESP3 by default and sends `HELLO 3` on
+   connect, which a pre-6 server rejects. If it is older, pass `protocol=2` in
+   the cache pool kwargs and the channel-layer host dict in `settings.py`.
+4. Record the date and what you saw in the Work Log below.
 
 ## Acceptance Criteria
 

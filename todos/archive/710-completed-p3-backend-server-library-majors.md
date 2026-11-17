@@ -147,3 +147,13 @@ Round 1 was clean (no blocking findings); four lows, handled by hand:
 - **Fixed (comment).** The 20 s read timeout covers every op on the `default` cache pool. Against a hung Redis a cache call now waits up to ~20 s (twice that with `retry_on_timeout`) before `IGNORE_EXCEPTIONS` swallows it, where 7.x waited forever. The `settings.py` comment now says so, and says the `renditions` pool keeps redis-py's 5 s default because it runs no blocking command.
 - **Declined.** A separate client for the lock with a short timeout on plain cache ops: that is a bigger change than this bump needs, and the bounded 20 s wait is already an improvement on main's unbounded one.
 - **Declined.** `REDIS_CACHE_SOCKET_TIMEOUT = 20` relating to `CACHE_LOCK_TIMEOUT` (15) only through a comment: the test already pins `20 > CACHE_LOCK_TIMEOUT`.
+
+### 2026-11-17 - Review round 2: non-blocking findings (PR #1365)
+
+Round 2 was clean (no blocking findings); five lows:
+
+- **Fixed (follow-up todo).** redis-py 8 also defaults to RESP3 (`HELLO 3` on connect), which a Redis server older than 6 rejects. CI runs Redis 7; the prod version is unread. Todo 714 now asks for `INFO server` >= 6 in the same prod check, with `protocol=2` as the fallback.
+- **Declined.** A quota INCRBY that stalls past the new 20 s read timeout is resent by `retry_on_timeout` and can double-reserve a Plant.id slot for the day. This path needs Redis to hang for 20 s; on 7.x the same hang blocked the worker forever, so it is a smaller failure than before. A separate no-retry pool for the quota is a bigger change than this bump.
+- **Declined.** The channel-layer test checks config values, not a live idle `receive()`. The worker reproduced the idle-receive `TimeoutError` by hand under redis 8.1 and saw it gone with the fix; the live check of the real path is todo 714.
+- **Declined.** `RedisBlockingWaitTests` costs a real 6 s and skips without Redis. The backend CI job runs Redis 7 as a service, so it runs there.
+- **Declined.** A cache call can block a worker up to ~40 s against a hung Redis: documented in `settings.py` in round 1, and bounded where 7.x was not.
