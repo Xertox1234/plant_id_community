@@ -573,6 +573,98 @@ void main() {
       expect(opened, hasLength(2));
     });
 
+    testWidgets('a link that resolves after another screen was pushed '
+        'does not open', (tester) async {
+      final opened = <Uri>[];
+      final gate = Completer<void>();
+      final api = FakeForumApi()
+        ..categories = [
+          _category(1, 'Reading', const [], links: [_link(1, 'Care guide')]),
+        ]
+        ..resolvedLink = Uri.parse('https://example.com/resolved')
+        ..resolveLinkGate = gate;
+      await tester.pumpWidget(
+        _wrapHome(
+          api,
+          launcher: (uri) async {
+            opened.add(uri);
+            return true;
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Care guide'));
+      await tester.pump();
+      unawaited(
+        Navigator.of(tester.element(find.byType(ForumScreen))).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('Elsewhere')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(opened, isEmpty);
+      expect(find.text("This link can't be opened."), findsNothing);
+
+      // Back on the forum, the next tap opens: the guard was released.
+      Navigator.of(tester.element(find.text('Elsewhere'))).pop();
+      await tester.pumpAndSettle();
+      api.resolveLinkGate = null;
+      await tester.tap(find.text('Care guide'));
+      await tester.pumpAndSettle();
+      expect(opened, hasLength(1));
+    });
+
+    testWidgets('a link that resolves after the tab went inactive '
+        'does not open', (tester) async {
+      final opened = <Uri>[];
+      final gate = Completer<void>();
+      final tabActive = ValueNotifier<bool>(true);
+      addTearDown(tabActive.dispose);
+      final api = FakeForumApi()
+        ..categories = [
+          _category(1, 'Reading', const [], links: [_link(1, 'Care guide')]),
+        ]
+        ..resolvedLink = Uri.parse('https://example.com/resolved')
+        ..resolveLinkGate = gate;
+      // go_router wraps an inactive shell branch in TickerMode(enabled: false).
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            forumExternalLinkLauncherProvider.overrideWithValue((uri) async {
+              opened.add(uri);
+              return true;
+            }),
+            forumApiProvider.overrideWithValue(api),
+            forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+            authServiceProvider.overrideWith(
+              () => FakeAuthService(loggedIn: false),
+            ),
+          ],
+          child: MaterialApp(
+            home: ValueListenableBuilder<bool>(
+              valueListenable: tabActive,
+              builder: (_, active, child) =>
+                  TickerMode(enabled: active, child: child!),
+              child: const ForumScreen(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Care guide'));
+      await tester.pump();
+      tabActive.value = false;
+      await tester.pump();
+      gate.complete();
+      await tester.pump();
+      await tester.pump();
+      expect(opened, isEmpty);
+      expect(find.text("This link can't be opened."), findsNothing);
+    });
+
     testWidgets('a launcher that throws shows the message', (tester) async {
       final api = FakeForumApi()
         ..categories = [
@@ -615,6 +707,7 @@ void main() {
         tester.element(find.byType(Scaffold).first),
       ).clearSnackBars();
       await tester.pumpAndSettle();
+      expect(find.text("This link can't be opened."), findsNothing);
       api.resolvedLink = Uri.parse('https://example.com/x');
       await tester.tap(find.text('Care guide'));
       await tester.pumpAndSettle();

@@ -415,9 +415,16 @@ const List<String> forumReactionTypes = ['like', 'love', 'helpful', 'thanks'];
 /// except the naturally-idempotent ones (see [subscribeToTopic]/
 /// [unsubscribeFromTopic]/[markNotificationsRead]'s own docs).
 class HttpForumApi implements ForumApi {
-  HttpForumApi(this._api);
+  HttpForumApi(this._api, {this.linkGoTimeout = defaultLinkGoTimeout});
 
   final ApiService _api;
+
+  /// How long a tracked link tap waits for the server before opening the
+  /// link's own address. Far shorter than the transport's timeouts and 5xx
+  /// retries: the address is already known, and nothing shows while waiting.
+  static const Duration defaultLinkGoTimeout = Duration(seconds: 3);
+
+  final Duration linkGoTimeout;
 
   static const String _idempotencyHeader = 'Idempotency-Key';
 
@@ -439,13 +446,17 @@ class HttpForumApi implements ForumApi {
     final fallback = openableForumLink(link.linkUrl);
     if (!link.trackClicks) return fallback;
     try {
-      final resp = await _api.get(
-        '/forum/links/${link.id}/go/',
-        options: Options(
-          followRedirects: false,
-          validateStatus: (s) => s == 302,
-        ),
-      );
+      // The request is not cancelled when the wait runs out, so a slow
+      // server still counts the click.
+      final resp = await _api
+          .get(
+            '/forum/links/${link.id}/go/',
+            options: Options(
+              followRedirects: false,
+              validateStatus: (s) => s == 302,
+            ),
+          )
+          .timeout(linkGoTimeout);
       final location = resp.headers.value('location');
       final target = location == null ? null : openableForumLink(location);
       return target ?? fallback;

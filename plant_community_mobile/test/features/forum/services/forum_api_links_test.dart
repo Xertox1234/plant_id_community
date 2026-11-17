@@ -1,4 +1,6 @@
 // HttpForumApi.resolveLink: where a link forum row opens (task 5).
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
@@ -11,6 +13,9 @@ class _FakeApiService extends ApiService {
   /// Location header to answer with; null = a 302 without the header.
   String? location;
   Object? error;
+
+  /// When set, [get] waits for it: a server that is slow to answer.
+  Completer<void>? gate;
   final List<String> paths = [];
   Options? lastOptions;
 
@@ -22,6 +27,7 @@ class _FakeApiService extends ApiService {
   }) async {
     paths.add(path);
     lastOptions = options;
+    await gate?.future;
     final err = error;
     if (err != null) throw err;
     return Response(
@@ -88,6 +94,34 @@ void main() {
       );
     },
   );
+
+  test('a slow go call stops being waited for; link_url opens', () async {
+    transport
+      ..gate = Completer<void>()
+      ..location = 'https://elsewhere.example/page';
+    final slow = HttpForumApi(
+      transport,
+      linkGoTimeout: const Duration(milliseconds: 20),
+    );
+    expect(
+      await slow.resolveLink(_link(track: true)),
+      Uri.parse('https://example.com/docs'),
+    );
+    expect(transport.paths, ['/forum/links/7/go/']);
+    transport.gate!.complete();
+  });
+
+  test('the default wait for the go call is short', () {
+    expect(HttpForumApi.defaultLinkGoTimeout, const Duration(seconds: 3));
+  });
+
+  test('a relative Location falls back to link_url', () async {
+    transport.location = '/somewhere';
+    expect(
+      await api.resolveLink(_link(track: true)),
+      Uri.parse('https://example.com/docs'),
+    );
+  });
 
   test('a Location that is not http(s) falls back to link_url', () async {
     transport.location = 'javascript:alert(1)';
