@@ -27,13 +27,27 @@ the other operator fields (owner decision 2026-11-17).
    cause was found.
 2. **Stop it.** Contain before you investigate:
    - Leaked secret: rotate it where it lives (Railway variables for the
-     backend, the provider's console for an API key). Rotating `SECRET_KEY`
-     or `JWT_SECRET_KEY` signs every member out, which is wanted here.
+     backend, the provider's console for an API key). Set the new value on
+     **every** service that declares it in `.railway/railway.ts`:
+     `SECRET_KEY`, `JWT_SECRET_KEY` and the `R2_*` keys are on both
+     `plant_id_community` and `forum-prune-cron`. Redeploy both.
+     - Only `JWT_SECRET_KEY` signs members out: JWTs are signed with it
+       (`SIMPLE_JWT["SIGNING_KEY"]`), not with `SECRET_KEY`. The mobile app
+       can still trade its Firebase session for a new JWT, so for an
+       account known to be compromised also revoke its refresh tokens
+       (`apps.users.account_links.revoke_refresh_tokens`).
+     - Rotating `SECRET_KEY` voids every signed link already emailed
+       (unsubscribe, click redirect, account deletion, email verification).
+       That is expected; say so if people ask.
    - Leaked database or Redis credentials: rotate them in Railway, then
      redeploy both services (`plant_id_community` and `forum-prune-cron`).
    - Bug exposing data: revert the change (`git revert`, a pull request, the
      normal deploy) or turn its feature flag off.
-   - Public file that should be private: remove the object from R2.
+   - Public file that should be private: remove the object from R2 (and any
+     rendition or derived keys made from it), then purge its URL from the
+     Cloudflare cache for the `R2_CUSTOM_DOMAIN` zone. Deleting the object
+     alone leaves cached copies reachable. Confirm a fetch of the URL now
+     returns 404.
 3. **Keep the evidence.** Save the Railway and Sentry logs for the window
    before they age out. Do not delete rows or logs that show what happened.
 4. **Find the scope.** Which tables, files or emails; which accounts; from

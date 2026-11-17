@@ -126,6 +126,29 @@ confirmed from its own documentation (see todo 701, L16).
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-11-17 - Review round 1: non-blocking findings (PR #1352)
+
+No blocking findings. All four non-blocking findings fixed by hand in
+`docs/operations/breach-runbook.md` (docs only, so no test). Each claim was
+checked against the code first.
+
+- medium, runbook "Public file that should be private": deleting the R2
+  object leaves Cloudflare-cached copies on `R2_CUSTOM_DOMAIN`. Fixed: the
+  step now also removes derived keys, purges the URL from the cache and
+  confirms a 404.
+- low, runbook "Leaked secret" (two findings, same line): rotating
+  `SECRET_KEY` does not sign anyone out. JWTs use `JWT_SECRET_KEY`
+  (`SIMPLE_JWT["SIGNING_KEY"]`, `backend/plant_community_backend/settings.py`
+  around line 863). Fixed: only `JWT_SECRET_KEY` signs members out. The step
+  names `apps.users.account_links.revoke_refresh_tokens` for compromised
+  accounts and says that `SECRET_KEY` rotation voids signed emailed links
+  (`apps/users/email_unsubscribe.py`, `deletion_links.py`,
+  `email_verification.py`, `apps/core/email_feedback.py`).
+- low, runbook "Leaked secret": the cron service also declares `SECRET_KEY`,
+  `JWT_SECRET_KEY` and the `R2_*` keys (`.railway/railway.ts`,
+  `forum-prune-cron` env). Fixed: the step says to set the new value on every
+  declaring service and redeploy both.
+
 ## Notes
 
 P1: the duty exists today, whether or not a breach has happened. A lawyer
