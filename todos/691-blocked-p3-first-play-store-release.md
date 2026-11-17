@@ -6,11 +6,11 @@ tags: [android, firebase, signing, mobile, release, owner]
 dependencies: ["693"]
 source_review: "todos/archive/387-completed-p3-android-release-signing-and-sign-in.md"
 source_finding: "AC5"
-blocked_on: "The owner's first .aab upload to the Play Console internal testing track, which creates the app signing SHA-1"
+blocked_on: "The owner's first .aab upload to the Play Console internal testing track, which creates the Play App Signing SHA-1"
 unblock_when: "the owner starts the first Play Console upload"
 triage: blocked-external
-triaged: 2026-11-03
-owner_decision: "Still blocked: no first Play Console .aab upload yet (2026-11-03)"
+triaged: 2026-11-17
+owner_decision: "Owner: still blocked, no .aab uploaded to Play internal testing yet (2026-11-17)"
 ---
 
 # First Play Store release: register the Play App Signing certificate

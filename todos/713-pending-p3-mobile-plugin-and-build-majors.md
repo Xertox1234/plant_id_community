@@ -4,6 +4,9 @@ priority: p3
 issue_id: "713"
 tags: [mobile, flutter, firebase, android, dependencies, dependabot, upgrade]
 dependencies: []
+triage: ready
+triaged: 2026-11-17
+owner_decision: "Bump all: go_router 18, flutter_local_notifications 23, cached_network_image 4, lucide 4, Gradle 9/AGP 9; owner does one combined iPhone+Android device check afterwards (2026-11-17)"
 ---
 
 # Mobile majors: FlutterFire set, plugin majors, Gradle 9 / AGP 9
