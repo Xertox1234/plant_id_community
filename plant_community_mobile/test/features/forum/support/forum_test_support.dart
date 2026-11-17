@@ -405,6 +405,18 @@ class FakeForumApi implements ForumApi {
     return boards;
   }
 
+  List<ForumCategory> categories = [];
+  Object? categoriesError;
+  int fetchCategoriesCalls = 0;
+
+  @override
+  Future<List<ForumCategory>> fetchCategories() async {
+    fetchCategoriesCalls++;
+    final err = categoriesError;
+    if (err != null) throw err;
+    return categories;
+  }
+
   int fetchTopicDetailCalls = 0;
 
   /// How many [fetchTopicDetail] calls were peek reads (live replies).

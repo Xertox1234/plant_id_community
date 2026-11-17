@@ -13,6 +13,9 @@ import '../models/models.dart';
 abstract class ForumApi {
   Future<List<ForumBoard>> fetchBoards();
 
+  /// The category-grouped forum index (`GET /forum/categories/`).
+  Future<List<ForumCategory>> fetchCategories();
+
   /// First page (when [cursorUrl] is null) or a subsequent page (pass the
   /// absolute `next` URL from a prior [CursorPage]).
   Future<CursorPage<ForumTopicListItem>> fetchTopics({
@@ -423,6 +426,16 @@ class HttpForumApi implements ForumApi {
     return (data['results'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>()
         .map(ForumBoard.fromJson)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<ForumCategory>> fetchCategories() async {
+    final resp = await _api.get('/forum/categories/');
+    final data = resp.data as Map<String, dynamic>;
+    return (data['results'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(ForumCategory.fromJson)
         .toList(growable: false);
   }
 
