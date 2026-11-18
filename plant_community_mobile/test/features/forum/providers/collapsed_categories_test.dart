@@ -497,4 +497,196 @@ void main() {
       expect(await store.load('u1'), isNull);
     });
   });
+
+  group('refresh', () {
+    Future<_Harness> loaded(List<int> server) async {
+      final h = _harness(auth: signedInAs('u1'));
+      h.api.collapsedCategories = server;
+      h.start();
+      await pumpEventQueue();
+      return h;
+    }
+
+    test('a changed server list shows and rewrites the device copy', () async {
+      final h = await loaded([1]);
+      h.api.collapsedCategories = [1, 2];
+      await h.notifier.refresh();
+      expect(h.state, {1, 2});
+      await pumpEventQueue();
+      _expectMember(h, 'u1', {1, 2});
+      expect(h.api.collapsedSaves, isEmpty);
+    });
+
+    test(
+      'a toggle after a refresh PUTs the refreshed list plus the tap',
+      () async {
+        final h = await loaded([1]);
+        h.api.collapsedCategories = [1, 2];
+        await h.notifier.refresh();
+        expect(await h.notifier.toggle(3), isTrue);
+        expect(h.api.collapsedSaves, [
+          [1, 2, 3],
+        ]);
+      },
+    );
+
+    test('a refresh during a save changes nothing; the save stands', () async {
+      final h = await loaded([1]);
+      final gate = Completer<void>();
+      h.api.collapsedSaveGates.add(gate);
+      final save = h.notifier.toggle(3);
+      await pumpEventQueue();
+      h.api.collapsedCategories = [7];
+      final fetches = h.api.fetchCollapsedCalls;
+      await h.notifier.refresh();
+      expect(h.api.fetchCollapsedCalls, fetches, reason: 'skipped');
+      expect(h.state, {1, 3});
+
+      gate.complete();
+      expect(await save, isTrue);
+      expect(h.state, {1, 3});
+      expect(h.api.collapsedSaves, [
+        [1, 3],
+      ]);
+    });
+
+    test('a toggle while the refresh is out PUTs the refreshed list plus the '
+        'tap, never the stale one', () async {
+      final h = await loaded([1]);
+      h.api.collapsedCategories = [1, 2]; // collapsed on the web meanwhile
+      h.api.collapsedFetchGate = Completer<void>();
+      final refresh = h.notifier.refresh();
+      await pumpEventQueue();
+
+      final toggle = h.notifier.toggle(3);
+      expect(h.state, {1, 3}, reason: 'the tap shows at once');
+      await pumpEventQueue();
+      expect(h.api.collapsedSaves, isEmpty, reason: 'waits for the refresh');
+
+      h.api.collapsedFetchGate!.complete();
+      await refresh;
+      expect(await toggle, isTrue);
+      expect(h.api.collapsedSaves, [
+        [1, 2, 3],
+      ]);
+      expect(h.state, {1, 2, 3});
+    });
+
+    test('an expand while the refresh is out is not undone by it', () async {
+      final h = await loaded([1, 2]);
+      h.api.collapsedFetchGate = Completer<void>();
+      final refresh = h.notifier.refresh();
+      final toggle = h.notifier.toggle(1);
+      h.api.collapsedFetchGate!.complete();
+      await refresh;
+      expect(await toggle, isTrue);
+      expect(h.state, {2});
+      expect(h.api.collapsedSaves, [
+        [2],
+      ]);
+    });
+
+    test(
+      'a failed refresh keeps the state; a later toggle still saves',
+      () async {
+        final h = await loaded([1]);
+        h.api.collapsedFetchError = ApiException('x', connectivity: true);
+        await h.notifier.refresh();
+        expect(h.state, {1});
+        await pumpEventQueue();
+        _expectMember(h, 'u1', {1});
+
+        expect(await h.notifier.toggle(2), isTrue);
+        expect(h.api.collapsedSaves, [
+          [1, 2],
+        ]);
+      },
+    );
+
+    test(
+      'a toggle during a refresh that fails is saved on the old list',
+      () async {
+        final h = await loaded([1]);
+        h.api.collapsedFetchError = ApiException('x', connectivity: true);
+        h.api.collapsedFetchGate = Completer<void>();
+        final refresh = h.notifier.refresh();
+        final toggle = h.notifier.toggle(2);
+        h.api.collapsedFetchGate!.complete();
+        await refresh;
+        expect(await toggle, isTrue);
+        expect(h.api.collapsedSaves, [
+          [1, 2],
+        ]);
+
+        // Expanded on the web since: the next refresh shows that, and the
+        // tap made during the failed refresh is not forced back on.
+        h.api.collapsedFetchError = null;
+        h.api.collapsedCategories = [1];
+        await h.notifier.refresh();
+        expect(h.state, {1});
+      },
+    );
+
+    test('a guest refresh makes no API call', () async {
+      final h = _harness()..start();
+      await pumpEventQueue();
+      await h.notifier.refresh();
+      expect(h.api.fetchCollapsedCalls, 0);
+    });
+
+    test('a refresh begun as A never lands for B', () async {
+      final h = await loaded([1]);
+      h.api.collapsedCategories = [5];
+      h.api.collapsedFetchGate = Completer<void>();
+      final refresh = h.notifier.refresh();
+      await pumpEventQueue();
+
+      h.api.collapsedCategories = [8];
+      h.setAuth(signedInAs('b'));
+      h.container.read(collapsedCategoriesProvider);
+      h.api.collapsedFetchGate!.complete();
+      await refresh;
+      await pumpEventQueue();
+      expect(h.state, {8});
+      _expectMember(h, 'b', {8});
+
+      // A's late answer left B's fetching alone: B can still refresh.
+      h.api.collapsedCategories = [8, 9];
+      await h.notifier.refresh();
+      expect(h.state, {8, 9});
+    });
+
+    test('A\'s refresh landing late never ends B\'s refresh early', () async {
+      final h = await loaded([1]);
+      final aGate = Completer<void>();
+      h.api.collapsedFetchGate = aGate;
+      final aRefresh = h.notifier.refresh();
+      await pumpEventQueue();
+
+      h.api.collapsedFetchGate = null;
+      h.api.collapsedCategories = [4];
+      h.setAuth(signedInAs('b'));
+      h.container.read(collapsedCategoriesProvider);
+      await pumpEventQueue();
+      expect(h.state, {4});
+
+      final bGate = Completer<void>();
+      h.api.collapsedFetchGate = bGate;
+      h.api.collapsedCategories = [4, 6]; // B collapsed 6 on the web
+      final bRefresh = h.notifier.refresh();
+      await pumpEventQueue();
+      aGate.complete(); // A's answer lands while B's refresh is out
+      await aRefresh;
+
+      final toggle = h.notifier.toggle(5);
+      await pumpEventQueue();
+      expect(h.api.collapsedSaves, isEmpty, reason: 'waits for B\'s refresh');
+      bGate.complete();
+      await bRefresh;
+      expect(await toggle, isTrue);
+      expect(h.api.collapsedSaves, [
+        [4, 5, 6],
+      ]);
+    });
+  });
 }

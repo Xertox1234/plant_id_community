@@ -92,8 +92,10 @@ final collapsedCategoriesStoreProvider = Provider<CollapsedCategoriesStore>(
 /// touches the state, the device copy or the network once it is another's.
 ///
 /// A save PUTs the whole list, so it is only ever built from the member's
-/// server list with their pending taps re-applied, never from the device copy, and
-/// only one is in flight at a time.
+/// server list with their pending taps re-applied, never from the device
+/// copy, and only one is in flight at a time. [refresh] re-reads that list
+/// when the forum tab refreshes its categories, so a list changed on the web
+/// meanwhile is not overwritten by the next save.
 @Riverpod(keepAlive: true)
 class CollapsedCategories extends _$CollapsedCategories {
   /// Bumped by every [build].
@@ -103,11 +105,16 @@ class CollapsedCategories extends _$CollapsedCategories {
   /// The member's list as the server last confirmed it; null until loaded.
   Set<int>? _confirmed;
 
-  /// What each tap made before [_confirmed] loaded asked for (id to
-  /// collapsed; the last tap wins), forced onto whichever list lands. Not a
-  /// flip: the device copy and the server may disagree about an id, and a
-  /// flip re-applied to the other list would invert the tap.
+  /// What each tap made while the member's list was not in hand (before the
+  /// first load, or during a refresh) asked for: id to collapsed, the last
+  /// tap wins. Forced onto whichever list lands. Not a flip: the lists may
+  /// disagree about an id, and a flip re-applied to the other list would
+  /// invert the tap.
   Map<int, bool> _pending = {};
+
+  /// True while a fetch of the member's list is in flight (the first load,
+  /// its retry or a [refresh]). Toggles made meanwhile wait for it.
+  bool _fetching = false;
 
   Future<void> _deviceRead = Future<void>.value();
   Future<void> _deviceWrites = Future<void>.value();
@@ -121,6 +128,7 @@ class CollapsedCategories extends _$CollapsedCategories {
     _viewer = viewer;
     _confirmed = null;
     _pending = {};
+    _fetching = false;
     _loading = null;
     _saving = null;
     _deviceRead = _readDevice(build);
@@ -139,11 +147,12 @@ class CollapsedCategories extends _$CollapsedCategories {
     final build = _builds;
     final collapse = !state.contains(categoryId);
     state = _with(state, {categoryId: collapse});
-    if (_confirmed == null) _pending[categoryId] = collapse;
+    final waiting = _confirmed == null || _fetching;
+    if (waiting) _pending[categoryId] = collapse;
     _writeDevice(build);
     if (_viewer == null) return true;
 
-    if (_confirmed == null) {
+    if (waiting) {
       final loaded = await _ensureLoaded(build);
       if (_superseded(build)) return true;
       if (!loaded) {
@@ -191,14 +200,38 @@ class CollapsedCategories extends _$CollapsedCategories {
     });
   }
 
+  /// Re-reads the member's list (the forum tab's pull-to-refresh and
+  /// Retry), replacing the state and the device copy. Never awaited by the
+  /// categories feed. Skipped for a guest, while a fetch is already in
+  /// flight, and while a save is in flight: that save PUTs the whole list,
+  /// so a list read during it could be overwritten by it or overwrite the
+  /// taps it carries. A failed refresh changes nothing.
+  Future<void> refresh() async {
+    if (_viewer == null || _fetching || _saving != null) return;
+    final build = _builds;
+    _loading = _load(build);
+    await _loading;
+  }
+
+  /// Fetches the member's list. A superseded fetch returns without touching
+  /// [_fetching]: [build] has already reset it for the new viewer, whose own
+  /// fetch may be in flight, and clearing it would let their toggles skip
+  /// waiting for their list.
   Future<bool> _load(int build) async {
+    _fetching = true;
     final List<int> server;
     try {
       server = await ref.read(forumApiProvider).fetchCollapsedCategories();
     } catch (_) {
+      if (_superseded(build)) return false;
+      _fetching = false;
+      // A failed refresh: the taps made during it are already in the state
+      // and are saved against the list held before it.
+      if (_confirmed != null) _pending = {};
       return false;
     }
     if (_superseded(build)) return false;
+    _fetching = false;
     final confirmed = server.toSet();
     _confirmed = confirmed;
     state = _with(confirmed, _pending);
@@ -207,7 +240,8 @@ class CollapsedCategories extends _$CollapsedCategories {
     return true;
   }
 
-  /// Waits for the member's list; a load that failed is tried once more.
+  /// Waits for the member's list; a first load that failed is tried once
+  /// more. After a failed refresh the list held before it stands.
   Future<bool> _ensureLoaded(int build) async {
     final current = _loading;
     if (current != null && await current) return true;
@@ -220,8 +254,8 @@ class CollapsedCategories extends _$CollapsedCategories {
 
   /// Saves until the server holds the current set, one PUT at a time, so an
   /// older set never lands last. Only started when there is something to
-  /// send, so its first pass always awaits a PUT. A failure goes back to the last confirmed
-  /// set and fails every toggle waiting on it.
+  /// send, so its first pass always awaits a PUT. A failure goes back to the
+  /// last confirmed set and fails every toggle waiting on it.
   Future<bool> _saveLoop(int build) async {
     try {
       while (true) {

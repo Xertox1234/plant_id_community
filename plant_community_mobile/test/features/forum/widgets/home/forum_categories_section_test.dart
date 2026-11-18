@@ -1189,5 +1189,40 @@ void main() {
       expect(find.text('General'), findsOneWidget);
       expect(find.text('Ferns'), findsNothing);
     });
+
+    testWidgets('pull to refresh re-reads the member\'s list', (tester) async {
+      final api = FakeForumApi()..categories = feed();
+      await tester.pumpWidget(_wrapHome(api, auth: signedInAs('u1')));
+      await tester.pumpAndSettle();
+      expect(api.fetchCollapsedCalls, 1);
+      expect(find.text('Ferns'), findsOneWidget);
+
+      api.collapsedCategories = [1]; // collapsed on the web meanwhile
+      await tester.fling(find.text('General'), const Offset(0, 400), 1000);
+      await tester.pumpAndSettle();
+      expect(api.fetchCollapsedCalls, 2);
+      expect(find.text('Ferns'), findsNothing);
+    });
+
+    testWidgets('Retry on the forums re-reads the member\'s list', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..categoriesError = ApiException('x', statusCode: 404);
+      await tester.pumpWidget(_wrapHome(api, auth: signedInAs('u1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Could not load forums.'), findsOneWidget);
+      expect(api.fetchCollapsedCalls, 1);
+
+      api
+        ..categoriesError = null
+        ..categories = feed()
+        ..collapsedCategories = [1];
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(api.fetchCollapsedCalls, 2);
+      expect(find.text('General'), findsOneWidget);
+      expect(find.text('Ferns'), findsNothing);
+    });
   });
 }

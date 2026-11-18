@@ -19,8 +19,10 @@ part of 'collapsed_categories.dart';
 /// touches the state, the device copy or the network once it is another's.
 ///
 /// A save PUTs the whole list, so it is only ever built from the member's
-/// server list with their pending taps re-applied, never from the device copy, and
-/// only one is in flight at a time.
+/// server list with their pending taps re-applied, never from the device
+/// copy, and only one is in flight at a time. [refresh] re-reads that list
+/// when the forum tab refreshes its categories, so a list changed on the web
+/// meanwhile is not overwritten by the next save.
 
 @ProviderFor(CollapsedCategories)
 final collapsedCategoriesProvider = CollapsedCategoriesProvider._();
@@ -36,8 +38,10 @@ final collapsedCategoriesProvider = CollapsedCategoriesProvider._();
 /// touches the state, the device copy or the network once it is another's.
 ///
 /// A save PUTs the whole list, so it is only ever built from the member's
-/// server list with their pending taps re-applied, never from the device copy, and
-/// only one is in flight at a time.
+/// server list with their pending taps re-applied, never from the device
+/// copy, and only one is in flight at a time. [refresh] re-reads that list
+/// when the forum tab refreshes its categories, so a list changed on the web
+/// meanwhile is not overwritten by the next save.
 final class CollapsedCategoriesProvider
     extends $NotifierProvider<CollapsedCategories, Set<int>> {
   /// Which forum-index categories the viewer has collapsed (spec §7.5),
@@ -51,8 +55,10 @@ final class CollapsedCategoriesProvider
   /// touches the state, the device copy or the network once it is another's.
   ///
   /// A save PUTs the whole list, so it is only ever built from the member's
-  /// server list with their pending taps re-applied, never from the device copy, and
-  /// only one is in flight at a time.
+  /// server list with their pending taps re-applied, never from the device
+  /// copy, and only one is in flight at a time. [refresh] re-reads that list
+  /// when the forum tab refreshes its categories, so a list changed on the web
+  /// meanwhile is not overwritten by the next save.
   CollapsedCategoriesProvider._()
     : super(
         from: null,
@@ -81,7 +87,7 @@ final class CollapsedCategoriesProvider
 }
 
 String _$collapsedCategoriesHash() =>
-    r'72ddb4056aacc04a1e3b650922bf6b3206beeb91';
+    r'88780a1ee87db047b7dd40c078349eeaf9687956';
 
 /// Which forum-index categories the viewer has collapsed (spec §7.5),
 /// matching the web's `useCollapsedCategories`.
@@ -94,8 +100,10 @@ String _$collapsedCategoriesHash() =>
 /// touches the state, the device copy or the network once it is another's.
 ///
 /// A save PUTs the whole list, so it is only ever built from the member's
-/// server list with their pending taps re-applied, never from the device copy, and
-/// only one is in flight at a time.
+/// server list with their pending taps re-applied, never from the device
+/// copy, and only one is in flight at a time. [refresh] re-reads that list
+/// when the forum tab refreshes its categories, so a list changed on the web
+/// meanwhile is not overwritten by the next save.
 
 abstract class _$CollapsedCategories extends $Notifier<Set<int>> {
   Set<int> build();

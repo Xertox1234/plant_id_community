@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -62,6 +64,8 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
   Future<void> _refresh(bool isAuthenticated) async {
     ref.read(expandedActivityTopicProvider.notifier).collapse();
     ref.invalidate(categoriesProvider);
+    // Alongside the categories, never before them (spec §7.5).
+    unawaited(ref.read(collapsedCategoriesProvider.notifier).refresh());
     ref.invalidate(homeRecentTopicsProvider);
     ref.invalidate(latestRepliesProvider);
     ref.invalidate(communityStatsProvider);
@@ -348,7 +352,10 @@ class _ForumsSectionState extends ConsumerState<_ForumsSection> {
       loading: const _ForumsSkeleton(),
       error: _SectionError(
         message: 'Could not load forums.',
-        onRetry: () => ref.invalidate(categoriesProvider),
+        onRetry: () {
+          ref.invalidate(categoriesProvider);
+          unawaited(ref.read(collapsedCategoriesProvider.notifier).refresh());
+        },
       ),
       data: (categories) =>
           categories.every((c) => c.forums.isEmpty && c.links.isEmpty)
