@@ -71,10 +71,12 @@ PR #1303).
 
 - [ ] `backend/requirements.in` exists and `pip-compile` reproduces the
       committed `requirements.txt` byte for byte (CI step proves it).
-- [ ] The PR body lists every package whose version changed against the old
-      freeze.
+- [ ] The Work Log lists every package whose version changed against the old
+      freeze; Land copies that list into the PR body.
 - [ ] The full backend suite passes, run repo-wide (not app-scoped).
-- [ ] The Docker image builds and `pip-audit -r requirements.txt` passes.
+- [ ] The Dockerfile's install steps, replayed in a fresh Python 3.13 venv,
+      install `requirements.txt` cleanly and `pip-audit -r requirements.txt`
+      passes (the real image build is checked at deploy, todo 711).
 - [ ] The first Dependabot pip PR after merge installs without a resolver
       conflict (record the PR number and date here). → todo 711 (re-pointed 2026-11-17)
 
@@ -99,3 +101,12 @@ PR #1303).
 
 p2 because it decides whether the weekly backend PR is mergeable at all. `uv`
 is an alternative to pip-tools; pick one in the PR and say why.
+
+### 2026-11-18 — criteria reworded (owner)
+
+- Sweep 2026-11-18-0148 blocked on two criteria no worker can pass: the PR body
+  does not exist until Land, and workers cannot reach a Docker daemon.
+- Owner 2026-11-18: the changed-package list lives in the Work Log and Land
+  copies it into the PR body; the image criterion becomes the venv replay plus
+  pip-audit, and the real image build moves to todo 711 (first Railway deploy
+  after this merges).
