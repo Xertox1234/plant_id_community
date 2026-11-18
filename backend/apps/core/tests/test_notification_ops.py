@@ -864,6 +864,30 @@ def test_settings_enable_beat_monitors():
     assert not celery.exclude_beat_tasks
 
 
+def test_before_send_filters_the_forum_unlock_header():
+    """The SDK strips Authorization and Cookie only; the forum unlock tokens
+    travel in their own header and must not reach Sentry in clear."""
+    from plant_community_backend.sentry_config import before_send
+
+    event = {
+        "request": {
+            "headers": {
+                "X-Forum-Unlock": "tok-a,tok-b",
+                "x-forum-unlock": "tok-c",
+                "Accept": "application/json",
+            }
+        }
+    }
+    sent = before_send(event, {})
+    assert sent["request"]["headers"] == {
+        "X-Forum-Unlock": "[Filtered]",
+        "x-forum-unlock": "[Filtered]",
+        "Accept": "application/json",
+    }
+    assert before_send({"request": {}}, {}) == {"request": {}}
+    assert before_send({}, {}) == {}
+
+
 def test_every_beat_entry_gets_a_cron_monitor():
     """The SDK silently skips a schedule it cannot express: an interval under
     a minute, or a custom schedule class."""

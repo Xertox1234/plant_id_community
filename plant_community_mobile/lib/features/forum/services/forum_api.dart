@@ -21,6 +21,12 @@ abstract class ForumApi {
   /// null unless the result is an absolute http(s) address.
   Future<Uri?> resolveLink(ForumLink link);
 
+  /// Unlock a password forum (`POST /forum/boards/{slug}/unlock/`). Returns
+  /// the server's unlock token, or null when there was nothing to unlock
+  /// (the member already has it open, or moderates it). A wrong password is
+  /// an [ApiException]. The password is the request body only: never log it.
+  Future<String?> unlockBoard(String slug, String password);
+
   /// First page (when [cursorUrl] is null) or a subsequent page (pass the
   /// absolute `next` URL from a prior [CursorPage]).
   Future<CursorPage<ForumTopicListItem>> fetchTopics({
@@ -464,6 +470,17 @@ class HttpForumApi implements ForumApi {
       if (kDebugMode) debugPrint('[FORUM] link click not counted: $e');
       return fallback;
     }
+  }
+
+  @override
+  Future<String?> unlockBoard(String slug, String password) async {
+    final resp = await _api.post(
+      '/forum/boards/$slug/unlock/',
+      data: {'password': password},
+    );
+    final data = resp.data;
+    final token = data is Map<String, dynamic> ? data['unlock_token'] : null;
+    return token is String && token.isNotEmpty ? token : null;
   }
 
   @override

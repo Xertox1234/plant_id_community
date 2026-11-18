@@ -1,13 +1,16 @@
 import 'dart:async';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show KeepAliveLink;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../services/api_service.dart';
+import '../../../services/auth_service.dart';
 import '../models/models.dart';
 import '../services/forum_api.dart';
 import '../services/forum_sync_service.dart';
+import '../services/forum_unlock_store.dart';
 
 part 'forum_providers.g.dart';
 
@@ -39,49 +42,159 @@ Duration? forumRetry(int retryCount, Object error) {
   return ProviderContainer.defaultRetry(retryCount, error);
 }
 
-/// The forum index: categories, each with its forums and links, in the
-/// server's order (`GET /forum/categories/`). The feed is per member (unread
-/// dots, locked forums), so it is refetched when the viewer changes.
+/// Who the forum's per-member data is for: null for a guest, else the
+/// signed-in member's Firebase uid (a Firebase user still waiting on its JWT
+/// is not signed in). A token refresh keeps the same viewer.
+///
+/// The per-member feeds are families keyed on it, so a new viewer always
+/// reads a fresh element: Riverpod carries a provider's last value through a
+/// rebuild and into a failed one, which would leave the previous member's
+/// forums on screen when the new viewer's fetch fails.
+@riverpod
+String? forumViewer(Ref ref) => ref.watch(
+  authServiceProvider.select(
+    // '' only for a JWT with no Firebase user, which no sign-in path makes.
+    (s) => s.isAuthenticated ? (s.firebaseUser?.uid ?? '') : null,
+  ),
+);
+
+/// The forum index for [viewer]: categories, each with its forums and links,
+/// in the server's order (`GET /forum/categories/`). Read it through
+/// [viewerCategoriesProvider]; invalidate `categoriesProvider` (the whole
+/// family) to refetch.
+///
+/// Signed in, it first waits for the member's unlock tokens to load, so the
+/// first request after a cold start already carries them. A forum a sent
+/// token did not open (still `is_locked`) drops that token: the dead-token
+/// rule (spec §7.4).
 @Riverpod(retry: forumRetry)
 class Categories extends _$Categories {
+  /// Bumped by every fetch, so only the latest one applies the dead-token
+  /// rule.
+  int _fetches = 0;
+
   @override
-  Future<List<ForumCategory>> build() {
-    return ref.watch(forumApiProvider).fetchCategories();
-  }
+  Future<List<ForumCategory>> build(String? viewer) =>
+      _fetch(ref.watch(forumApiProvider));
 
   Future<void> refresh() async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(
-      () => ref.read(forumApiProvider).fetchCategories(),
-    );
+    state = await AsyncValue.guard(() => _fetch(ref.read(forumApiProvider)));
+  }
+
+  Future<List<ForumCategory>> _fetch(ForumApi api) async {
+    final fetch = ++_fetches;
+    var sent = const <MapEntry<int, String>>[];
+    if (viewer != null) {
+      try {
+        await ref.read(forumUnlocksProvider.future);
+        if (ref.mounted) sent = _sentTokens();
+      } catch (_) {
+        // The unlocks never fail the feed: it is fetched without them.
+      }
+    }
+    final categories = await api.fetchCategories();
+    if (sent.isNotEmpty && ref.mounted && fetch == _fetches) {
+      _dropDeadTokens(categories, sent);
+    }
+    return categories;
+  }
+
+  /// The unlocks this request carries: those whose token is in the header
+  /// right now, and only on a request with a bearer (the interceptor sends
+  /// none without one). The header, not the provider's state, is what the
+  /// server will see.
+  List<MapEntry<int, String>> _sentTokens() {
+    final apiService = ref.read(apiServiceProvider);
+    if (!apiService.hasAuthToken) return const [];
+    final installed = apiService.forumUnlockTokens.toSet();
+    if (installed.isEmpty) return const [];
+    final held = ref.read(forumUnlocksProvider).value ?? const {};
+    return [
+      for (final e in held.entries)
+        if (installed.contains(e.value)) e,
+    ];
+  }
+
+  /// Drops a sent token whose forum came back locked anyway, but only while
+  /// the stored token is still the one sent: an unlock made while the
+  /// request was out is never dropped by its answer.
+  void _dropDeadTokens(
+    List<ForumCategory> categories,
+    List<MapEntry<int, String>> sent,
+  ) {
+    final locked = {
+      for (final c in categories)
+        for (final f in c.forums)
+          if (f.isLocked) f.id,
+    };
+    final unlocks = ref.read(forumUnlocksProvider.notifier);
+    for (final entry in sent) {
+      if (locked.contains(entry.key)) {
+        unawaited(unlocks.drop(entry.key, ifToken: entry.value));
+      }
+    }
   }
 }
 
-/// Every forum a member can post in, in feed order: the flat list the topic
-/// screen's header and the search filter read. Derived from [categoriesProvider]
-/// (no request of its own); locked forums are left out.
+/// The forum index for the current viewer. Synchronous on purpose: it hands
+/// over the viewer's own element's state as is, so a new viewer starts from
+/// loading, never from the previous viewer's list (see [forumViewerProvider]).
 @riverpod
-Future<List<ForumBoard>> boards(Ref ref) async {
-  final categories = await ref.watch(categoriesProvider.future);
-  return [
-    for (final c in categories)
-      for (final f in c.forums)
-        if (!f.isLocked) f,
-  ];
+AsyncValue<List<ForumCategory>> viewerCategories(Ref ref) =>
+    ref.watch(categoriesProvider(ref.watch(forumViewerProvider)));
+
+/// Every forum a member can post in, in feed order: the flat list the topic
+/// screen's header and the search filter read. Derived from
+/// [viewerCategoriesProvider] (no request of its own); forums still locked
+/// for the viewer are left out.
+///
+/// Not `whenData`: that turns a failure Riverpod is still retrying into a
+/// bare loading state, and the error must stay visible.
+@riverpod
+AsyncValue<List<ForumBoard>> boards(Ref ref) {
+  final feed = ref.watch(viewerCategoriesProvider);
+  if (feed.hasValue) {
+    return AsyncData([
+      for (final c in feed.requireValue)
+        for (final f in c.forums)
+          if (!f.isLocked) f,
+    ]);
+  }
+  if (feed.hasError) return AsyncError(feed.error!, feed.stackTrace!);
+  return const AsyncLoading();
 }
 
-/// Topics in a board, cursor-paginated with [loadMore].
-@riverpod
+/// Signed in ([viewer] not null), waits for the member's stored unlock
+/// tokens, so a read opened first on a cold start (a push, a deep link)
+/// already carries them, as [Categories] does. A guest never waits. The
+/// unlocks never fail the read: it is sent without them.
+Future<void> _awaitUnlocks(Ref ref, String? viewer) async {
+  if (viewer == null) return;
+  try {
+    await ref.read(forumUnlocksProvider.future);
+  } catch (_) {}
+}
+
+/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// answers 403 `forum_locked`, which [forumRetry] does not re-request.
+@Riverpod(retry: forumRetry)
 class BoardTopics extends _$BoardTopics {
   /// Bumped by every [build]: see [loadMore].
   int _builds = 0;
 
+  /// [viewer] (see [forumViewerProvider]) keys the list on who reads it: a
+  /// password forum's topics are per member, and a new viewer must never
+  /// see the previous one's list, even when its own fetch fails.
   @override
-  Future<PagedList<ForumTopicListItem>> build(String boardSlug) async {
+  Future<PagedList<ForumTopicListItem>> build(
+    String boardSlug,
+    String? viewer,
+  ) async {
     _builds++;
-    final page = await ref
-        .watch(forumApiProvider)
-        .fetchTopics(boardSlug: boardSlug);
+    final api = ref.watch(forumApiProvider);
+    await _awaitUnlocks(ref, viewer);
+    final page = await api.fetchTopics(boardSlug: boardSlug);
     return PagedList(items: page.items, nextUrl: page.next);
   }
 
@@ -135,9 +248,12 @@ class TopicDetail extends _$TopicDetail {
   String? _solutionKey;
   String? _solutionFingerprint;
 
+  /// [viewer] keys the topic on who reads it, as [BoardTopics] does.
   @override
-  Future<ForumTopicDetail> build(int topicId) {
-    return ref.watch(forumApiProvider).fetchTopicDetail(topicId);
+  Future<ForumTopicDetail> build(int topicId, String? viewer) async {
+    final api = ref.watch(forumApiProvider);
+    await _awaitUnlocks(ref, viewer);
+    return api.fetchTopicDetail(topicId);
   }
 
   /// Replace the topic with a fresh peek read (live replies: the catch-up on
@@ -417,8 +533,9 @@ class TopicPosts extends _$TopicPosts {
   String? _reportKey;
   String? _reportFingerprint;
 
+  /// [viewer] keys the thread on who reads it, as [BoardTopics] does.
   @override
-  Future<PagedList<ForumPost>> build(int topicId) async {
+  Future<PagedList<ForumPost>> build(int topicId, String? viewer) async {
     // Before the first await: a block/unblock performed on a profile pushed
     // over this thread splices every loaded post by that author in place
     // (todo 341) — see [AuthorBlockChanges] for why this is not an
@@ -428,7 +545,9 @@ class TopicPosts extends _$TopicPosts {
         applyAuthorBlocked(change.username, blocked: change.blocked);
       }
     });
-    final page = await ref.watch(forumApiProvider).fetchPosts(topicId: topicId);
+    final api = ref.watch(forumApiProvider);
+    await _awaitUnlocks(ref, viewer);
+    final page = await api.fetchPosts(topicId: topicId);
     return PagedList(items: page.items, nextUrl: page.next);
   }
 
@@ -736,8 +855,12 @@ const int kHomeRecentTopicsLimit = 3;
 /// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
 /// with solved/unread state, pictures and recent repliers. Distinct from
 /// [RecentTopics], the offline mirror.
+///
+/// Keyed on [viewer] (see [forumViewerProvider]): the feed honours the
+/// member's forum unlocks, so a new viewer must start from loading, never
+/// from the previous one's titles.
 @Riverpod(retry: forumRetry)
-Future<List<ForumRecentTopic>> homeRecentTopics(Ref ref) {
+Future<List<ForumRecentTopic>> homeRecentTopics(Ref ref, String? viewer) {
   return ref
       .watch(forumApiProvider)
       .fetchRecentTopics(limit: kHomeRecentTopicsLimit);

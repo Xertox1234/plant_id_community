@@ -59,6 +59,9 @@ DEFAULTS: dict[str, Any] = {
     # password counts; a right one clears the count.
     "FORUM_UNLOCK_MAX_FAILURES": 5,
     "FORUM_UNLOCK_WINDOW_SECONDS": 15 * 60,
+    # How long an unlock token (the `X-Forum-Unlock` header a cookie-less
+    # client sends back, spec 2026-11-17 §7.4) stays valid after the unlock.
+    "FORUM_UNLOCK_TOKEN_MAX_AGE_SECONDS": 30 * 24 * 60 * 60,
     # How long tombstone rows (TopicDeletedLog) are retained before pruning.
     # A mobile client that hasn't synced in longer than this window will miss
     # some deletions and should fall back to a full resync.

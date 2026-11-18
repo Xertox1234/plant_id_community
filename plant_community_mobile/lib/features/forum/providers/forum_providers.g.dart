@@ -8,48 +8,204 @@ part of 'forum_providers.dart';
 
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // ignore_for_file: type=lint, type=warning
-/// The forum index: categories, each with its forums and links, in the
-/// server's order (`GET /forum/categories/`). The feed is per member (unread
-/// dots, locked forums), so it is refetched when the viewer changes.
+/// Who the forum's per-member data is for: null for a guest, else the
+/// signed-in member's Firebase uid (a Firebase user still waiting on its JWT
+/// is not signed in). A token refresh keeps the same viewer.
+///
+/// The per-member feeds are families keyed on it, so a new viewer always
+/// reads a fresh element: Riverpod carries a provider's last value through a
+/// rebuild and into a failed one, which would leave the previous member's
+/// forums on screen when the new viewer's fetch fails.
 
-@ProviderFor(Categories)
-final categoriesProvider = CategoriesProvider._();
+@ProviderFor(forumViewer)
+final forumViewerProvider = ForumViewerProvider._();
 
-/// The forum index: categories, each with its forums and links, in the
-/// server's order (`GET /forum/categories/`). The feed is per member (unread
-/// dots, locked forums), so it is refetched when the viewer changes.
-final class CategoriesProvider
-    extends $AsyncNotifierProvider<Categories, List<ForumCategory>> {
-  /// The forum index: categories, each with its forums and links, in the
-  /// server's order (`GET /forum/categories/`). The feed is per member (unread
-  /// dots, locked forums), so it is refetched when the viewer changes.
-  CategoriesProvider._()
+/// Who the forum's per-member data is for: null for a guest, else the
+/// signed-in member's Firebase uid (a Firebase user still waiting on its JWT
+/// is not signed in). A token refresh keeps the same viewer.
+///
+/// The per-member feeds are families keyed on it, so a new viewer always
+/// reads a fresh element: Riverpod carries a provider's last value through a
+/// rebuild and into a failed one, which would leave the previous member's
+/// forums on screen when the new viewer's fetch fails.
+
+final class ForumViewerProvider
+    extends $FunctionalProvider<String?, String?, String?>
+    with $Provider<String?> {
+  /// Who the forum's per-member data is for: null for a guest, else the
+  /// signed-in member's Firebase uid (a Firebase user still waiting on its JWT
+  /// is not signed in). A token refresh keeps the same viewer.
+  ///
+  /// The per-member feeds are families keyed on it, so a new viewer always
+  /// reads a fresh element: Riverpod carries a provider's last value through a
+  /// rebuild and into a failed one, which would leave the previous member's
+  /// forums on screen when the new viewer's fetch fails.
+  ForumViewerProvider._()
     : super(
         from: null,
         argument: null,
-        retry: forumRetry,
-        name: r'categoriesProvider',
+        retry: null,
+        name: r'forumViewerProvider',
         isAutoDispose: true,
         dependencies: null,
         $allTransitiveDependencies: null,
       );
 
   @override
+  String debugGetCreateSourceHash() => _$forumViewerHash();
+
+  @$internal
+  @override
+  $ProviderElement<String?> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  String? create(Ref ref) {
+    return forumViewer(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(String? value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<String?>(value),
+    );
+  }
+}
+
+String _$forumViewerHash() => r'3e7badebc6b84c6e633b3f67c0cbf06060b7eb0f';
+
+/// The forum index for [viewer]: categories, each with its forums and links,
+/// in the server's order (`GET /forum/categories/`). Read it through
+/// [viewerCategoriesProvider]; invalidate `categoriesProvider` (the whole
+/// family) to refetch.
+///
+/// Signed in, it first waits for the member's unlock tokens to load, so the
+/// first request after a cold start already carries them. A forum a sent
+/// token did not open (still `is_locked`) drops that token: the dead-token
+/// rule (spec §7.4).
+
+@ProviderFor(Categories)
+final categoriesProvider = CategoriesFamily._();
+
+/// The forum index for [viewer]: categories, each with its forums and links,
+/// in the server's order (`GET /forum/categories/`). Read it through
+/// [viewerCategoriesProvider]; invalidate `categoriesProvider` (the whole
+/// family) to refetch.
+///
+/// Signed in, it first waits for the member's unlock tokens to load, so the
+/// first request after a cold start already carries them. A forum a sent
+/// token did not open (still `is_locked`) drops that token: the dead-token
+/// rule (spec §7.4).
+final class CategoriesProvider
+    extends $AsyncNotifierProvider<Categories, List<ForumCategory>> {
+  /// The forum index for [viewer]: categories, each with its forums and links,
+  /// in the server's order (`GET /forum/categories/`). Read it through
+  /// [viewerCategoriesProvider]; invalidate `categoriesProvider` (the whole
+  /// family) to refetch.
+  ///
+  /// Signed in, it first waits for the member's unlock tokens to load, so the
+  /// first request after a cold start already carries them. A forum a sent
+  /// token did not open (still `is_locked`) drops that token: the dead-token
+  /// rule (spec §7.4).
+  CategoriesProvider._({
+    required CategoriesFamily super.from,
+    required String? super.argument,
+  }) : super(
+         retry: forumRetry,
+         name: r'categoriesProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
   String debugGetCreateSourceHash() => _$categoriesHash();
+
+  @override
+  String toString() {
+    return r'categoriesProvider'
+        ''
+        '($argument)';
+  }
 
   @$internal
   @override
   Categories create() => Categories();
+
+  @override
+  bool operator ==(Object other) {
+    return other is CategoriesProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
 }
 
-String _$categoriesHash() => r'233ba39156db86fc7cefdf2f0d4dd0b242e2c048';
+String _$categoriesHash() => r'97ec82925470dac2c43628948fece472b2757866';
 
-/// The forum index: categories, each with its forums and links, in the
-/// server's order (`GET /forum/categories/`). The feed is per member (unread
-/// dots, locked forums), so it is refetched when the viewer changes.
+/// The forum index for [viewer]: categories, each with its forums and links,
+/// in the server's order (`GET /forum/categories/`). Read it through
+/// [viewerCategoriesProvider]; invalidate `categoriesProvider` (the whole
+/// family) to refetch.
+///
+/// Signed in, it first waits for the member's unlock tokens to load, so the
+/// first request after a cold start already carries them. A forum a sent
+/// token did not open (still `is_locked`) drops that token: the dead-token
+/// rule (spec §7.4).
+
+final class CategoriesFamily extends $Family
+    with
+        $ClassFamilyOverride<
+          Categories,
+          AsyncValue<List<ForumCategory>>,
+          List<ForumCategory>,
+          FutureOr<List<ForumCategory>>,
+          String?
+        > {
+  CategoriesFamily._()
+    : super(
+        retry: forumRetry,
+        name: r'categoriesProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The forum index for [viewer]: categories, each with its forums and links,
+  /// in the server's order (`GET /forum/categories/`). Read it through
+  /// [viewerCategoriesProvider]; invalidate `categoriesProvider` (the whole
+  /// family) to refetch.
+  ///
+  /// Signed in, it first waits for the member's unlock tokens to load, so the
+  /// first request after a cold start already carries them. A forum a sent
+  /// token did not open (still `is_locked`) drops that token: the dead-token
+  /// rule (spec §7.4).
+
+  CategoriesProvider call(String? viewer) =>
+      CategoriesProvider._(argument: viewer, from: this);
+
+  @override
+  String toString() => r'categoriesProvider';
+}
+
+/// The forum index for [viewer]: categories, each with its forums and links,
+/// in the server's order (`GET /forum/categories/`). Read it through
+/// [viewerCategoriesProvider]; invalidate `categoriesProvider` (the whole
+/// family) to refetch.
+///
+/// Signed in, it first waits for the member's unlock tokens to load, so the
+/// first request after a cold start already carries them. A forum a sent
+/// token did not open (still `is_locked`) drops that token: the dead-token
+/// rule (spec §7.4).
 
 abstract class _$Categories extends $AsyncNotifier<List<ForumCategory>> {
-  FutureOr<List<ForumCategory>> build();
+  late final _$args = ref.$arg as String?;
+  String? get viewer => _$args;
+
+  FutureOr<List<ForumCategory>> build(String? viewer);
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
@@ -63,32 +219,104 @@ abstract class _$Categories extends $AsyncNotifier<List<ForumCategory>> {
               Object?,
               Object?
             >;
-    return element.handleCreate(ref, build);
+    return element.handleCreate(ref, () => build(_$args));
   }
 }
 
+/// The forum index for the current viewer. Synchronous on purpose: it hands
+/// over the viewer's own element's state as is, so a new viewer starts from
+/// loading, never from the previous viewer's list (see [forumViewerProvider]).
+
+@ProviderFor(viewerCategories)
+final viewerCategoriesProvider = ViewerCategoriesProvider._();
+
+/// The forum index for the current viewer. Synchronous on purpose: it hands
+/// over the viewer's own element's state as is, so a new viewer starts from
+/// loading, never from the previous viewer's list (see [forumViewerProvider]).
+
+final class ViewerCategoriesProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<List<ForumCategory>>,
+          AsyncValue<List<ForumCategory>>,
+          AsyncValue<List<ForumCategory>>
+        >
+    with $Provider<AsyncValue<List<ForumCategory>>> {
+  /// The forum index for the current viewer. Synchronous on purpose: it hands
+  /// over the viewer's own element's state as is, so a new viewer starts from
+  /// loading, never from the previous viewer's list (see [forumViewerProvider]).
+  ViewerCategoriesProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'viewerCategoriesProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$viewerCategoriesHash();
+
+  @$internal
+  @override
+  $ProviderElement<AsyncValue<List<ForumCategory>>> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  AsyncValue<List<ForumCategory>> create(Ref ref) {
+    return viewerCategories(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(AsyncValue<List<ForumCategory>> value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<AsyncValue<List<ForumCategory>>>(
+        value,
+      ),
+    );
+  }
+}
+
+String _$viewerCategoriesHash() => r'54126342d28b90687f97b9474f2517a67b004a85';
+
 /// Every forum a member can post in, in feed order: the flat list the topic
-/// screen's header and the search filter read. Derived from [categoriesProvider]
-/// (no request of its own); locked forums are left out.
+/// screen's header and the search filter read. Derived from
+/// [viewerCategoriesProvider] (no request of its own); forums still locked
+/// for the viewer are left out.
+///
+/// Not `whenData`: that turns a failure Riverpod is still retrying into a
+/// bare loading state, and the error must stay visible.
 
 @ProviderFor(boards)
 final boardsProvider = BoardsProvider._();
 
 /// Every forum a member can post in, in feed order: the flat list the topic
-/// screen's header and the search filter read. Derived from [categoriesProvider]
-/// (no request of its own); locked forums are left out.
+/// screen's header and the search filter read. Derived from
+/// [viewerCategoriesProvider] (no request of its own); forums still locked
+/// for the viewer are left out.
+///
+/// Not `whenData`: that turns a failure Riverpod is still retrying into a
+/// bare loading state, and the error must stay visible.
 
 final class BoardsProvider
     extends
         $FunctionalProvider<
           AsyncValue<List<ForumBoard>>,
-          List<ForumBoard>,
-          FutureOr<List<ForumBoard>>
+          AsyncValue<List<ForumBoard>>,
+          AsyncValue<List<ForumBoard>>
         >
-    with $FutureModifier<List<ForumBoard>>, $FutureProvider<List<ForumBoard>> {
+    with $Provider<AsyncValue<List<ForumBoard>>> {
   /// Every forum a member can post in, in feed order: the flat list the topic
-  /// screen's header and the search filter read. Derived from [categoriesProvider]
-  /// (no request of its own); locked forums are left out.
+  /// screen's header and the search filter read. Derived from
+  /// [viewerCategoriesProvider] (no request of its own); forums still locked
+  /// for the viewer are left out.
+  ///
+  /// Not `whenData`: that turns a failure Riverpod is still retrying into a
+  /// bare loading state, and the error must stay visible.
   BoardsProvider._()
     : super(
         from: null,
@@ -105,32 +333,43 @@ final class BoardsProvider
 
   @$internal
   @override
-  $FutureProviderElement<List<ForumBoard>> $createElement(
+  $ProviderElement<AsyncValue<List<ForumBoard>>> $createElement(
     $ProviderPointer pointer,
-  ) => $FutureProviderElement(pointer);
+  ) => $ProviderElement(pointer);
 
   @override
-  FutureOr<List<ForumBoard>> create(Ref ref) {
+  AsyncValue<List<ForumBoard>> create(Ref ref) {
     return boards(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(AsyncValue<List<ForumBoard>> value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<AsyncValue<List<ForumBoard>>>(value),
+    );
   }
 }
 
-String _$boardsHash() => r'708bb88e79cd770ac13148f7b21a651436ed972a';
+String _$boardsHash() => r'2d4b1a28a8f788fffe696a21b012ad82c6369460';
 
-/// Topics in a board, cursor-paginated with [loadMore].
+/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 
 @ProviderFor(BoardTopics)
 final boardTopicsProvider = BoardTopicsFamily._();
 
-/// Topics in a board, cursor-paginated with [loadMore].
+/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 final class BoardTopicsProvider
     extends $AsyncNotifierProvider<BoardTopics, PagedList<ForumTopicListItem>> {
-  /// Topics in a board, cursor-paginated with [loadMore].
+  /// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+  /// answers 403 `forum_locked`, which [forumRetry] does not re-request.
   BoardTopicsProvider._({
     required BoardTopicsFamily super.from,
-    required String super.argument,
+    required (String, String?) super.argument,
   }) : super(
-         retry: null,
+         retry: forumRetry,
          name: r'boardTopicsProvider',
          isAutoDispose: true,
          dependencies: null,
@@ -144,7 +383,7 @@ final class BoardTopicsProvider
   String toString() {
     return r'boardTopicsProvider'
         ''
-        '($argument)';
+        '$argument';
   }
 
   @$internal
@@ -162,9 +401,10 @@ final class BoardTopicsProvider
   }
 }
 
-String _$boardTopicsHash() => r'33706c719f3cdcd779417d7a3f21a33977749be9';
+String _$boardTopicsHash() => r'd94fe54dd811d702d7239eee895829a3d249453b';
 
-/// Topics in a board, cursor-paginated with [loadMore].
+/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 
 final class BoardTopicsFamily extends $Family
     with
@@ -173,34 +413,40 @@ final class BoardTopicsFamily extends $Family
           AsyncValue<PagedList<ForumTopicListItem>>,
           PagedList<ForumTopicListItem>,
           FutureOr<PagedList<ForumTopicListItem>>,
-          String
+          (String, String?)
         > {
   BoardTopicsFamily._()
     : super(
-        retry: null,
+        retry: forumRetry,
         name: r'boardTopicsProvider',
         dependencies: null,
         $allTransitiveDependencies: null,
         isAutoDispose: true,
       );
 
-  /// Topics in a board, cursor-paginated with [loadMore].
+  /// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+  /// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 
-  BoardTopicsProvider call(String boardSlug) =>
-      BoardTopicsProvider._(argument: boardSlug, from: this);
+  BoardTopicsProvider call(String boardSlug, String? viewer) =>
+      BoardTopicsProvider._(argument: (boardSlug, viewer), from: this);
 
   @override
   String toString() => r'boardTopicsProvider';
 }
 
-/// Topics in a board, cursor-paginated with [loadMore].
+/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 
 abstract class _$BoardTopics
     extends $AsyncNotifier<PagedList<ForumTopicListItem>> {
-  late final _$args = ref.$arg as String;
-  String get boardSlug => _$args;
+  late final _$args = ref.$arg as (String, String?);
+  String get boardSlug => _$args.$1;
+  String? get viewer => _$args.$2;
 
-  FutureOr<PagedList<ForumTopicListItem>> build(String boardSlug);
+  FutureOr<PagedList<ForumTopicListItem>> build(
+    String boardSlug,
+    String? viewer,
+  );
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
@@ -221,7 +467,7 @@ abstract class _$BoardTopics
               Object?,
               Object?
             >;
-    return element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args.$1, _$args.$2));
   }
 }
 
@@ -239,7 +485,7 @@ final class TopicDetailProvider
   /// bookmark toggle and the accepted-answer mark/clear (todo 341).
   TopicDetailProvider._({
     required TopicDetailFamily super.from,
-    required int super.argument,
+    required (int, String?) super.argument,
   }) : super(
          retry: null,
          name: r'topicDetailProvider',
@@ -255,7 +501,7 @@ final class TopicDetailProvider
   String toString() {
     return r'topicDetailProvider'
         ''
-        '($argument)';
+        '$argument';
   }
 
   @$internal
@@ -273,7 +519,7 @@ final class TopicDetailProvider
   }
 }
 
-String _$topicDetailHash() => r'f1024cc9dd6aa60e175de7c3bc626776a34b294c';
+String _$topicDetailHash() => r'32e70dd61a20269555276522b583a819b55d7cd2';
 
 /// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
 /// bookmark toggle and the accepted-answer mark/clear (todo 341).
@@ -285,7 +531,7 @@ final class TopicDetailFamily extends $Family
           AsyncValue<ForumTopicDetail>,
           ForumTopicDetail,
           FutureOr<ForumTopicDetail>,
-          int
+          (int, String?)
         > {
   TopicDetailFamily._()
     : super(
@@ -299,8 +545,8 @@ final class TopicDetailFamily extends $Family
   /// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
   /// bookmark toggle and the accepted-answer mark/clear (todo 341).
 
-  TopicDetailProvider call(int topicId) =>
-      TopicDetailProvider._(argument: topicId, from: this);
+  TopicDetailProvider call(int topicId, String? viewer) =>
+      TopicDetailProvider._(argument: (topicId, viewer), from: this);
 
   @override
   String toString() => r'topicDetailProvider';
@@ -310,10 +556,11 @@ final class TopicDetailFamily extends $Family
 /// bookmark toggle and the accepted-answer mark/clear (todo 341).
 
 abstract class _$TopicDetail extends $AsyncNotifier<ForumTopicDetail> {
-  late final _$args = ref.$arg as int;
-  int get topicId => _$args;
+  late final _$args = ref.$arg as (int, String?);
+  int get topicId => _$args.$1;
+  String? get viewer => _$args.$2;
 
-  FutureOr<ForumTopicDetail> build(int topicId);
+  FutureOr<ForumTopicDetail> build(int topicId, String? viewer);
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
@@ -327,7 +574,7 @@ abstract class _$TopicDetail extends $AsyncNotifier<ForumTopicDetail> {
               Object?,
               Object?
             >;
-    return element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args.$1, _$args.$2));
   }
 }
 
@@ -537,7 +784,7 @@ final class TopicPostsProvider
   /// reaction toggle that updates the affected post in place.
   TopicPostsProvider._({
     required TopicPostsFamily super.from,
-    required int super.argument,
+    required (int, String?) super.argument,
   }) : super(
          retry: null,
          name: r'topicPostsProvider',
@@ -553,7 +800,7 @@ final class TopicPostsProvider
   String toString() {
     return r'topicPostsProvider'
         ''
-        '($argument)';
+        '$argument';
   }
 
   @$internal
@@ -571,7 +818,7 @@ final class TopicPostsProvider
   }
 }
 
-String _$topicPostsHash() => r'd45da22742aad780342bc6663026cde84c56e831';
+String _$topicPostsHash() => r'0babe008c3405b186761fc2ff7af2e6e06a2f0b5';
 
 /// Posts in a topic (oldest-first), cursor-paginated with [loadMore], plus a
 /// reaction toggle that updates the affected post in place.
@@ -583,7 +830,7 @@ final class TopicPostsFamily extends $Family
           AsyncValue<PagedList<ForumPost>>,
           PagedList<ForumPost>,
           FutureOr<PagedList<ForumPost>>,
-          int
+          (int, String?)
         > {
   TopicPostsFamily._()
     : super(
@@ -597,8 +844,8 @@ final class TopicPostsFamily extends $Family
   /// Posts in a topic (oldest-first), cursor-paginated with [loadMore], plus a
   /// reaction toggle that updates the affected post in place.
 
-  TopicPostsProvider call(int topicId) =>
-      TopicPostsProvider._(argument: topicId, from: this);
+  TopicPostsProvider call(int topicId, String? viewer) =>
+      TopicPostsProvider._(argument: (topicId, viewer), from: this);
 
   @override
   String toString() => r'topicPostsProvider';
@@ -608,10 +855,11 @@ final class TopicPostsFamily extends $Family
 /// reaction toggle that updates the affected post in place.
 
 abstract class _$TopicPosts extends $AsyncNotifier<PagedList<ForumPost>> {
-  late final _$args = ref.$arg as int;
-  int get topicId => _$args;
+  late final _$args = ref.$arg as (int, String?);
+  int get topicId => _$args.$1;
+  String? get viewer => _$args.$2;
 
-  FutureOr<PagedList<ForumPost>> build(int topicId);
+  FutureOr<PagedList<ForumPost>> build(int topicId, String? viewer);
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
@@ -629,7 +877,7 @@ abstract class _$TopicPosts extends $AsyncNotifier<PagedList<ForumPost>> {
               Object?,
               Object?
             >;
-    return element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args.$1, _$args.$2));
   }
 }
 
@@ -699,13 +947,21 @@ abstract class _$RecentTopics extends $AsyncNotifier<List<ForumTopicStub>> {
 /// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
 /// with solved/unread state, pictures and recent repliers. Distinct from
 /// [RecentTopics], the offline mirror.
+///
+/// Keyed on [viewer] (see [forumViewerProvider]): the feed honours the
+/// member's forum unlocks, so a new viewer must start from loading, never
+/// from the previous one's titles.
 
 @ProviderFor(homeRecentTopics)
-final homeRecentTopicsProvider = HomeRecentTopicsProvider._();
+final homeRecentTopicsProvider = HomeRecentTopicsFamily._();
 
 /// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
 /// with solved/unread state, pictures and recent repliers. Distinct from
 /// [RecentTopics], the offline mirror.
+///
+/// Keyed on [viewer] (see [forumViewerProvider]): the feed honours the
+/// member's forum unlocks, so a new viewer must start from loading, never
+/// from the previous one's titles.
 
 final class HomeRecentTopicsProvider
     extends
@@ -720,19 +976,30 @@ final class HomeRecentTopicsProvider
   /// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
   /// with solved/unread state, pictures and recent repliers. Distinct from
   /// [RecentTopics], the offline mirror.
-  HomeRecentTopicsProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: forumRetry,
-        name: r'homeRecentTopicsProvider',
-        isAutoDispose: true,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
+  ///
+  /// Keyed on [viewer] (see [forumViewerProvider]): the feed honours the
+  /// member's forum unlocks, so a new viewer must start from loading, never
+  /// from the previous one's titles.
+  HomeRecentTopicsProvider._({
+    required HomeRecentTopicsFamily super.from,
+    required String? super.argument,
+  }) : super(
+         retry: forumRetry,
+         name: r'homeRecentTopicsProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
 
   @override
   String debugGetCreateSourceHash() => _$homeRecentTopicsHash();
+
+  @override
+  String toString() {
+    return r'homeRecentTopicsProvider'
+        ''
+        '($argument)';
+  }
 
   @$internal
   @override
@@ -742,11 +1009,56 @@ final class HomeRecentTopicsProvider
 
   @override
   FutureOr<List<ForumRecentTopic>> create(Ref ref) {
-    return homeRecentTopics(ref);
+    final argument = this.argument as String?;
+    return homeRecentTopics(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is HomeRecentTopicsProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
   }
 }
 
-String _$homeRecentTopicsHash() => r'9c128c8fb5413bf569b79784cc9532d836cc58ff';
+String _$homeRecentTopicsHash() => r'c0600a2bc790421a3d858f8bbddbde0fbb07232d';
+
+/// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
+/// with solved/unread state, pictures and recent repliers. Distinct from
+/// [RecentTopics], the offline mirror.
+///
+/// Keyed on [viewer] (see [forumViewerProvider]): the feed honours the
+/// member's forum unlocks, so a new viewer must start from loading, never
+/// from the previous one's titles.
+
+final class HomeRecentTopicsFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<List<ForumRecentTopic>>, String?> {
+  HomeRecentTopicsFamily._()
+    : super(
+        retry: forumRetry,
+        name: r'homeRecentTopicsProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
+  /// with solved/unread state, pictures and recent repliers. Distinct from
+  /// [RecentTopics], the offline mirror.
+  ///
+  /// Keyed on [viewer] (see [forumViewerProvider]): the feed honours the
+  /// member's forum unlocks, so a new viewer must start from loading, never
+  /// from the previous one's titles.
+
+  HomeRecentTopicsProvider call(String? viewer) =>
+      HomeRecentTopicsProvider._(argument: viewer, from: this);
+
+  @override
+  String toString() => r'homeRecentTopicsProvider';
+}
 
 /// A topic's latest-replies peek. Kept alive while the forum home is mounted
 /// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the

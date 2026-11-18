@@ -61,9 +61,20 @@ class ApiService {
   /// session's token, and never refreshes or signs anyone out.
   static const String _sentSessionKey = 'auth_session';
 
+  /// The header carrying the member's forum unlock tokens (spec §7.4).
+  static const String forumUnlockHeader = 'X-Forum-Unlock';
+
+  /// The server reads only the first 20 tokens of [forumUnlockHeader].
+  static const int maxForumUnlockTokens = 20;
+
   final Dio _dio;
   final String baseUrl;
   String? _authToken;
+
+  /// Sent as [forumUnlockHeader] on signed-in forum calls. Credentials:
+  /// never log them, and never put them in `extra`, which LogInterceptor
+  /// prints in debug builds.
+  List<String> _forumUnlockTokens = const [];
 
   /// Bumped on every token change.
   int _authEpoch = 0;
@@ -125,6 +136,7 @@ class ApiService {
           } else if (_authToken != null) {
             options.headers['Authorization'] = 'Bearer $_authToken';
           }
+          _applyForumUnlockHeader(options);
           return handler.next(options);
         },
       ),
@@ -199,6 +211,36 @@ class ApiService {
       ),
     );
   }
+
+  /// Set OR remove `X-Forum-Unlock` on every pass: a retry and the 401
+  /// re-send bring the same [RequestOptions] back through here, and must not
+  /// re-send a header from before a sign-out or a dropped token.
+  ///
+  /// Only to this service's own origin (scheme, host and port of [baseUrl]):
+  /// dio ignores `baseUrl` for an absolute path, so a path check alone would
+  /// hand the tokens to any host whose URL contains `/forum/`.
+  void _applyForumUnlockHeader(RequestOptions options) {
+    final uri = options.uri;
+    final path = uri.path;
+    final send =
+        _forumUnlockTokens.isNotEmpty &&
+        options.headers['Authorization'] != null &&
+        _isApiOrigin(uri) &&
+        path.contains('/forum/') &&
+        !path.contains('/forum/sync/');
+    if (send) {
+      options.headers[forumUnlockHeader] = _forumUnlockTokens.join(',');
+    } else {
+      options.headers.remove(forumUnlockHeader);
+    }
+  }
+
+  late final Uri _baseUri = Uri.parse(baseUrl);
+
+  bool _isApiOrigin(Uri uri) =>
+      uri.scheme == _baseUri.scheme &&
+      uri.host == _baseUri.host &&
+      uri.port == _baseUri.port;
 
   @visibleForTesting
   bool shouldRetry(DioException error) {
@@ -543,6 +585,35 @@ class ApiService {
     _refreshInFlight = null;
   }
 
+  /// The forum unlock tokens to send (the first [maxForumUnlockTokens]) on
+  /// every signed-in `/forum/` request but `/forum/sync/`, so an unlocked
+  /// forum never reaches the offline copy. Empty sends none.
+  void setForumUnlockTokens(Iterable<String> tokens) {
+    _forumUnlockTokens = List.unmodifiable(
+      tokens.where((t) => t.isNotEmpty).take(maxForumUnlockTokens),
+    );
+  }
+
+  /// Bumped by [endForumUnlockSession]: the forum unlocks provider stops
+  /// sending and saving tokens under an ended session.
+  int get forumUnlockSession => _forumUnlockSession;
+  int _forumUnlockSession = 0;
+
+  /// Sign-out: send no unlock token from now on, and end the session the
+  /// unlocks were kept under, so nothing still running re-installs them.
+  void endForumUnlockSession() {
+    _forumUnlockSession++;
+    _forumUnlockTokens = const [];
+  }
+
+  /// What [setForumUnlockTokens] last installed: what the next signed-in
+  /// forum request sends. Credentials: never log them.
+  List<String> get forumUnlockTokens => _forumUnlockTokens;
+
+  /// The underlying client, for tests that swap its transport.
+  @visibleForTesting
+  Dio get dioForTesting => _dio;
+
   /// Register a callback that clears local auth state after failed recovery.
   void setSessionExpiredHandler(Future<void> Function()? onSessionExpired) {
     _onSessionExpired = onSessionExpired;
@@ -799,11 +870,15 @@ class ApiService {
         final envelopeCode = envelope?['code'];
 
         if (statusCode == 429) {
+          final retryAfter = e.response?.headers['retry-after']?.first;
           return ApiException(
             'Too many requests. Please wait a moment and try again.',
             statusCode: statusCode,
             code: envelopeCode is String ? envelopeCode : null,
             body: envelope,
+            retryAfterSeconds: retryAfter == null
+                ? null
+                : int.tryParse(retryAfter.trim()),
           );
         }
 
@@ -903,6 +978,10 @@ class ApiException implements Exception {
   /// extra fields (`job_id`, `kind`, `limit`, `resets_at`).
   final Map<String, dynamic>? body;
 
+  /// A 429's `Retry-After`, in seconds, when the header is a whole number of
+  /// seconds (the HTTP-date form is not read).
+  final int? retryAfterSeconds;
+
   /// True when no response came back because the device could not reach
   /// the server: a connection error or a timeout. Not set for a cancel, an
   /// unknown failure or a refresh that could not run, which also have no
@@ -916,6 +995,7 @@ class ApiException implements Exception {
     this.unstructured = false,
     this.body,
     this.connectivity = false,
+    this.retryAfterSeconds,
   });
 
   @override

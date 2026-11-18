@@ -4,12 +4,17 @@ import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/providers/forum_providers.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
+import 'package:plant_community_mobile/services/auth_service.dart';
 
 import '../support/forum_test_support.dart';
 
 ProviderContainer _container(FakeForumApi api) {
   final container = ProviderContainer(
-    overrides: [forumApiProvider.overrideWithValue(api)],
+    overrides: [
+      forumApiProvider.overrideWithValue(api),
+      // The forum feed is per viewer.
+      authServiceProvider.overrideWith(() => FakeAuthService(loggedIn: false)),
+    ],
   );
   addTearDown(container.dispose);
   return container;
@@ -61,9 +66,9 @@ void main() {
   test('homeRecentTopics asks for three', () async {
     final api = FakeForumApi();
     final container = _container(api);
-    container.listen(homeRecentTopicsProvider, (_, _) {});
+    container.listen(homeRecentTopicsProvider(null), (_, _) {});
 
-    await container.read(homeRecentTopicsProvider.future);
+    await container.read(homeRecentTopicsProvider(null).future);
 
     expect(api.recentTopicsLimits, [kHomeRecentTopicsLimit]);
     expect(kHomeRecentTopicsLimit, 3);
@@ -116,7 +121,7 @@ void main() {
       final api = FakeForumApi()
         ..recentTopicsError = ApiException('no', statusCode: 403);
       final container = _container(api);
-      container.listen(homeRecentTopicsProvider, (_, _) {});
+      container.listen(homeRecentTopicsProvider(null), (_, _) {});
       await settleRetries(tester);
       expect(api.recentTopicsLimits, hasLength(1));
     });
@@ -125,7 +130,7 @@ void main() {
       final api = FakeForumApi()
         ..categoriesError = ApiException('no', statusCode: 403);
       final container = _container(api);
-      container.listen(categoriesProvider, (_, _) {});
+      container.listen(viewerCategoriesProvider, (_, _) {});
       await settleRetries(tester);
       expect(api.fetchCategoriesCalls, 1);
     });

@@ -11,12 +11,15 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_unlock_store.dart';
 import 'package:plant_community_mobile/models/user_profile.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/services/push_registration_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
 
+import '../features/forum/support/forum_test_support.dart'
+    show FakeForumUnlockStore;
 import '../support/wait_until.dart';
 
 /// Unit harness for [AuthService] (todo 288).
@@ -685,6 +688,68 @@ void main() {
         throwsA(isA<AuthException>()),
       );
     });
+  });
+
+  group('forum unlocks at sign-out (spec 7.4)', () {
+    Future<(_Harness, FakeForumUnlockStore)> signedInWithUnlocks() async {
+      final store = FakeForumUnlockStore(
+        const ForumUnlocks(uid: 'ada', tokens: {1: 't1', 2: 't2'}),
+      );
+      final harness = _Harness(
+        overrides: [forumUnlockStoreProvider.overrideWithValue(store)],
+      );
+      harness.container.read(authServiceProvider);
+      await harness.signIn(_FakeUser(uid: 'ada'));
+      expect(await harness.container.read(forumUnlocksProvider.future), {
+        1: 't1',
+        2: 't2',
+      });
+      expect(harness.api.forumUnlockTokens, ['t2', 't1']);
+      return (harness, store);
+    }
+
+    test('sign-out clears the tokens and the header', () async {
+      final (harness, store) = await signedInWithUnlocks();
+      addTearDown(harness.dispose);
+
+      await harness.container.read(authServiceProvider.notifier).signOut();
+      await pumpEventQueue();
+
+      expect(store.stored, isNull);
+      expect(harness.api.forumUnlockTokens, isEmpty);
+      expect(
+        await harness.container.read(forumUnlocksProvider.future),
+        isEmpty,
+      );
+    });
+
+    test(
+      'an unlock change while sign-out runs is neither sent nor saved',
+      () async {
+        final (harness, store) = await signedInWithUnlocks();
+        addTearDown(harness.dispose);
+        final unlocks = harness.container.read(forumUnlocksProvider.notifier);
+        store.clearGate = Completer<void>();
+        final savesBefore = store.saveCalls;
+
+        final signingOut = harness.container
+            .read(authServiceProvider.notifier)
+            .signOut();
+        await pumpEventQueue();
+        // The member is still signed in on screen: a late unlock answer and a
+        // dead-token drop land now.
+        await unlocks.add(3, 't3', forUid: 'ada');
+        await unlocks.drop(1);
+        expect(harness.api.forumUnlockTokens, isEmpty);
+
+        store.clearGate!.complete();
+        await signingOut;
+        await pumpEventQueue();
+        expect(store.saveCalls, savesBefore);
+        expect(store.stored, isNull);
+        expect(harness.api.forumUnlockTokens, isEmpty);
+      },
+    );
   });
 
   group('ordering', () {

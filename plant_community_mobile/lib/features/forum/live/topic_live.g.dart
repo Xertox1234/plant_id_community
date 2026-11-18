@@ -16,6 +16,12 @@ part of 'topic_live.dart';
 /// A socket opens only for a signed-in reader with "Live updates" on while
 /// the app is shown. Every client callback is checked against the current
 /// client, so a closed, replaced or stopped connection changes nothing.
+///
+/// Never for a topic in a forum the reader holds an unlock token for: the
+/// server keeps live replies off for password forums and closes such a
+/// socket with 4404, which reads as "removed" (spec §7.4). It is live-off
+/// instead. Staff read a password forum without a token, and their socket
+/// works, so only a held token decides, not the forum having a password.
 
 @ProviderFor(TopicLive)
 final topicLiveProvider = TopicLiveFamily._();
@@ -28,6 +34,12 @@ final topicLiveProvider = TopicLiveFamily._();
 /// A socket opens only for a signed-in reader with "Live updates" on while
 /// the app is shown. Every client callback is checked against the current
 /// client, so a closed, replaced or stopped connection changes nothing.
+///
+/// Never for a topic in a forum the reader holds an unlock token for: the
+/// server keeps live replies off for password forums and closes such a
+/// socket with 4404, which reads as "removed" (spec §7.4). It is live-off
+/// instead. Staff read a password forum without a token, and their socket
+/// works, so only a held token decides, not the forum having a password.
 final class TopicLiveProvider
     extends $NotifierProvider<TopicLive, TopicLiveState> {
   /// Live replies for one open topic. Owns the socket client and makes every
@@ -38,6 +50,12 @@ final class TopicLiveProvider
   /// A socket opens only for a signed-in reader with "Live updates" on while
   /// the app is shown. Every client callback is checked against the current
   /// client, so a closed, replaced or stopped connection changes nothing.
+  ///
+  /// Never for a topic in a forum the reader holds an unlock token for: the
+  /// server keeps live replies off for password forums and closes such a
+  /// socket with 4404, which reads as "removed" (spec §7.4). It is live-off
+  /// instead. Staff read a password forum without a token, and their socket
+  /// works, so only a held token decides, not the forum having a password.
   TopicLiveProvider._({
     required TopicLiveFamily super.from,
     required int super.argument,
@@ -82,7 +100,7 @@ final class TopicLiveProvider
   }
 }
 
-String _$topicLiveHash() => r'ede3e923513b3184895f7dae9b2442a8815cf5af';
+String _$topicLiveHash() => r'c2ff83214ae663b5b88f0f1184f429972953b342';
 
 /// Live replies for one open topic. Owns the socket client and makes every
 /// decision about an event: insert, pill, splice, remove, refetch the
@@ -92,6 +110,12 @@ String _$topicLiveHash() => r'ede3e923513b3184895f7dae9b2442a8815cf5af';
 /// A socket opens only for a signed-in reader with "Live updates" on while
 /// the app is shown. Every client callback is checked against the current
 /// client, so a closed, replaced or stopped connection changes nothing.
+///
+/// Never for a topic in a forum the reader holds an unlock token for: the
+/// server keeps live replies off for password forums and closes such a
+/// socket with 4404, which reads as "removed" (spec §7.4). It is live-off
+/// instead. Staff read a password forum without a token, and their socket
+/// works, so only a held token decides, not the forum having a password.
 
 final class TopicLiveFamily extends $Family
     with
@@ -119,6 +143,12 @@ final class TopicLiveFamily extends $Family
   /// A socket opens only for a signed-in reader with "Live updates" on while
   /// the app is shown. Every client callback is checked against the current
   /// client, so a closed, replaced or stopped connection changes nothing.
+  ///
+  /// Never for a topic in a forum the reader holds an unlock token for: the
+  /// server keeps live replies off for password forums and closes such a
+  /// socket with 4404, which reads as "removed" (spec §7.4). It is live-off
+  /// instead. Staff read a password forum without a token, and their socket
+  /// works, so only a held token decides, not the forum having a password.
 
   TopicLiveProvider call(int topicId) =>
       TopicLiveProvider._(argument: topicId, from: this);
@@ -135,6 +165,12 @@ final class TopicLiveFamily extends $Family
 /// A socket opens only for a signed-in reader with "Live updates" on while
 /// the app is shown. Every client callback is checked against the current
 /// client, so a closed, replaced or stopped connection changes nothing.
+///
+/// Never for a topic in a forum the reader holds an unlock token for: the
+/// server keeps live replies off for password forums and closes such a
+/// socket with 4404, which reads as "removed" (spec §7.4). It is live-off
+/// instead. Staff read a password forum without a token, and their socket
+/// works, so only a held token decides, not the forum having a password.
 
 abstract class _$TopicLive extends $Notifier<TopicLiveState> {
   late final _$args = ref.$arg as int;

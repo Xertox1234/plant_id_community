@@ -23,6 +23,7 @@ import '../../features/forum/forum_screen.dart';
 import '../../features/forum/screens/forum_bookmarks_screen.dart';
 import '../../features/forum/screens/forum_my_images_screen.dart';
 import '../../features/forum/screens/forum_topics_screen.dart';
+import '../../features/forum/screens/forum_unlock_screen.dart';
 import '../../features/forum/screens/forum_thread_screen.dart';
 import '../../features/forum/screens/forum_composer_screen.dart';
 import '../../features/forum/screens/forum_conversation_screen.dart';
@@ -277,6 +278,23 @@ GoRouter appRouter(Ref ref) {
                   context: context,
                   state: state,
                   child: const ForumScreen(),
+                ),
+              ),
+              // A password forum's unlock (spec §7.4); `extra` is the forum's
+              // title. Declared before its `/forum/boards/:slug` sibling. A
+              // guest who arrives here gets the screen's sign-in prompt.
+              GoRoute(
+                path: '/forum/boards/:slug/unlock',
+                name: 'forumUnlock',
+                pageBuilder: (context, state) => _buildPageWithTransition(
+                  context: context,
+                  state: state,
+                  child: ForumUnlockScreen(
+                    boardSlug: state.pathParameters['slug'] ?? '',
+                    boardTitle: state.extra is String
+                        ? state.extra as String
+                        : null,
+                  ),
                 ),
               ),
               GoRoute(

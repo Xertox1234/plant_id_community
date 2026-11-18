@@ -22,7 +22,7 @@ Future<ProviderContainer> _pump(WidgetTester tester, FakeForumApi api) async {
   );
   addTearDown(container.dispose);
   // The thread beneath the composer keeps the topic alive.
-  container.listen(topicDetailProvider(10), (_, _) {});
+  container.listen(topicDetailProvider(10, ''), (_, _) {});
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
@@ -49,7 +49,7 @@ void main() {
     expect(find.text(_locked), findsNothing);
 
     container
-        .read(topicDetailProvider(10).notifier)
+        .read(topicDetailProvider(10, '').notifier)
         .applyPeek(topicDetail(locked: true));
     await tester.pump();
 

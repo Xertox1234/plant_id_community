@@ -14,6 +14,7 @@ import 'package:plant_community_mobile/features/forum/widgets/home/forum_latest_
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 import 'package:plant_community_mobile/features/forum/utils/board_identity.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
+import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/shared/widgets/canopy_accents.dart';
 
 import '../../support/forum_test_support.dart';
@@ -86,7 +87,13 @@ Future<void> _pump(
   addTearDown(tester.view.resetDevicePixelRatio);
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [forumApiProvider.overrideWithValue(api)],
+      overrides: [
+        forumApiProvider.overrideWithValue(api),
+        // The chip reads the viewer's forum feed.
+        authServiceProvider.overrideWith(
+          () => FakeAuthService(loggedIn: false),
+        ),
+      ],
       // Off by default so fetch counts are exact; see the autoRetry test.
       retry: autoRetry ? null : (_, _) => null,
       child: MaterialApp(
@@ -169,6 +176,39 @@ void main() {
         tester.widget<CanopyChip>(chip).tone,
         tester.element(chip).canopy.sky,
       );
+    });
+
+    testWidgets('a board still locked for the viewer: the default identity, '
+        'never the server icon or colour', (tester) async {
+      final api = FakeForumApi()
+        ..categories = [
+          categoryOf(const [
+            ForumBoard(
+              id: 1,
+              title: 'Care',
+              slug: 'care',
+              description: '',
+              topicCount: 1,
+              postCount: 1,
+              icon: '🪴',
+              colour: 'orchid',
+              isLocked: true,
+            ),
+          ]),
+        ];
+      await _pump(tester, api, [_topic(1)]);
+      await tester.pump();
+      await tester.pump();
+      final chip = find.byType(CanopyChip);
+      final widget = tester.widget<CanopyChip>(chip);
+      expect(widget.emoji, isNull);
+      expect(widget.icon, boardIdentity('care').icon);
+      expect(
+        widget.tone,
+        boardIdentity('care').tone.colorOf(tester.element(chip).canopy),
+      );
+      expect(widget.tone, isNot(tester.element(chip).canopy.sky));
+      expect(find.text('Care'), findsOneWidget);
     });
 
     testWidgets('a board not in the feed falls back to the slug identity', (

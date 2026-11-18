@@ -11,6 +11,7 @@ import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_link_launcher.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
+import 'package:plant_community_mobile/features/forum/utils/board_identity.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_categories_section.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
@@ -713,6 +714,212 @@ void main() {
       await tester.pumpAndSettle();
       expect(launches, 1);
       expect(find.text("This link can't be opened."), findsOneWidget);
+    });
+  });
+
+  group('locked rows', () {
+    ForumBoard locked(int id, String title) => ForumBoard(
+      id: id,
+      title: title,
+      slug: 'care-problems', // hardcoded identity: droplet + pollen
+      description: 'Members only',
+      icon: '🪴',
+      colour: 'orchid',
+      topicCount: 12,
+      postCount: 80,
+      hasUnread: true,
+      isLocked: true,
+      lastPostAt: DateTime.now().subtract(const Duration(hours: 2)),
+    );
+
+    testWidgets('a locked row shows no counts, time or unread dot', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: [
+            _category(1, 'General', [locked(1, 'Secret garden')]),
+          ],
+          onForumTap: (_) {},
+          onLockedTap: (_) {},
+        ),
+      );
+      expect(find.text('Secret garden'), findsOneWidget);
+      expect(find.text('Members only'), findsOneWidget);
+      expect(find.textContaining('topic'), findsNothing);
+      expect(find.textContaining('post'), findsNothing);
+      expect(find.textContaining('2h'), findsNothing);
+      expect(find.byKey(const ValueKey('unread-dot')), findsNothing);
+      expect(find.byIcon(LucideIcons.chevronRight), findsNothing);
+    });
+
+    for (final brightness in Brightness.values) {
+      testWidgets('a locked row: lock in the tile, default tone '
+          '(${brightness.name})', (tester) async {
+        tester.view.physicalSize = const Size(375, 2000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.build(brightness, AppTheme.defaultDensity),
+            home: Scaffold(
+              body: ForumCategoriesSection(
+                categories: [
+                  _category(1, 'General', [locked(1, 'Secret garden')]),
+                ],
+                onForumTap: (_) {},
+                onLockedTap: (_) {},
+              ),
+            ),
+          ),
+        );
+        final tile = tester.widget<CanopyAccentTile>(
+          find.byType(CanopyAccentTile),
+        );
+        final canopy = tester.element(find.byType(CanopyAccentTile)).canopy;
+        expect(tile.icon, LucideIcons.lock);
+        expect(tile.emoji, isNull, reason: 'the lock, not the server emoji');
+        // The slug's tone, never the server colour (orchid = sky).
+        expect(tile.tone, CanopyTone.pollen.colorOf(canopy));
+        expect(find.byIcon(LucideIcons.lock), findsOneWidget);
+        // The row is one tap target of at least 48pt.
+        final row = find.byType(CanopyPressable);
+        expect(tester.getSize(row).height, greaterThanOrEqualTo(48));
+      });
+    }
+
+    for (final brightness in Brightness.values) {
+      for (final (size, scale) in [
+        (const Size(320, 640), 2.0),
+        (const Size(375, 812), 1.0),
+      ]) {
+        testWidgets('a locked row fits and meets the guidelines: '
+            '${size.width.toInt()}pt x$scale, ${brightness.name}', (
+          tester,
+        ) async {
+          final handle = tester.ensureSemantics();
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: AppTheme.build(brightness, AppTheme.defaultDensity),
+              home: MediaQuery(
+                data: MediaQueryData(
+                  size: size,
+                  textScaler: TextScaler.linear(scale),
+                ),
+                child: Scaffold(
+                  body: SingleChildScrollView(
+                    child: ForumCategoriesSection(
+                      categories: [
+                        _category(1, 'General', [
+                          locked(1, 'A rather long password forum title'),
+                        ]),
+                      ],
+                      onForumTap: (_) {},
+                      onLockedTap: (_) {},
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          expect(tester.takeException(), isNull);
+          await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+          await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
+          await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+          await expectLater(tester, meetsGuideline(textContrastGuideline));
+          handle.dispose();
+        });
+      }
+    }
+
+    testWidgets('a locked row is announced once, by title and description', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: [
+            _category(1, 'General', [locked(1, 'Secret garden')]),
+          ],
+          onForumTap: (_) {},
+          onLockedTap: (_) {},
+        ),
+      );
+      final label = tester.getSemantics(find.byType(CanopyPressable)).label;
+      expect(label, 'Secret garden, Members only, password protected');
+      handle.dispose();
+    });
+
+    testWidgets('tapping a locked row reports it to onLockedTap only', (
+      tester,
+    ) async {
+      ForumBoard? lockedTap;
+      ForumBoard? forumTap;
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: [
+            _category(1, 'General', [locked(1, 'Secret garden')]),
+          ],
+          onForumTap: (f) => forumTap = f,
+          onLockedTap: (f) => lockedTap = f,
+        ),
+      );
+      await tester.tap(find.text('Secret garden'));
+      expect(lockedTap?.id, 1);
+      expect(forumTap, isNull);
+    });
+
+    testWidgets('a category whose forums are all locked draws its heading '
+        'and rows', (tester) async {
+      final api = FakeForumApi()
+        ..categories = [
+          _category(1, 'Private', [
+            locked(1, 'Secret garden'),
+            locked(2, 'Seed swap'),
+          ]),
+        ];
+      await tester.pumpWidget(_wrapHome(api));
+      await tester.pumpAndSettle();
+      expect(find.text('Private'), findsOneWidget);
+      expect(find.text('Secret garden'), findsOneWidget);
+      expect(find.text('Seed swap'), findsOneWidget);
+      expect(find.text('No forums yet.'), findsNothing);
+    });
+
+    testWidgets('"No forums yet." only when no category has a forum or link', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..categories = [
+          _category(1, 'Empty one', const []),
+          _category(2, 'Empty two', const []),
+        ];
+      await tester.pumpWidget(_wrapHome(api));
+      await tester.pumpAndSettle();
+      expect(find.text('No forums yet.'), findsOneWidget);
+      expect(find.text('Empty one'), findsNothing);
+    });
+
+    testWidgets('guest tap on a locked row shows the sign-in message', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..categories = [
+          _category(1, 'Private', [locked(1, 'Secret garden')]),
+        ];
+      await tester.pumpWidget(_wrapHome(api));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Secret garden'));
+      await tester.pump();
+      expect(find.text('Sign in to open this forum.'), findsOneWidget);
     });
   });
 

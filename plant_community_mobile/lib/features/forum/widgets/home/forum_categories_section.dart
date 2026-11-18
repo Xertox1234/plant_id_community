@@ -17,7 +17,8 @@ const double _categoryGap = AppSpacing.lg;
 /// is a `surface3` highlight rather than a scale (design spec §8.1).
 ///
 /// Locked forums and links are only drawn when [onLockedTap] / [onLinkTap] are
-/// given; a category with nothing left to draw is skipped. The collapse
+/// given, so with both a category of locked forums or links only still draws;
+/// a category with nothing left to draw is skipped. The collapse
 /// chevron shows only when [onToggleCollapse] is given.
 class ForumCategoriesSection extends StatelessWidget {
   const ForumCategoriesSection({
@@ -58,12 +59,13 @@ class ForumCategoriesSection extends StatelessWidget {
               CanopyGroupedCard(
                 rows: [
                   for (final forum in forums)
-                    _ForumRow(
-                      forum: forum,
-                      onTap: () => forum.isLocked
-                          ? onLockedTap?.call(forum)
-                          : onForumTap(forum),
-                    ),
+                    if (forum.isLocked)
+                      _LockedRow(
+                        forum: forum,
+                        onTap: () => onLockedTap?.call(forum),
+                      )
+                    else
+                      _ForumRow(forum: forum, onTap: () => onForumTap(forum)),
                   if (showLinks)
                     for (final link in category.links)
                       _LinkRow(link: link, onTap: () => onLinkTap!(link)),
@@ -193,6 +195,71 @@ class _ForumRow extends StatelessWidget {
                 const SizedBox(width: AppSpacing.sm),
               ],
               Icon(LucideIcons.chevronRight, size: 18, color: canopy.ink3),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A password forum still locked for the viewer (spec §7.4): the lock in the
+/// tile, the title and description, nothing else. The feed still sends its
+/// counts, last activity, unread flag and colour; none of them is shown.
+class _LockedRow extends StatelessWidget {
+  const _LockedRow({required this.forum, required this.onTap});
+
+  final ForumBoard forum;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final canopy = context.canopy;
+    final identity = boardIdentityOf(forum);
+    return CanopyPressable(
+      onTap: onTap,
+      style: CanopyPressStyle.highlight,
+      semanticLabel: [
+        forum.title,
+        if (forum.description.isNotEmpty) forum.description,
+        'password protected',
+      ].join(', '),
+      child: ExcludeSemantics(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: 12,
+          ),
+          child: Row(
+            children: [
+              CanopyAccentTile(
+                icon: LucideIcons.lock,
+                tone: identity.tone.colorOf(canopy),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      forum.title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (forum.description.isNotEmpty)
+                      Text(
+                        forum.description,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.bodySm.copyWith(
+                          color: canopy.ink2,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),

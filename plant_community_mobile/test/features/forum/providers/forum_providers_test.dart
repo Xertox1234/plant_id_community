@@ -25,12 +25,16 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      await container.read(topicPostsProvider(10).future);
+      await container.read(topicPostsProvider(10, null).future);
       await container
-          .read(topicPostsProvider(10).notifier)
+          .read(topicPostsProvider(10, null).notifier)
           .toggleReaction(5, 'like');
 
-      final posts = container.read(topicPostsProvider(10)).asData!.value.items;
+      final posts = container
+          .read(topicPostsProvider(10, null))
+          .asData!
+          .value
+          .items;
       expect(posts.single.reactionCounts['like'], 3);
       expect(posts.single.reacted, contains('like'));
     });
@@ -52,13 +56,17 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      await container.read(topicPostsProvider(10).future);
+      await container.read(topicPostsProvider(10, null).future);
       // Must complete without throwing.
       await container
-          .read(topicPostsProvider(10).notifier)
+          .read(topicPostsProvider(10, null).notifier)
           .toggleReaction(5, 'love');
 
-      final posts = container.read(topicPostsProvider(10)).asData!.value.items;
+      final posts = container
+          .read(topicPostsProvider(10, null))
+          .asData!
+          .value
+          .items;
       expect(posts.single.reactionCounts['like'], 1);
       expect(posts.single.reacted, ['like']);
     });
@@ -81,9 +89,9 @@ void main() {
       addTearDown(container.dispose);
       // Keep the autoDispose provider alive while the gate holds the
       // toggle in flight (a screen would be watching it).
-      container.listen(topicPostsProvider(10), (_, _) {});
-      await container.read(topicPostsProvider(10).future);
-      final notifier = container.read(topicPostsProvider(10).notifier);
+      container.listen(topicPostsProvider(10, null), (_, _) {});
+      await container.read(topicPostsProvider(10, null).future);
+      final notifier = container.read(topicPostsProvider(10, null).notifier);
 
       // Two taps before the first resolves: a create then a delete would
       // silently undo the reaction, so the second must send nothing.
@@ -96,7 +104,11 @@ void main() {
 
       gate.complete();
       await Future.wait([first, second, other]);
-      final posts = container.read(topicPostsProvider(10)).asData!.value.items;
+      final posts = container
+          .read(topicPostsProvider(10, null))
+          .asData!
+          .value
+          .items;
       expect(posts.single.reacted, contains('like'));
 
       // Once settled, the guard releases: the next tap toggles again.
@@ -120,8 +132,8 @@ void main() {
         overrides: [forumApiProvider.overrideWithValue(api)],
       );
       addTearDown(container.dispose);
-      await container.read(topicPostsProvider(10).future);
-      final notifier = container.read(topicPostsProvider(10).notifier);
+      await container.read(topicPostsProvider(10, null).future);
+      final notifier = container.read(topicPostsProvider(10, null).notifier);
 
       await notifier.toggleReaction(5, 'like');
       api.failReactionToggle = false;
@@ -151,13 +163,16 @@ void main() {
         addTearDown(container.dispose);
 
         await container.read(
-          topicPostsProvider(10).future,
+          topicPostsProvider(10, null).future,
         ); // build(): page1 only
         await container
-            .read(topicPostsProvider(10).notifier)
+            .read(topicPostsProvider(10, null).notifier)
             .refreshAfterReply();
 
-        final result = container.read(topicPostsProvider(10)).asData!.value;
+        final result = container
+            .read(topicPostsProvider(10, null))
+            .asData!
+            .value;
         expect(result.items.map((p) => p.id), [1, 2]);
         expect(result.hasMore, isFalse);
         expect(result.isLoadingMore, isFalse);
@@ -171,10 +186,12 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      await container.read(topicPostsProvider(10).future);
-      await container.read(topicPostsProvider(10).notifier).refreshAfterReply();
+      await container.read(topicPostsProvider(10, null).future);
+      await container
+          .read(topicPostsProvider(10, null).notifier)
+          .refreshAfterReply();
 
-      final result = container.read(topicPostsProvider(10)).asData!.value;
+      final result = container.read(topicPostsProvider(10, null)).asData!.value;
       expect(result.items.map((p) => p.id), [1]);
       expect(result.hasMore, isFalse);
     });
@@ -190,17 +207,21 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      await container.read(topicPostsProvider(10).future); // 1 call so far
+      await container.read(
+        topicPostsProvider(10, null).future,
+      ); // 1 call so far
       // Fail the 3rd fetchPosts call: build() is #1, refreshAfterReply's
       // page-1 restart is #2, its page-2 continuation is #3.
       api.throwOnFetchPostsCallNumber = 3;
 
       await expectLater(
-        container.read(topicPostsProvider(10).notifier).refreshAfterReply(),
+        container
+            .read(topicPostsProvider(10, null).notifier)
+            .refreshAfterReply(),
         throwsA(isA<ApiException>()),
       );
 
-      final result = container.read(topicPostsProvider(10)).asData!.value;
+      final result = container.read(topicPostsProvider(10, null)).asData!.value;
       expect(result.items.map((p) => p.id), [1]); // prior list, not lost
       expect(result.isLoadingMore, isFalse); // spinner flag cleared
     });
@@ -221,14 +242,14 @@ void main() {
           overrides: [forumApiProvider.overrideWithValue(api)],
         );
         addTearDown(container.dispose);
-        await container.read(topicPostsProvider(10).future);
-        final notifier = container.read(topicPostsProvider(10).notifier);
+        await container.read(topicPostsProvider(10, null).future);
+        final notifier = container.read(topicPostsProvider(10, null).notifier);
 
         notifier.applyLivePost(post(id: 3));
         notifier.applyLivePost(post(id: 2, body: const [ParagraphBlock('b')]));
 
         final items = container
-            .read(topicPostsProvider(10))
+            .read(topicPostsProvider(10, null))
             .asData!
             .value
             .items;
@@ -245,11 +266,15 @@ void main() {
         overrides: [forumApiProvider.overrideWithValue(api)],
       );
       addTearDown(container.dispose);
-      await container.read(topicPostsProvider(10).future);
+      await container.read(topicPostsProvider(10, null).future);
 
-      container.read(topicPostsProvider(10).notifier).removeLocal(2);
+      container.read(topicPostsProvider(10, null).notifier).removeLocal(2);
 
-      final items = container.read(topicPostsProvider(10)).asData!.value.items;
+      final items = container
+          .read(topicPostsProvider(10, null))
+          .asData!
+          .value
+          .items;
       expect(items.map((p) => p.id), [1]);
       expect(api.deletePostCalls, isEmpty);
     });
@@ -260,14 +285,14 @@ void main() {
         overrides: [forumApiProvider.overrideWithValue(api)],
       );
       addTearDown(container.dispose);
-      await container.read(topicDetailProvider(10).future);
+      await container.read(topicDetailProvider(10, null).future);
 
       container
-          .read(topicDetailProvider(10).notifier)
+          .read(topicDetailProvider(10, null).notifier)
           .applyPeek(topicDetail(locked: true));
 
       expect(
-        container.read(topicDetailProvider(10)).asData!.value.locked,
+        container.read(topicDetailProvider(10, null)).asData!.value.locked,
         isTrue,
       );
     });
@@ -286,11 +311,17 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      await container.read(topicPostsProvider(10).future);
+      await container.read(topicPostsProvider(10, null).future);
       final edited = post(id: 1, body: const [ParagraphBlock('edited')]);
-      container.read(topicPostsProvider(10).notifier).applyEditedPost(edited);
+      container
+          .read(topicPostsProvider(10, null).notifier)
+          .applyEditedPost(edited);
 
-      final items = container.read(topicPostsProvider(10)).asData!.value.items;
+      final items = container
+          .read(topicPostsProvider(10, null))
+          .asData!
+          .value
+          .items;
       expect(items.single.body, [const ParagraphBlock('edited')]);
       // No extra fetchPosts call — proves this is a local splice, not an
       // invalidate-and-refetch (which would have called fetchPosts again).
@@ -304,12 +335,16 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      await container.read(topicPostsProvider(10).future);
+      await container.read(topicPostsProvider(10, null).future);
       container
-          .read(topicPostsProvider(10).notifier)
+          .read(topicPostsProvider(10, null).notifier)
           .applyEditedPost(post(id: 999));
 
-      final items = container.read(topicPostsProvider(10)).asData!.value.items;
+      final items = container
+          .read(topicPostsProvider(10, null))
+          .asData!
+          .value
+          .items;
       expect(items.map((p) => p.id), [1]);
     });
   });
@@ -323,10 +358,14 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      await container.read(topicPostsProvider(10).future);
-      await container.read(topicPostsProvider(10).notifier).deletePost(2);
+      await container.read(topicPostsProvider(10, null).future);
+      await container.read(topicPostsProvider(10, null).notifier).deletePost(2);
 
-      final items = container.read(topicPostsProvider(10)).asData!.value.items;
+      final items = container
+          .read(topicPostsProvider(10, null))
+          .asData!
+          .value
+          .items;
       expect(items.map((p) => p.id), [1]);
       expect(api.deletePostCalls, [2]);
     });
@@ -345,9 +384,9 @@ void main() {
         );
         addTearDown(container.dispose);
 
-        await container.read(topicPostsProvider(10).future);
+        await container.read(topicPostsProvider(10, null).future);
         await expectLater(
-          container.read(topicPostsProvider(10).notifier).deletePost(1),
+          container.read(topicPostsProvider(10, null).notifier).deletePost(1),
           throwsA(
             isA<ApiException>().having(
               (e) => e.message,
@@ -358,7 +397,7 @@ void main() {
         );
 
         final items = container
-            .read(topicPostsProvider(10))
+            .read(topicPostsProvider(10, null))
             .asData!
             .value
             .items;
@@ -375,15 +414,19 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      await container.read(topicDetailProvider(10).future);
+      await container.read(topicDetailProvider(10, null).future);
       await container
-          .read(topicDetailProvider(10).notifier)
+          .read(topicDetailProvider(10, null).notifier)
           .toggleSubscription();
 
       expect(api.subscribeCalls, [10]);
       expect(api.unsubscribeCalls, isEmpty);
       expect(
-        container.read(topicDetailProvider(10)).asData!.value.isSubscribed,
+        container
+            .read(topicDetailProvider(10, null))
+            .asData!
+            .value
+            .isSubscribed,
         isTrue,
       );
     });
@@ -396,15 +439,19 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      await container.read(topicDetailProvider(10).future);
+      await container.read(topicDetailProvider(10, null).future);
       await container
-          .read(topicDetailProvider(10).notifier)
+          .read(topicDetailProvider(10, null).notifier)
           .toggleSubscription();
 
       expect(api.unsubscribeCalls, [10]);
       expect(api.subscribeCalls, isEmpty);
       expect(
-        container.read(topicDetailProvider(10)).asData!.value.isSubscribed,
+        container
+            .read(topicDetailProvider(10, null))
+            .asData!
+            .value
+            .isSubscribed,
         isFalse,
       );
     });
@@ -418,14 +465,20 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      await container.read(topicDetailProvider(10).future);
+      await container.read(topicDetailProvider(10, null).future);
       await expectLater(
-        container.read(topicDetailProvider(10).notifier).toggleSubscription(),
+        container
+            .read(topicDetailProvider(10, null).notifier)
+            .toggleSubscription(),
         throwsA(isA<ApiException>()),
       );
 
       expect(
-        container.read(topicDetailProvider(10)).asData!.value.isSubscribed,
+        container
+            .read(topicDetailProvider(10, null))
+            .asData!
+            .value
+            .isSubscribed,
         isFalse,
       );
     });
