@@ -12,6 +12,7 @@ import '../../shared/widgets/brand_mark.dart';
 import '../../shared/widgets/canopy_accents.dart';
 import '../../shared/widgets/canopy_surfaces.dart';
 import 'models/models.dart';
+import 'providers/collapsed_categories.dart';
 import 'providers/forum_providers.dart';
 import 'services/forum_api.dart';
 import 'services/forum_link_launcher.dart';
@@ -341,6 +342,7 @@ class _ForumsSectionState extends ConsumerState<_ForumsSection> {
   @override
   Widget build(BuildContext context) {
     final categoriesAsync = ref.watch(viewerCategoriesProvider);
+    final collapsed = ref.watch(collapsedCategoriesProvider);
     return _sectionState(
       categoriesAsync,
       loading: const _ForumsSkeleton(),
@@ -360,8 +362,22 @@ class _ForumsSectionState extends ConsumerState<_ForumsSection> {
               ),
               onLockedTap: _openLocked,
               onLinkTap: _openLink,
+              collapsed: collapsed,
+              onToggleCollapse: _toggleCollapse,
             ),
     );
+  }
+
+  Future<void> _toggleCollapse(ForumCategory category) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final saved = await ref
+        .read(collapsedCategoriesProvider.notifier)
+        .toggle(category.id);
+    if (!saved && mounted) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text("Couldn't save. Try again.")),
+      );
+    }
   }
 
   /// A password forum: a guest is asked to sign in, as other member-only
