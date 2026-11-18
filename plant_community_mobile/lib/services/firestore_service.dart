@@ -44,6 +44,16 @@ final firestoreOfflineCacheClearerProvider = Provider<Future<void> Function()>(
       () => clearFirestoreOfflineCache(ref.read(firebaseFirestoreProvider)),
 );
 
+/// Seam for [FirebaseFirestore.waitForPendingWrites] on the app's Firestore:
+/// resolves once the signed-in user's queued writes are acknowledged by the
+/// backend. Only meaningful while that user is still signed in, because the
+/// queue is per user (todo 704 review). Throws when Firebase is not
+/// initialised, which the caller treats as "not flushed".
+final firestorePendingWritesFlusherProvider = Provider<Future<void> Function()>(
+  (ref) =>
+      () => ref.read(firebaseFirestoreProvider).waitForPendingWrites(),
+);
+
 /// Firestore service for offline data persistence and cross-device sync
 ///
 /// This service provides:

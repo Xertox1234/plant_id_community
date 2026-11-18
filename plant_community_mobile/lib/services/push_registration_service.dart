@@ -479,6 +479,27 @@ class PushRegistrationService {
     }
   }
 
+  /// Device-side unregister for the sign-outs that have no JWT left to tell
+  /// the server with: a session expiry, a sign-out Firebase reports, a
+  /// declined consent (todo 704, audit M13). [detach]es, then deletes this
+  /// installation's FCM token, so FCM refuses every send to it. The backend
+  /// prunes a row whose token FCM calls unregistered at its next send
+  /// (`apps/core/fcm.py`), so the signed-out account stops reaching this
+  /// device. The next sign-in's [syncAfterLogin] gets a new token. Never
+  /// throws; bounded like [clearOnLogout].
+  Future<void> revokeDeviceToken() async {
+    detach();
+    try {
+      // deleteToken, not 17.x's unregister(): this app registers the FCM
+      // token (getToken), not the installation id unregister() retires.
+      // ignore: deprecated_member_use
+      await messaging.deleteToken().timeout(_logoutClearTimeout);
+      if (kDebugMode) debugPrint('[PUSH] FCM token deleted on sign-out');
+    } catch (e) {
+      if (kDebugMode) debugPrint('[PUSH] FCM token delete failed: $e');
+    }
+  }
+
   /// Full local reset, no network: stop listening for rotations, cancel the
   /// retry schedule, invalidate in-flight work (epoch bump), and forget the
   /// sync marker — a different user may sign in next on this device, and

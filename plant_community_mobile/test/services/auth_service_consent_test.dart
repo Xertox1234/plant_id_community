@@ -242,6 +242,62 @@ void main() {
       expect(h.events, contains('user.delete'));
       expect(h.events, contains('firebase.signOut'));
     });
+
+    test('L9: a delete that throws once is retried, then the user is signed '
+        'out (todo 704)', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      final u1 = _FakeUser(
+        uid: 'u1',
+        events: h.events,
+        deleteError: FirebaseAuthException(code: 'network-request-failed'),
+        deleteFailures: 1,
+      );
+      h.api.errors.add(consentRefusal());
+      h.read();
+      await h.signIn(u1);
+
+      await h.notifier.declineTerms();
+
+      final order = h.events
+          .where((e) => e == 'user.delete' || e == 'firebase.signOut')
+          .toList();
+      // The second try succeeds; the sign-out follows it.
+      expect(order, ['user.delete', 'user.delete', 'firebase.signOut']);
+      expect(u1.deleteFailures, 0);
+      expect(h.firebaseAuth.currentUser, isNull);
+      expect(h.state.firebaseUser, isNull);
+    });
+
+    test('L9: a delete that keeps throwing is tried a bounded number of '
+        'times, and the user is still not left signed in (todo 704)', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      final u1 = _FakeUser(
+        uid: 'u1',
+        events: h.events,
+        deleteError: FirebaseAuthException(code: 'network-request-failed'),
+      );
+      h.api.errors.add(consentRefusal());
+      h.read();
+      await h.signIn(u1);
+
+      await h.notifier.declineTerms();
+
+      final order = h.events
+          .where((e) => e == 'user.delete' || e == 'firebase.signOut')
+          .toList();
+      expect(order, [
+        'user.delete',
+        'user.delete',
+        'user.delete',
+        'firebase.signOut',
+      ]);
+      expect(h.firebaseAuth.currentUser, isNull);
+      expect(h.state.firebaseUser, isNull);
+      expect(h.state.isAuthenticated, isFalse);
+      expect(h.state.consentRequired, isFalse);
+    });
   });
 
   group('Google sign-in consent', () {
@@ -398,6 +454,13 @@ class _TestableAuthService extends AuthService {
 
   @override
   GoogleSignIn get googleSignIn => _google;
+
+  /// The real retry count, without the real waits.
+  @override
+  List<Duration> get declineDeleteRetryDelays => const [
+    Duration.zero,
+    Duration.zero,
+  ];
 }
 
 class _NoopPushRegistrationService extends PushRegistrationService {
@@ -528,6 +591,7 @@ class _FakeUser implements User {
     this.emailVerified = true,
     List<String>? events,
     this.deleteError,
+    this.deleteFailures,
   }) : _events = events ?? [];
 
   @override
@@ -538,6 +602,9 @@ class _FakeUser implements User {
 
   final List<String> _events;
   final Exception? deleteError;
+
+  /// How many `delete()` calls throw [deleteError]; null = every one.
+  int? deleteFailures;
 
   @override
   String? get email => '$uid@example.com';
@@ -550,7 +617,11 @@ class _FakeUser implements User {
   Future<void> delete() async {
     _events.add('user.delete');
     final error = deleteError;
-    if (error != null) throw error;
+    final left = deleteFailures;
+    if (error != null && (left == null || left > 0)) {
+      if (left != null) deleteFailures = left - 1;
+      throw error;
+    }
   }
 
   @override

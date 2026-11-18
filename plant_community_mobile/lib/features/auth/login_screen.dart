@@ -85,6 +85,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
+  Future<void> _openForgotPassword() => showDialog<void>(
+    context: context,
+    builder: (_) =>
+        ForgotPasswordDialog(initialEmail: _emailController.text.trim()),
+  );
+
   @override
   Widget build(BuildContext context) {
     final ext =
@@ -158,6 +164,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 : null,
                             onFieldSubmitted: (_) => _submit(),
                           ),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: _submitting
+                                  ? null
+                                  : _openForgotPassword,
+                              child: const Text('Forgot password?'),
+                            ),
+                          ),
                           if (_error != null) ...[
                             SizedBox(height: ext.gapY),
                             _AuthErrorBanner(message: _error!),
@@ -197,6 +212,137 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// "Forgot password?" (todo 704, audit H7): mails a Firebase password reset
+/// link ([AuthService.sendPasswordResetEmail]), the credential the sign-in
+/// form checks.
+///
+/// After a send it says the same thing whether or not the address has an
+/// account, so the dialog cannot be used to find out which addresses do.
+class ForgotPasswordDialog extends ConsumerStatefulWidget {
+  const ForgotPasswordDialog({super.key, this.initialEmail = ''});
+
+  /// What the sign-in form's email field held, to save retyping it.
+  final String initialEmail;
+
+  @override
+  ConsumerState<ForgotPasswordDialog> createState() =>
+      _ForgotPasswordDialogState();
+}
+
+class _ForgotPasswordDialogState extends ConsumerState<ForgotPasswordDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final _emailController = TextEditingController(
+    text: widget.initialEmail,
+  );
+  bool _sending = false;
+  String? _sentTo;
+  String? _error;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    if (_sending) return;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    final email = _emailController.text.trim();
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+    try {
+      await ref
+          .read(authServiceProvider.notifier)
+          .sendPasswordResetEmail(email);
+      if (!mounted) return;
+      setState(() => _sentTo = email);
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
+    final sentTo = _sentTo;
+
+    if (sentTo != null) {
+      return AlertDialog(
+        title: const Text('Check your email'),
+        content: Text(
+          'If an account exists for $sentTo, we have sent it a link to reset '
+          'the password.',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Done'),
+          ),
+        ],
+      );
+    }
+
+    return AlertDialog(
+      title: const Text('Reset your password'),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Enter the email you sign in with, and we will send you a link '
+              'to choose a new password.',
+            ),
+            SizedBox(height: ext.gapY),
+            TextFormField(
+              controller: _emailController,
+              decoration: const InputDecoration(
+                labelText: 'Email',
+                prefixIcon: Icon(LucideIcons.mail),
+              ),
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.send,
+              autofillHints: const [AutofillHints.email],
+              autocorrect: false,
+              enabled: !_sending,
+              validator: validateEmail,
+              onFieldSubmitted: (_) => _send(),
+            ),
+            if (_error != null) ...[
+              SizedBox(height: ext.gapY),
+              _AuthErrorBanner(message: _error!),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _sending ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _sending ? null : _send,
+          child: _sending
+              ? const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Send link'),
+        ),
+      ],
     );
   }
 }
