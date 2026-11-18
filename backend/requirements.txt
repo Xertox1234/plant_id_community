@@ -17,7 +17,7 @@ boto3==1.43.126
 botocore==1.43.126
 brotli==1.2.1
 CacheControl==0.14.4
-cachetools==7.3.0
+cachetools==8.0.1
 cbor2==6.2.1
 celery==5.7.0
 certifi==2026.10.23
@@ -48,7 +48,7 @@ django-debug-toolbar==8.0.0
 django-extensions==4.1
 django-filter==26.2
 django-imagekit==6.1.1
-django-js-asset==3.1.2
+django-js-asset==5.0.0
 django-modelcluster==6.5
 django-ninja==1.8.0
 django-permissionedforms==0.1
@@ -88,7 +88,7 @@ google-resumable-media==2.11.0
 googleapis-common-protos==1.76.0
 grpcio==1.85.1
 grpcio-status==1.85.1
-gunicorn==26.2.0
+gunicorn==27.0.1
 h11==0.16.0
 h2==4.4.1
 hpack==4.2.0
@@ -169,7 +169,7 @@ python-ulid==3.1.0
 pywebpush==2.5.0
 PyYAML==6.0.3
 queryish==0.3
-redis==7.4.0
+redis==8.1.0
 referencing==0.37.0
 requests==2.34.2
 rich==14.2.0
