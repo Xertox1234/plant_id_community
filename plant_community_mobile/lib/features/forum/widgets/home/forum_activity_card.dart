@@ -70,10 +70,10 @@ class ForumActivityCard extends ConsumerWidget {
 String _replies(int n) => '$n ${n == 1 ? 'reply' : 'replies'}';
 
 /// Identity of [topic]'s board: the server's icon and colour when the board is
-/// in the (already loaded) forum feed, the lock in the default tone when it
-/// is there but still locked for the viewer, else the slug's. Never waits on
-/// the feed and never starts a request: it only reads what the home already
-/// fetched.
+/// in the (already loaded) forum feed, the slug's default icon and tone when
+/// it is there but still locked for the viewer (see [boardIdentityOf]), else
+/// the slug's. Never waits on the feed and never starts a request: it only
+/// reads what the home already fetched.
 BoardIdentity _identityOf(WidgetRef ref, ForumRecentTopic topic) {
   final slug = topic.board.slug;
   final board = ref.watch(

@@ -215,11 +215,17 @@ class ApiService {
   /// Set OR remove `X-Forum-Unlock` on every pass: a retry and the 401
   /// re-send bring the same [RequestOptions] back through here, and must not
   /// re-send a header from before a sign-out or a dropped token.
+  ///
+  /// Only to this service's own origin (scheme, host and port of [baseUrl]):
+  /// dio ignores `baseUrl` for an absolute path, so a path check alone would
+  /// hand the tokens to any host whose URL contains `/forum/`.
   void _applyForumUnlockHeader(RequestOptions options) {
-    final path = options.uri.path;
+    final uri = options.uri;
+    final path = uri.path;
     final send =
         _forumUnlockTokens.isNotEmpty &&
         options.headers['Authorization'] != null &&
+        _isApiOrigin(uri) &&
         path.contains('/forum/') &&
         !path.contains('/forum/sync/');
     if (send) {
@@ -228,6 +234,13 @@ class ApiService {
       options.headers.remove(forumUnlockHeader);
     }
   }
+
+  late final Uri _baseUri = Uri.parse(baseUrl);
+
+  bool _isApiOrigin(Uri uri) =>
+      uri.scheme == _baseUri.scheme &&
+      uri.host == _baseUri.host &&
+      uri.port == _baseUri.port;
 
   @visibleForTesting
   bool shouldRetry(DioException error) {

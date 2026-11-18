@@ -90,6 +90,35 @@ void main() {
     expect(_unlock(adapter.sent.single), 't1,t2');
   });
 
+  test('an absolute /forum/ url on another host gets no header', () async {
+    await api.get('http://other.example/api/v1/forum/categories/');
+    expect(adapter.sent.single.uri.host, 'other.example');
+    expect(_unlock(adapter.sent.single), isNull);
+  });
+
+  test('the API host on a different port gets no header', () async {
+    await api.get('http://api.test:8443/api/v1/forum/categories/');
+    expect(adapter.sent.single.uri.port, 8443);
+    expect(_unlock(adapter.sent.single), isNull);
+  });
+
+  test('another scheme on the API host gets no header', () async {
+    await api.get('https://api.test/api/v1/forum/categories/');
+    expect(_unlock(adapter.sent.single), isNull);
+  });
+
+  test(
+    'a reused request re-pointed at another host drops its header',
+    () async {
+      final options = RequestOptions(
+        path: 'http://other.example/api/v1/forum/categories/',
+        headers: {ApiService.forumUnlockHeader: 'stale'},
+      );
+      await api.dioForTesting.fetch<dynamic>(options);
+      expect(_unlock(adapter.sent.single), isNull);
+    },
+  );
+
   test('no tokens, no header', () async {
     api.setForumUnlockTokens(const []);
     await api.get('/forum/categories/');
