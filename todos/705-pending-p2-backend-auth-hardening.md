@@ -4,6 +4,9 @@ priority: p2
 issue_id: "705"
 tags: [backend, auth, security, jwt, firebase]
 dependencies: []
+triage: ready
+triaged: 2026-11-17
+owner_decision: "Owner 2026-11-17: decline M4 (keep instant sign-in; register is rate-limited by @ratelimit on views.register; record the decline in the Work Log citing the rate limit); M22 = rate-limit /cms/login/ and /admin/login/ plus django-otp TOTP for staff; M5 absolute refresh cap = 30 days; worker fixes L6 (PKCE + fixed redirect_uri) and fixes or declines L4/L5 with a written reason; no kimi tools on this diff"
 ---
 
 # Backend auth hardening left by the 2026-11-10 audit
@@ -66,7 +69,8 @@ One fix per commit, test first:
 
 - [ ] An inactive user gets 401 from both the exchange and the refresh (tests).
 - [ ] A Firebase token with a provider outside the allowlist gets 401 (test).
-- [ ] Register answers the same for a new and an existing email (test).
+- [ ] M4 is declined in the Work Log with the owner's dated reason; register's
+      rate limit is unchanged (test).
 - [ ] A refresh past the absolute cap is refused, and reusing a rotated token
       ends the session (tests).
 - [ ] Six wrong passwords at `/cms/login/` are throttled (test), and staff
@@ -79,6 +83,15 @@ One fix per commit, test first:
 ### 2026-11-10 - Filed from the auth + legal audit
 
 - Deferred by the audit to keep its PR small enough to review.
+
+### 2026-11-17 - Triage (owner decisions)
+
+- M4 declined: keep instant sign-in after register; register is rate-limited
+  (`@ratelimit` on `views.register`). The M4 criterion was rewritten to a
+  checkable decline with the owner's approval.
+- M22: rate-limit `/cms/login/` and `/admin/login/`, plus django-otp TOTP for
+  staff. M5: absolute refresh-session cap of 30 days. L6 gets PKCE and a fixed
+  `redirect_uri`; L4 and L5 are fixed or declined with a reason.
 
 ## Notes
 

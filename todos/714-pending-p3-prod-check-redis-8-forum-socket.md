@@ -4,6 +4,10 @@ priority: p3
 issue_id: "714"
 tags: [backend, dependencies, redis, websockets, prod-check, owner]
 dependencies: ["710"]
+triage: blocked-prod
+triaged: 2026-11-17
+blocked_on: "The owner checks prod: deploy logs show no redis TimeoutError, Redis redis_version is 6 or newer, and a live reply arrives after the socket sat idle about a minute."
+owner_decision: "Owner 2026-11-17 allowed read-only Railway reads. Seen 2026-11-18: no redis TimeoutError/Traceback in deploy logs of the 710 deploy (b36e57b8, 00:05Z) or the next one (73dbe512, 02:09Z); Celery 'Connected to redis'; Redis image redis:8.2.9 (>= 6). Still open: the owner's live forum reply over a socket idle > 5 s"
 ---
 
 # Prod check after the redis 8 bump: boot and one live forum reply over a socket
@@ -46,3 +50,14 @@ After the 710 PR deploys to Railway:
 
 - Re-pointed from todo 710 (run 2026-11-17-2229): the worker stopped on this
   owner-only production check; everything else verified.
+
+### 2026-11-18 - Read-only prod reads (owner-approved 2026-11-17)
+
+- Railway deploy logs, filter `redis OR Redis OR timeout OR Timeout OR
+  Traceback`, from 2026-11-18 00:05Z (the 710 deploy, b36e57b8) through the
+  next deploy (73dbe512, 02:09Z): no redis `TimeoutError` and no Traceback;
+  Celery logged `Connected to redis://default:**@redis.railway.internal:6379/1`
+  on both boots. The filter matched lines, so the empty result is real.
+- Redis service image is `redis:8.2.9` (Railway service config), so RESP3
+  (Redis >= 6) holds.
+- Still open: the owner's live forum reply over a socket idle > 5 s.

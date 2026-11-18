@@ -6,7 +6,7 @@ tags: [ci, runtime, python, node, dependencies]
 dependencies: []
 triage: ready
 triaged: 2026-11-17
-owner_decision: "Python line: stay on 3.13, pin the Dockerfile to a patch (python:3.13.x-slim). Prod Postgres/Redis versions (AC4) are owner-only, not read by the agent (2026-11-17)"
+owner_decision: "Owner 2026-11-17 allowed a read-only Railway lookup: production runs Postgres 18 (image ghcr.io/railwayapp-templates/postgres-ssl:18) and Redis 8.2.9 (image redis:8.2.9), read 2026-11-18 via Railway MCP service config. CI moves to match: pgvector/pgvector:pg18 and redis:8"
 ---
 
 # Runtime versions disagree between CI, the image and the version files

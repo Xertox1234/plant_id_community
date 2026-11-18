@@ -71,6 +71,9 @@ Source: `pip list --outdated` and `pip show` in `backend/venv`, 2026-11-15.
 - [ ] mypy 2 is bumped with a clean run over the gated file list, or declined
       with the reason recorded.
 - [ ] Full backend suite passes repo-wide on each PR.
+- [ ] The first Dependabot pip PR after todo 708 merges installs without a
+      resolver conflict (record the PR number and date here; moved from 708
+      on 2026-11-17).
 - [ ] After an AI SDK bump: one real call per enabled feature succeeds in
       production (date and observation recorded here).
 

@@ -4,9 +4,10 @@ priority: p2
 issue_id: "707"
 tags: [privacy, backend, firebase, web, legal]
 dependencies: []
-triage: blocked-owner
-blocked_on: product decisions on tracking defaults, profile visibility and under-13 deletion
-triaged: 2026-11-10
+triage: already-done
+blocked_on: "Owner confirmation that the zip_code/lat/long AC is declined, and that `firebase deploy --only firestore:rules,storage` ran"
+triaged: 2026-11-17
+owner_decision: "Owner 2026-11-17: Firestore/Storage rules are deployed; the zip_code/latitude/longitude drop is declined because near_me reads them; archive"
 ---
 
 # Privacy defaults and data handling left by the 2026-11-10 audit
@@ -79,7 +80,9 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
       no unkeyed hash (tests).
 - [x] Emulator tests show an unverified Firebase user cannot write, and
       Storage refuses every upload.
-- [ ] The dead `User` columns are removed by a migration.
+- [ ] The `User` zip_code/latitude/longitude columns stay (near_me and
+      weather alerts read them); the decline is recorded in the Work Log with
+      its date.
 - [x] M11 has a dated owner decision in the Work Log.
 
 ## Work Log
@@ -183,6 +186,13 @@ deletion routes (L15), both with todo 702.
   marked "unsourced".
 - Declined: the "dead `User` columns" box. They are read by `near_me` and
   the weather alerts (see the correction above), so no migration drops them.
+
+### 2026-11-17 - Triage (owner decision)
+
+- Owner confirmed the Firestore/Storage rules are deployed. L13 column drop
+  declined: `garden_calendar/api/views.py` reads zip_code, latitude and
+  longitude for near_me and weather alerts. The criterion was rewritten to a
+  checkable decline with the owner's approval.
 
 ## Notes
 
