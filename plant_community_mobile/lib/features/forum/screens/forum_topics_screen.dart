@@ -30,7 +30,10 @@ class ForumTopicsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final topicsAsync = ref.watch(boardTopicsProvider(boardSlug));
+    // Keyed on the viewer: a new one never sees the previous one's list.
+    final viewer = ref.watch(forumViewerProvider);
+    final topicsProvider = boardTopicsProvider(boardSlug, viewer);
+    final topicsAsync = ref.watch(topicsProvider);
     final isAuthenticated = ref.watch(
       authServiceProvider.select((s) => s.isAuthenticated),
     );
@@ -51,7 +54,7 @@ class ForumTopicsScreen extends ConsumerWidget {
     // Both: the header's counts come from the boards list, so a refresh that
     // only refetched the topics would leave "7 topics" above eight rows.
     void refresh() {
-      ref.invalidate(boardTopicsProvider(boardSlug));
+      ref.invalidate(topicsProvider);
       ref.invalidate(categoriesProvider);
     }
 
@@ -105,9 +108,8 @@ class ForumTopicsScreen extends ConsumerWidget {
                     pathParameters: {'id': '${topic.id}'},
                     extra: topic.title,
                   ),
-                  onLoadMore: () => ref
-                      .read(boardTopicsProvider(boardSlug).notifier)
-                      .loadMore(),
+                  onLoadMore: () =>
+                      ref.read(topicsProvider.notifier).loadMore(),
                 ),
               ),
             ],
@@ -116,7 +118,7 @@ class ForumTopicsScreen extends ConsumerWidget {
       ),
       floatingActionButton: isAuthenticated
           ? FloatingActionButton.extended(
-              onPressed: () => _openComposer(context, ref),
+              onPressed: () => _openComposer(context, ref, topicsProvider),
               icon: const Icon(LucideIcons.plus, size: 20),
               label: const Text('New topic'),
             )
@@ -124,7 +126,11 @@ class ForumTopicsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _openComposer(BuildContext context, WidgetRef ref) async {
+  Future<void> _openComposer(
+    BuildContext context,
+    WidgetRef ref,
+    BoardTopicsProvider topicsProvider,
+  ) async {
     final result = await context.pushNamed<bool>(
       'forumCompose',
       extra: ForumComposeArgs.topic(
@@ -133,7 +139,7 @@ class ForumTopicsScreen extends ConsumerWidget {
       ),
     );
     if (result == true) {
-      ref.invalidate(boardTopicsProvider(boardSlug));
+      ref.invalidate(topicsProvider);
       ref.invalidate(categoriesProvider);
     }
   }

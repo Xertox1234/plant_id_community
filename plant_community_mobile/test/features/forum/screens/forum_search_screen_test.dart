@@ -5,6 +5,7 @@ import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_search_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
+import 'package:plant_community_mobile/services/auth_service.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -14,7 +15,13 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [forumApiProvider.overrideWithValue(api)],
+        overrides: [
+          forumApiProvider.overrideWithValue(api),
+          // The forum filter reads the viewer's feed.
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: false),
+          ),
+        ],
         child: const MaterialApp(home: ForumSearchScreen()),
       ),
     );
@@ -51,7 +58,13 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [forumApiProvider.overrideWithValue(api)],
+        overrides: [
+          forumApiProvider.overrideWithValue(api),
+          // The forum filter reads the viewer's feed.
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: false),
+          ),
+        ],
         child: const MaterialApp(home: ForumSearchScreen()),
       ),
     );
@@ -104,7 +117,13 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [forumApiProvider.overrideWithValue(api)],
+        overrides: [
+          forumApiProvider.overrideWithValue(api),
+          // The forum filter reads the viewer's feed.
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: false),
+          ),
+        ],
         child: const MaterialApp(home: ForumSearchScreen()),
       ),
     );
@@ -126,7 +145,13 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [forumApiProvider.overrideWithValue(api)],
+        overrides: [
+          forumApiProvider.overrideWithValue(api),
+          // The forum filter reads the viewer's feed.
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: false),
+          ),
+        ],
         child: const MaterialApp(home: ForumSearchScreen()),
       ),
     );
@@ -156,7 +181,13 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [forumApiProvider.overrideWithValue(api)],
+        overrides: [
+          forumApiProvider.overrideWithValue(api),
+          // The forum filter reads the viewer's feed.
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: false),
+          ),
+        ],
         child: const MaterialApp(home: ForumSearchScreen()),
       ),
     );
@@ -184,7 +215,13 @@ void main() {
 
       await tester.pumpWidget(
         ProviderScope(
-          overrides: [forumApiProvider.overrideWithValue(api)],
+          overrides: [
+            forumApiProvider.overrideWithValue(api),
+            // The forum filter reads the viewer's feed.
+            authServiceProvider.overrideWith(
+              () => FakeAuthService(loggedIn: false),
+            ),
+          ],
           child: const MaterialApp(home: ForumSearchScreen()),
         ),
       );
@@ -209,7 +246,13 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [forumApiProvider.overrideWithValue(api)],
+        overrides: [
+          forumApiProvider.overrideWithValue(api),
+          // The forum filter reads the viewer's feed.
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: false),
+          ),
+        ],
         child: const MaterialApp(home: ForumSearchScreen()),
       ),
     );
@@ -268,7 +311,13 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [forumApiProvider.overrideWithValue(api)],
+        overrides: [
+          forumApiProvider.overrideWithValue(api),
+          // The forum filter reads the viewer's feed.
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: false),
+          ),
+        ],
         child: const MaterialApp(home: ForumSearchScreen()),
       ),
     );

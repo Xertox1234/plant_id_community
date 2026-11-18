@@ -5,6 +5,7 @@ import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_topics_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/widgets/topic_card.dart';
+import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 import 'package:plant_community_mobile/shared/widgets/canopy_accents.dart';
@@ -34,6 +35,53 @@ Widget _wrap(FakeForumApi api, {bool loggedIn = true}) => ProviderScope(
 );
 
 void main() {
+  group('ForumTopicsScreen viewer change', () {
+    testWidgets('a forum locked for the new viewer drops the previous '
+        'viewer\'s topics', (tester) async {
+      final api = FakeForumApi()
+        ..categories = [
+          categoryOf(const [_board]),
+        ]
+        ..topics = CursorPage(items: [topic(id: 1, title: 'Monstera albo')]);
+      final container = ProviderContainer(
+        overrides: [
+          forumApiProvider.overrideWithValue(api),
+          authServiceProvider.overrideWith(
+            () => FakeAuthService(loggedIn: false, initial: signedInAs('ada')),
+          ),
+        ],
+        retry: (_, _) => null,
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            home: ForumTopicsScreen(
+              boardSlug: 'plant-identification',
+              boardTitle: 'Plant identification',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Monstera albo'), findsOneWidget);
+
+      api.topicsError = ApiException(
+        'locked',
+        statusCode: 403,
+        code: 'forum_locked',
+      );
+      (container.read(authServiceProvider.notifier) as FakeAuthService).setAuth(
+        signedInAs('bob'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Monstera albo'), findsNothing);
+      expect(find.text('Could not load topics.'), findsOneWidget);
+    });
+  });
+
   group('ForumTopicsScreen', () {
     testWidgets('shows the board intro above one row per topic', (
       tester,

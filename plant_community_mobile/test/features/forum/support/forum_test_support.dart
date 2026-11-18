@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:firebase_auth/firebase_auth.dart' show User;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:plant_community_mobile/features/forum/live/forum_live_channel.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_image_picker.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_unlock_store.dart';
 import 'package:plant_community_mobile/models/user_profile.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
@@ -83,6 +85,57 @@ class FakeUserProfileService extends UserProfileService {
       email: '$name@example.com',
       dateJoined: DateTime(2026, 1, 1),
     );
+  }
+}
+
+/// A Firebase [User] with only a uid, for an [AuthState] that names its
+/// member (the forum unlocks key on it).
+class FakeFirebaseUser implements User {
+  FakeFirebaseUser(this.uid);
+
+  @override
+  final String uid;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Signed in as [uid].
+AuthState signedInAs(String uid) =>
+    AuthState(jwtToken: 'jwt-$uid', firebaseUser: FakeFirebaseUser(uid));
+
+/// In-memory [ForumUnlockStore]. [loadGate] holds [load] in flight.
+class FakeForumUnlockStore implements ForumUnlockStore {
+  FakeForumUnlockStore([this.stored]);
+
+  ForumUnlocks? stored;
+  Completer<void>? loadGate;
+
+  /// When set, [clear] waits for it before it clears: holds a sign-out
+  /// between "forget the unlocks" and the auth state flip.
+  Completer<void>? clearGate;
+  int loadCalls = 0;
+  int saveCalls = 0;
+  int clearCalls = 0;
+
+  @override
+  Future<ForumUnlocks?> load() async {
+    loadCalls++;
+    await loadGate?.future;
+    return stored;
+  }
+
+  @override
+  Future<void> save(ForumUnlocks unlocks) async {
+    saveCalls++;
+    stored = ForumUnlocks(uid: unlocks.uid, tokens: Map.of(unlocks.tokens));
+  }
+
+  @override
+  Future<void> clear() async {
+    clearCalls++;
+    await clearGate?.future;
+    stored = null;
   }
 }
 
@@ -429,9 +482,27 @@ class FakeForumApi implements ForumApi {
     return resolvedLink;
   }
 
+  /// What [unlockBoard] answers, and the slugs it was asked about (never
+  /// the password).
+  String? unlockToken = 'unlock-token';
+  Object? unlockError;
+  final List<String> unlockBoardCalls = [];
+
+  @override
+  Future<String?> unlockBoard(String slug, String password) async {
+    unlockBoardCalls.add(slug);
+    final err = unlockError;
+    if (err != null) throw err;
+    return unlockToken;
+  }
+
+  /// When set, [fetchCategories] waits for it: holds the feed in flight.
+  Completer<void>? fetchCategoriesGate;
+
   @override
   Future<List<ForumCategory>> fetchCategories() async {
     fetchCategoriesCalls++;
+    await fetchCategoriesGate?.future;
     final err = categoriesError;
     if (err != null) throw err;
     return categories;
@@ -482,12 +553,19 @@ class FakeForumApi implements ForumApi {
     return postsById[postId];
   }
 
+  /// When set, [fetchTopics] throws it.
+  Object? topicsError;
+
   @override
   Future<CursorPage<ForumTopicListItem>> fetchTopics({
     required String boardSlug,
     String? sort,
     String? cursorUrl,
-  }) async => topics;
+  }) async {
+    final err = topicsError;
+    if (err != null) throw err;
+    return topics;
+  }
 
   @override
   Future<ForumProfile> fetchProfile(String username) async {

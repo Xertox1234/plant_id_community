@@ -129,6 +129,19 @@ This comprehensive guide includes:
 
 **Read this before writing any Flutter code.**
 
+### Password forums (unlock tokens)
+
+Unlocking a password forum returns a signed unlock token. The app keeps one per
+forum in secure storage (`forum_unlock_tokens`, tied to the member's Firebase
+uid) and sends up to 20 of them in `X-Forum-Unlock` on signed-in `/forum/`
+calls, never on `/forum/sync/`. A token the server no longer honours (the
+forum still comes back locked) is dropped.
+
+Signing out, or signing in as someone else, makes the phone forget the tokens.
+That is the only thing that ends an unlock at sign-out: the server keeps no
+list of tokens, so a copied token is still accepted until it expires (30 days)
+or the forum's password changes.
+
 ---
 
 ## Resources

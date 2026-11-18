@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../core/utils/log_redaction.dart';
+import '../features/forum/services/forum_unlock_store.dart'
+    show forumUnlockStoreProvider;
 import 'api_service.dart';
 import 'push_registration_service.dart';
 import 'user_profile_service.dart';
@@ -718,6 +720,16 @@ class AuthService extends _$AuthService {
       // and must not report "Your session expired" (todo 498). The token
       // stays set, because the clear still needs it.
       ref.read(apiServiceProvider).endSession();
+
+      // Forget this member's forum unlocks on the phone (spec §7.4): the
+      // header and the unlock session at once, so nothing sent or saved
+      // while the sign-out runs brings them back, then the store. Through
+      // ApiService, not the unlocks provider, which depends on this one.
+      // Its next build, signed out, sends nothing. The server still accepts
+      // a forgotten token until it expires or the forum's password changes.
+      // Never throws.
+      ref.read(apiServiceProvider).endForumUnlockSession();
+      await ref.read(forumUnlockStoreProvider).clear();
 
       // Clear the FCM token server-side BEFORE Firebase sign-out — the PATCH
       // needs the still-valid JWT. Best-effort with an internal timeout; it

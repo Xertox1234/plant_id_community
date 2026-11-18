@@ -333,7 +333,7 @@ class _ForumsSectionState extends ConsumerState<_ForumsSection> {
 
   @override
   Widget build(BuildContext context) {
-    final categoriesAsync = ref.watch(categoriesProvider);
+    final categoriesAsync = ref.watch(viewerCategoriesProvider);
     return _sectionState(
       categoriesAsync,
       loading: const _ForumsSkeleton(),
@@ -351,8 +351,25 @@ class _ForumsSectionState extends ConsumerState<_ForumsSection> {
                 pathParameters: {'slug': board.slug},
                 extra: board.title,
               ),
+              onLockedTap: _openLocked,
               onLinkTap: _openLink,
             ),
+    );
+  }
+
+  /// A password forum: a guest is asked to sign in, as other member-only
+  /// actions do; a member gets the unlock screen (spec §7.4).
+  void _openLocked(ForumBoard forum) {
+    if (!ref.read(authServiceProvider).isAuthenticated) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign in to open this forum.')),
+      );
+      return;
+    }
+    context.pushNamed(
+      'forumUnlock',
+      pathParameters: {'slug': forum.slug},
+      extra: forum.title,
     );
   }
 
