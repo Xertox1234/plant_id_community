@@ -370,6 +370,14 @@ class _ForumsSectionState extends ConsumerState<_ForumsSection> {
     final messenger = ScaffoldMessenger.of(context);
     final launch = ref.read(forumExternalLinkLauncherProvider);
     final uri = await ref.read(forumApiProvider).resolveLink(link);
+    // The reader moved on while the link resolved (another screen on top, or
+    // another tab: go_router puts an inactive shell branch under
+    // TickerMode(enabled: false)). Opening a browser now would be a surprise.
+    if (!mounted ||
+        !TickerMode.valuesOf(context).enabled ||
+        !(ModalRoute.isCurrentOf(context) ?? true)) {
+      return;
+    }
     var opened = false;
     if (uri != null) {
       try {
