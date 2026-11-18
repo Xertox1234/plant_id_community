@@ -2170,21 +2170,80 @@ void main() {
       expect(state.error, 'Your session expired. Please sign in again.');
     });
 
-    test(
-      'a sign-out Firebase reports (a revoked token) clears it too',
-      () async {
+    test('a sign-out Firebase reports (a revoked token) deletes the push '
+        'token but keeps the cache: its queued writes cannot be flushed once '
+        'the user is gone, and sync at the next sign-in', () async {
+      final firestore = _CachingFirestore();
+      final harness = deviceHarness(firestore);
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      await harness.signIn(_FakeUser(uid: 'ada'));
+
+      await harness.emitAuthState(null);
+
+      expect(harness.messaging!.deleteTokenCalls, 1);
+      expect(firestore.calls, isEmpty);
+      expect(firestore.cachedDocs, isNotEmpty);
+    });
+
+    test('signOut() and a session expiry flush the queued writes while '
+        'Firebase is still signed in', () async {
+      for (final expire in [false, true]) {
         final firestore = _CachingFirestore();
         final harness = deviceHarness(firestore);
-        addTearDown(harness.dispose);
+        firestore.events = harness.events;
         harness.container.read(authServiceProvider);
         await harness.signIn(_FakeUser(uid: 'ada'));
 
+        if (expire) {
+          await harness.api.sessionExpiredHandler!();
+        } else {
+          await harness.container.read(authServiceProvider.notifier).signOut();
+        }
         await harness.emitAuthState(null);
 
-        expect(harness.messaging!.deleteTokenCalls, 1);
-        expect(firestore.cachedDocs, isEmpty);
-      },
-    );
+        final flushAt = harness.events.indexOf(
+          'firestore.waitForPendingWrites',
+        );
+        expect(flushAt, isNonNegative, reason: 'expire=$expire');
+        expect(
+          flushAt,
+          lessThan(harness.events.indexOf('firebase.signOut')),
+          reason: 'expire=$expire',
+        );
+        expect(firestore.waitForPendingWritesCalls, 1);
+        expect(firestore.calls, ['terminate', 'clearPersistence']);
+        harness.dispose();
+      }
+    });
+
+    test('a queued write that never reaches the backend keeps the cache: '
+        'the session still ends and the push token still goes', () async {
+      final firestore = _CachingFirestore()
+        ..pendingWritesGate = Completer<void>();
+      final harness = deviceHarness(firestore);
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      await harness.signIn(_FakeUser(uid: 'ada'));
+      (harness.container.read(authServiceProvider.notifier)
+              as _TestableAuthService)
+          .pendingWritesFlushTimeout = const Duration(
+        milliseconds: 10,
+      );
+
+      await harness.api.sessionExpiredHandler!();
+      await pumpEventQueue();
+
+      expect(firestore.waitForPendingWritesCalls, 1);
+      expect(harness.events, contains('firebase.signOut'));
+      expect(harness.messaging!.deleteTokenCalls, 1);
+      expect(firestore.calls, isEmpty);
+      expect(firestore.cachedDocs, isNotEmpty);
+      expect(
+        harness.container.read(authServiceProvider).error,
+        'Your session expired. Please sign in again.',
+      );
+    });
 
     test('signOut() unregisters with the server first, then clears the '
         'device once, and signs out of Google', () async {
@@ -2606,6 +2665,9 @@ class _TestableAuthService extends AuthService {
   /// fails on the real plugin, as before.
   @override
   GoogleSignIn get googleSignIn => _googleSignIn ?? super.googleSignIn;
+
+  @override
+  Duration pendingWritesFlushTimeout = const Duration(seconds: 5);
 }
 
 /// Plays back one `authenticate()` outcome (Plan B task 10).
@@ -3192,6 +3254,22 @@ class _CachingFirestore extends Fake implements FirebaseFirestore {
   final List<String> calls = [];
   final Set<String> cachedDocs = {'users/ada/identified_plants/p1'};
   bool _terminated = false;
+
+  /// The harness's event log, so a test can place the flush against
+  /// `firebase.signOut`. Kept out of [calls].
+  List<String>? events;
+
+  /// Held open: the queued writes never reach the backend (offline).
+  Completer<void>? pendingWritesGate;
+  int waitForPendingWritesCalls = 0;
+
+  @override
+  Future<void> waitForPendingWrites() async {
+    waitForPendingWritesCalls++;
+    events?.add('firestore.waitForPendingWrites');
+    final gate = pendingWritesGate;
+    if (gate != null) await gate.future;
+  }
 
   @override
   Future<void> terminate() async {

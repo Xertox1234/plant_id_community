@@ -186,6 +186,13 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-11-18 - Repaired by the todo sweep (run 2026-11-18-0148)
+
+- Review round 1 (medium, regression): clearing the Firestore cache on every sign-out also deleted queued writes that main keeps and syncs at the next sign-in.
+- `signOut()` and the session expiry now wait for `waitForPendingWrites()` (bounded, 5 s) before `_firebaseAuth.signOut()`, while the user is still signed in; the queue is per user. `_endDeviceSession` clears the cache only after a confirmed flush, or after a declined consent (that account is deleted).
+- A sign-out Firebase reports (a revoked token) cannot flush, so it now keeps the cache, as main did; the PR's test for that path was changed to say so. The push token is still deleted on every path.
+- New tests in `plant_community_mobile/test/services/auth_service_test.dart`: the flush runs before `firebase.signOut` on both paths (checked by moving it after the sign-out, which fails the test), and a flush that never completes keeps the cache.
+
 ## Notes
 
 H7 and H8 are rated high in the audit; the todo is P2 because the mobile app

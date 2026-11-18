@@ -11,7 +11,10 @@ import '../core/utils/log_redaction.dart';
 import '../features/forum/services/forum_unlock_store.dart'
     show forumUnlockStoreProvider;
 import 'api_service.dart';
-import 'firestore_service.dart' show firestoreOfflineCacheClearerProvider;
+import 'firestore_service.dart'
+    show
+        firestoreOfflineCacheClearerProvider,
+        firestorePendingWritesFlusherProvider;
 import 'push_registration_service.dart';
 import 'user_profile_service.dart';
 
@@ -250,6 +253,13 @@ class AuthService extends _$AuthService {
 
   /// That user had Google linked, so the Google session is signed out too.
   bool _deviceSessionGoogle = false;
+
+  /// The next [_endDeviceSession] may drop the Firestore offline cache: the
+  /// signed-in user's queued writes were flushed before Firebase signed out
+  /// ([_flushPendingWrites]), or they belong to a deleted account. Otherwise
+  /// the cache is kept, because clearing it would delete writes that sync
+  /// when that user signs back in (todo 704 review).
+  bool _offlineCacheSafeToClear = false;
 
   /// The [_endDeviceSession] in flight: every sign-out path calls it, and
   /// in production `signOut()` also fires the listener's null branch.
@@ -807,6 +817,8 @@ class AuthService extends _$AuthService {
       // never throws, so it cannot block or fail sign-out (todo 253 slice 6).
       await ref.read(pushRegistrationServiceProvider).clearOnLogout();
 
+      // While the user is still signed in: the write queue is per user.
+      await _flushPendingWrites();
       await _firebaseAuth.signOut();
       await _clearJWT();
 
@@ -824,6 +836,8 @@ class AuthService extends _$AuthService {
       }
     } catch (e) {
       if (kDebugMode) debugPrint('[AUTH ERROR] Sign out failed: $e');
+      // Still signed in, maybe: a later write would go unflushed.
+      _offlineCacheSafeToClear = false;
       const errorMessage = signOutFailedMessage;
       state = state.copyWith(error: errorMessage);
       throw AuthException(errorMessage);
@@ -1298,6 +1312,10 @@ class AuthService extends _$AuthService {
     if (current != null && refusedUid != null && current.uid == refusedUid) {
       await _deleteDeclinedUser(current);
     }
+    // The declined account is deleted (or left to the orphan prune), so its
+    // queued writes have nowhere to sync: the cache goes unflushed. Before
+    // the sign-out, which the listener's null branch may finish first.
+    _offlineCacheSafeToClear = true;
     try {
       await _firebaseAuth.signOut();
     } catch (e) {
@@ -1392,6 +1410,9 @@ class AuthService extends _$AuthService {
     // sign-out (todo 498).
     ref.read(apiServiceProvider).setAuthToken(null);
     await _clearJWT();
+    // Firebase is still signed in (only the API session expired), so the
+    // queued writes can still be flushed before it signs out.
+    await _flushPendingWrites();
     await _firebaseAuth.signOut();
 
     // After the awaits, in the same frame as the auth flip: clearing it
@@ -1409,6 +1430,8 @@ class AuthService extends _$AuthService {
   /// what the session left on it ([_endDeviceSession]).
   void _markDeviceSessionLive(User user) {
     _deviceSessionLive = true;
+    // A flush only covers the session it ran in.
+    _offlineCacheSafeToClear = false;
     try {
       if (user.providerData.any(
         (info) => info.providerId == GoogleAuthProvider.PROVIDER_ID,
@@ -1431,7 +1454,10 @@ class AuthService extends _$AuthService {
   ///   at the next one. `signOut()` has already unregistered it with the
   ///   server ([PushRegistrationService.clearOnLogout]) before this;
   /// * clears the Firestore offline cache, the signed-out account's
-  ///   `users/<uid>/...` documents (unencrypted, unlimited);
+  ///   `users/<uid>/...` documents (unencrypted, unlimited), but only when
+  ///   [_offlineCacheSafeToClear]: its queued writes were flushed first, or
+  ///   the account is deleted. Otherwise the cache stays, so those writes
+  ///   still sync at the next sign-in (todo 704 review);
   /// * signs out of Google, so the next "Continue with Google" asks for an
   ///   account rather than reusing this one.
   ///
@@ -1440,6 +1466,9 @@ class AuthService extends _$AuthService {
   /// are read from `ref` before the first await, so it finishes even after
   /// the notifier is disposed.
   Future<void> _endDeviceSession() {
+    // Consumed by whichever caller comes first, before the early return.
+    final clearCache = _offlineCacheSafeToClear;
+    _offlineCacheSafeToClear = false;
     if (!_deviceSessionLive) return _deviceSessionEnding ?? Future.value();
     _deviceSessionLive = false;
     final google = _deviceSessionGoogle || _googleInitialized;
@@ -1455,10 +1484,19 @@ class AuthService extends _$AuthService {
     final googleToSignOut = googleClient;
     return _deviceSessionEnding = () async {
       await push.revokeDeviceToken();
-      try {
-        await clearOfflineCache().timeout(_deviceStepTimeout);
-      } catch (e) {
-        if (kDebugMode) debugPrint('[AUTH] Offline cache clear failed: $e');
+      if (!clearCache) {
+        // Queued writes may still be in it (offline, or a sign-out Firebase
+        // reported, which cannot flush): they sync when this user signs back
+        // in, so the cache stays (todo 704 review).
+        if (kDebugMode) {
+          debugPrint('[AUTH] Offline cache kept: writes not confirmed flushed');
+        }
+      } else {
+        try {
+          await clearOfflineCache().timeout(_deviceStepTimeout);
+        } catch (e) {
+          if (kDebugMode) debugPrint('[AUTH] Offline cache clear failed: $e');
+        }
       }
       if (googleToSignOut != null) {
         try {
@@ -1477,6 +1515,28 @@ class AuthService extends _$AuthService {
   }
 
   static const Duration _deviceStepTimeout = Duration(seconds: 5);
+
+  /// How long a sign-out waits for Firestore to acknowledge the queued
+  /// writes. Overridable so a test does not sleep.
+  @visibleForTesting
+  Duration get pendingWritesFlushTimeout => _deviceStepTimeout;
+
+  /// Waits for the signed-in user's queued Firestore writes to reach the
+  /// backend, so the sign-out after it may clear the offline cache without
+  /// losing them (todo 704 review). Must run before `_firebaseAuth.signOut()`:
+  /// the queue is per user, and a wait after the sign-out sees none.
+  /// A timeout or an error (offline, Firebase not initialised) leaves the
+  /// cache in place. Never throws.
+  Future<void> _flushPendingWrites() async {
+    _offlineCacheSafeToClear = false;
+    try {
+      final flush = ref.read(firestorePendingWritesFlusherProvider);
+      await flush().timeout(pendingWritesFlushTimeout);
+      _offlineCacheSafeToClear = true;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH] Pending writes not flushed: $e');
+    }
+  }
 
   /// Forget whose account this was, on every sign-out path but the
   /// profile-screen logout, which clears it itself: session expiry
