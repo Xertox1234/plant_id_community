@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "706"
 tags: [web, security, headers, cloudflare, auth]
@@ -69,16 +69,16 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 - [ ] `curl -sI https://houseplant-md.com/settings` shows the CSP and
       `Referrer-Policy`, and the CMS blog preview still renders — record the
       date and result. → todo 716 (re-pointed 2026-11-17)
-- [ ] After `/verify-email?key=…` and `/unsubscribe?token=…` load,
+- [x] After `/verify-email?key=…` and `/unsubscribe?token=…` load,
       `location.search` is empty (tests).
-- [ ] The two-tab refresh race is reproduced or shown not to exist; if real, a
+- [x] The two-tab refresh race is reproduced or shown not to exist; if real, a
       test covers the fix.
 - [ ] A Sentry event from production carries no query string — record the
       date and event id. → todo 716 (re-pointed 2026-11-17)
-- [ ] `web/public/_headers` sets `Referrer-Policy`, `X-Content-Type-Options`
+- [x] `web/public/_headers` sets `Referrer-Policy`, `X-Content-Type-Options`
       and a report-only CSP whose `frame-ancestors` is
       `'self' https://api.houseplant-md.com` (a test reads the file).
-- [ ] L10: an `oauth_url` whose origin is not `https://accounts.google.com`
+- [x] L10: an `oauth_url` whose origin is not `https://accounts.google.com`
       (the origin `apps/users/oauth_views.py` builds it on) is not followed (test).
 
 ## Work Log
@@ -103,6 +103,82 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
   which is what the finding (follow `oauth_url` only after an origin check)
   needs. Owner delegated the call on 2026-11-17 ("do what you think is best
   and gets the job done").
+
+### 2026-11-18 - Implemented by the todo sweep (run 2026-11-18-0148)
+
+- M7: new `web/src/hooks/useOneTimeSearchParam.ts` holds the token in state
+  and strips it from the URL with a replace navigation (other params stay);
+  `VerifyEmailPage` and `UnsubscribePage` use it. Tests use a real
+  `BrowserRouter`, since `MemoryRouter` never touches `window.location`; they
+  fail with the strip disabled.
+- M18: the race is real, reproduced against the real view in
+  `backend/apps/users/tests/test_refresh_rotation_race.py` (interleave forced:
+  tab B sends the refresh cookie from before tab A's rotation and gets 401; the
+  refusal clears no cookies). Fix: `refreshSession()` in `authService.ts`
+  holds a Web Lock across the request, so `refreshAccessToken()` (also used by
+  the live socket) is serialized across tabs; `AuthContext` logs out only on
+  400/401 and keeps the session on a network error or 5xx. A Playwright repro
+  was not run: no servers were up and the sandbox blocks loopback.
+- M2: `web/public/_headers` sets `Referrer-Policy:
+  strict-origin-when-cross-origin`, `nosniff` and a report-only CSP with
+  `frame-ancestors 'self' https://api.houseplant-md.com`; no `X-Frame-Options`
+  (it would break the CMS preview). Report-only blocks nothing and has no
+  report endpoint, so violations show only in the browser console.
+- L10: `web/src/utils/oauthOrigin.ts` compares `new URL(u).origin` exactly
+  with `https://accounts.google.com`, checked in `getGoogleOAuthUrl` and again
+  in `GoogleSignInButton` before `location.assign`. One existing test used
+  `https://g/x` as an OAuth URL and now uses a Google URL.
+- Not done here (no criterion, not in the owner's split): failed-logout UI,
+  global 401 handling, the sessionStorage user past expiry, faster cross-tab
+  logout.
+
+### 2026-11-18 - Verified by the todo sweep (run 2026-11-18-0148)
+
+- AC 3: `npm --prefix web exec -- vitest run --root web src/pages/VerifyEmailPage.test.tsx src/pages/UnsubscribePage.test.tsx --reporter=verbose` — evidence `.sweep-evidence/g5/706-ac2.txt` (not committed), last lines:
+
+  ```text
+
+   Test Files  2 passed (2)
+        Tests  21 passed (21)
+     Start at  23:07:57
+     Duration  639ms (environment 45%, tests 30%, import 13%, setup 9%, transform 3%, worker 1%)
+  ```
+
+- AC 4: `bash -c 'cd backend && python3 scripts/todos/slot_env.py --main-root . 4 -- backend/venv/bin/python -m pytest apps/users/tests/test_refresh_rotation_race.py --create-db -v -p no:cacheprovider && npm --prefix web exec -- vitest run --root web src/services/authService.test.ts src/contexts/AuthContext.test.tsx -t "M18" --reporter=verbose'` — evidence `.sweep-evidence/g5/706-ac3.txt` (not committed), last lines:
+
+  ```text
+  ======================== 2 passed, 3 warnings in 20.88s ========================
+  …
+
+   Test Files  2 passed (2)
+        Tests  13 passed | 96 skipped (109)
+     Start at  23:12:36
+     Duration  541ms (environment 56%, tests 28%, setup 10%, import 2%, transform 2%, worker 1%)
+  ```
+
+- AC 6: `npm --prefix web exec -- vitest run --root web src/tests/securityHeaders.test.ts --reporter=verbose` — evidence `.sweep-evidence/g5/706-ac5.txt` (not committed), last lines:
+
+  ```text
+
+   Test Files  1 passed (1)
+        Tests  4 passed (4)
+     Start at  23:12:37
+     Duration  334ms (environment 81%, setup 15%, transform 2%, worker 1%, tests 1%, import 1%)
+  ```
+
+- AC 7: `npm --prefix web exec -- vitest run --root web src/services/authService.test.ts src/components/auth/GoogleSignInButton.test.tsx -t "origin|accounts.google.com" --reporter=verbose` — evidence `.sweep-evidence/g5/706-ac6.txt` (not committed), last lines:
+
+  ```text
+
+   Test Files  2 passed (2)
+        Tests  15 passed | 66 skipped (81)
+     Start at  23:08:04
+     Duration  431ms (environment 69%, setup 12%, tests 12%, transform 3%, import 2%, worker 1%)
+  ```
+
+### 2026-11-18 - Completed by the todo sweep (run 2026-11-18-0148)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
 ## Notes
 

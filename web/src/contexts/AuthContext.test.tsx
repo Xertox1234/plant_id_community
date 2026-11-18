@@ -904,4 +904,51 @@ describe('AuthContext', () => {
       await waitFor(() => expect(releaseBrowserPushOnLogout).toHaveBeenCalledTimes(1));
     });
   });
+
+  describe('Automatic token refresh outcomes (todo 706 M18)', () => {
+    const TEN_MINUTES = 10 * 60 * 1000;
+    const mockUser: User = { id: 1, email: 'test@example.com', name: 'Test User' };
+
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.mocked(authService.getStoredUser).mockReturnValue(mockUser);
+      vi.mocked(authService.getCurrentUser).mockResolvedValue(mockUser);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    async function renderSignedIn() {
+      const view = renderHook(() => useAuth(), { wrapper: AuthProvider });
+      await waitFor(() => expect(view.result.current.isLoading).toBe(false));
+      expect(view.result.current.user).toEqual(mockUser);
+      return view;
+    }
+
+    it('keeps the session when refresh is unavailable (network blip or 5xx)', async () => {
+      vi.mocked(authService.refreshSession).mockResolvedValue('unavailable');
+      const { result } = await renderSignedIn();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(TEN_MINUTES);
+      });
+
+      expect(authService.refreshSession).toHaveBeenCalledTimes(1);
+      expect(result.current.user).toEqual(mockUser);
+      expect(result.current.error).toBeNull();
+    });
+
+    it('logs out only when the server refuses the refresh token', async () => {
+      vi.mocked(authService.refreshSession).mockResolvedValue('unauthorized');
+      const { result } = await renderSignedIn();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(TEN_MINUTES);
+      });
+
+      expect(result.current.user).toBeNull();
+      expect(result.current.error?.code).toBe(AuthErrorCode.SESSION_EXPIRED);
+    });
+  });
 });

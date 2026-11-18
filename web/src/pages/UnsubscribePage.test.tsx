@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, MemoryRouter, Route, Routes } from 'react-router-dom';
 import UnsubscribePage from './UnsubscribePage';
 import {
   UnsubscribeError,
@@ -121,5 +121,52 @@ describe('UnsubscribePage', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/couldn.t unsubscribe/i);
     expect(screen.getByRole('button', { name: /unsubscribe/i })).toBeEnabled();
+  });
+});
+
+// The token is single-use; it must leave the address bar and history once read
+// (todo 706, audit M7). A real BrowserRouter, because MemoryRouter never
+// touches window.location and would pass vacuously.
+describe('UnsubscribePage address bar (todo 706)', () => {
+  beforeEach(() => {
+    check.mockReset();
+    confirm.mockReset();
+  });
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  function renderInBrowser(url: string) {
+    window.history.pushState(null, '', url);
+    return render(
+      <BrowserRouter>
+        <Routes>
+          <Route path="/unsubscribe" element={<UnsubscribePage />} />
+        </Routes>
+      </BrowserRouter>
+    );
+  }
+
+  it('removes the token from location.search and still unsubscribes with it', async () => {
+    check.mockResolvedValue(subscribed);
+    confirm.mockResolvedValue(unsubscribed);
+    renderInBrowser('/unsubscribe?token=abc');
+
+    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(window.location.pathname).toBe('/unsubscribe');
+    expect(check).toHaveBeenCalledWith('abc');
+
+    await userEvent.click(await screen.findByRole('button', { name: /unsubscribe/i }));
+    expect(confirm).toHaveBeenCalledWith('abc');
+  });
+
+  it('replaces the history entry, so Back cannot bring the token back', async () => {
+    check.mockResolvedValue(subscribed);
+    const before = window.history.length;
+    renderInBrowser('/unsubscribe?token=abc');
+
+    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(window.history.length).toBe(before + 1);
   });
 });

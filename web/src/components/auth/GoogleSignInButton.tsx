@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { getGoogleOAuthUrl } from '../../services/authService';
 import { logger } from '../../utils/logger';
+import { isGoogleOAuthUrl } from '../../utils/oauthOrigin';
 
 interface GoogleSignInButtonProps {
   /** Visible button label. Defaults to "Sign in with Google". */
@@ -57,6 +58,11 @@ export default function GoogleSignInButton({
     setIsRedirecting(true);
     try {
       const oauthUrl = await getGoogleOAuthUrl({ acceptedTerms });
+      // The service already refuses a non-Google URL; checked again here,
+      // where it is followed, so no future caller path can skip it (todo 706 L10).
+      if (!isGoogleOAuthUrl(oauthUrl)) {
+        throw new Error('OAuth URL is not on the Google sign-in origin');
+      }
       // Full-page navigation hands off to Google; no state reset needed.
       window.location.assign(oauthUrl);
     } catch (err) {

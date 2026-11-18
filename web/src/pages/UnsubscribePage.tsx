@@ -8,11 +8,12 @@
  * choice can be changed back.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import PageMeta from '../components/PageMeta';
+import { useOneTimeSearchParam } from '../hooks/useOneTimeSearchParam';
 import {
   UnsubscribeError,
   checkUnsubscribe,
@@ -60,8 +61,8 @@ const FAILURE_COPY: Record<UnsubscribeFailure, { heading: string; body: string }
 };
 
 export default function UnsubscribePage() {
-  const [params] = useSearchParams();
-  const token = params.get('token') ?? '';
+  // Held in state and stripped from the address bar once read (todo 706 M7).
+  const token = useOneTimeSearchParam('token');
   const [view, setView] = useState<View>(() =>
     token ? { kind: 'loading' } : { kind: 'failed', reason: 'invalid' }
   );
