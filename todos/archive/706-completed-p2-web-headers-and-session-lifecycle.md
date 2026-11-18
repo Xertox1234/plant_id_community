@@ -221,6 +221,23 @@ No blocking findings. Handled by hand:
 - **Declined:** the race test's `assertNotIn("refresh_token", tab_b.cookies)` is
   weak. The lock itself is covered by the web fake-locks tests.
 
+### 2026-11-18 — review round 3 (PR #1373), clean
+
+No blocking findings. All lows declined:
+
+- A hung refresh POST holds the lock until the browser fails it. This was kept on
+  purpose (see round 2): releasing the lock while the POST is in flight brings the
+  M18 race back.
+- The 403-retry test does not assert that the retry sent a fresh token. The
+  outcome assertions (one retry, then 'unauthorized') cover the behaviour that
+  matters.
+- After the token is stripped, a reload shows "invalid link" copy instead of
+  "reopen the email". This is copy only, a consequence of M7.
+- `script-src 'unsafe-inline'` must become a hash before the CSP is enforced.
+  That is todo 716's scope, and the policy is report-only today.
+- `useOneTimeSearchParam` ignores an in-place navigation to a new token. Declined
+  in round 2.
+
 ## Notes
 
 M1 is the quickest win here and needs no code.
