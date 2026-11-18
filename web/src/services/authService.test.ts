@@ -1102,6 +1102,36 @@ describe('authService', () => {
       await expect(refreshSession()).resolves.toBe(outcome);
     });
 
+    it('a 403 clears the CSRF cache and retries once; the retry decides', async () => {
+      fetchMock
+        .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({}) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) });
+      await expect(refreshSession()).resolves.toBe('ok');
+      const refreshCalls = fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes('/auth/token/refresh/')
+      );
+      expect(refreshCalls).toHaveLength(2);
+    });
+
+    it('a 403 twice in a row ends the session (unauthorized), as on main', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 403, json: async () => ({}) });
+      await expect(refreshSession()).resolves.toBe('unauthorized');
+    });
+
+    it('passes an abort signal so a hung refresh cannot hold the lock forever', async () => {
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) });
+      await refreshSession();
+      const call = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes('/auth/token/refresh/')
+      );
+      expect((call?.[1] as RequestInit | undefined)?.signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it('a timed-out refresh is unavailable, not a logout', async () => {
+      fetchMock.mockRejectedValueOnce(new DOMException('timed out', 'TimeoutError'));
+      await expect(refreshSession()).resolves.toBe('unavailable');
+    });
+
     it('a network error is unavailable, not a logout', async () => {
       fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
       await expect(refreshSession()).resolves.toBe('unavailable');

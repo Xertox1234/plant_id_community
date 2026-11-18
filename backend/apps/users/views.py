@@ -556,7 +556,9 @@ def token_refresh(request: Request) -> Response:
         # token is burned, the new one not yet written and the stamp missing,
         # which a cron re-check could read as "never came back". A failed
         # stamp is logged and the refresh goes on: the web client logs out on
-        # any non-2xx refresh, and the next successful refresh restamps.
+        # a 400/401 (or a 403 that survives one CSRF retry) and treats other
+        # statuses as transient (RefreshOutcome in web/src/services/authService.ts);
+        # the next successful refresh restamps.
         #
         # Stamp and blacklist share one transaction (todo 641 item 1): when
         # the blacklist fails and no tokens are issued, the stamp rolls back

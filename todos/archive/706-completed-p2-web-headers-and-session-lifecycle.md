@@ -180,6 +180,27 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-11-18 — review round 1 (PR #1373), non-blocking findings
+
+No blocking findings. Handled by hand:
+
+- **Fixed:** a 403 from refresh (a stale cached CSRF token) became 'unavailable'
+  and left a signed-in tab with a dead session, where main logged out. Now a
+  403 clears the CSRF cache and retries once, and a second 403 is 'unauthorized'
+  (tests in authService.test.ts).
+- **Fixed:** the refresh fetch had no timeout while holding the cross-tab Web
+  Lock. It now carries `AbortSignal.timeout(15 s)`, and a timeout is
+  'unavailable' (tests).
+- **Fixed:** the `token_refresh` comment in backend/apps/users/views.py still
+  said the web client logs out on any non-2xx.
+- **Declined:** `useOneTimeSearchParam` keeps the first value if the same
+  mounted route is navigated in place to a new token, or loses it on a remount.
+  Both pages are reached only from email links, which are full page loads, and
+  nothing in the app links to them in place.
+- **Declined:** `test_serialized_refreshes_both_succeed` pins backend rotation,
+  not the lock. That is its purpose; the lock is covered by the fake-locks
+  tests in authService.test.ts.
+
 ## Notes
 
 M1 is the quickest win here and needs no code.

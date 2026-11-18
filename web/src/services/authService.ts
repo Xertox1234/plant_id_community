@@ -13,7 +13,7 @@
  */
 
 import { logger } from '../utils/logger';
-import { getCsrfToken } from '../utils/csrf';
+import { clearCsrfToken, getCsrfToken } from '../utils/csrf';
 import { getOrCreateRequestId } from '../utils/requestId';
 // Composer drafts are keyed by topic/board, not user, and sessionStorage
 // outlives a logout — drop them so the next account in this tab never sees
@@ -358,7 +358,10 @@ export type RefreshOutcome = 'ok' | 'unauthorized' | 'unavailable';
  */
 const REFRESH_LOCK_NAME = 'houseplant-md:token-refresh';
 
-async function postRefresh(): Promise<RefreshOutcome> {
+/** A refresh that takes longer than this is abandoned, so the cross-tab lock is always released. */
+const REFRESH_TIMEOUT_MS = 15_000;
+
+async function postRefresh(csrfRetried = false): Promise<RefreshOutcome> {
   try {
     // Get CSRF token from centralized utility (handles caching + meta tag/API fallback)
     const csrfToken = await getCsrfToken();
@@ -376,10 +379,24 @@ async function postRefresh(): Promise<RefreshOutcome> {
       method: 'POST',
       headers,
       credentials: 'include', // Include cookies (refresh token)
+      // Runs under the cross-tab lock: a hung request must not stall every tab.
+      signal:
+        typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+          ? AbortSignal.timeout(REFRESH_TIMEOUT_MS)
+          : undefined,
     });
 
     if (!response.ok) {
       logger.warn('[authService] Token refresh failed', { status: response.status });
+      if (response.status === 403) {
+        // A CSRF refusal: the cached token may be stale (another tab rotated it).
+        // Retry once with a fresh token; a second 403 ends the session, as main did.
+        if (!csrfRetried) {
+          clearCsrfToken();
+          return postRefresh(true);
+        }
+        return 'unauthorized';
+      }
       return response.status === 400 || response.status === 401 ? 'unauthorized' : 'unavailable';
     }
 
