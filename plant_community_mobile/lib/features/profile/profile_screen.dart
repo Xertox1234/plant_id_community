@@ -619,7 +619,10 @@ class _LogoutButton extends ConsumerWidget {
 
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Logout failed: $e'),
+                // Fixed text, never the raw exception (todo 704, audit L8).
+                content: Text(
+                  e is AuthException ? e.message : signOutFailedMessage,
+                ),
                 backgroundColor: Theme.of(context).colorScheme.error,
               ),
             );
