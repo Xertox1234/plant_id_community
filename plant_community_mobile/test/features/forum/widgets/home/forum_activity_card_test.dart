@@ -178,8 +178,8 @@ void main() {
       );
     });
 
-    testWidgets('a board still locked for the viewer: the lock and the '
-        'default tone, never the server colour', (tester) async {
+    testWidgets('a board still locked for the viewer: the default identity, '
+        'never the server icon or colour', (tester) async {
       final api = FakeForumApi()
         ..categories = [
           categoryOf(const [
@@ -202,7 +202,7 @@ void main() {
       final chip = find.byType(CanopyChip);
       final widget = tester.widget<CanopyChip>(chip);
       expect(widget.emoji, isNull);
-      expect(widget.icon, LucideIcons.lock);
+      expect(widget.icon, boardIdentity('care').icon);
       expect(
         widget.tone,
         boardIdentity('care').tone.colorOf(tester.element(chip).canopy),

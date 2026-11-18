@@ -141,7 +141,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final after = _counts(api);
-      expect(api.fetchCategoriesCalls, greaterThan(feedBefore));
+      expect(api.fetchCategoriesCalls, feedBefore + 1);
       expect(after.topics, before.topics + 1);
       expect(after.stats, before.stats + 1);
       expect(after.experts, before.experts + 1);
@@ -167,7 +167,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final after = _counts(api);
-      expect(api.fetchCategoriesCalls, greaterThan(feedBefore));
+      expect(api.fetchCategoriesCalls, feedBefore + 1);
       expect(after.topics, before.topics + 1);
       expect(after.stats, before.stats + 1);
       expect(after.experts, before.experts + 1);
@@ -192,7 +192,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final after = _counts(api);
-      expect(api.fetchCategoriesCalls, greaterThan(feedBefore));
+      expect(api.fetchCategoriesCalls, feedBefore + 1);
       expect(after.topics, before.topics + 1);
       expect(after.stats, before.stats + 1);
       expect(after.experts, before.experts + 1);
@@ -226,7 +226,7 @@ void main() {
       ).setAuth(AuthState(jwtToken: 'b1', firebaseUser: _FakeUser('bob')));
       await tester.pumpAndSettle();
       final after = _counts(api);
-      expect(api.fetchCategoriesCalls, greaterThan(feedStart));
+      expect(api.fetchCategoriesCalls, feedStart + 1);
       expect(after.topics, start.topics + 1);
       expect(after.stats, start.stats + 1);
       expect(after.me, start.me + 1);
@@ -271,6 +271,29 @@ void main() {
 
         expect(find.text('Members corner'), findsNothing);
         expect(find.text('Could not load forums.'), findsOneWidget);
+        await _drainRetries(tester);
+      });
+
+      testWidgets('$label whose refetch fails shows the error, not the old '
+          'recent topics', (tester) async {
+        // Recent activity honours a member's forum unlocks, so its titles
+        // are that member's too.
+        final api = _api();
+        final container = await _pump(
+          tester,
+          api,
+          auth: AuthState(jwtToken: 'a1', firebaseUser: _FakeUser('ada')),
+        );
+        expect(find.text('Topic 1'), findsOneWidget);
+
+        api.recentTopicsError = ApiException('down', statusCode: 503);
+        _auth(container).setAuth(next);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(find.text('Topic 1'), findsNothing);
+        expect(find.text('Could not load recent topics.'), findsOneWidget);
         await _drainRetries(tester);
       });
     }

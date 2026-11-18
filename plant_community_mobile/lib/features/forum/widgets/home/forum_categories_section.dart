@@ -234,7 +234,7 @@ class _LockedRow extends StatelessWidget {
           child: Row(
             children: [
               CanopyAccentTile(
-                icon: identity.icon,
+                icon: LucideIcons.lock,
                 tone: identity.tone.colorOf(canopy),
               ),
               const SizedBox(width: 12),

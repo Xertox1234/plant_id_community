@@ -837,8 +837,12 @@ const int kHomeRecentTopicsLimit = 3;
 /// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
 /// with solved/unread state, pictures and recent repliers. Distinct from
 /// [RecentTopics], the offline mirror.
+///
+/// Keyed on [viewer] (see [forumViewerProvider]): the feed honours the
+/// member's forum unlocks, so a new viewer must start from loading, never
+/// from the previous one's titles.
 @Riverpod(retry: forumRetry)
-Future<List<ForumRecentTopic>> homeRecentTopics(Ref ref) {
+Future<List<ForumRecentTopic>> homeRecentTopics(Ref ref, String? viewer) {
   return ref
       .watch(forumApiProvider)
       .fetchRecentTopics(limit: kHomeRecentTopicsLimit);

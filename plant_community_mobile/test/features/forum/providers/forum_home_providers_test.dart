@@ -66,9 +66,9 @@ void main() {
   test('homeRecentTopics asks for three', () async {
     final api = FakeForumApi();
     final container = _container(api);
-    container.listen(homeRecentTopicsProvider, (_, _) {});
+    container.listen(homeRecentTopicsProvider(null), (_, _) {});
 
-    await container.read(homeRecentTopicsProvider.future);
+    await container.read(homeRecentTopicsProvider(null).future);
 
     expect(api.recentTopicsLimits, [kHomeRecentTopicsLimit]);
     expect(kHomeRecentTopicsLimit, 3);
@@ -121,7 +121,7 @@ void main() {
       final api = FakeForumApi()
         ..recentTopicsError = ApiException('no', statusCode: 403);
       final container = _container(api);
-      container.listen(homeRecentTopicsProvider, (_, _) {});
+      container.listen(homeRecentTopicsProvider(null), (_, _) {});
       await settleRetries(tester);
       expect(api.recentTopicsLimits, hasLength(1));
     });

@@ -92,18 +92,12 @@ BoardIdentity boardIdentity(String slug, {String fallbackLabel = ''}) =>
 /// `bloom` or `orchid`) and non-empty `icon` emoji win; each falls back on its
 /// own to the slug's identity. Never throws on an unknown colour name.
 ///
-/// A forum still locked for the viewer (spec §7.4) shows the lock in the
-/// slug's default tone: its own icon and colour are ignored, as the web
-/// draws a locked forum's tile.
+/// A forum still locked for the viewer (spec §7.4) keeps the slug's default
+/// identity: its server icon and colour are ignored, as the web draws a
+/// locked forum's tile. (The index row puts a lock in that tile.)
 BoardIdentity boardIdentityOf(ForumBoard board) {
   final base = boardIdentity(board.slug, fallbackLabel: board.title);
-  if (board.isLocked) {
-    return BoardIdentity(
-      tone: base.tone,
-      icon: LucideIcons.lock,
-      chipLabel: base.chipLabel,
-    );
-  }
+  if (board.isLocked) return base;
   CanopyTone? tone;
   for (final t in CanopyTone.values) {
     if (t.name == board.colour) tone = t;

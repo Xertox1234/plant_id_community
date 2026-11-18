@@ -939,13 +939,21 @@ abstract class _$RecentTopics extends $AsyncNotifier<List<ForumTopicStub>> {
 /// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
 /// with solved/unread state, pictures and recent repliers. Distinct from
 /// [RecentTopics], the offline mirror.
+///
+/// Keyed on [viewer] (see [forumViewerProvider]): the feed honours the
+/// member's forum unlocks, so a new viewer must start from loading, never
+/// from the previous one's titles.
 
 @ProviderFor(homeRecentTopics)
-final homeRecentTopicsProvider = HomeRecentTopicsProvider._();
+final homeRecentTopicsProvider = HomeRecentTopicsFamily._();
 
 /// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
 /// with solved/unread state, pictures and recent repliers. Distinct from
 /// [RecentTopics], the offline mirror.
+///
+/// Keyed on [viewer] (see [forumViewerProvider]): the feed honours the
+/// member's forum unlocks, so a new viewer must start from loading, never
+/// from the previous one's titles.
 
 final class HomeRecentTopicsProvider
     extends
@@ -960,19 +968,30 @@ final class HomeRecentTopicsProvider
   /// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
   /// with solved/unread state, pictures and recent repliers. Distinct from
   /// [RecentTopics], the offline mirror.
-  HomeRecentTopicsProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: forumRetry,
-        name: r'homeRecentTopicsProvider',
-        isAutoDispose: true,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
+  ///
+  /// Keyed on [viewer] (see [forumViewerProvider]): the feed honours the
+  /// member's forum unlocks, so a new viewer must start from loading, never
+  /// from the previous one's titles.
+  HomeRecentTopicsProvider._({
+    required HomeRecentTopicsFamily super.from,
+    required String? super.argument,
+  }) : super(
+         retry: forumRetry,
+         name: r'homeRecentTopicsProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
 
   @override
   String debugGetCreateSourceHash() => _$homeRecentTopicsHash();
+
+  @override
+  String toString() {
+    return r'homeRecentTopicsProvider'
+        ''
+        '($argument)';
+  }
 
   @$internal
   @override
@@ -982,11 +1001,56 @@ final class HomeRecentTopicsProvider
 
   @override
   FutureOr<List<ForumRecentTopic>> create(Ref ref) {
-    return homeRecentTopics(ref);
+    final argument = this.argument as String?;
+    return homeRecentTopics(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is HomeRecentTopicsProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
   }
 }
 
-String _$homeRecentTopicsHash() => r'9c128c8fb5413bf569b79784cc9532d836cc58ff';
+String _$homeRecentTopicsHash() => r'c0600a2bc790421a3d858f8bbddbde0fbb07232d';
+
+/// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
+/// with solved/unread state, pictures and recent repliers. Distinct from
+/// [RecentTopics], the offline mirror.
+///
+/// Keyed on [viewer] (see [forumViewerProvider]): the feed honours the
+/// member's forum unlocks, so a new viewer must start from loading, never
+/// from the previous one's titles.
+
+final class HomeRecentTopicsFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<List<ForumRecentTopic>>, String?> {
+  HomeRecentTopicsFamily._()
+    : super(
+        retry: forumRetry,
+        name: r'homeRecentTopicsProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
+  /// with solved/unread state, pictures and recent repliers. Distinct from
+  /// [RecentTopics], the offline mirror.
+  ///
+  /// Keyed on [viewer] (see [forumViewerProvider]): the feed honours the
+  /// member's forum unlocks, so a new viewer must start from loading, never
+  /// from the previous one's titles.
+
+  HomeRecentTopicsProvider call(String? viewer) =>
+      HomeRecentTopicsProvider._(argument: viewer, from: this);
+
+  @override
+  String toString() => r'homeRecentTopicsProvider';
+}
 
 /// A topic's latest-replies peek. Kept alive while the forum home is mounted
 /// ([forumHomeScopeProvider]), so a re-expanded card does not refetch; the

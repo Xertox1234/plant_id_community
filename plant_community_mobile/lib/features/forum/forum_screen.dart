@@ -75,10 +75,17 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
   /// (spec §4). Drop the per-viewer data. The forum feed is per member too
   /// (unread dots, locked forums), so it goes with it; only the offline mirror
   /// is the same for everyone and stays.
-  void _resetForViewer() {
+  ///
+  /// The forum feed and recent activity are keyed on the viewer
+  /// ([forumViewerProvider]): a [newViewer] reads fresh elements of both, so
+  /// they are only invalidated for a block. Invalidating them for a new
+  /// viewer would fetch once more for the viewer who just left.
+  void _resetForViewer({bool newViewer = false}) {
     ref.read(expandedActivityTopicProvider.notifier).collapse();
-    ref.invalidate(categoriesProvider);
-    ref.invalidate(homeRecentTopicsProvider);
+    if (!newViewer) {
+      ref.invalidate(categoriesProvider);
+      ref.invalidate(homeRecentTopicsProvider);
+    }
     ref.invalidate(latestRepliesProvider);
     ref.invalidate(communityStatsProvider);
     ref.invalidate(expertsProvider);
@@ -103,7 +110,7 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
         (s) =>
             (s.isAuthenticated, s.isAuthenticated ? s.firebaseUser?.uid : null),
       ),
-      (_, _) => _resetForViewer(),
+      (_, _) => _resetForViewer(newViewer: true),
     );
     final isAuthenticated = ref.watch(
       authServiceProvider.select((s) => s.isAuthenticated),
@@ -413,7 +420,9 @@ class _RecentActivitySection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final recentAsync = ref.watch(homeRecentTopicsProvider);
+    final recentAsync = ref.watch(
+      homeRecentTopicsProvider(ref.watch(forumViewerProvider)),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
