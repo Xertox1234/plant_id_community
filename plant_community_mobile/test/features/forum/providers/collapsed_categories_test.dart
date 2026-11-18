@@ -200,6 +200,12 @@ void main() {
       expect(await result, isTrue);
       expect(h.state, {1, 2});
       expect(h.api.collapsedSaves, isEmpty, reason: 'already the server list');
+
+      // A save that had nothing to send must not leave later taps unsaved.
+      expect(await h.notifier.toggle(5), isTrue);
+      expect(h.api.collapsedSaves, [
+        [1, 2, 5],
+      ]);
     });
 
     test(
@@ -217,6 +223,35 @@ void main() {
         expect(await result, isTrue);
         expect(h.state, {9});
         expect(h.api.collapsedSaves, isEmpty);
+
+        expect(await h.notifier.toggle(5), isTrue);
+        expect(h.api.collapsedSaves, [
+          [5, 9],
+        ]);
+      },
+    );
+
+    test(
+      'collapse then expand before the load, then a later tap saves',
+      () async {
+        final h = _harness(auth: signedInAs('u1'));
+        h.api.collapsedCategories = [1];
+        h.api.collapsedFetchGate = Completer<void>();
+        h.start();
+        await pumpEventQueue();
+
+        final a = h.notifier.toggle(3);
+        final b = h.notifier.toggle(3);
+        expect(h.state, isEmpty);
+        h.api.collapsedFetchGate!.complete();
+        expect(await Future.wait([a, b]), [true, true]);
+        expect(h.state, {1});
+        expect(h.api.collapsedSaves, isEmpty);
+
+        expect(await h.notifier.toggle(4), isTrue);
+        expect(h.api.collapsedSaves, [
+          [1, 4],
+        ]);
       },
     );
 

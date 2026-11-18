@@ -81,7 +81,7 @@ final class CollapsedCategoriesProvider
 }
 
 String _$collapsedCategoriesHash() =>
-    r'6ecebe465eae2d087476c189f3c55c43b55fca8a';
+    r'72ddb4056aacc04a1e3b650922bf6b3206beeb91';
 
 /// Which forum-index categories the viewer has collapsed (spec §7.5),
 /// matching the web's `useCollapsedCategories`.

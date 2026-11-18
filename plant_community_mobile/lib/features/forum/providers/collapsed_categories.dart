@@ -156,6 +156,11 @@ class CollapsedCategories extends _$CollapsedCategories {
         return false;
       }
     }
+    // Checked here, not only in the loop: a loop with nothing to send would
+    // finish before its first await, clear [_saving] in its `finally`, and
+    // only then be stored by the `??=` below as a completed future that
+    // every later toggle would join without saving.
+    if (_saving == null && setEquals(state, _confirmed)) return true;
     return _saving ??= _saveLoop(build);
   }
 
@@ -214,7 +219,8 @@ class CollapsedCategories extends _$CollapsedCategories {
   }
 
   /// Saves until the server holds the current set, one PUT at a time, so an
-  /// older set never lands last. A failure goes back to the last confirmed
+  /// older set never lands last. Only started when there is something to
+  /// send, so its first pass always awaits a PUT. A failure goes back to the last confirmed
   /// set and fails every toggle waiting on it.
   Future<bool> _saveLoop(int build) async {
     try {
