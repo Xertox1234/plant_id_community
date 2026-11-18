@@ -92,7 +92,7 @@ final collapsedCategoriesStoreProvider = Provider<CollapsedCategoriesStore>(
 /// touches the state, the device copy or the network once it is another's.
 ///
 /// A save PUTs the whole list, so it is only ever built from the member's
-/// server list with their flips re-applied, never from the device copy, and
+/// server list with their pending taps re-applied, never from the device copy, and
 /// only one is in flight at a time.
 @Riverpod(keepAlive: true)
 class CollapsedCategories extends _$CollapsedCategories {
@@ -103,8 +103,11 @@ class CollapsedCategories extends _$CollapsedCategories {
   /// The member's list as the server last confirmed it; null until loaded.
   Set<int>? _confirmed;
 
-  /// Ids flipped before [_confirmed] loaded, re-applied on top of it.
-  Set<int> _pending = {};
+  /// What each tap made before [_confirmed] loaded asked for (id to
+  /// collapsed; the last tap wins), forced onto whichever list lands. Not a
+  /// flip: the device copy and the server may disagree about an id, and a
+  /// flip re-applied to the other list would invert the tap.
+  Map<int, bool> _pending = {};
 
   Future<void> _deviceRead = Future<void>.value();
   Future<void> _deviceWrites = Future<void>.value();
@@ -134,9 +137,9 @@ class CollapsedCategories extends _$CollapsedCategories {
   /// left to tell the new viewer about.
   Future<bool> toggle(int categoryId) async {
     final build = _builds;
-    final flip = {categoryId};
-    state = _xor(state, flip);
-    if (_confirmed == null) _pending = _xor(_pending, flip);
+    final collapse = !state.contains(categoryId);
+    state = _with(state, {categoryId: collapse});
+    if (_confirmed == null) _pending[categoryId] = collapse;
     _writeDevice(build);
     if (_viewer == null) return true;
 
@@ -144,24 +147,32 @@ class CollapsedCategories extends _$CollapsedCategories {
       final loaded = await _ensureLoaded(build);
       if (_superseded(build)) return true;
       if (!loaded) {
-        state = _xor(state, flip);
-        _pending = _xor(_pending, flip);
-        _writeDevice(build);
+        // Undone, unless a later tap on the same id has replaced this one.
+        if (_pending[categoryId] == collapse) {
+          _pending.remove(categoryId);
+          state = _with(state, {categoryId: !collapse});
+          _writeDevice(build);
+        }
         return false;
       }
     }
     return _saving ??= _saveLoop(build);
   }
 
-  static Set<int> _xor(Set<int> a, Set<int> b) =>
-      a.difference(b).union(b.difference(a));
+  /// [base] with each id in [taps] collapsed (true) or expanded (false).
+  static Set<int> _with(Set<int> base, Map<int, bool> taps) => {
+    for (final id in base)
+      if (taps[id] != false) id,
+    for (final e in taps.entries)
+      if (e.value) e.key,
+  };
 
   Future<void> _readDevice(int build) async {
     final stored = await ref
         .read(collapsedCategoriesStoreProvider)
         .load(_viewer);
     if (_superseded(build) || _confirmed != null) return;
-    state = _xor(stored ?? const {}, _pending);
+    state = _with(stored ?? const {}, _pending);
   }
 
   /// Queues a write of the current state, after the device read (so a flip
@@ -185,7 +196,7 @@ class CollapsedCategories extends _$CollapsedCategories {
     if (_superseded(build)) return false;
     final confirmed = server.toSet();
     _confirmed = confirmed;
-    state = _xor(confirmed, _pending);
+    state = _with(confirmed, _pending);
     _pending = {};
     _writeDevice(build);
     return true;

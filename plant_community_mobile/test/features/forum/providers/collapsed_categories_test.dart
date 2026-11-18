@@ -184,6 +184,62 @@ void main() {
       expect(h.store.guest, {1, 2});
     });
 
+    test('a tap on a stale device copy keeps what it asked for', () async {
+      // The device shows 9 collapsed; the server no longer has it. The tap
+      // expands 9, so 9 stays expanded on the server's list.
+      final h = _harness(auth: signedInAs('u1'));
+      h.store.member = (uid: 'u1', ids: {9});
+      h.api.collapsedCategories = [1, 2];
+      h.api.collapsedFetchGate = Completer<void>();
+      h.start();
+      await pumpEventQueue();
+
+      final result = h.notifier.toggle(9);
+      expect(h.state, isEmpty);
+      h.api.collapsedFetchGate!.complete();
+      expect(await result, isTrue);
+      expect(h.state, {1, 2});
+      expect(h.api.collapsedSaves, isEmpty, reason: 'already the server list');
+    });
+
+    test(
+      'a collapse before the first load never wipes the server list',
+      () async {
+        final h = _harness(auth: signedInAs('u1'));
+        h.api.collapsedCategories = [9];
+        h.api.collapsedFetchGate = Completer<void>();
+        h.start();
+        await pumpEventQueue();
+
+        final result = h.notifier.toggle(9);
+        expect(h.state, {9});
+        h.api.collapsedFetchGate!.complete();
+        expect(await result, isTrue);
+        expect(h.state, {9});
+        expect(h.api.collapsedSaves, isEmpty);
+      },
+    );
+
+    test(
+      'a guest tap during the device read keeps what it asked for',
+      () async {
+        final h = _harness();
+        h.store.guest = {2};
+        h.store.loadGate = Completer<void>();
+        h.start();
+
+        final result = h.notifier.toggle(2);
+        expect(h.state, {
+          2,
+        }, reason: 'it showed expanded, so the tap collapses');
+        h.store.loadGate!.complete();
+        expect(await result, isTrue);
+        await pumpEventQueue();
+        expect(h.state, {2});
+        expect(h.store.guest, {2});
+      },
+    );
+
     test('a failed load is retried by the toggle', () async {
       final h = _harness(auth: signedInAs('u1'));
       h.api.collapsedCategories = [1];

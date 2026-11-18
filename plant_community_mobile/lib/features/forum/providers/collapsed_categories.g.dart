@@ -19,7 +19,7 @@ part of 'collapsed_categories.dart';
 /// touches the state, the device copy or the network once it is another's.
 ///
 /// A save PUTs the whole list, so it is only ever built from the member's
-/// server list with their flips re-applied, never from the device copy, and
+/// server list with their pending taps re-applied, never from the device copy, and
 /// only one is in flight at a time.
 
 @ProviderFor(CollapsedCategories)
@@ -36,7 +36,7 @@ final collapsedCategoriesProvider = CollapsedCategoriesProvider._();
 /// touches the state, the device copy or the network once it is another's.
 ///
 /// A save PUTs the whole list, so it is only ever built from the member's
-/// server list with their flips re-applied, never from the device copy, and
+/// server list with their pending taps re-applied, never from the device copy, and
 /// only one is in flight at a time.
 final class CollapsedCategoriesProvider
     extends $NotifierProvider<CollapsedCategories, Set<int>> {
@@ -51,7 +51,7 @@ final class CollapsedCategoriesProvider
   /// touches the state, the device copy or the network once it is another's.
   ///
   /// A save PUTs the whole list, so it is only ever built from the member's
-  /// server list with their flips re-applied, never from the device copy, and
+  /// server list with their pending taps re-applied, never from the device copy, and
   /// only one is in flight at a time.
   CollapsedCategoriesProvider._()
     : super(
@@ -81,7 +81,7 @@ final class CollapsedCategoriesProvider
 }
 
 String _$collapsedCategoriesHash() =>
-    r'6ac9ce08e5660b0027ea998f7918be57c3dc37bb';
+    r'6ecebe465eae2d087476c189f3c55c43b55fca8a';
 
 /// Which forum-index categories the viewer has collapsed (spec §7.5),
 /// matching the web's `useCollapsedCategories`.
@@ -94,7 +94,7 @@ String _$collapsedCategoriesHash() =>
 /// touches the state, the device copy or the network once it is another's.
 ///
 /// A save PUTs the whole list, so it is only ever built from the member's
-/// server list with their flips re-applied, never from the device copy, and
+/// server list with their pending taps re-applied, never from the device copy, and
 /// only one is in flight at a time.
 
 abstract class _$CollapsedCategories extends $Notifier<Set<int>> {
