@@ -1,0 +1,18 @@
+# Security headers for every page and asset (todo 706, audit 2026-11-10 M2).
+# Cloudflare Workers static assets read this file from web/dist, where Vite
+# copies everything in web/public.
+#
+# The CSP ships REPORT-ONLY first: it blocks nothing, and with no report
+# endpoint a violation only shows in the browser console. Promote it to
+# Content-Security-Policy once production shows no violations (todo 716 checks
+# the live headers after deploy).
+#
+# frame-ancestors keeps the API origin: the Wagtail CMS on
+# https://api.houseplant-md.com frames /blog/preview. Do not add
+# X-Frame-Options, which cannot allow that origin and would break the preview.
+# Referrer-Policy stays strict-origin-when-cross-origin, not no-referrer:
+# Django's CSRF check on the API reads Origin/Referer.
+/*
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Content-Type-Options: nosniff
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://api.houseplant-md.com wss://api.houseplant-md.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://fcm.googleapis.com; frame-src https://www.youtube-nocookie.com https://www.youtube.com https://player.vimeo.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self' https://api.houseplant-md.com https://accounts.google.com; frame-ancestors 'self' https://api.houseplant-md.com

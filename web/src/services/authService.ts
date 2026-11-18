@@ -13,7 +13,7 @@
  */
 
 import { logger } from '../utils/logger';
-import { getCsrfToken } from '../utils/csrf';
+import { clearCsrfToken, getCsrfToken } from '../utils/csrf';
 import { getOrCreateRequestId } from '../utils/requestId';
 // Composer drafts are keyed by topic/board, not user, and sessionStorage
 // outlives a logout — drop them so the next account in this tab never sees
@@ -23,6 +23,7 @@ import { releaseBrowserPushOnLogout } from './pushService';
 import type { User, LoginCredentials, SignupData, AuthResponse } from '../types/auth';
 import type { ApiError } from '../types/api';
 import { API_ORIGIN } from '@/config/api';
+import { isGoogleOAuthUrl, urlOrigin } from '../utils/oauthOrigin';
 
 // HTTPS in production is enforced where API_ORIGIN is defined (config/api.ts).
 
@@ -332,16 +333,62 @@ export function getStoredUser(): User | null {
 }
 
 /**
- * Refresh JWT access token using refresh token from cookie
- * SECURITY: Implements OWASP-compliant short access token lifetime (15 minutes)
- * Must be called every 10 minutes to prevent token expiration
+ * What a refresh attempt learned about the session (todo 706, audit M18).
  *
- * @returns true if refresh succeeded, false if failed (user should be logged out)
+ * - `ok`: new tokens are in the cookies.
+ * - `unauthorized`: the server refused the refresh token (400 missing, 401
+ *   invalid or already rotated). The session is over.
+ * - `unavailable`: a network error or any other status (a 5xx, a 429, the 503
+ *   `TOKEN_BLACKLIST_FAILED`). Nothing is known about the session, so callers
+ *   must not log the user out on it.
  */
-export async function refreshAccessToken(): Promise<boolean> {
+export type RefreshOutcome = 'ok' | 'unauthorized' | 'unavailable';
+
+/**
+ * One refresh at a time across every tab of this origin (todo 706, M18).
+ *
+ * The backend rotates the refresh token and blacklists the old one
+ * (`ROTATE_REFRESH_TOKENS` + `BLACKLIST_AFTER_ROTATION`). Two tabs, or the
+ * timer and the live-socket reconnect in one tab, that send the same refresh
+ * cookie at once: the first rotates it and the second gets 401 for a session
+ * that is still good. Browsers align background tabs' timers, and waking a
+ * laptop fires every tab's overdue timer together, so this overlap is common.
+ * Holding a Web Lock until the response has landed means the next caller's
+ * request carries the cookie the previous one set.
+ */
+const REFRESH_LOCK_NAME = 'houseplant-md:token-refresh';
+
+/**
+ * How long getting a CSRF token may take before the refresh is skipped. The
+ * deadline covers only the step before the POST is sent: the POST itself is
+ * never aborted, because the server may already have rotated (and blacklisted)
+ * the old refresh token, and dropping that response would log the user out.
+ */
+const CSRF_TIMEOUT_MS = 15_000;
+
+const CSRF_TIMED_OUT = Symbol('csrf-timed-out');
+
+async function getCsrfTokenWithin(ms: number): Promise<string | null | typeof CSRF_TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<typeof CSRF_TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(CSRF_TIMED_OUT), ms);
+  });
   try {
-    // Get CSRF token from centralized utility (handles caching + meta tag/API fallback)
-    const csrfToken = await getCsrfToken();
+    return await Promise.race([getCsrfToken(), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function postRefresh(csrfRetried = false): Promise<RefreshOutcome> {
+  try {
+    // Get CSRF token from centralized utility (handles caching + meta tag/API fallback).
+    // A hung CSRF fetch must not hold the cross-tab lock: give up before sending.
+    const csrfToken = await getCsrfTokenWithin(CSRF_TIMEOUT_MS);
+    if (csrfToken === CSRF_TIMED_OUT) {
+      logger.warn('[authService] CSRF token timed out; skipping this refresh');
+      return 'unavailable';
+    }
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-Request-ID': getOrCreateRequestId(),
@@ -360,16 +407,54 @@ export async function refreshAccessToken(): Promise<boolean> {
 
     if (!response.ok) {
       logger.warn('[authService] Token refresh failed', { status: response.status });
-      return false;
+      if (response.status === 403) {
+        // A CSRF refusal: the cached token may be stale (another tab rotated it).
+        // Retry once with a fresh token; a second 403 ends the session, as main did.
+        if (!csrfRetried) {
+          clearCsrfToken();
+          return postRefresh(true);
+        }
+        return 'unauthorized';
+      }
+      return response.status === 400 || response.status === 401 ? 'unauthorized' : 'unavailable';
     }
 
     // Token successfully refreshed (new tokens set in httpOnly cookies)
     logger.info('[authService] Access token refreshed successfully');
-    return true;
+    return 'ok';
   } catch (error) {
     logger.error('[authService] Token refresh error', { error });
-    return false;
+    return 'unavailable';
   }
+}
+
+/**
+ * Refresh the JWT access token from the refresh cookie, one caller at a time
+ * across tabs. Browsers without the Web Locks API (and jsdom) refresh directly.
+ */
+export async function refreshSession(): Promise<RefreshOutcome> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  if (!locks?.request) return postRefresh();
+  try {
+    return await locks.request(REFRESH_LOCK_NAME, () => postRefresh());
+  } catch (error) {
+    // The lock itself failed (e.g. a sandboxed or opaque origin): refresh anyway.
+    logger.warn('[authService] Refresh lock unavailable, refreshing without it', { error });
+    return postRefresh();
+  }
+}
+
+/**
+ * Refresh JWT access token using refresh token from cookie
+ * SECURITY: Implements OWASP-compliant short access token lifetime (15 minutes)
+ * Must be called every 10 minutes to prevent token expiration
+ *
+ * @returns true if refresh succeeded, false otherwise. Callers that decide
+ *   whether to log out use `refreshSession()`, which tells a refused token
+ *   from a network error.
+ */
+export async function refreshAccessToken(): Promise<boolean> {
+  return (await refreshSession()) === 'ok';
 }
 
 /**
@@ -413,6 +498,18 @@ export async function getGoogleOAuthUrl({
 
   const data: { oauth_url?: unknown } = await response.json();
   if (typeof data.oauth_url !== 'string' || !data.oauth_url) {
+    throw new Error('Google sign-in is currently unavailable. Please try again later.');
+  }
+
+  // Follow only a URL on Google's own origin (todo 706, audit L10): the
+  // backend builds it on https://accounts.google.com (oauth_views.py), and the
+  // caller hands it straight to window.location.assign. An exact origin
+  // comparison, never a prefix test: `https://accounts.google.com.evil.com`
+  // and `https://accounts.google.com@evil.com` both start with the right text.
+  if (!isGoogleOAuthUrl(data.oauth_url)) {
+    logger.error('[authService] Refusing an OAuth URL outside Google', {
+      origin: urlOrigin(data.oauth_url),
+    });
     throw new Error('Google sign-in is currently unavailable. Please try again later.');
   }
 

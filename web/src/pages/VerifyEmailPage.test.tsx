@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, MemoryRouter, Route, Routes } from 'react-router-dom';
 import VerifyEmailPage from './VerifyEmailPage';
 import {
   VerificationError,
@@ -128,5 +128,59 @@ describe('VerifyEmailPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /confirm my email/i }));
 
     expect(await screen.findByRole('heading', { name: /sign in to confirm/i })).toBeInTheDocument();
+  });
+});
+
+// The key is single-use; it must leave the address bar and history once read
+// (todo 706, audit M7). A real BrowserRouter, because MemoryRouter never
+// touches window.location and would pass vacuously.
+describe('VerifyEmailPage address bar (todo 706)', () => {
+  beforeEach(() => {
+    confirm.mockReset();
+    authState.user = { id: 7, email: 'ada@example.com', username: 'ada' };
+  });
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  function renderInBrowser(url: string) {
+    window.history.pushState(null, '', url);
+    return render(
+      <BrowserRouter>
+        <Routes>
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
+        </Routes>
+      </BrowserRouter>
+    );
+  }
+
+  it('removes the key from location.search and still confirms with it', async () => {
+    confirm.mockResolvedValue(undefined);
+    renderInBrowser('/verify-email?key=abc');
+
+    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(window.location.pathname).toBe('/verify-email');
+    // Still the confirm card, not "check your inbox".
+    expect(
+      screen.getByRole('heading', { name: /confirm your email address/i })
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /confirm my email/i }));
+    expect(confirm).toHaveBeenCalledWith('abc');
+  });
+
+  it('replaces the history entry, so Back cannot bring the key back', async () => {
+    const before = window.history.length;
+    renderInBrowser('/verify-email?key=abc');
+
+    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(window.history.length).toBe(before + 1); // the pushState above, nothing more
+  });
+
+  it('keeps other query parameters', async () => {
+    renderInBrowser('/verify-email?key=abc&utm_source=email');
+
+    await waitFor(() => expect(window.location.search).toBe('?utm_source=email'));
   });
 });
