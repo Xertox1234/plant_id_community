@@ -1118,18 +1118,37 @@ describe('authService', () => {
       await expect(refreshSession()).resolves.toBe('unauthorized');
     });
 
-    it('passes an abort signal so a hung refresh cannot hold the lock forever', async () => {
+    it('never aborts the refresh POST: a slow rotation still lands', async () => {
       fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) });
-      await refreshSession();
+      await expect(refreshSession()).resolves.toBe('ok');
       const call = fetchMock.mock.calls.find(([url]) =>
         String(url).includes('/auth/token/refresh/')
       );
-      expect((call?.[1] as RequestInit | undefined)?.signal).toBeInstanceOf(AbortSignal);
+      expect((call?.[1] as RequestInit | undefined)?.signal).toBeUndefined();
     });
 
-    it('a timed-out refresh is unavailable, not a logout', async () => {
-      fetchMock.mockRejectedValueOnce(new DOMException('timed out', 'TimeoutError'));
-      await expect(refreshSession()).resolves.toBe('unavailable');
+    it('a hung CSRF fetch releases the lock after 15 s without sending the refresh', async () => {
+      const names = installFakeLocks();
+      // No meta tag and an empty cache, as in production: getCsrfToken fetches /api/csrf/.
+      document.head.querySelector('meta[name="csrf-token"]')?.remove();
+      clearCsrfToken();
+      vi.useFakeTimers();
+      try {
+        fetchMock.mockImplementation((url: unknown) =>
+          String(url).includes('/auth/token/refresh/')
+            ? Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+            : new Promise(() => {})
+        );
+        const first = refreshSession();
+        await vi.advanceTimersByTimeAsync(15_000);
+        await expect(first).resolves.toBe('unavailable');
+        expect(
+          fetchMock.mock.calls.some(([url]) => String(url).includes('/auth/token/refresh/'))
+        ).toBe(false);
+        expect(names).toContain('houseplant-md:token-refresh');
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('a network error is unavailable, not a logout', async () => {

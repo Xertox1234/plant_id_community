@@ -188,9 +188,9 @@ No blocking findings. Handled by hand:
   and left a signed-in tab with a dead session, where main logged out. Now a
   403 clears the CSRF cache and retries once, and a second 403 is 'unauthorized'
   (tests in authService.test.ts).
-- **Fixed:** the refresh fetch had no timeout while holding the cross-tab Web
-  Lock. It now carries `AbortSignal.timeout(15 s)`, and a timeout is
-  'unavailable' (tests).
+- **Fixed (amended in round 3):** the refresh ran under the cross-tab lock with
+  no time bound. Round 1 added a 15 s abort on the POST; see round 2 for why that
+  was replaced.
 - **Fixed:** the `token_refresh` comment in backend/apps/users/views.py still
   said the web client logs out on any non-2xx.
 - **Declined:** `useOneTimeSearchParam` keeps the first value if the same
@@ -200,6 +200,26 @@ No blocking findings. Handled by hand:
 - **Declined:** `test_serialized_refreshes_both_succeed` pins backend rotation,
   not the lock. That is its purpose; the lock is covered by the fake-locks
   tests in authService.test.ts.
+
+### 2026-11-18 — review round 2 (PR #1373), blocked; owner approved round 3
+
+- **Blocking, fixed:** round 1's 15 s abort on the refresh POST could drop a
+  rotation the server had already completed (old token blacklisted, jar keeps
+  it), so the next tick logged the user out. The POST is no longer aborted, as on
+  main. The 15 s deadline now covers only getting the CSRF token, before anything
+  is sent; on timeout the refresh is skipped ('unavailable') and the lock is
+  released. Tests: the POST carries no signal, and a hung `/api/csrf/` releases
+  the lock without sending the refresh (fails without the deadline).
+- **Declined:** a POST that hangs still holds the lock until the browser's own
+  network timeout. Aborting it is what caused the blocker, and a hang there
+  affects every tab no worse than a dead network does.
+- **Declined:** `useOneTimeSearchParam` loses the token on a reload or remount,
+  ignores an in-place navigation to a new token, drops a `#fragment`, and has no
+  hook-level test. M7 trades away reload recovery on purpose, and the pages are
+  reached only by full page loads from email links. The hash claim in the doc
+  comment is corrected.
+- **Declined:** the race test's `assertNotIn("refresh_token", tab_b.cookies)` is
+  weak. The lock itself is covered by the web fake-locks tests.
 
 ## Notes
 

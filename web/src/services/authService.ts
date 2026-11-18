@@ -358,13 +358,37 @@ export type RefreshOutcome = 'ok' | 'unauthorized' | 'unavailable';
  */
 const REFRESH_LOCK_NAME = 'houseplant-md:token-refresh';
 
-/** A refresh that takes longer than this is abandoned, so the cross-tab lock is always released. */
-const REFRESH_TIMEOUT_MS = 15_000;
+/**
+ * How long getting a CSRF token may take before the refresh is skipped. The
+ * deadline covers only the step before the POST is sent: the POST itself is
+ * never aborted, because the server may already have rotated (and blacklisted)
+ * the old refresh token, and dropping that response would log the user out.
+ */
+const CSRF_TIMEOUT_MS = 15_000;
+
+const CSRF_TIMED_OUT = Symbol('csrf-timed-out');
+
+async function getCsrfTokenWithin(ms: number): Promise<string | null | typeof CSRF_TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<typeof CSRF_TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(CSRF_TIMED_OUT), ms);
+  });
+  try {
+    return await Promise.race([getCsrfToken(), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function postRefresh(csrfRetried = false): Promise<RefreshOutcome> {
   try {
-    // Get CSRF token from centralized utility (handles caching + meta tag/API fallback)
-    const csrfToken = await getCsrfToken();
+    // Get CSRF token from centralized utility (handles caching + meta tag/API fallback).
+    // A hung CSRF fetch must not hold the cross-tab lock: give up before sending.
+    const csrfToken = await getCsrfTokenWithin(CSRF_TIMEOUT_MS);
+    if (csrfToken === CSRF_TIMED_OUT) {
+      logger.warn('[authService] CSRF token timed out; skipping this refresh');
+      return 'unavailable';
+    }
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-Request-ID': getOrCreateRequestId(),
@@ -379,11 +403,6 @@ async function postRefresh(csrfRetried = false): Promise<RefreshOutcome> {
       method: 'POST',
       headers,
       credentials: 'include', // Include cookies (refresh token)
-      // Runs under the cross-tab lock: a hung request must not stall every tab.
-      signal:
-        typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
-          ? AbortSignal.timeout(REFRESH_TIMEOUT_MS)
-          : undefined,
     });
 
     if (!response.ok) {

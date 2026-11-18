@@ -10,7 +10,7 @@ import { useSearchParams } from 'react-router-dom';
  * the URL (a shared screenshot, a bookmark) and in error reports. The value is
  * captured on the first render and held in state, so the page keeps working
  * after the URL loses it; the URL is then replaced (not pushed), so Back does
- * not bring the token back either. Other query parameters and the hash stay.
+ * not bring the token back either. Other query parameters stay (a #fragment may not).
  */
 export function useOneTimeSearchParam(name: string): string {
   const [params, setParams] = useSearchParams();
