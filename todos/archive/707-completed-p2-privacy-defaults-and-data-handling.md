@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "707"
 tags: [privacy, backend, firebase, web, legal]
@@ -80,7 +80,7 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
       no unkeyed hash (tests).
 - [x] Emulator tests show an unverified Firebase user cannot write, and
       Storage refuses every upload.
-- [ ] The `User` zip_code/latitude/longitude columns stay (near_me and
+- [x] The `User` zip_code/latitude/longitude columns stay (near_me and
       weather alerts read them); the decline is recorded in the Work Log with
       its date.
 - [x] M11 has a dated owner decision in the Work Log.
@@ -193,6 +193,38 @@ deletion routes (L15), both with todo 702.
   declined: `garden_calendar/api/views.py` reads zip_code, latitude and
   longitude for near_me and weather alerts. The criterion was rewritten to a
   checkable decline with the owner's approval.
+
+### 2026-11-17 - Checked by the todo sweep (run 2026-11-18-0148)
+
+- Verify-only, no code changed. `backend/apps/users/models.py` still
+  declares `zip_code`, `latitude` and `longitude`, and no migration in
+  `backend/apps/users/migrations/` removes them.
+- `backend/apps/garden_calendar/api/views.py` reads them for `near_me` and the
+  weather-alert location filter. The decline is recorded above, dated
+  2026-11-10 and 2026-11-17.
+- The other five criteria were already checked at the merge-base.
+
+### 2026-11-18 - Verified by the todo sweep (run 2026-11-18-0148)
+
+- AC 5: `grep -nE "^    (zip_code|latitude|longitude) = models|user\.(zip_code|latitude|longitude)|^### 2026-11-(10|17)|Declined:|declined:" backend/apps/users/models.py backend/apps/garden_calendar/api/views.py todos/archive/707-completed-p2-privacy-defaults-and-data-handling.md` — evidence `.sweep-evidence/g4/707-ac4.txt` (not committed), last lines:
+
+  ```text
+  backend/apps/garden_calendar/api/views.py:189:                    latitude__lte=user.latitude + lat_diff,
+  backend/apps/garden_calendar/api/views.py:190:                    longitude__gte=user.longitude - lon_diff,
+  backend/apps/garden_calendar/api/views.py:191:                    longitude__lte=user.longitude + lon_diff,
+  backend/apps/garden_calendar/api/views.py:459:            if hasattr(user, "zip_code") and user.zip_code:
+  backend/apps/garden_calendar/api/views.py:460:                location_filter |= Q(zip_code=user.zip_code)
+  ```
+
+### 2026-11-18 - Completed by the todo sweep (run 2026-11-18-0148)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-18 - Review round 2: non-blocking findings
+
+- The evidence file `707-ac4.txt` is 0-indexed, while the Work Log says
+  "AC 5" (1-indexed). Both name the same criterion, the column decline.
+  Declined: a naming difference only.
 
 ## Notes
 
