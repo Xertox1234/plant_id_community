@@ -4,6 +4,9 @@ priority: p2
 issue_id: "704"
 tags: [mobile, flutter, firebase, auth, security]
 dependencies: []
+triage: ready
+triaged: 2026-11-17
+owner_decision: "Split (owner 2026-11-17): H7, M13, L8, L9 ship now; H8 Sign in with Apple, M14 and M17 (device/console) move to todo 715"
 ---
 
 # Mobile auth: password reset, Sign in with Apple, sign-out cleanup, token storage
@@ -70,13 +73,16 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 - [ ] A widget test drives "Forgot password?" from the login screen to
       `sendPasswordResetEmail`.
 - [ ] Sign in with Apple completes on a real iPhone — record the date and
-      result here.
+      result here. → todo 715 (re-pointed 2026-11-17)
 - [ ] After a forced session expiry, the push token is unregistered and the
       Firestore cache is empty (test).
 - [ ] Upgrading over an installed build keeps the user signed in on iOS and
-      Android — record the date and devices here.
+      Android — record the date and devices here. → todo 715 (re-pointed 2026-11-17)
 - [ ] Firebase password policy minimum is 14 — record the date and the
-      console value here.
+      console value here. → todo 715 (re-pointed 2026-11-17)
+- [ ] L8: auth failures show fixed messages, never raw exception text (test).
+- [ ] L9: when the Firebase `delete()` throws after a terms decline, the
+      delete is retried or queued and the user is not left signed in (test).
 - [ ] `flutter test` and `flutter analyze` are clean.
 
 ## Work Log
@@ -85,6 +91,14 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 
 - Deferred by the audit: H8 and M14 need a device, M17 an owner console
   change; none was safe to ship unverified.
+
+### 2026-11-17 - Triage: split (owner decision)
+
+- H7, M13, L8 and L9 ship in this todo. H8 (Sign in with Apple), M14
+  (secure-storage options, refresh token, allowBackup) and M17 (Firebase
+  password policy) move to todo 715: each needs Apple/Firebase console setup
+  or a device upgrade check. Criteria for L8 and L9 added; the three
+  device/console criteria re-pointed to 715.
 
 ## Notes
 

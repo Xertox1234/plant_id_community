@@ -4,6 +4,9 @@ priority: p2
 issue_id: "708"
 tags: [backend, dependencies, dependabot, ci]
 dependencies: []
+triage: ready
+triaged: 2026-11-17
+owner_decision: "Owner 2026-11-17: pip-tools (pip-compile), no hashes (the -e wagtail_forum line cannot be hashed); dev tools (pytest, mypy, ruff, ...) move to requirements-dev.in/.txt so the production image drops them, CI installs both. The post-merge Dependabot criterion moves to todo 711"
 ---
 
 # Backend: split requirements.txt into requirements.in + a compiled lock
@@ -73,7 +76,7 @@ PR #1303).
 - [ ] The full backend suite passes, run repo-wide (not app-scoped).
 - [ ] The Docker image builds and `pip-audit -r requirements.txt` passes.
 - [ ] The first Dependabot pip PR after merge installs without a resolver
-      conflict (record the PR number and date here).
+      conflict (record the PR number and date here). → todo 711 (re-pointed 2026-11-17)
 
 ## Work Log
 

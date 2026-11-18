@@ -4,6 +4,9 @@ priority: p2
 issue_id: "706"
 tags: [web, security, headers, cloudflare, auth]
 dependencies: []
+triage: ready
+triaged: 2026-11-17
+owner_decision: "Split (owner 2026-11-17): M7 replaceState, L10 OAuth origin check, report-only CSP + Referrer-Policy in web/public/_headers (frame-ancestors must allow https://api.houseplant-md.com), M18 two-tab repro ship now; Cloudflare HSTS (M1) and the post-deploy curl/Sentry checks move to todo 716"
 ---
 
 # Web: HSTS, security headers, tokens in the address bar, session lifecycle
@@ -62,16 +65,20 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 ## Acceptance Criteria
 
 - [ ] `curl -sI https://houseplant-md.com` and the API host show an HSTS
-      max-age of at least 15552000 — record the date and both header lines.
+      max-age of at least 15552000 — record the date and both header lines. → todo 716 (re-pointed 2026-11-17)
 - [ ] `curl -sI https://houseplant-md.com/settings` shows the CSP and
       `Referrer-Policy`, and the CMS blog preview still renders — record the
-      date and result.
+      date and result. → todo 716 (re-pointed 2026-11-17)
 - [ ] After `/verify-email?key=…` and `/unsubscribe?token=…` load,
       `location.search` is empty (tests).
 - [ ] The two-tab refresh race is reproduced or shown not to exist; if real, a
       test covers the fix.
 - [ ] A Sentry event from production carries no query string — record the
-      date and event id.
+      date and event id. → todo 716 (re-pointed 2026-11-17)
+- [ ] `web/public/_headers` sets `Referrer-Policy`, `X-Content-Type-Options`
+      and a report-only CSP whose `frame-ancestors` is
+      `'self' https://api.houseplant-md.com` (a test reads the file).
+- [ ] L10: an `oauth_url` outside the API origin is not followed (test).
 
 ## Work Log
 
@@ -79,6 +86,13 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 
 - Deferred by the audit: headers can only be verified after a deploy, and a
   wrong `frame-ancestors` breaks the CMS preview.
+
+### 2026-11-17 - Triage: split (owner decision)
+
+- The code slice ships here: M7 replaceState, the report-only CSP and
+  `Referrer-Policy` in `web/public/_headers`, the M18 two-tab repro, and the
+  L10 origin check (criteria added for `_headers` and L10). The Cloudflare
+  HSTS change (M1) and the three post-deploy checks move to todo 716.
 
 ## Notes
 
