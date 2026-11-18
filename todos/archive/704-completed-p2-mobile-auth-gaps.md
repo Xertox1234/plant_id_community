@@ -193,6 +193,37 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 - A sign-out Firebase reports (a revoked token) cannot flush, so it now keeps the cache, as main did; the PR's test for that path was changed to say so. The push token is still deleted on every path.
 - New tests in `plant_community_mobile/test/services/auth_service_test.dart`: the flush runs before `firebase.signOut` on both paths (checked by moving it after the sign-out, which fails the test), and a flush that never completes keeps the cache.
 
+### 2026-11-18 - Review rounds 1 and 2: non-blocking findings
+
+Round 1's one blocking finding (the cache clear dropped queued writes) was
+repaired above. The rest are declined for this PR. None is a regression the PR
+introduced that loses data; the race items are narrow and bounded:
+
+- Teardown racing a fast re-sign-in (FCM token revoked or Firestore
+  terminated under the new session; several phrasings, both rounds): declined
+  here. The window is a few seconds right after a sign-out, and the next app
+  start re-registers the token. Worth a generation guard with the 715 device
+  work.
+- Offline sign-out with queued writes waits up to 5 s (round 2, medium):
+  declined. The bounded wait is what keeps those writes. With no pending
+  writes it returns at once, and on timeout the cache is kept, as main did.
+- Sign-out steps run one after another (up to about 20 s offline): declined,
+  same reason. Each step is bounded and the UI flips first on expiry.
+- declineTerms sets `_offlineCacheSafeToClear` after the delete, so the
+  listener can end the session first and keep the deleted account's cache:
+  declined. The account is deleted, and a kept cache is what main always did.
+- A flush timeout keeps the old account's cache for the next user: declined,
+  main's behaviour; a uid-change clear belongs with 715.
+- A write queued between the flush and the clear: declined, tiny window.
+- Reset rate-limit copy reads like sign-in, the dialog's result is not a live
+  region, and the tap target is unchecked on narrow widths: declined, copy and
+  a11y polish.
+- The `ref.read` calls in `_endDeviceSession` are outside a try, and the
+  offline decline retry takes about 2.5 s: declined, low.
+- Test gaps (a revokeDeviceToken unit test, decline-path teardown, the
+  unregister-before-delete order): declined, low. The sign-out paths are
+  covered by the harness tests and the mutation checks.
+
 ## Notes
 
 H7 and H8 are rated high in the audit; the todo is P2 because the mobile app
