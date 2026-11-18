@@ -220,6 +220,12 @@ deletion routes (L15), both with todo 702.
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-11-18 - Review round 2: non-blocking findings
+
+- The evidence file `707-ac4.txt` is 0-indexed, while the Work Log says
+  "AC 5" (1-indexed). Both name the same criterion, the column decline.
+  Declined: a naming difference only.
+
 ## Notes
 
 Step 1 (replay rate) needed no decision and is done. Step 5 (Storage
