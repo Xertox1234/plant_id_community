@@ -393,6 +393,15 @@ abstract class ForumApi {
     String? quietHoursEnd,
     String? timeZone,
   });
+
+  /// The ids of the categories the member has collapsed on the forum index
+  /// (`collapsed_categories` on `GET /forum/me/profile/`, auth required). A
+  /// missing or malformed list reads as none; a failed request throws.
+  Future<List<int>> fetchCollapsedCategories();
+
+  /// Replace the member's whole collapsed list
+  /// (`PUT /forum/me/collapsed-categories/`).
+  Future<void> saveCollapsedCategories(List<int> ids);
 }
 
 /// A report reason the backend accepts (`Report.REASON_CHOICES`), with its
@@ -1076,6 +1085,27 @@ class HttpForumApi implements ForumApi {
     );
     return ForumNotificationSettings.fromJson(
       resp.data as Map<String, dynamic>,
+    );
+  }
+
+  @override
+  Future<List<int>> fetchCollapsedCategories() async {
+    final resp = await _api.get('/forum/me/profile/');
+    final data = resp.data;
+    final ids = data is Map<String, dynamic>
+        ? data['collapsed_categories']
+        : null;
+    if (ids is! List) return const [];
+    return ids.whereType<int>().toList(growable: false);
+  }
+
+  @override
+  Future<void> saveCollapsedCategories(List<int> ids) async {
+    // A PUT sets the whole list, so it is naturally idempotent: no
+    // Idempotency-Key.
+    await _api.put(
+      '/forum/me/collapsed-categories/',
+      data: {'collapsed_categories': ids},
     );
   }
 }

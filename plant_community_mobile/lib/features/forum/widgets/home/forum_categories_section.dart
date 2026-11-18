@@ -12,14 +12,19 @@ import '../../utils/board_identity.dart';
 /// Gap between one category and the next.
 const double _categoryGap = AppSpacing.lg;
 
+/// How long a category's card takes to open or close, as the activity card.
+const Duration _collapseDuration = Duration(milliseconds: 250);
+
 /// The forum index: per category a header, then one grouped card of its
 /// forums. The whole row is the tap target (>= 48pt), and its press feedback
 /// is a `surface3` highlight rather than a scale (design spec §8.1).
 ///
 /// Locked forums and links are only drawn when [onLockedTap] / [onLinkTap] are
 /// given, so with both a category of locked forums or links only still draws;
-/// a category with nothing left to draw is skipped. The collapse
-/// chevron shows only when [onToggleCollapse] is given.
+/// a category with nothing left to draw is skipped. Categories collapse
+/// only when [onToggleCollapse] is given: then each header is the toggle,
+/// and a category in [collapsed] draws its header only. Ids in [collapsed]
+/// that match no category are ignored.
 class ForumCategoriesSection extends StatelessWidget {
   const ForumCategoriesSection({
     super.key,
@@ -41,6 +46,7 @@ class ForumCategoriesSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final blocks = <Widget>[];
+    final reduce = MediaQuery.disableAnimationsOf(context);
     for (final category in categories) {
       final forums = [
         for (final f in category.forums)
@@ -48,6 +54,21 @@ class ForumCategoriesSection extends StatelessWidget {
       ];
       final showLinks = onLinkTap != null && category.links.isNotEmpty;
       if (forums.isEmpty && !showLinks) continue;
+      final toggle = onToggleCollapse;
+      // Without a toggle nothing collapses: ids in [collapsed] are ignored.
+      final isCollapsed = toggle != null && collapsed.contains(category.id);
+      final card = CanopyGroupedCard(
+        rows: [
+          for (final forum in forums)
+            if (forum.isLocked)
+              _LockedRow(forum: forum, onTap: () => onLockedTap?.call(forum))
+            else
+              _ForumRow(forum: forum, onTap: () => onForumTap(forum)),
+          if (showLinks)
+            for (final link in category.links)
+              _LinkRow(link: link, onTap: () => onLinkTap!(link)),
+        ],
+      );
       blocks.add(
         Padding(
           key: ValueKey('category-${category.id}'),
@@ -55,22 +76,30 @@ class ForumCategoriesSection extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _CategoryHeader(category: category),
-              CanopyGroupedCard(
-                rows: [
-                  for (final forum in forums)
-                    if (forum.isLocked)
-                      _LockedRow(
-                        forum: forum,
-                        onTap: () => onLockedTap?.call(forum),
-                      )
-                    else
-                      _ForumRow(forum: forum, onTap: () => onForumTap(forum)),
-                  if (showLinks)
-                    for (final link in category.links)
-                      _LinkRow(link: link, onTap: () => onLinkTap!(link)),
-                ],
-              ),
+              if (toggle == null) ...[
+                _CategoryHeader(category: category),
+                card,
+              ] else ...[
+                _CollapsibleHeader(
+                  category: category,
+                  collapsed: isCollapsed,
+                  onTap: () => toggle(category),
+                ),
+                // Collapsed, the card is not built at all. Under reduced
+                // motion it is swapped without AnimatedSize, whose zero
+                // duration asserts during layout.
+                if (reduce)
+                  if (!isCollapsed) card else const SizedBox.shrink()
+                else
+                  AnimatedSize(
+                    duration: _collapseDuration,
+                    curve: Easing.emphasizedDecelerate,
+                    alignment: Alignment.topCenter,
+                    child: isCollapsed
+                        ? const SizedBox(width: double.infinity)
+                        : card,
+                  ),
+              ],
             ],
           ),
         ),
@@ -102,6 +131,79 @@ class _CategoryHeader extends StatelessWidget {
           icon.isEmpty ? category.title : '$icon ${category.title}',
           style: AppTypography.h3.copyWith(
             color: Theme.of(context).colorScheme.onSurface,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A category header that collapses its card: the whole row is the toggle
+/// (at least 48pt high), with a chevron that turns, and the unread dot while
+/// the category is collapsed and has something unread. The title, its style
+/// and spacing are [_CategoryHeader]'s.
+class _CollapsibleHeader extends StatelessWidget {
+  const _CollapsibleHeader({
+    required this.category,
+    required this.collapsed,
+    required this.onTap,
+  });
+
+  final ForumCategory category;
+  final bool collapsed;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final canopy = context.canopy;
+    final icon = category.icon.trim();
+    final reduce = MediaQuery.disableAnimationsOf(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Semantics(
+        header: true,
+        child: CanopyPressable(
+          onTap: onTap,
+          expanded: !collapsed,
+          semanticLabel:
+              '${collapsed ? 'Expand' : 'Collapse'} ${category.title}',
+          child: ExcludeSemantics(
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    icon.isEmpty ? category.title : '$icon ${category.title}',
+                    style: AppTypography.h3.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                if (collapsed && category.hasUnread) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  SizedBox.square(
+                    key: const ValueKey('category-unread-dot'),
+                    dimension: 8,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: canopy.leaf,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(width: AppSpacing.sm),
+                AnimatedRotation(
+                  turns: collapsed ? -0.25 : 0,
+                  duration: reduce ? Duration.zero : _collapseDuration,
+                  curve: Easing.emphasizedDecelerate,
+                  child: Icon(
+                    LucideIcons.chevronDown,
+                    size: 18,
+                    color: canopy.ink3,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

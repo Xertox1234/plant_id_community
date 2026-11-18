@@ -8,9 +8,11 @@ import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/core/theme/green_thumb_extension.dart';
 import 'package:plant_community_mobile/features/forum/forum_screen.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
+import 'package:plant_community_mobile/features/forum/providers/collapsed_categories.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_link_launcher.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_unlock_store.dart';
 import 'package:plant_community_mobile/features/forum/utils/board_identity.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_categories_section.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
@@ -48,6 +50,7 @@ ForumCategory _category(
   List<ForumBoard> forums, {
   String icon = '',
   List<ForumLink> links = const [],
+  bool hasUnread = false,
 }) => ForumCategory(
   id: id,
   title: title,
@@ -55,7 +58,7 @@ ForumCategory _category(
   description: '',
   icon: icon,
   colour: '',
-  hasUnread: false,
+  hasUnread: hasUnread,
   forums: forums,
   links: links,
 );
@@ -89,19 +92,29 @@ ForumLink _link(
   clickCount: clicks,
 );
 
-Widget _wrapHome(FakeForumApi api, {ForumLinkLauncher? launcher}) =>
-    ProviderScope(
-      overrides: [
-        if (launcher != null)
-          forumExternalLinkLauncherProvider.overrideWithValue(launcher),
-        forumApiProvider.overrideWithValue(api),
-        forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
-        authServiceProvider.overrideWith(
-          () => FakeAuthService(loggedIn: false),
-        ),
-      ],
-      child: const MaterialApp(home: ForumScreen()),
-    );
+Widget _wrapHome(
+  FakeForumApi api, {
+  ForumLinkLauncher? launcher,
+  AuthState? auth,
+  CollapsedCategoriesStore? collapsedStore,
+}) => ProviderScope(
+  overrides: [
+    collapsedCategoriesStoreProvider.overrideWithValue(
+      collapsedStore ?? FakeCollapsedCategoriesStore(),
+    ),
+    // Secure storage answers on real time, which a widget test never
+    // advances: a signed-in feed would wait on it for ever.
+    forumUnlockStoreProvider.overrideWithValue(FakeForumUnlockStore()),
+    if (launcher != null)
+      forumExternalLinkLauncherProvider.overrideWithValue(launcher),
+    forumApiProvider.overrideWithValue(api),
+    forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+    authServiceProvider.overrideWith(
+      () => FakeAuthService(loggedIn: false, initial: auth),
+    ),
+  ],
+  child: const MaterialApp(home: ForumScreen()),
+);
 
 void main() {
   group('ForumCategoriesSection', () {
@@ -944,6 +957,272 @@ void main() {
       expect(find.text('Nothing here yet.'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(minutes: 2));
+    });
+  });
+
+  group('collapsing', () {
+    List<ForumCategory> two({bool unread = true}) => [
+      _category(1, 'General', [_forum(1, 'Ferns')], hasUnread: unread),
+      _category(2, 'Community', [_forum(2, 'Swaps')]),
+    ];
+
+    testWidgets('a collapsed category hides its rows and shows its unread '
+        'dot', (tester) async {
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: two(),
+          onForumTap: (_) {},
+          collapsed: const {1},
+          onToggleCollapse: (_) {},
+        ),
+      );
+      expect(find.text('General'), findsOneWidget);
+      expect(find.text('Ferns'), findsNothing);
+      expect(find.text('Swaps'), findsOneWidget);
+      expect(find.byKey(const ValueKey('category-unread-dot')), findsOneWidget);
+    });
+
+    testWidgets('an expanded or read category shows no header dot', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: [
+            ...two(),
+            _category(3, 'Read', [_forum(3, 'Old')]),
+          ],
+          onForumTap: (_) {},
+          collapsed: const {3},
+          onToggleCollapse: (_) {},
+        ),
+      );
+      expect(find.byKey(const ValueKey('category-unread-dot')), findsNothing);
+    });
+
+    testWidgets('all categories collapsed shows only headers, no error', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: two(),
+          onForumTap: (_) {},
+          collapsed: const {1, 2},
+          onToggleCollapse: (_) {},
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.text('General'), findsOneWidget);
+      expect(find.text('Community'), findsOneWidget);
+      expect(find.byType(CanopyGroupedCard), findsNothing);
+    });
+
+    testWidgets('an unknown id in the set changes nothing', (tester) async {
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: two(),
+          onForumTap: (_) {},
+          collapsed: const {99},
+          onToggleCollapse: (_) {},
+        ),
+      );
+      expect(find.text('Ferns'), findsOneWidget);
+      expect(find.text('Swaps'), findsOneWidget);
+      expect(find.byType(CanopyGroupedCard), findsNWidgets(2));
+    });
+
+    testWidgets('a category with nothing to draw is still skipped', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: [_category(1, 'Empty', const []), ...two()],
+          onForumTap: (_) {},
+          collapsed: const {1},
+          onToggleCollapse: (_) {},
+        ),
+      );
+      expect(find.text('Empty'), findsNothing);
+    });
+
+    testWidgets('without onToggleCollapse: no chevron, no toggle, the set is '
+        'ignored', (tester) async {
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: two(),
+          onForumTap: (_) {},
+          collapsed: const {1},
+        ),
+      );
+      expect(find.byIcon(LucideIcons.chevronDown), findsNothing);
+      expect(find.text('Ferns'), findsOneWidget);
+      expect(
+        find.ancestor(
+          of: find.text('General'),
+          matching: find.byType(CanopyPressable),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('the header is one 48pt header button that says what it '
+        'does', (tester) async {
+      final handle = tester.ensureSemantics();
+      ForumCategory? tapped;
+      await _pump(
+        tester,
+        ForumCategoriesSection(
+          categories: [
+            _category(1, 'General', [_forum(1, 'A')], icon: '🌿'),
+            _category(2, 'Community', [_forum(2, 'B')]),
+          ],
+          onForumTap: (_) {},
+          collapsed: const {2},
+          onToggleCollapse: (c) => tapped = c,
+        ),
+      );
+      final open = tester.getSemantics(find.text('🌿 General'));
+      expect(open.label, 'Collapse General');
+      expect(open.flagsCollection.isHeader, isTrue);
+      expect(open.flagsCollection.isButton, isTrue);
+      final shut = tester.getSemantics(find.text('Community'));
+      expect(shut.label, 'Expand Community');
+      final header = find.ancestor(
+        of: find.text('🌿 General'),
+        matching: find.byType(CanopyPressable),
+      );
+      expect(tester.getSize(header).height, greaterThanOrEqualTo(48));
+      expect(find.byIcon(LucideIcons.chevronDown), findsNWidgets(2));
+
+      await tester.tap(find.text('🌿 General'));
+      expect(tapped?.id, 1);
+      handle.dispose();
+    });
+
+    for (final reduce in [false, true]) {
+      testWidgets(
+        'collapsing ${reduce ? 'does not move under' : 'animates '
+                  'without'} reduced motion',
+        (tester) async {
+          Widget section(Set<int> collapsed) => MediaQuery(
+            data: MediaQueryData(disableAnimations: reduce),
+            child: ForumCategoriesSection(
+              categories: two(),
+              onForumTap: (_) {},
+              collapsed: collapsed,
+              onToggleCollapse: (_) {},
+            ),
+          );
+          await _pump(tester, section(const {}));
+          await _pump(tester, section(const {1}));
+          // The card is never built once collapsed. Reduced motion: nothing
+          // animates the space it leaves, and the chevron turns at once.
+          expect(find.text('Ferns'), findsNothing);
+          if (!reduce) {
+            await tester.pump();
+            expect(tester.hasRunningAnimations, isTrue);
+          }
+          expect(
+            find.byType(AnimatedSize),
+            reduce ? findsNothing : findsWidgets,
+          );
+          final turn = tester.widget<AnimatedRotation>(
+            find.byType(AnimatedRotation).first,
+          );
+          expect(turn.duration, reduce ? Duration.zero : isNot(Duration.zero));
+          await tester.pumpAndSettle();
+        },
+      );
+    }
+  });
+
+  group('forum home collapsing', () {
+    List<ForumCategory> feed() => [
+      _category(1, 'General', [_forum(1, 'Ferns')]),
+    ];
+
+    testWidgets('a guest tap collapses and expands the category', (
+      tester,
+    ) async {
+      final api = FakeForumApi()..categories = feed();
+      final store = FakeCollapsedCategoriesStore();
+      await tester.pumpWidget(_wrapHome(api, collapsedStore: store));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('General'));
+      await tester.pumpAndSettle();
+      expect(find.text('Ferns'), findsNothing);
+      expect(store.guest, {1});
+      await tester.tap(find.text('General'));
+      await tester.pumpAndSettle();
+      expect(find.text('Ferns'), findsOneWidget);
+      expect(api.collapsedSaves, isEmpty);
+    });
+
+    testWidgets('a failed save puts it back and says so', (tester) async {
+      final api = FakeForumApi()
+        ..categories = feed()
+        ..collapsedSaveError = ApiException('x', statusCode: 500);
+      await tester.pumpWidget(_wrapHome(api, auth: signedInAs('u1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('General'));
+      await tester.pumpAndSettle();
+      expect(api.collapsedSaves, [
+        [1],
+      ]);
+      expect(find.text("Couldn't save. Try again."), findsOneWidget);
+      expect(find.text('Ferns'), findsOneWidget);
+    });
+
+    testWidgets('a member\'s saved list collapses the category', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..categories = feed()
+        ..collapsedCategories = [1];
+      await tester.pumpWidget(_wrapHome(api, auth: signedInAs('u1')));
+      await tester.pumpAndSettle();
+      expect(find.text('General'), findsOneWidget);
+      expect(find.text('Ferns'), findsNothing);
+    });
+
+    testWidgets('pull to refresh re-reads the member\'s list', (tester) async {
+      final api = FakeForumApi()..categories = feed();
+      await tester.pumpWidget(_wrapHome(api, auth: signedInAs('u1')));
+      await tester.pumpAndSettle();
+      expect(api.fetchCollapsedCalls, 1);
+      expect(find.text('Ferns'), findsOneWidget);
+
+      api.collapsedCategories = [1]; // collapsed on the web meanwhile
+      await tester.fling(find.text('General'), const Offset(0, 400), 1000);
+      await tester.pumpAndSettle();
+      expect(api.fetchCollapsedCalls, 2);
+      expect(find.text('Ferns'), findsNothing);
+    });
+
+    testWidgets('Retry on the forums re-reads the member\'s list', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..categoriesError = ApiException('x', statusCode: 404);
+      await tester.pumpWidget(_wrapHome(api, auth: signedInAs('u1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Could not load forums.'), findsOneWidget);
+      expect(api.fetchCollapsedCalls, 1);
+
+      api
+        ..categoriesError = null
+        ..categories = feed()
+        ..collapsedCategories = [1];
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(api.fetchCollapsedCalls, 2);
+      expect(find.text('General'), findsOneWidget);
+      expect(find.text('Ferns'), findsNothing);
     });
   });
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -12,6 +14,7 @@ import '../../shared/widgets/brand_mark.dart';
 import '../../shared/widgets/canopy_accents.dart';
 import '../../shared/widgets/canopy_surfaces.dart';
 import 'models/models.dart';
+import 'providers/collapsed_categories.dart';
 import 'providers/forum_providers.dart';
 import 'services/forum_api.dart';
 import 'services/forum_link_launcher.dart';
@@ -61,6 +64,8 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
   Future<void> _refresh(bool isAuthenticated) async {
     ref.read(expandedActivityTopicProvider.notifier).collapse();
     ref.invalidate(categoriesProvider);
+    // Alongside the categories, never before them (spec §7.5).
+    unawaited(ref.read(collapsedCategoriesProvider.notifier).refresh());
     ref.invalidate(homeRecentTopicsProvider);
     ref.invalidate(latestRepliesProvider);
     ref.invalidate(communityStatsProvider);
@@ -341,12 +346,16 @@ class _ForumsSectionState extends ConsumerState<_ForumsSection> {
   @override
   Widget build(BuildContext context) {
     final categoriesAsync = ref.watch(viewerCategoriesProvider);
+    final collapsed = ref.watch(collapsedCategoriesProvider);
     return _sectionState(
       categoriesAsync,
       loading: const _ForumsSkeleton(),
       error: _SectionError(
         message: 'Could not load forums.',
-        onRetry: () => ref.invalidate(categoriesProvider),
+        onRetry: () {
+          ref.invalidate(categoriesProvider);
+          unawaited(ref.read(collapsedCategoriesProvider.notifier).refresh());
+        },
       ),
       data: (categories) =>
           categories.every((c) => c.forums.isEmpty && c.links.isEmpty)
@@ -360,8 +369,22 @@ class _ForumsSectionState extends ConsumerState<_ForumsSection> {
               ),
               onLockedTap: _openLocked,
               onLinkTap: _openLink,
+              collapsed: collapsed,
+              onToggleCollapse: _toggleCollapse,
             ),
     );
+  }
+
+  Future<void> _toggleCollapse(ForumCategory category) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final saved = await ref
+        .read(collapsedCategoriesProvider.notifier)
+        .toggle(category.id);
+    if (!saved && mounted) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text("Couldn't save. Try again.")),
+      );
+    }
   }
 
   /// A password forum: a guest is asked to sign in, as other member-only

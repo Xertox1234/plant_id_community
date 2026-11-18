@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:plant_community_mobile/features/forum/live/forum_live_channel.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
+import 'package:plant_community_mobile/features/forum/providers/collapsed_categories.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_image_picker.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_unlock_store.dart';
@@ -136,6 +137,34 @@ class FakeForumUnlockStore implements ForumUnlockStore {
     clearCalls++;
     await clearGate?.future;
     stored = null;
+  }
+}
+
+/// In-memory [CollapsedCategoriesStore], keyed like the real one: one guest
+/// copy and one member copy tagged with its uid. [loadGate] holds [load]
+/// in flight.
+class FakeCollapsedCategoriesStore implements CollapsedCategoriesStore {
+  Set<int>? guest;
+  ({String uid, Set<int> ids})? member;
+  Completer<void>? loadGate;
+  int saveCalls = 0;
+
+  @override
+  Future<Set<int>?> load(String? viewer) async {
+    await loadGate?.future;
+    if (viewer == null) return guest == null ? null : Set.of(guest!);
+    final m = member;
+    return m != null && m.uid == viewer ? Set.of(m.ids) : null;
+  }
+
+  @override
+  Future<void> save(String? viewer, Set<int> ids) async {
+    saveCalls++;
+    if (viewer == null) {
+      guest = Set.of(ids);
+    } else {
+      member = (uid: viewer, ids: Set.of(ids));
+    }
   }
 }
 
@@ -498,6 +527,55 @@ class FakeForumApi implements ForumApi {
     final err = unlockError;
     if (err != null) throw err;
     return unlockToken;
+  }
+
+  /// The member's stored collapsed list ([fetchCollapsedCategories]); a
+  /// successful [saveCollapsedCategories] replaces it, as the server does.
+  List<int> collapsedCategories = [];
+  Object? collapsedFetchError;
+  int fetchCollapsedCalls = 0;
+
+  /// When set, [fetchCollapsedCategories] waits for it.
+  Completer<void>? collapsedFetchGate;
+
+  /// Every [saveCollapsedCategories] body, in order.
+  final List<List<int>> collapsedSaves = [];
+  Object? collapsedSaveError;
+
+  /// When non-empty, each save waits for the next gate (first in, first
+  /// out): holds that save in flight.
+  final List<Completer<void>> collapsedSaveGates = [];
+  int _collapsedSavesInFlight = 0;
+
+  /// The most saves ever in flight at once.
+  int maxCollapsedSavesInFlight = 0;
+
+  @override
+  Future<List<int>> fetchCollapsedCategories() async {
+    fetchCollapsedCalls++;
+    await collapsedFetchGate?.future;
+    final err = collapsedFetchError;
+    if (err != null) throw err;
+    return List.of(collapsedCategories);
+  }
+
+  @override
+  Future<void> saveCollapsedCategories(List<int> ids) async {
+    collapsedSaves.add(List.of(ids));
+    _collapsedSavesInFlight++;
+    if (_collapsedSavesInFlight > maxCollapsedSavesInFlight) {
+      maxCollapsedSavesInFlight = _collapsedSavesInFlight;
+    }
+    try {
+      if (collapsedSaveGates.isNotEmpty) {
+        await collapsedSaveGates.removeAt(0).future;
+      }
+      final err = collapsedSaveError;
+      if (err != null) throw err;
+      collapsedCategories = List.of(ids);
+    } finally {
+      _collapsedSavesInFlight--;
+    }
   }
 
   /// When set, [fetchCategories] waits for it: holds the feed in flight.
