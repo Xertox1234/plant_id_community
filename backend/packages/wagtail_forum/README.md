@@ -238,8 +238,9 @@ Wrong passwords are counted per member per forum
 and answer 429 past the limit. While locked, the forum's row on
 `/forum/categories/` carries `is_locked: true`, no `last_post_at` and no unread
 mark; its topic list is 403 `forum_locked` and its topics are 404; search,
-notifications and the digest leave it out. The flat `/forum/boards/` list (the
-Flutter app's) leaves a locked forum out until the app has an unlock screen.
+notifications and the digest leave it out. The flat `/forum/boards/` list
+leaves a forum out while it is locked for the request (a session or token
+unlock includes it).
 Staff and moderators bypass the password.
 
 A client with no session (the mobile app) keeps a forum unlocked with a token:

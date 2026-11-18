@@ -4,8 +4,7 @@ A locked forum's row is listed with a lock and nothing that reveals its
 topics; its topics are hidden until the member unlocks it with the password
 for their session. Wrong passwords count toward a per-member limit (429).
 Search, digest and notifications leave a locked forum out. The flat
-``/forum/boards/`` list (the Flutter app) leaves it out until the app has an
-unlock screen (owner decision 2026-10-30).
+``/forum/boards/`` list leaves it out while it is locked for the request.
 """
 
 from datetime import timedelta
@@ -525,6 +524,17 @@ def test_member_can_create_a_topic_and_reply_with_a_token(locked):
         ).status_code
         == 404
     )
+
+
+@pytest.mark.parametrize("path", ["", "posts/", "latest-replies/"])
+def test_a_topic_and_its_posts_open_with_a_token_and_no_session(locked, path):
+    client, member = _member()
+    token = _token(client)
+    fresh = _no_session(member)
+    url = f"/forum/topics/{locked['topic'].pk}/{path}"
+
+    assert fresh.get(url).status_code == 404
+    assert fresh.get(url, HTTP_X_FORUM_UNLOCK=token).status_code == 200
 
 
 def test_categories_row_is_unlocked_with_a_token(locked):
