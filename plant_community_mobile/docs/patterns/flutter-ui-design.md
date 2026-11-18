@@ -97,7 +97,9 @@ Cause analysis below is from the code (`lib/core/routing/main_shell.dart` etc.),
    greens. The Canopy accents (pollen/bloom/orchid, and `leaf`/`sky`/`berry`/`clay` on
    `GreenThumbExtension`) are essentially unused, and the web's accent `Tile` icon squares,
    `StatCard`, status `Chip`s and `HeroCard` have no Flutter equivalent in use. The five
-   forum boards are five identical text rows. Fix direction: build the missing primitives
+   forum boards were five identical text rows (since 2026-11 the forum tab draws a
+   category index: one grouped card per category, a row with an accent tile per forum,
+   link and password forums, collapsible headers). Fix direction: build the missing primitives
    (`CanopyTile`, `CanopyChip`, `CanopyStatCard`, `CanopyHeroCard`, progress meter) mirroring
    `web/src/components/ui/`, then give each board/category/care-type its own accent tile.
 3. **No brand presence.** Only the splash/home shows the logo. Fix direction: `BrandMark`

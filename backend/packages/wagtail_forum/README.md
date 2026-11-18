@@ -241,6 +241,9 @@ mark; its topic list is 403 `forum_locked` and its topics are 404; search,
 notifications and the digest leave it out. The flat `/forum/boards/` list
 leaves a forum out while it is locked for the request (a session or token
 unlock includes it).
+The mobile app reads `/forum/categories/` and no longer calls `/forum/boards/`;
+installed app builds from before the category index still do, so its shape
+must not change.
 Staff and moderators bypass the password.
 
 A client with no session (the mobile app) keeps a forum unlocked with a token:
