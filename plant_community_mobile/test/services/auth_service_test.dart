@@ -738,7 +738,7 @@ void main() {
         await pumpEventQueue();
         // The member is still signed in on screen: a late unlock answer and a
         // dead-token drop land now.
-        await unlocks.add(3, 't3');
+        await unlocks.add(3, 't3', forUid: 'ada');
         await unlocks.drop(1);
         expect(harness.api.forumUnlockTokens, isEmpty);
 

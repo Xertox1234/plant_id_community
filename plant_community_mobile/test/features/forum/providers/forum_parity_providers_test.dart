@@ -24,15 +24,19 @@ void main() {
     test('flips optimistically, then keeps the server state', () async {
       final api = FakeForumApi()..topicDetail = topicDetail(id: 10);
       final container = _container(api);
-      container.listen(topicDetailProvider(10), (_, _) {});
-      await container.read(topicDetailProvider(10).future);
+      container.listen(topicDetailProvider(10, null), (_, _) {});
+      await container.read(topicDetailProvider(10, null).future);
 
       final pending = container
-          .read(topicDetailProvider(10).notifier)
+          .read(topicDetailProvider(10, null).notifier)
           .toggleBookmark();
       // Optimistic: the flag is already flipped before the API resolves.
       expect(
-        container.read(topicDetailProvider(10)).asData!.value.isBookmarked,
+        container
+            .read(topicDetailProvider(10, null))
+            .asData!
+            .value
+            .isBookmarked,
         isTrue,
       );
       await pending;
@@ -40,7 +44,11 @@ void main() {
       expect(api.bookmarkCalls, [10]);
       expect(api.unbookmarkCalls, isEmpty);
       expect(
-        container.read(topicDetailProvider(10)).asData!.value.isBookmarked,
+        container
+            .read(topicDetailProvider(10, null))
+            .asData!
+            .value
+            .isBookmarked,
         isTrue,
       );
     });
@@ -49,15 +57,21 @@ void main() {
       final api = FakeForumApi()
         ..topicDetail = topicDetail(id: 10, isBookmarked: true);
       final container = _container(api);
-      container.listen(topicDetailProvider(10), (_, _) {});
-      await container.read(topicDetailProvider(10).future);
+      container.listen(topicDetailProvider(10, null), (_, _) {});
+      await container.read(topicDetailProvider(10, null).future);
 
-      await container.read(topicDetailProvider(10).notifier).toggleBookmark();
+      await container
+          .read(topicDetailProvider(10, null).notifier)
+          .toggleBookmark();
 
       expect(api.unbookmarkCalls, [10]);
       expect(api.bookmarkCalls, isEmpty);
       expect(
-        container.read(topicDetailProvider(10)).asData!.value.isBookmarked,
+        container
+            .read(topicDetailProvider(10, null))
+            .asData!
+            .value
+            .isBookmarked,
         isFalse,
       );
     });
@@ -67,16 +81,20 @@ void main() {
         ..topicDetail = topicDetail(id: 10)
         ..failBookmarkWith = ApiException('rate limited', statusCode: 429);
       final container = _container(api);
-      container.listen(topicDetailProvider(10), (_, _) {});
-      await container.read(topicDetailProvider(10).future);
+      container.listen(topicDetailProvider(10, null), (_, _) {});
+      await container.read(topicDetailProvider(10, null).future);
 
       await expectLater(
-        container.read(topicDetailProvider(10).notifier).toggleBookmark(),
+        container.read(topicDetailProvider(10, null).notifier).toggleBookmark(),
         throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 429)),
       );
 
       expect(
-        container.read(topicDetailProvider(10)).asData!.value.isBookmarked,
+        container
+            .read(topicDetailProvider(10, null))
+            .asData!
+            .value
+            .isBookmarked,
         isFalse,
       );
     });
@@ -97,19 +115,23 @@ void main() {
           ..topicDetail = topicDetail(id: 99, title: 'Newly saved');
         final container = _container(api);
         container.listen(bookmarksFeedProvider, (_, _) {});
-        container.listen(topicDetailProvider(99), (_, _) {});
+        container.listen(topicDetailProvider(99, null), (_, _) {});
         await container.read(bookmarksFeedProvider.future);
         await container.read(bookmarksFeedProvider.notifier).loadMore();
-        await container.read(topicDetailProvider(99).future);
+        await container.read(topicDetailProvider(99, null).future);
 
         // Bookmark: inserted at the top, every loaded page kept.
-        await container.read(topicDetailProvider(99).notifier).toggleBookmark();
+        await container
+            .read(topicDetailProvider(99, null).notifier)
+            .toggleBookmark();
         var items = container.read(bookmarksFeedProvider).asData!.value.items;
         expect(items.map((t) => t.id), [99, 1, 2, 3]);
         expect(items.first.title, 'Newly saved');
 
         // Unbookmark: the row goes, the rest stays.
-        await container.read(topicDetailProvider(99).notifier).toggleBookmark();
+        await container
+            .read(topicDetailProvider(99, null).notifier)
+            .toggleBookmark();
         items = container.read(bookmarksFeedProvider).asData!.value.items;
         expect(items.map((t) => t.id), [1, 2, 3]);
 
@@ -130,15 +152,20 @@ void main() {
           solvedPostId: 7,
         );
       final container = _container(api);
-      container.listen(topicDetailProvider(10), (_, _) {});
-      await container.read(topicDetailProvider(10).future);
+      container.listen(topicDetailProvider(10, null), (_, _) {});
+      await container.read(topicDetailProvider(10, null).future);
 
-      await container.read(topicDetailProvider(10).notifier).markSolution(5);
+      await container
+          .read(topicDetailProvider(10, null).notifier)
+          .markSolution(5);
 
       expect(api.markSolutionCalls, [
         {'topicId': 10, 'postId': 5},
       ]);
-      final detail = container.read(topicDetailProvider(10)).asData!.value;
+      final detail = container
+          .read(topicDetailProvider(10, null))
+          .asData!
+          .value;
       expect(detail.solvedPostId, 7);
       expect(detail.isSolved, isTrue);
     });
@@ -147,13 +174,18 @@ void main() {
       final api = FakeForumApi()
         ..topicDetail = topicDetail(id: 10, solvedPostId: 5);
       final container = _container(api);
-      container.listen(topicDetailProvider(10), (_, _) {});
-      await container.read(topicDetailProvider(10).future);
+      container.listen(topicDetailProvider(10, null), (_, _) {});
+      await container.read(topicDetailProvider(10, null).future);
 
-      await container.read(topicDetailProvider(10).notifier).clearSolution();
+      await container
+          .read(topicDetailProvider(10, null).notifier)
+          .clearSolution();
 
       expect(api.clearSolutionCalls, [10]);
-      final detail = container.read(topicDetailProvider(10)).asData!.value;
+      final detail = container
+          .read(topicDetailProvider(10, null))
+          .asData!
+          .value;
       expect(detail.solvedPostId, isNull);
       expect(detail.isSolved, isFalse);
     });
@@ -166,9 +198,9 @@ void main() {
           ..topicDetail = topicDetail(id: 10)
           ..failSolutionWith = ApiException('forbidden', statusCode: 403);
         final container = _container(api);
-        container.listen(topicDetailProvider(10), (_, _) {});
-        await container.read(topicDetailProvider(10).future);
-        final notifier = container.read(topicDetailProvider(10).notifier);
+        container.listen(topicDetailProvider(10, null), (_, _) {});
+        await container.read(topicDetailProvider(10, null).future);
+        final notifier = container.read(topicDetailProvider(10, null).notifier);
 
         await expectLater(
           notifier.markSolution(5),
@@ -177,7 +209,11 @@ void main() {
           ),
         );
         expect(
-          container.read(topicDetailProvider(10)).asData!.value.solvedPostId,
+          container
+              .read(topicDetailProvider(10, null))
+              .asData!
+              .value
+              .solvedPostId,
           isNull,
         );
 
@@ -198,9 +234,9 @@ void main() {
         ..posts = CursorPage(items: [post(id: 2, canReport: true)])
         ..failReportPostWith = ApiException('rate limited', statusCode: 429);
       final container = _container(api);
-      container.listen(topicPostsProvider(10), (_, _) {});
-      await container.read(topicPostsProvider(10).future);
-      final notifier = container.read(topicPostsProvider(10).notifier);
+      container.listen(topicPostsProvider(10, null), (_, _) {});
+      await container.read(topicPostsProvider(10, null).future);
+      final notifier = container.read(topicPostsProvider(10, null).notifier);
 
       await expectLater(
         notifier.reportPost(postId: 2, reason: 'spam', detail: 'again'),
@@ -237,21 +273,25 @@ void main() {
       );
       final api = FakeForumApi()..postPages = [page1, page2];
       final container = _container(api);
-      container.listen(topicPostsProvider(10), (_, _) {});
-      await container.read(topicPostsProvider(10).future);
-      await container.read(topicPostsProvider(10).notifier).loadMore();
+      container.listen(topicPostsProvider(10, null), (_, _) {});
+      await container.read(topicPostsProvider(10, null).future);
+      await container.read(topicPostsProvider(10, null).notifier).loadMore();
 
       container
           .read(authorBlockChangesProvider.notifier)
           .emit(username: 'alice', blocked: true);
-      var items = container.read(topicPostsProvider(10)).asData!.value.items;
+      var items = container
+          .read(topicPostsProvider(10, null))
+          .asData!
+          .value
+          .items;
       expect(items.map((p) => p.id), [1, 2, 3]);
       expect(items.map((p) => p.isBlocked), [true, false, true]);
 
       container
           .read(authorBlockChangesProvider.notifier)
           .emit(username: 'alice', blocked: false);
-      items = container.read(topicPostsProvider(10)).asData!.value.items;
+      items = container.read(topicPostsProvider(10, null)).asData!.value.items;
       expect(items.map((p) => p.isBlocked), [false, false, false]);
 
       expect(api.fetchPostsCalls, [null, page1.next]); // no refetch
@@ -270,9 +310,9 @@ void main() {
         );
       final container = _container(api);
       container.listen(forumUserProfileProvider('alice'), (_, _) {});
-      container.listen(topicPostsProvider(10), (_, _) {});
+      container.listen(topicPostsProvider(10, null), (_, _) {});
       await container.read(forumUserProfileProvider('alice').future);
-      await container.read(topicPostsProvider(10).future);
+      await container.read(topicPostsProvider(10, null).future);
 
       final pending = container
           .read(forumUserProfileProvider('alice').notifier)
@@ -297,7 +337,7 @@ void main() {
       // The thread underneath collapsed alice's post in place.
       expect(
         container
-            .read(topicPostsProvider(10))
+            .read(topicPostsProvider(10, null))
             .asData!
             .value
             .items
@@ -329,9 +369,9 @@ void main() {
         ..failBlockWith = ApiException('rate limited', statusCode: 429);
       final container = _container(api);
       container.listen(forumUserProfileProvider('alice'), (_, _) {});
-      container.listen(topicPostsProvider(10), (_, _) {});
+      container.listen(topicPostsProvider(10, null), (_, _) {});
       await container.read(forumUserProfileProvider('alice').future);
-      await container.read(topicPostsProvider(10).future);
+      await container.read(topicPostsProvider(10, null).future);
 
       await expectLater(
         container
@@ -350,7 +390,7 @@ void main() {
       );
       expect(
         container
-            .read(topicPostsProvider(10))
+            .read(topicPostsProvider(10, null))
             .asData!
             .value
             .items
@@ -394,9 +434,11 @@ void main() {
           final api = FakeForumApi()
             ..topicDetail = topicDetail(id: 5, isBookmarked: false);
           final container = _container(api);
-          container.listen(topicDetailProvider(5), (_, _) {});
-          await container.read(topicDetailProvider(5).future);
-          final notifier = container.read(topicDetailProvider(5).notifier);
+          container.listen(topicDetailProvider(5, null), (_, _) {});
+          await container.read(topicDetailProvider(5, null).future);
+          final notifier = container.read(
+            topicDetailProvider(5, null).notifier,
+          );
 
           final first = notifier.toggleBookmark();
           final second = notifier.toggleBookmark();
@@ -405,7 +447,11 @@ void main() {
           expect(api.bookmarkCalls, [5]);
           expect(api.unbookmarkCalls, isEmpty);
           expect(
-            container.read(topicDetailProvider(5)).asData!.value.isBookmarked,
+            container
+                .read(topicDetailProvider(5, null))
+                .asData!
+                .value
+                .isBookmarked,
             isTrue,
           );
         },
@@ -434,9 +480,9 @@ void main() {
         final api = FakeForumApi()
           ..topicDetail = topicDetail(id: 6, canMarkSolution: true);
         final container = _container(api);
-        container.listen(topicDetailProvider(6), (_, _) {});
-        await container.read(topicDetailProvider(6).future);
-        final notifier = container.read(topicDetailProvider(6).notifier);
+        container.listen(topicDetailProvider(6, null), (_, _) {});
+        await container.read(topicDetailProvider(6, null).future);
+        final notifier = container.read(topicDetailProvider(6, null).notifier);
 
         await Future.wait([notifier.markSolution(7), notifier.markSolution(7)]);
 

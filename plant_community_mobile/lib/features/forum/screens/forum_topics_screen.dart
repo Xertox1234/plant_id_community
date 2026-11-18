@@ -7,8 +7,10 @@ import '../../../core/constants/app_spacing.dart';
 import '../../../core/routing/main_shell.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/green_thumb_extension.dart';
+import '../../../services/api_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../shared/widgets/canopy_accents.dart';
+import '../../../shared/widgets/clay_button.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
 import '../utils/board_identity.dart';
@@ -50,6 +52,11 @@ class ForumTopicsScreen extends ConsumerWidget {
         ? boardIdentityOf(board)
         : boardIdentity(boardSlug, fallbackLabel: title);
     final tone = identity.tone.colorOf(context.canopy);
+    // A password forum this member has not unlocked (spec §7.4).
+    final locked = switch (topicsAsync.error) {
+      ApiException(code: 'forum_locked') => true,
+      _ => false,
+    };
 
     // Both: the header's counts come from the boards list, so a refresh that
     // only refetched the topics would leave "7 topics" above eight rows.
@@ -95,10 +102,21 @@ class ForumTopicsScreen extends ConsumerWidget {
               if (board != null) _BoardIntro(board: board),
               topicsAsync.when(
                 loading: () => const _TopicsSkeleton(),
-                error: (error, _) => _ErrorRetry(
-                  message: 'Could not load topics.',
-                  onRetry: refresh,
-                ),
+                error: (error, _) => locked
+                    ? _LockedState(
+                        tone: tone,
+                        // Replaces this list, so the unlock's own
+                        // replacement leaves one forum page, not two.
+                        onUnlock: () => context.pushReplacementNamed(
+                          'forumUnlock',
+                          pathParameters: {'slug': boardSlug},
+                          extra: boardTitle,
+                        ),
+                      )
+                    : _ErrorRetry(
+                        message: 'Could not load topics.',
+                        onRetry: refresh,
+                      ),
                 data: (paged) => _TopicsList(
                   paged: paged,
                   emptyIcon: identity.icon,
@@ -116,7 +134,7 @@ class ForumTopicsScreen extends ConsumerWidget {
           ),
         ),
       ),
-      floatingActionButton: isAuthenticated
+      floatingActionButton: isAuthenticated && !locked
           ? FloatingActionButton.extended(
               onPressed: () => _openComposer(context, ref, topicsProvider),
               icon: const Icon(LucideIcons.plus, size: 20),
@@ -334,6 +352,34 @@ class _LoadMoreButton extends StatelessWidget {
                 },
                 child: const Text('Load more'),
               ),
+      ),
+    );
+  }
+}
+
+/// In place of the topics when the forum needs a password: a lock, one
+/// line and an Unlock button.
+class _LockedState extends StatelessWidget {
+  const _LockedState({required this.tone, required this.onUnlock});
+  final Color tone;
+  final VoidCallback onUnlock;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl2),
+      child: Column(
+        children: [
+          CanopyAccentTile(icon: LucideIcons.lock, tone: tone, size: 48),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'This forum needs a password.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          ClayButton(label: 'Unlock', onPressed: onUnlock),
+        ],
       ),
     );
   }

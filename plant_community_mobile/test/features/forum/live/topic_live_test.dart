@@ -13,6 +13,7 @@ import 'package:plant_community_mobile/features/forum/live/topic_live.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/providers/forum_providers.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_unlock_store.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 
@@ -37,11 +38,22 @@ class _FakeSetting extends LiveUpdatesSetting {
 }
 
 class _Harness {
-  _Harness({this.loggedIn = true, this.liveOn = true, this.loadGate});
+  _Harness({
+    this.loggedIn = true,
+    this.liveOn = true,
+    this.loadGate,
+    this.auth,
+    this.store,
+  });
 
   final bool loggedIn;
   final bool liveOn;
   final Completer<void>? loadGate;
+
+  /// A named member (and their stored unlocks), in place of [loggedIn]'s
+  /// anonymous JWT.
+  final AuthState? auth;
+  final FakeForumUnlockStore? store;
   final api = FakeForumApi()
     ..topicDetail = topicDetail(replyCount: 1)
     ..posts = CursorPage(items: [post(id: 1), post(id: 2)]);
@@ -49,9 +61,10 @@ class _Harness {
   late final ProviderContainer container;
 
   TopicLiveState get live => container.read(topicLiveProvider(10));
+  String? get viewer => container.read(forumViewerProvider);
   TopicLive get notifier => container.read(topicLiveProvider(10).notifier);
   List<int> get ids => container
-      .read(topicPostsProvider(10))
+      .read(topicPostsProvider(10, viewer))
       .asData!
       .value
       .items
@@ -70,16 +83,18 @@ class _Harness {
           ),
         ),
         authServiceProvider.overrideWith(
-          () => FakeAuthService(loggedIn: loggedIn),
+          () => FakeAuthService(loggedIn: loggedIn, initial: auth),
         ),
+        if (store case final store?)
+          forumUnlockStoreProvider.overrideWithValue(store),
         liveUpdatesSettingProvider.overrideWith(
           () => _FakeSetting(liveOn, loadGate: loadGate),
         ),
         ...liveTestOverrides(connector),
       ],
     );
-    container.listen(topicPostsProvider(10), (_, _) {});
-    container.listen(topicDetailProvider(10), (_, _) {});
+    container.listen(topicPostsProvider(10, viewer), (_, _) {});
+    container.listen(topicDetailProvider(10, viewer), (_, _) {});
     await tester.pump();
     container.listen(topicLiveProvider(10), (_, _) {});
     await tester.pump();
@@ -121,6 +136,61 @@ void main() {
     await h.stop(tester);
   });
 
+  group('password forums', () {
+    // topicDetail()'s forum is id 1.
+    FakeForumUnlockStore holding(Map<int, String> tokens) =>
+        FakeForumUnlockStore(ForumUnlocks(uid: 'u1', tokens: tokens));
+
+    testWidgets('no live socket is opened for a topic in an unlocked '
+        'password forum', (tester) async {
+      final h = _Harness(auth: signedInAs('u1'), store: holding({1: 't1'}));
+      await h.start(tester);
+      await tester.pump();
+
+      expect(h.connector.connects, isEmpty);
+      expect(h.live.status, LiveStatus.off);
+      expect(h.live.gone, isFalse);
+
+      // Nor when the app comes back, or another screen uncovers it.
+      h.notifier
+        ..suspend()
+        ..resume()
+        ..setCovered(true)
+        ..setCovered(false);
+      await tester.pump();
+      expect(h.connector.connects, isEmpty);
+      expect(h.live.status, LiveStatus.off);
+      await h.stop(tester);
+    });
+
+    testWidgets('a token for another forum (staff read this one without '
+        'one) still connects', (tester) async {
+      final h = _Harness(auth: signedInAs('u1'), store: holding({2: 't2'}));
+      await h.start(tester);
+      await tester.pump();
+
+      expect(h.connector.connects, hasLength(1));
+      expect(h.live.status, LiveStatus.live);
+      await h.stop(tester);
+    });
+
+    testWidgets('the socket waits for the stored unlocks on a cold start', (
+      tester,
+    ) async {
+      final store = holding({1: 't1'})..loadGate = Completer<void>();
+      final h = _Harness(auth: signedInAs('u1'), store: store);
+      await h.start(tester);
+      expect(h.connector.connects, isEmpty);
+
+      store.loadGate!.complete();
+      await tester.pump();
+      await tester.pump();
+      expect(h.connector.connects, isEmpty);
+      expect(h.live.gone, isFalse);
+      await h.stop(tester);
+    });
+  });
+
   testWidgets('no socket when the setting is off', (tester) async {
     final h = _Harness(liveOn: false);
     await h.start(tester);
@@ -152,7 +222,11 @@ void main() {
     expect(h.api.peekCalls, 1);
     expect(h.live.pendingCount, 2);
     expect(
-      h.container.read(topicDetailProvider(10)).asData!.value.replyCount,
+      h.container
+          .read(topicDetailProvider(10, h.viewer))
+          .asData!
+          .value
+          .replyCount,
       3,
     );
     await h.stop(tester);
@@ -282,7 +356,9 @@ void main() {
     await tester.pump();
     // The reply is published and the thread re-walks its pages.
     h.api.posts = CursorPage(items: [post(id: 1), post(id: 2), post(id: 3)]);
-    await h.container.read(topicPostsProvider(10).notifier).refreshAfterReply();
+    await h.container
+        .read(topicPostsProvider(10, h.viewer).notifier)
+        .refreshAfterReply();
     h.notifier.endOwnReply();
     await tester.pump();
 
@@ -321,7 +397,11 @@ void main() {
     h.channel.serverEvent('post.updated', postId: 2);
     await tester.pump();
 
-    final items = h.container.read(topicPostsProvider(10)).asData!.value.items;
+    final items = h.container
+        .read(topicPostsProvider(10, h.viewer))
+        .asData!
+        .value
+        .items;
     expect(items[1].body, [const ParagraphBlock('edited')]);
     expect(h.live.pendingCount, 0);
     await h.stop(tester);
@@ -359,7 +439,7 @@ void main() {
 
     expect(h.api.peekCalls, peeksBefore + 1);
     expect(
-      h.container.read(topicDetailProvider(10)).asData!.value.locked,
+      h.container.read(topicDetailProvider(10, h.viewer)).asData!.value.locked,
       isTrue,
     );
     await h.stop(tester);
@@ -452,7 +532,11 @@ void main() {
     expect(h.live.pendingCount, 0);
     expect(h.live.introSeq, 0);
     expect(
-      h.container.read(topicDetailProvider(10)).asData!.value.replyCount,
+      h.container
+          .read(topicDetailProvider(10, h.viewer))
+          .asData!
+          .value
+          .replyCount,
       1,
     );
     await tester.pump(const Duration(minutes: 2));

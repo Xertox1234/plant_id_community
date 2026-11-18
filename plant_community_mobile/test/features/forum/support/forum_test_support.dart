@@ -488,9 +488,13 @@ class FakeForumApi implements ForumApi {
   Object? unlockError;
   final List<String> unlockBoardCalls = [];
 
+  /// When set, [unlockBoard] waits for it: the answer still on its way.
+  Completer<void>? unlockGate;
+
   @override
   Future<String?> unlockBoard(String slug, String password) async {
     unlockBoardCalls.add(slug);
+    await unlockGate?.future;
     final err = unlockError;
     if (err != null) throw err;
     return unlockToken;
@@ -555,6 +559,7 @@ class FakeForumApi implements ForumApi {
 
   /// When set, [fetchTopics] throws it.
   Object? topicsError;
+  int fetchTopicsCalls = 0;
 
   @override
   Future<CursorPage<ForumTopicListItem>> fetchTopics({
@@ -562,6 +567,7 @@ class FakeForumApi implements ForumApi {
     String? sort,
     String? cursorUrl,
   }) async {
+    fetchTopicsCalls++;
     final err = topicsError;
     if (err != null) throw err;
     return topics;

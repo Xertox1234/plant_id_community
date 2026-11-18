@@ -870,11 +870,15 @@ class ApiService {
         final envelopeCode = envelope?['code'];
 
         if (statusCode == 429) {
+          final retryAfter = e.response?.headers.value('retry-after');
           return ApiException(
             'Too many requests. Please wait a moment and try again.',
             statusCode: statusCode,
             code: envelopeCode is String ? envelopeCode : null,
             body: envelope,
+            retryAfterSeconds: retryAfter == null
+                ? null
+                : int.tryParse(retryAfter.trim()),
           );
         }
 
@@ -974,6 +978,10 @@ class ApiException implements Exception {
   /// extra fields (`job_id`, `kind`, `limit`, `resets_at`).
   final Map<String, dynamic>? body;
 
+  /// A 429's `Retry-After`, in seconds, when the header is a whole number of
+  /// seconds (the HTTP-date form is not read).
+  final int? retryAfterSeconds;
+
   /// True when no response came back because the device could not reach
   /// the server: a connection error or a timeout. Not set for a cancel, an
   /// unknown failure or a refresh that could not run, which also have no
@@ -987,6 +995,7 @@ class ApiException implements Exception {
     this.unstructured = false,
     this.body,
     this.connectivity = false,
+    this.retryAfterSeconds,
   });
 
   @override

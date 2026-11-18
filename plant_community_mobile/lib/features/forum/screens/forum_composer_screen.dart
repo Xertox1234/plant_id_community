@@ -219,7 +219,10 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
   bool _topicLocked() {
     if (!_isReply) return false;
     if (_lockedByServer) return true;
-    final topic = topicDetailProvider(widget.args.topicId!);
+    final topic = topicDetailProvider(
+      widget.args.topicId!,
+      ref.watch(forumViewerProvider),
+    );
     if (!ref.read(topic.exists)) return false;
     return ref.watch(topic).asData?.value.isLocked ?? false;
   }
@@ -231,7 +234,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     final topicId = widget.args.topicId!;
     try {
       final fresh = await _api.fetchTopicDetail(topicId, peek: true);
-      final topic = topicDetailProvider(topicId);
+      final topic = topicDetailProvider(topicId, ref.read(forumViewerProvider));
       if (mounted && ref.read(topic.exists)) {
         ref.read(topic.notifier).applyPeek(fresh);
       }

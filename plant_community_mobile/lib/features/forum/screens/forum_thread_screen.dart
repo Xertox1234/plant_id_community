@@ -46,10 +46,19 @@ class ForumThreadScreen extends ConsumerWidget {
   /// open — scrolled into view once, best-effort, by [_ThreadBody].
   final int? highlightPostId;
 
+  /// The current viewer's topic and thread: both are keyed on who reads
+  /// them (see [forumViewerProvider]), so a sign-out or an account switch
+  /// never leaves the previous member's thread on screen.
+  TopicDetailProvider _detailOf(WidgetRef ref) =>
+      topicDetailProvider(topicId, ref.read(forumViewerProvider));
+  TopicPostsProvider _postsOf(WidgetRef ref) =>
+      topicPostsProvider(topicId, ref.read(forumViewerProvider));
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final detail = ref.watch(topicDetailProvider(topicId));
-    final postsAsync = ref.watch(topicPostsProvider(topicId));
+    final viewer = ref.watch(forumViewerProvider);
+    final detail = ref.watch(topicDetailProvider(topicId, viewer));
+    final postsAsync = ref.watch(topicPostsProvider(topicId, viewer));
     final isAuthenticated = ref.watch(
       authServiceProvider.select((s) => s.isAuthenticated),
     );
@@ -105,7 +114,8 @@ class ForumThreadScreen extends ConsumerWidget {
                       const Center(child: CircularProgressIndicator()),
                   error: (error, _) => _ErrorRetry(
                     message: 'Could not load this thread.',
-                    onRetry: () => ref.invalidate(topicPostsProvider(topicId)),
+                    onRetry: () =>
+                        ref.invalidate(topicPostsProvider(topicId, viewer)),
                   ),
                   data: (paged) => _ThreadBody(
                     topicId: topicId,
@@ -113,11 +123,13 @@ class ForumThreadScreen extends ConsumerWidget {
                     canReact: isAuthenticated,
                     onReact: isAuthenticated
                         ? (postId, type) => ref
-                              .read(topicPostsProvider(topicId).notifier)
+                              .read(
+                                topicPostsProvider(topicId, viewer).notifier,
+                              )
                               .toggleReaction(postId, type)
                         : null,
                     onLoadMore: () => ref
-                        .read(topicPostsProvider(topicId).notifier)
+                        .read(topicPostsProvider(topicId, viewer).notifier)
                         .loadMore(),
                     onOpenLink: (href) => _openLink(context, ref, href),
                     onEdit: (post) => _openEdit(context, ref, post),
@@ -184,7 +196,7 @@ class ForumThreadScreen extends ConsumerWidget {
           .read(forumApiProvider)
           .fetchTopicDetail(topicId, peek: true);
       if (!context.mounted) return;
-      ref.read(topicDetailProvider(topicId).notifier).applyPeek(fresh);
+      ref.read(_detailOf(ref).notifier).applyPeek(fresh);
     } catch (_) {
       // The thread already refreshed; the topic header keeps what it had.
     }
@@ -236,9 +248,7 @@ class ForumThreadScreen extends ConsumerWidget {
       // plain `invalidate` (page 1 only) would leave it invisible on a
       // multi-page thread (todo 291) — walk every page instead.
       try {
-        await ref
-            .read(topicPostsProvider(topicId).notifier)
-            .refreshAfterReply();
+        await ref.read(_postsOf(ref).notifier).refreshAfterReply();
       } catch (_) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -250,15 +260,13 @@ class ForumThreadScreen extends ConsumerWidget {
           );
         }
       }
-      ref.invalidate(topicDetailProvider(topicId));
+      ref.invalidate(_detailOf(ref));
     }
   }
 
   Future<void> _toggleSubscription(BuildContext context, WidgetRef ref) async {
     try {
-      await ref
-          .read(topicDetailProvider(topicId).notifier)
-          .toggleSubscription();
+      await ref.read(_detailOf(ref).notifier).toggleSubscription();
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -281,7 +289,7 @@ class ForumThreadScreen extends ConsumerWidget {
     List<int> optionIds,
   ) async {
     try {
-      await ref.read(topicDetailProvider(topicId).notifier).votePoll(optionIds);
+      await ref.read(_detailOf(ref).notifier).votePoll(optionIds);
     } catch (e) {
       if (!context.mounted) return;
       final String message;
@@ -289,7 +297,7 @@ class ForumThreadScreen extends ConsumerWidget {
         message = e.message.isNotEmpty
             ? e.message
             : 'You have already voted in this poll.';
-        ref.invalidate(topicDetailProvider(topicId));
+        ref.invalidate(_detailOf(ref));
       } else {
         message = forumErrorMessage(
           e,
@@ -305,7 +313,7 @@ class ForumThreadScreen extends ConsumerWidget {
 
   Future<void> _toggleBookmark(BuildContext context, WidgetRef ref) async {
     try {
-      await ref.read(topicDetailProvider(topicId).notifier).toggleBookmark();
+      await ref.read(_detailOf(ref).notifier).toggleBookmark();
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -327,10 +335,9 @@ class ForumThreadScreen extends ConsumerWidget {
     WidgetRef ref,
     ForumPost post,
   ) async {
-    final notifier = ref.read(topicDetailProvider(topicId).notifier);
+    final notifier = ref.read(_detailOf(ref).notifier);
     final isCurrent =
-        ref.read(topicDetailProvider(topicId)).asData?.value.solvedPostId ==
-        post.id;
+        ref.read(_detailOf(ref)).asData?.value.solvedPostId == post.id;
     try {
       if (isCurrent) {
         await notifier.clearSolution();
@@ -369,7 +376,7 @@ class ForumThreadScreen extends ConsumerWidget {
     if (choice == null || !context.mounted) return;
     try {
       await ref
-          .read(topicPostsProvider(topicId).notifier)
+          .read(_postsOf(ref).notifier)
           .reportPost(
             postId: post.id,
             reason: choice.reason,
@@ -410,11 +417,11 @@ class ForumThreadScreen extends ConsumerWidget {
       extra: ForumComposeArgs.edit(post: post),
     );
     if (result != null) {
-      ref.read(topicPostsProvider(topicId).notifier).applyEditedPost(result);
+      ref.read(_postsOf(ref).notifier).applyEditedPost(result);
       // Same as _openReply below: refresh the single-object topic detail
       // (reply metadata etc.) — cheap, and unrelated to the paged-state
       // preservation applyEditedPost exists for (code review).
-      ref.invalidate(topicDetailProvider(topicId));
+      ref.invalidate(_detailOf(ref));
     }
   }
 
@@ -442,11 +449,11 @@ class ForumThreadScreen extends ConsumerWidget {
     );
     if (confirmed != true) return;
     try {
-      await ref.read(topicPostsProvider(topicId).notifier).deletePost(post.id);
+      await ref.read(_postsOf(ref).notifier).deletePost(post.id);
       // reply_count/last_post_at live on the topic detail, not the paged
       // post list — refresh it so a deletion is reflected immediately
       // rather than only on the next visit (code review).
-      ref.invalidate(topicDetailProvider(topicId));
+      ref.invalidate(_detailOf(ref));
     } on ApiException catch (e) {
       // The backend's 409 message is already specific and non-retry-implying
       // ("Topic is closed or locked.", "Opening posts cannot be deleted via

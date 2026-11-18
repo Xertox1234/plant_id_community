@@ -9,9 +9,16 @@ import 'package:plant_community_mobile/services/api_service.dart';
 /// Answers every request from memory and records the headers it was sent
 /// with. [statuses] are answered in order (the last one repeats).
 class _RecordingAdapter implements HttpClientAdapter {
-  _RecordingAdapter({this.statuses = const [200], this.body});
+  _RecordingAdapter({
+    this.statuses = const [200],
+    this.body,
+    this.headers = const {},
+  });
 
   final List<int> statuses;
+
+  /// Extra response headers, on every answer.
+  final Map<String, List<String>> headers;
 
   /// Answered instead of `{"ok": ...}` when set.
   final Map<String, dynamic>? body;
@@ -31,6 +38,7 @@ class _RecordingAdapter implements HttpClientAdapter {
       status,
       headers: {
         Headers.contentTypeHeader: [Headers.jsonContentType],
+        ...headers,
       },
     );
   }
@@ -177,6 +185,45 @@ void main() {
         endsWith('/forum/boards/secret/unlock/'),
       );
       expect(adapter.sent.single.method, 'POST');
+    });
+
+    test('a 429 on unlock makes exactly one request', () async {
+      adapter = _RecordingAdapter(
+        statuses: [429],
+        body: {'error': true, 'code': 'rate_limited'},
+        headers: {
+          'retry-after': ['840'],
+        },
+      );
+      api.dioForTesting.httpClientAdapter = adapter;
+
+      Object? refused;
+      try {
+        await HttpForumApi(api).unlockBoard('secret', 'pw');
+      } catch (e) {
+        refused = e;
+      }
+
+      expect(adapter.sent, hasLength(1));
+      expect(refused, isA<ApiException>());
+      final error = refused! as ApiException;
+      expect(error.statusCode, 429);
+      expect(error.retryAfterSeconds, 840);
+    });
+
+    test('a 503 on unlock is not re-sent either', () async {
+      adapter = _RecordingAdapter(statuses: [503]);
+      api.dioForTesting.httpClientAdapter = adapter;
+
+      await expectLater(
+        HttpForumApi(api).unlockBoard('secret', 'pw'),
+        throwsA(isA<ApiException>()),
+      );
+      expect(adapter.sent, hasLength(1));
+      expect(
+        adapter.sent.single.extra[ApiService.retryUnsafeRequestKey],
+        isNull,
+      );
     });
 
     test('null, empty or missing means nothing to unlock', () async {

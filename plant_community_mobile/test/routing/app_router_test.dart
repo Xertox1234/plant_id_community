@@ -13,6 +13,7 @@ import 'package:plant_community_mobile/features/forum/screens/forum_notification
 import 'package:plant_community_mobile/features/forum/screens/forum_search_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_thread_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_topics_screen.dart';
+import 'package:plant_community_mobile/features/forum/screens/forum_unlock_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_user_profile_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
@@ -540,6 +541,50 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
 
       expect(find.byType(ForumTopicsScreen), findsOneWidget);
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('the forumUnlock named route builds ForumUnlockScreen, not '
+        'the topic list of its :slug sibling', (tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          authServiceProvider.overrideWith(
+            _MockUnauthenticatedAuthNotifier.new,
+          ),
+          forumApiProvider.overrideWithValue(FakeForumApi()),
+          forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+
+      expect(
+        router.namedLocation(
+          'forumUnlock',
+          pathParameters: {'slug': 'rare-aroids'},
+        ),
+        '/forum/boards/rare-aroids/unlock',
+      );
+      router.goNamed(
+        'forumUnlock',
+        pathParameters: {'slug': 'rare-aroids'},
+        extra: 'Rare aroids',
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      final screen = tester.widget<ForumUnlockScreen>(
+        find.byType(ForumUnlockScreen),
+      );
+      expect(screen.boardSlug, 'rare-aroids');
+      expect(screen.boardTitle, 'Rare aroids');
+      expect(find.byType(ForumTopicsScreen), findsNothing);
       await tester.pump(const Duration(seconds: 4));
     });
 

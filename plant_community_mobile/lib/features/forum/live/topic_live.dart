@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../services/api_service.dart';
@@ -10,6 +9,7 @@ import '../../../services/auth_service.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
 import '../services/forum_api.dart';
+import '../services/forum_unlock_store.dart';
 import 'forum_live_channel.dart';
 import 'forum_live_client.dart';
 import 'forum_live_event.dart';
@@ -73,6 +73,12 @@ const _topicRefetchDelay = Duration(milliseconds: 500);
 /// A socket opens only for a signed-in reader with "Live updates" on while
 /// the app is shown. Every client callback is checked against the current
 /// client, so a closed, replaced or stopped connection changes nothing.
+///
+/// Never for a topic in a forum the reader holds an unlock token for: the
+/// server keeps live replies off for password forums and closes such a
+/// socket with 4404, which reads as "removed" (spec §7.4). It is live-off
+/// instead. Staff read a password forum without a token, and their socket
+/// works, so only a held token decides, not the forum having a password.
 @riverpod
 class TopicLive extends _$TopicLive {
   ForumLiveClient? _client;
@@ -93,14 +99,20 @@ class TopicLive extends _$TopicLive {
   bool _introAsked = false;
   Timer? _topicTimer;
 
+  /// Who reads the topic (see [forumViewerProvider]): the topic and its
+  /// posts are keyed on it.
+  String? _viewer;
+
   @override
   TopicLiveState build(int topicId) {
-    final signedIn = ref.watch(
-      authServiceProvider.select((s) => s.isAuthenticated),
-    );
+    // Null when signed out. A change (sign-out, another member) rebuilds.
+    final viewer = ref.watch(forumViewerProvider);
+    _viewer = viewer;
     final enabled = ref.watch(liveUpdatesSettingProvider);
     ref.onDispose(_shutdown);
-    if (!signedIn || !enabled || _suspended) return const TopicLiveState();
+    if (viewer == null || !enabled || _suspended) {
+      return const TopicLiveState();
+    }
     final client = _newClient();
     _client = client;
     // Started after build returns (the client reports its first status
@@ -109,10 +121,60 @@ class TopicLive extends _$TopicLive {
     final loaded = ref.read(liveUpdatesSettingProvider.notifier).loaded;
     unawaited(
       loaded.then((_) {
-        if (identical(client, _client)) client.start();
+        if (identical(client, _client)) unawaited(_startIfAllowed(client));
       }),
     );
     return const TopicLiveState(status: LiveStatus.connecting);
+  }
+
+  /// Starts [client] unless the reader holds an unlock token for the
+  /// topic's forum, which it may first have to wait for: the stored tokens
+  /// (a cold start) and the topic (its forum id). Held off, it is live-off.
+  Future<void> _startIfAllowed(ForumLiveClient client) async {
+    var allowed = _allowedNow();
+    if (allowed == null) {
+      try {
+        final held = await ref.read(forumUnlocksProvider.future);
+        if (!ref.mounted || !identical(client, _client)) return;
+        if (held.isEmpty) {
+          allowed = true;
+        } else {
+          final topic = await ref.read(
+            topicDetailProvider(topicId, _viewer).future,
+          );
+          if (!ref.mounted || !identical(client, _client)) return;
+          allowed = !ref
+              .read(forumUnlocksProvider)
+              .requireValue
+              .containsKey(topic.board.id);
+        }
+      } catch (_) {
+        // No topic, so no forum id: nothing to show live either.
+        allowed = false;
+      }
+    }
+    if (!ref.mounted || !identical(client, _client)) return;
+    if (allowed) {
+      client.start();
+    } else {
+      _closeClient();
+      state = state.copyWith(status: LiveStatus.off);
+    }
+  }
+
+  /// Whether the socket may open, when that is already known; null while
+  /// the stored unlocks or the topic are still loading.
+  bool? _allowedNow() {
+    final held = ref.read(forumUnlocksProvider).value;
+    if (held == null) return null;
+    if (held.isEmpty) return true;
+    final forumId = ref
+        .read(topicDetailProvider(topicId, _viewer))
+        .value
+        ?.board
+        .id;
+    if (forumId == null) return null;
+    return !held.containsKey(forumId);
   }
 
   /// The scroll position, from the screen: a live reply slides in only when
@@ -161,7 +223,8 @@ class TopicLive extends _$TopicLive {
     if (!signedIn || !ref.read(liveUpdatesSettingProvider)) return;
     final client = _newClient();
     _client = client;
-    client.start();
+    // Synchronous when the answer is known, as before.
+    unawaited(_startIfAllowed(client));
   }
 
   /// The reader's own reply is being written: hold `post.created` events
@@ -189,7 +252,9 @@ class TopicLive extends _$TopicLive {
   Future<int?> takePending() async {
     final taken = state.pendingCount;
     try {
-      await ref.read(topicPostsProvider(topicId).notifier).refreshAfterReply();
+      await ref
+          .read(topicPostsProvider(topicId, _viewer).notifier)
+          .refreshAfterReply();
     } catch (_) {
       return null;
     }
@@ -266,7 +331,7 @@ class TopicLive extends _$TopicLive {
   }
 
   PagedList<ForumPost>? get _posts =>
-      ref.read(topicPostsProvider(topicId)).asData?.value;
+      ref.read(topicPostsProvider(topicId, _viewer)).asData?.value;
 
   bool _inList(int postId) => _posts?.items.any((p) => p.id == postId) ?? false;
 
@@ -287,7 +352,7 @@ class TopicLive extends _$TopicLive {
         state.status != LiveStatus.live) {
       return;
     }
-    ref.read(topicDetailProvider(topicId).notifier).applyPeek(fresh);
+    ref.read(topicDetailProvider(topicId, _viewer).notifier).applyPeek(fresh);
     final posts = _posts;
     if (_ownReplies > 0 || posts == null || posts.hasMore) return;
     final loaded = posts.items.where((p) => !p.isOpeningPost).length;
@@ -341,7 +406,9 @@ class TopicLive extends _$TopicLive {
     final posts = _posts;
     if (posts == null) return;
     if (_atBottom && !posts.hasMore && state.pendingCount == 0) {
-      ref.read(topicPostsProvider(topicId).notifier).applyLivePost(post);
+      ref
+          .read(topicPostsProvider(topicId, _viewer).notifier)
+          .applyLivePost(post);
       state = state.copyWith(
         flashIds: {...state.flashIds, postId},
         slideIds: {...state.slideIds, postId},
@@ -363,14 +430,16 @@ class TopicLive extends _$TopicLive {
       _updating.remove(postId);
     }
     if (!ref.mounted || post == null) return;
-    ref.read(topicPostsProvider(topicId).notifier).applyEditedPost(post);
+    ref
+        .read(topicPostsProvider(topicId, _viewer).notifier)
+        .applyEditedPost(post);
   }
 
   void _removed(int postId) {
-    ref.read(topicPostsProvider(topicId).notifier).removeLocal(postId);
+    ref.read(topicPostsProvider(topicId, _viewer).notifier).removeLocal(postId);
     clearFlash(postId);
     final solved = ref
-        .read(topicDetailProvider(topicId))
+        .read(topicDetailProvider(topicId, _viewer))
         .asData
         ?.value
         .solvedPostId;
@@ -392,7 +461,7 @@ class TopicLive extends _$TopicLive {
       return;
     }
     if (!ref.mounted || state.gone) return;
-    ref.read(topicDetailProvider(topicId).notifier).applyPeek(fresh);
+    ref.read(topicDetailProvider(topicId, _viewer).notifier).applyPeek(fresh);
   }
 
   void _goGone() {

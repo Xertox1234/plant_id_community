@@ -165,8 +165,20 @@ AsyncValue<List<ForumBoard>> boards(Ref ref) {
   return const AsyncLoading();
 }
 
-/// Topics in a board, cursor-paginated with [loadMore].
-@riverpod
+/// Signed in ([viewer] not null), waits for the member's stored unlock
+/// tokens, so a read opened first on a cold start (a push, a deep link)
+/// already carries them, as [Categories] does. A guest never waits. The
+/// unlocks never fail the read: it is sent without them.
+Future<void> _awaitUnlocks(Ref ref, String? viewer) async {
+  if (viewer == null) return;
+  try {
+    await ref.read(forumUnlocksProvider.future);
+  } catch (_) {}
+}
+
+/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// answers 403 `forum_locked`, which [forumRetry] does not re-request.
+@Riverpod(retry: forumRetry)
 class BoardTopics extends _$BoardTopics {
   /// Bumped by every [build]: see [loadMore].
   int _builds = 0;
@@ -180,9 +192,9 @@ class BoardTopics extends _$BoardTopics {
     String? viewer,
   ) async {
     _builds++;
-    final page = await ref
-        .watch(forumApiProvider)
-        .fetchTopics(boardSlug: boardSlug);
+    final api = ref.watch(forumApiProvider);
+    await _awaitUnlocks(ref, viewer);
+    final page = await api.fetchTopics(boardSlug: boardSlug);
     return PagedList(items: page.items, nextUrl: page.next);
   }
 
@@ -236,9 +248,12 @@ class TopicDetail extends _$TopicDetail {
   String? _solutionKey;
   String? _solutionFingerprint;
 
+  /// [viewer] keys the topic on who reads it, as [BoardTopics] does.
   @override
-  Future<ForumTopicDetail> build(int topicId) {
-    return ref.watch(forumApiProvider).fetchTopicDetail(topicId);
+  Future<ForumTopicDetail> build(int topicId, String? viewer) async {
+    final api = ref.watch(forumApiProvider);
+    await _awaitUnlocks(ref, viewer);
+    return api.fetchTopicDetail(topicId);
   }
 
   /// Replace the topic with a fresh peek read (live replies: the catch-up on
@@ -518,8 +533,9 @@ class TopicPosts extends _$TopicPosts {
   String? _reportKey;
   String? _reportFingerprint;
 
+  /// [viewer] keys the thread on who reads it, as [BoardTopics] does.
   @override
-  Future<PagedList<ForumPost>> build(int topicId) async {
+  Future<PagedList<ForumPost>> build(int topicId, String? viewer) async {
     // Before the first await: a block/unblock performed on a profile pushed
     // over this thread splices every loaded post by that author in place
     // (todo 341) — see [AuthorBlockChanges] for why this is not an
@@ -529,7 +545,9 @@ class TopicPosts extends _$TopicPosts {
         applyAuthorBlocked(change.username, blocked: change.blocked);
       }
     });
-    final page = await ref.watch(forumApiProvider).fetchPosts(topicId: topicId);
+    final api = ref.watch(forumApiProvider);
+    await _awaitUnlocks(ref, viewer);
+    final page = await api.fetchPosts(topicId: topicId);
     return PagedList(items: page.items, nextUrl: page.next);
   }
 

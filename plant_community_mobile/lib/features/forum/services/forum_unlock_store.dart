@@ -195,15 +195,18 @@ class ForumUnlocksController extends _$ForumUnlocksController {
     ]);
   }
 
-  /// Keep [token] for [forumId] (a fresh unlock). A no-op when signed out.
-  Future<void> add(int forumId, String token) async {
-    if (token.isEmpty) return;
+  /// Keep [token] for [forumId] (a fresh unlock) for the member [forUid]: the
+  /// uid that sent the password. A no-op when signed out, and when the
+  /// signed-in member is no longer [forUid] (an account switch while the
+  /// unlock was out), so one member's token is never kept under another's.
+  Future<void> add(int forumId, String token, {required String forUid}) async {
+    if (token.isEmpty || forUid.isEmpty) return;
     await _mutate((tokens) {
       // Removed first so the newest unlock is last: it is sent first.
       tokens
         ..remove(forumId)
         ..[forumId] = token;
-    });
+    }, forUid: forUid);
   }
 
   /// Forget [forumId]'s token. With [ifToken], only when the stored token is
@@ -226,11 +229,18 @@ class ForumUnlocksController extends _$ForumUnlocksController {
     await ref.read(forumUnlockStoreProvider).clear();
   }
 
-  Future<void> _mutate(void Function(Map<int, String> tokens) change) async {
+  /// With [forUid], only while that member is this build's member. An
+  /// account switch invalidates this provider, so [future] waits for the new
+  /// member's build and [_uid] is theirs by then.
+  Future<void> _mutate(
+    void Function(Map<int, String> tokens) change, {
+    String? forUid,
+  }) async {
     final build = _builds;
     await future;
     final uid = _uid;
     if (_superseded(build) || uid == null) return;
+    if (forUid != null && forUid != uid) return;
     final current = state.value ?? const <int, String>{};
     final next = Map<int, String>.of(current);
     change(next);

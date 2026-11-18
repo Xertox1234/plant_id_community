@@ -172,7 +172,7 @@ void main() {
       final store = FakeForumUnlockStore();
       final first = _Harness(auth: signedInAs('u1'), store: store);
       await first.unlocks();
-      await first.notifier.add(5, 't5');
+      await first.notifier.add(5, 't5', forUid: 'u1');
       first.dispose();
 
       // A new launch: the session restores after the first frame.
@@ -230,8 +230,8 @@ void main() {
       addTearDown(h.dispose);
       await h.unlocks();
 
-      await h.notifier.add(1, 't1');
-      await h.notifier.add(2, 't2');
+      await h.notifier.add(1, 't1', forUid: 'u1');
+      await h.notifier.add(2, 't2', forUid: 'u1');
       expect(h.apiService.forumUnlockTokens, ['t2', 't1'], reason: 'newest');
       expect(store.stored?.uid, 'u1');
       expect(store.stored?.tokens, {1: 't1', 2: 't2'});
@@ -245,6 +245,52 @@ void main() {
       await h.notifier.clear();
       expect(await h.unlocks(), isEmpty);
       expect(store.stored, isNull);
+      expect(h.apiService.forumUnlockTokens, isEmpty);
+    });
+
+    test('add for another member stores nothing', () async {
+      final store = FakeForumUnlockStore();
+      final h = _Harness(auth: signedInAs('u1'), store: store);
+      addTearDown(h.dispose);
+      await h.unlocks();
+
+      await h.notifier.add(1, 't1', forUid: 'u2');
+
+      expect(await h.unlocks(), isEmpty);
+      expect(store.saveCalls, 0);
+      expect(h.apiService.forumUnlockTokens, isEmpty);
+    });
+
+    test('an unlock answer that lands after an account switch is not stored '
+        'under the new member', () async {
+      final store = FakeForumUnlockStore();
+      final h = _Harness(auth: signedInAs('u1'), store: store);
+      addTearDown(h.dispose);
+      await h.unlocks();
+
+      // u1 sent the password; the account switched before the answer, and
+      // nothing has read the unlocks since (the rebuild is lazy).
+      h.setAuth(signedInAs('u2'));
+      await h.notifier.add(1, 't1', forUid: 'u1');
+      await pumpEventQueue();
+
+      expect(store.saveCalls, 0);
+      expect(store.stored, isNull);
+      expect(await h.unlocks(), isEmpty);
+      expect(h.apiService.forumUnlockTokens, isEmpty);
+    });
+
+    test('an unlock answer that lands after sign-out is not stored', () async {
+      final store = FakeForumUnlockStore();
+      final h = _Harness(auth: signedInAs('u1'), store: store);
+      addTearDown(h.dispose);
+      await h.unlocks();
+
+      h.setAuth(const AuthState());
+      await h.notifier.add(1, 't1', forUid: 'u1');
+      await pumpEventQueue();
+
+      expect(store.saveCalls, 0);
       expect(h.apiService.forumUnlockTokens, isEmpty);
     });
 
@@ -312,8 +358,8 @@ void main() {
       expect(api.fetchCategoriesCalls, 1);
       // Unlocked again (forum 1) and for the first time (forum 2) while
       // the request that answers "locked" is still out.
-      await h.notifier.add(1, 'new');
-      await h.notifier.add(2, 't2');
+      await h.notifier.add(1, 'new', forUid: 'u1');
+      await h.notifier.add(2, 't2', forUid: 'u1');
       api.fetchCategoriesGate!.complete();
       await feed;
       await pumpEventQueue();
@@ -412,7 +458,7 @@ void main() {
       final h = _Harness(auth: signedInAs('u1'), store: store, api: api);
       addTearDown(h.dispose);
       await h.categories();
-      await h.notifier.add(1, 't1');
+      await h.notifier.add(1, 't1', forUid: 'u1');
 
       api.categoriesError = ApiException('down', statusCode: 503);
       h.container.invalidate(categoriesProvider);

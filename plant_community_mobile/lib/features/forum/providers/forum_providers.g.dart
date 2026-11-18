@@ -353,20 +353,23 @@ final class BoardsProvider
 
 String _$boardsHash() => r'2d4b1a28a8f788fffe696a21b012ad82c6369460';
 
-/// Topics in a board, cursor-paginated with [loadMore].
+/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 
 @ProviderFor(BoardTopics)
 final boardTopicsProvider = BoardTopicsFamily._();
 
-/// Topics in a board, cursor-paginated with [loadMore].
+/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 final class BoardTopicsProvider
     extends $AsyncNotifierProvider<BoardTopics, PagedList<ForumTopicListItem>> {
-  /// Topics in a board, cursor-paginated with [loadMore].
+  /// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+  /// answers 403 `forum_locked`, which [forumRetry] does not re-request.
   BoardTopicsProvider._({
     required BoardTopicsFamily super.from,
     required (String, String?) super.argument,
   }) : super(
-         retry: null,
+         retry: forumRetry,
          name: r'boardTopicsProvider',
          isAutoDispose: true,
          dependencies: null,
@@ -398,9 +401,10 @@ final class BoardTopicsProvider
   }
 }
 
-String _$boardTopicsHash() => r'87637d66421cd847587736703bcec808e3379fd7';
+String _$boardTopicsHash() => r'd94fe54dd811d702d7239eee895829a3d249453b';
 
-/// Topics in a board, cursor-paginated with [loadMore].
+/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 
 final class BoardTopicsFamily extends $Family
     with
@@ -413,14 +417,15 @@ final class BoardTopicsFamily extends $Family
         > {
   BoardTopicsFamily._()
     : super(
-        retry: null,
+        retry: forumRetry,
         name: r'boardTopicsProvider',
         dependencies: null,
         $allTransitiveDependencies: null,
         isAutoDispose: true,
       );
 
-  /// Topics in a board, cursor-paginated with [loadMore].
+  /// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+  /// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 
   BoardTopicsProvider call(String boardSlug, String? viewer) =>
       BoardTopicsProvider._(argument: (boardSlug, viewer), from: this);
@@ -429,7 +434,8 @@ final class BoardTopicsFamily extends $Family
   String toString() => r'boardTopicsProvider';
 }
 
-/// Topics in a board, cursor-paginated with [loadMore].
+/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 
 abstract class _$BoardTopics
     extends $AsyncNotifier<PagedList<ForumTopicListItem>> {
@@ -479,7 +485,7 @@ final class TopicDetailProvider
   /// bookmark toggle and the accepted-answer mark/clear (todo 341).
   TopicDetailProvider._({
     required TopicDetailFamily super.from,
-    required int super.argument,
+    required (int, String?) super.argument,
   }) : super(
          retry: null,
          name: r'topicDetailProvider',
@@ -495,7 +501,7 @@ final class TopicDetailProvider
   String toString() {
     return r'topicDetailProvider'
         ''
-        '($argument)';
+        '$argument';
   }
 
   @$internal
@@ -513,7 +519,7 @@ final class TopicDetailProvider
   }
 }
 
-String _$topicDetailHash() => r'f1024cc9dd6aa60e175de7c3bc626776a34b294c';
+String _$topicDetailHash() => r'32e70dd61a20269555276522b583a819b55d7cd2';
 
 /// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
 /// bookmark toggle and the accepted-answer mark/clear (todo 341).
@@ -525,7 +531,7 @@ final class TopicDetailFamily extends $Family
           AsyncValue<ForumTopicDetail>,
           ForumTopicDetail,
           FutureOr<ForumTopicDetail>,
-          int
+          (int, String?)
         > {
   TopicDetailFamily._()
     : super(
@@ -539,8 +545,8 @@ final class TopicDetailFamily extends $Family
   /// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
   /// bookmark toggle and the accepted-answer mark/clear (todo 341).
 
-  TopicDetailProvider call(int topicId) =>
-      TopicDetailProvider._(argument: topicId, from: this);
+  TopicDetailProvider call(int topicId, String? viewer) =>
+      TopicDetailProvider._(argument: (topicId, viewer), from: this);
 
   @override
   String toString() => r'topicDetailProvider';
@@ -550,10 +556,11 @@ final class TopicDetailFamily extends $Family
 /// bookmark toggle and the accepted-answer mark/clear (todo 341).
 
 abstract class _$TopicDetail extends $AsyncNotifier<ForumTopicDetail> {
-  late final _$args = ref.$arg as int;
-  int get topicId => _$args;
+  late final _$args = ref.$arg as (int, String?);
+  int get topicId => _$args.$1;
+  String? get viewer => _$args.$2;
 
-  FutureOr<ForumTopicDetail> build(int topicId);
+  FutureOr<ForumTopicDetail> build(int topicId, String? viewer);
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
@@ -567,7 +574,7 @@ abstract class _$TopicDetail extends $AsyncNotifier<ForumTopicDetail> {
               Object?,
               Object?
             >;
-    return element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args.$1, _$args.$2));
   }
 }
 
@@ -777,7 +784,7 @@ final class TopicPostsProvider
   /// reaction toggle that updates the affected post in place.
   TopicPostsProvider._({
     required TopicPostsFamily super.from,
-    required int super.argument,
+    required (int, String?) super.argument,
   }) : super(
          retry: null,
          name: r'topicPostsProvider',
@@ -793,7 +800,7 @@ final class TopicPostsProvider
   String toString() {
     return r'topicPostsProvider'
         ''
-        '($argument)';
+        '$argument';
   }
 
   @$internal
@@ -811,7 +818,7 @@ final class TopicPostsProvider
   }
 }
 
-String _$topicPostsHash() => r'd45da22742aad780342bc6663026cde84c56e831';
+String _$topicPostsHash() => r'0babe008c3405b186761fc2ff7af2e6e06a2f0b5';
 
 /// Posts in a topic (oldest-first), cursor-paginated with [loadMore], plus a
 /// reaction toggle that updates the affected post in place.
@@ -823,7 +830,7 @@ final class TopicPostsFamily extends $Family
           AsyncValue<PagedList<ForumPost>>,
           PagedList<ForumPost>,
           FutureOr<PagedList<ForumPost>>,
-          int
+          (int, String?)
         > {
   TopicPostsFamily._()
     : super(
@@ -837,8 +844,8 @@ final class TopicPostsFamily extends $Family
   /// Posts in a topic (oldest-first), cursor-paginated with [loadMore], plus a
   /// reaction toggle that updates the affected post in place.
 
-  TopicPostsProvider call(int topicId) =>
-      TopicPostsProvider._(argument: topicId, from: this);
+  TopicPostsProvider call(int topicId, String? viewer) =>
+      TopicPostsProvider._(argument: (topicId, viewer), from: this);
 
   @override
   String toString() => r'topicPostsProvider';
@@ -848,10 +855,11 @@ final class TopicPostsFamily extends $Family
 /// reaction toggle that updates the affected post in place.
 
 abstract class _$TopicPosts extends $AsyncNotifier<PagedList<ForumPost>> {
-  late final _$args = ref.$arg as int;
-  int get topicId => _$args;
+  late final _$args = ref.$arg as (int, String?);
+  int get topicId => _$args.$1;
+  String? get viewer => _$args.$2;
 
-  FutureOr<PagedList<ForumPost>> build(int topicId);
+  FutureOr<PagedList<ForumPost>> build(int topicId, String? viewer);
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
@@ -869,7 +877,7 @@ abstract class _$TopicPosts extends $AsyncNotifier<PagedList<ForumPost>> {
               Object?,
               Object?
             >;
-    return element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args.$1, _$args.$2));
   }
 }
 

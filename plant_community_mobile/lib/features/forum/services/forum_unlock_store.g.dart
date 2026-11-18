@@ -79,7 +79,7 @@ final class ForumUnlocksControllerProvider
 }
 
 String _$forumUnlocksControllerHash() =>
-    r'35f6ef452cada52a1de56c7d7ce578039a579d16';
+    r'6832a6b671f242b5e58e74413535b030a368a051';
 
 /// The signed-in member's unlocks, kept in step with the store and with the
 /// `X-Forum-Unlock` header [ApiService] sends.
