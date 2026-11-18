@@ -387,6 +387,30 @@ void main() {
     );
   });
 
+  testWidgets('a feed that failed is fetched again on the next tap', (
+    tester,
+  ) async {
+    final s = _Screen();
+    s.api.categoriesError = ApiException('down', statusCode: 503);
+    await s.open(tester);
+
+    await s.type(tester, 'hunter2');
+    await s.tapUnlock(tester);
+    await tester.pumpAndSettle();
+    expect(s.api.unlockBoardCalls, isEmpty);
+    expect(
+      find.text('Could not unlock this forum. Try again.'),
+      findsOneWidget,
+    );
+
+    s.api.categoriesError = null;
+    await s.tapUnlock(tester);
+    await tester.pumpAndSettle();
+    expect(s.api.unlockBoardCalls, hasLength(1));
+    expect(s.store.stored?.tokens, {7: 'unlock-token'});
+    expect(find.text('BOARD rare-aroids Rare aroids'), findsOneWidget);
+  });
+
   for (final brightness in Brightness.values) {
     for (final (w, h, scale) in [(320.0, 640.0, 2.0), (375.0, 812.0, 1.0)]) {
       testWidgets('fits and passes the a11y guidelines at ${w}x$h @$scale '

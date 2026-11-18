@@ -870,7 +870,7 @@ class ApiService {
         final envelopeCode = envelope?['code'];
 
         if (statusCode == 429) {
-          final retryAfter = e.response?.headers.value('retry-after');
+          final retryAfter = e.response?.headers['retry-after']?.first;
           return ApiException(
             'Too many requests. Please wait a moment and try again.',
             statusCode: statusCode,

@@ -7,6 +7,7 @@ import '../../../core/theme/green_thumb_extension.dart';
 import '../../../services/api_service.dart';
 import '../../../shared/widgets/canopy_notice.dart';
 import '../../../shared/widgets/clay_button.dart';
+import '../models/models.dart';
 import '../providers/forum_providers.dart';
 import '../services/forum_api.dart';
 import '../services/forum_unlock_store.dart';
@@ -145,14 +146,27 @@ class _ForumUnlockScreenState extends ConsumerState<ForumUnlockScreen> {
     return false;
   }
 
+  /// The forum's id from the feed, or null when the feed does not list it.
+  /// A feed that failed, or that does not list the forum (it may be
+  /// stale), is fetched again first, so a retry tap never meets the same
+  /// old answer.
   Future<int?> _forumId(String viewer) async {
-    final categories = await ref.read(categoriesProvider(viewer).future);
-    for (final category in categories) {
-      for (final forum in category.forums) {
-        if (forum.slug == widget.boardSlug) return forum.id;
+    final feed = categoriesProvider(viewer);
+    int? find(List<ForumCategory> categories) {
+      for (final category in categories) {
+        for (final forum in category.forums) {
+          if (forum.slug == widget.boardSlug) return forum.id;
+        }
       }
+      return null;
     }
-    return null;
+
+    if (!ref.read(feed).hasError) {
+      final id = find(await ref.read(feed.future));
+      if (id != null || !mounted) return id;
+    }
+    ref.invalidate(feed);
+    return find(await ref.read(feed.future));
   }
 
   static String _tooManyTries(int? retryAfterSeconds) {
