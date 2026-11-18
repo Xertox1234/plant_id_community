@@ -78,7 +78,8 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 - [ ] `web/public/_headers` sets `Referrer-Policy`, `X-Content-Type-Options`
       and a report-only CSP whose `frame-ancestors` is
       `'self' https://api.houseplant-md.com` (a test reads the file).
-- [ ] L10: an `oauth_url` outside the API origin is not followed (test).
+- [ ] L10: an `oauth_url` whose origin is not `https://accounts.google.com`
+      (the origin `apps/users/oauth_views.py` builds it on) is not followed (test).
 
 ## Work Log
 
@@ -93,6 +94,15 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
   `Referrer-Policy` in `web/public/_headers`, the M18 two-tab repro, and the
   L10 origin check (criteria added for `_headers` and L10). The Cloudflare
   HSTS change (M1) and the three post-deploy checks move to todo 716.
+
+### 2026-11-18 - L10 criterion corrected
+
+- The triage wording said "outside the API origin", but the backend builds
+  `oauth_url` on `https://accounts.google.com` (`oauth_views.py:141`), so an
+  API-origin check would break Google sign-in. Corrected to Google's origin,
+  which is what the finding (follow `oauth_url` only after an origin check)
+  needs. Owner delegated the call on 2026-11-17 ("do what you think is best
+  and gets the job done").
 
 ## Notes
 
