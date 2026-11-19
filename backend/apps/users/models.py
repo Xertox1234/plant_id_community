@@ -837,3 +837,27 @@ class DeletedAccount(models.Model):
 
     def __str__(self):
         return f"DeletedAccount {self.user_id} ({self.reason}, {self.status})"
+
+
+class RotatedRefreshToken(models.Model):
+    """A refresh token that ``token_refresh`` blacklisted by rotating it.
+
+    Only rotation writes this row, in the transaction that blacklists the
+    token; logout, a refused refresh and a session revocation do not. Reuse
+    detection (``refresh_sessions.end_sessions_on_reuse``) counts only
+    a token with this row, so a token another path blacklisted coming back is
+    a plain 401 and never ends the account's other sessions (todo 705 repair).
+    Detection deletes the row, so it fires once per token. The row goes with
+    its token when ``flushexpiredtokens`` deletes it.
+    """
+
+    token = models.OneToOneField(
+        "token_blacklist.OutstandingToken",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="rotation",
+    )
+    rotated_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"RotatedRefreshToken {self.token_id}"

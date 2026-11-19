@@ -507,7 +507,7 @@ def test_the_fix_hint_for_a_stale_pin_is_still_install():
     lines = env_integrity.format_lines([("wagtail", "8.0", "7.4.3")], [], [])
     hints = env_integrity.fix_hints(lines)
     assert len(hints) == 1
-    assert "pip install -r backend/requirements.txt" in hints[0]
+    assert "pip install -r backend/requirements-dev.txt" in hints[0]
 
 
 def test_both_hints_appear_when_both_problems_are_present():

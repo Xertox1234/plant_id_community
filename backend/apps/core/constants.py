@@ -219,3 +219,36 @@ EMAIL_FEEDBACK_PRUNE_BATCH = 5000
 # content links of the forum notification emails. Never an unsubscribe,
 # preferences or account-security link.
 EMAIL_TRACKED_LINK_KEYS = ("post_url", "topic_url")
+
+# Admin sign-in hardening (todo 705 M22, audit 2026-11-10).
+#
+# Failed password sign-ins at the Wagtail (/cms/) and Django (/admin/) login
+# forms, counted per trusted client IP. After this many failures in the window
+# the form answers 429 until the window ends. Per IP, never per username: a
+# per-account lock would let anyone lock a known staff name out (L4).
+ADMIN_LOGIN_PATHS = frozenset({"/cms/login/", "/admin/login/"})
+ADMIN_LOGIN_FAILURE_RATE = "5/15m"
+ADMIN_LOGIN_RATELIMIT_GROUP = "admin_login_failures"
+# Every signed-in request under these prefixes needs a verified second factor
+# (django-otp TOTP, or a one-time static token for recovery).
+# /blog-admin/ is a set of @staff_member_required session pages (moderation,
+# settings, export), so it needs the same second factor as the admin.
+ADMIN_OTP_PATH_PREFIXES = ("/cms/", "/admin/", "/blog-admin/")
+ADMIN_OTP_SETUP_PATH = "/cms/otp/setup/"
+ADMIN_OTP_VERIFY_PATH = "/cms/otp/verify/"
+# Paths a signed-in but unverified user may still reach: the two-factor pages
+# themselves, and signing in or out.
+ADMIN_OTP_EXEMPT_PATHS = frozenset(
+    {
+        "/cms/login/",
+        "/cms/logout/",
+        "/admin/login/",
+        "/admin/logout/",
+        ADMIN_OTP_SETUP_PATH,
+        ADMIN_OTP_VERIFY_PATH,
+    }
+)
+# Code attempts at the two-factor pages, per signed-in user. TOTPDevice adds
+# its own growing delay after each wrong code (django-otp ThrottlingMixin).
+ADMIN_OTP_ATTEMPT_RATE = "10/15m"
+ADMIN_OTP_DEVICE_NAME = "Authenticator app"

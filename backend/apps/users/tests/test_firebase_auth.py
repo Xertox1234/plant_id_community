@@ -40,6 +40,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         # Sample decoded token data
         self.decoded_token = {
             "uid": "test-firebase-uid-123",
+            "firebase": {"sign_in_provider": "password"},
             "email": "test@example.com",
             "email_verified": True,
         }
@@ -98,6 +99,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         # which then hits MultipleObjectsReturned.
         mock_verify.return_value = {
             "uid": "brand-new-uid-999",
+            "firebase": {"sign_in_provider": "password"},
             "email": "dup@example.com",
             "email_verified": True,
         }
@@ -127,6 +129,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         )
         mock_verify.return_value = {
             "uid": "owner-uid",
+            "firebase": {"sign_in_provider": "password"},
             "email": "owner@example.com",
             "email_verified": True,
         }
@@ -151,6 +154,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         mark_email_verified(bound)
         mock_verify.return_value = {
             "uid": "uid-stranger",
+            "firebase": {"sign_in_provider": "password"},
             "email": "bound@example.com",
             "email_verified": True,
         }
@@ -171,6 +175,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         User.objects.filter(pk=holder.pk).update(email="holder-now@example.com")
         mock_verify.return_value = {
             "uid": "uid-newcomer",
+            "firebase": {"sign_in_provider": "password"},
             "email": "moved@example.com",
             "email_verified": True,
         }
@@ -1218,6 +1223,7 @@ class FirebaseTokenExchangeRateLimitTestCase(TestCase):
         carries the rate through the @api_view stack)."""
         mock_verify.return_value = {
             "uid": "rate-limit-uid",
+            "firebase": {"sign_in_provider": "password"},
             "email": "ratelimit@example.com",
             "email_verified": True,
             "name": "Rate Limited",
@@ -1247,6 +1253,7 @@ class FirebaseTokenExchangeRateLimitTestCase(TestCase):
         """A second IP has its own counter — the limit is keyed by IP."""
         mock_verify.return_value = {
             "uid": "per-ip-uid",
+            "firebase": {"sign_in_provider": "password"},
             "email": "perip@example.com",
             "email_verified": True,
             "name": "Per IP",
@@ -1320,6 +1327,7 @@ class FirebaseExchangeConsentTestCase(TestCase):
         cache.clear()
         self.decoded = {
             "uid": "consent-uid-1",
+            "firebase": {"sign_in_provider": "password"},
             "email": "consent@example.com",
             "email_verified": True,
         }

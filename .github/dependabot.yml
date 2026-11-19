@@ -22,16 +22,19 @@
 #
 # Runs Tuesday, the day after the weekly security scan (Monday 09:00 UTC).
 #
-# ruff is excluded everywhere: its pin in backend/requirements.txt must equal
+# ruff is excluded everywhere: its pin in backend/requirements-dev.in must equal
 # the ruff-pre-commit rev in .pre-commit-config.yaml, and Dependabot would bump
 # the two in separate PRs. Bump both by hand, together.
 
 version: 2
 
 updates:
-  # Backend. requirements.txt is a full freeze, so a transitive pin can be
-  # bumped past what its parent allows; `pip install` in backend-ci fails on
-  # that, which is the signal to drop that one bump from the group.
+  # Backend. requirements.txt and requirements-dev.txt are pip-compile locks
+  # of requirements.in and requirements-dev.in (todo 708). Dependabot is
+  # expected to detect pip-compile from the lock headers and update the locks
+  # with it, so it should no longer propose a transitive bump a parent
+  # forbids; its first PR checks that (todo 711). The version holds below are
+  # decisions (todo 711), not resolver workarounds.
   - package-ecosystem: "pip"
     directory: "/backend"
     schedule:

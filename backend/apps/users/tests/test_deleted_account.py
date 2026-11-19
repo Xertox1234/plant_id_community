@@ -118,6 +118,7 @@ def test_token_exchange_new_uid_blocked(mock_verify, client):
     _deleted(BLOCKED, "under_13", 3)
     mock_verify.return_value = {
         "uid": "new-uid-1",
+        "firebase": {"sign_in_provider": "password"},
         "email": BLOCKED,
         "email_verified": True,
     }
@@ -143,6 +144,7 @@ def test_token_exchange_existing_user_on_list_still_signs_in(mock_verify, client
     _deleted(BLOCKED, "abuse", 4)
     mock_verify.return_value = {
         "uid": "old-uid",
+        "firebase": {"sign_in_provider": "password"},
         "email": BLOCKED,
         "email_verified": True,
     }
@@ -169,6 +171,7 @@ def test_token_exchange_refused_while_a_deletion_holds_the_uid(mock_verify, clie
     )
     mock_verify.return_value = {
         "uid": "doomed-uid",
+        "firebase": {"sign_in_provider": "password"},
         "email": "leaving@example.com",
         "email_verified": True,
     }

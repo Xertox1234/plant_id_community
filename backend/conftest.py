@@ -142,7 +142,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         # the reader to inspect a clean environment and discount a true
         # warning.
         terminalreporter.write_line(
-            f"{sys.prefix} does not match backend/requirements.txt — these "
+            f"{sys.prefix} does not match backend/requirements-dev.txt — these "
             "results describe a tree CI does not run."
         )
         for line in lines:

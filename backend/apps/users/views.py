@@ -27,6 +27,8 @@ from rest_framework.decorators import (
 )
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.settings import api_settings
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from . import view_schemas as vs
@@ -34,9 +36,13 @@ from .authentication import RefreshTokenFromCookie, clear_jwt_cookies, set_jwt_c
 from .avatars import avatar_file_names, delete_avatar_files_on_commit
 from .consent import record_policy_acceptance, require_consent
 from .constants import (
+    ACCOUNT_DISABLED_CODE,
+    ACCOUNT_DISABLED_MESSAGE,
     RATE_LIMIT_ONBOARDING_EVENT,
     RATE_LIMIT_PUSH_RESUBSCRIBE,
     RATE_LIMIT_SIGNUP_BLOCK_CHECK,
+    REFRESH_TOKEN_REUSED_CODE,
+    SESSION_EXPIRED_CODE,
 )
 from .deletion import reject_blocked_signup
 from .email_verification import (
@@ -47,6 +53,12 @@ from .email_verification import (
     verification_cap_reached,
 )
 from .models import User, UserPlantCollection
+from .refresh_sessions import (
+    end_sessions_on_reuse,
+    mark_rotated,
+    session_expired,
+    session_start_of,
+)
 from .serializers import (
     UserProfileSerializer,
     UserRegistrationSerializer,
@@ -520,6 +532,12 @@ def token_refresh(request: Request) -> Response:
     cookies or POST data.
 
     Implements token rotation by blacklisting the used token and issuing a new one.
+
+    Todo 705: refused with 401 for a disabled account (``account_disabled``),
+    for a session older than the absolute cap (``SESSION_EXPIRED``), and for a
+    token this view rotated presented again (``REFRESH_TOKEN_REUSED``), which
+    also blacklists every refresh token the account holds. A token blacklisted
+    by logout, a refusal or a revocation is a plain 401.
     """
     # CSRF is now enforced by @csrf_protect decorator for all POST requests
     # No need for manual CSRF check here
@@ -537,13 +555,59 @@ def token_refresh(request: Request) -> Response:
 
     try:
         # Parse and validate provided refresh token
-        # simplejwt hints Token, but decodes an encoded token string.
-        used_refresh = RefreshToken(refresh_token)  # type: ignore[arg-type]
+        try:
+            # simplejwt hints Token, but decodes an encoded token string.
+            used_refresh = RefreshToken(refresh_token)  # type: ignore[arg-type]
+        except TokenError:
+            # A rotated token coming back means two parties hold this chain:
+            # end every session of the account (todo 705 M5). The helper
+            # verifies the signature before it trusts the user id.
+            reuse = end_sessions_on_reuse(refresh_token)
+            if reuse is None:
+                raise
+            reused_by, revoked = reuse
+            logger.warning(
+                f"[SECURITY] Rotated refresh token reused for user {reused_by}: "
+                f"revoked {revoked} outstanding refresh token(s)"
+            )
+            return clear_jwt_cookies(
+                create_error_response(
+                    REFRESH_TOKEN_REUSED_CODE,
+                    "Session ended",
+                    "This session was ended for your security. Please sign in again.",
+                    status.HTTP_401_UNAUTHORIZED,
+                )
+            )
 
         # OPTIMIZATION: Fetch user early to avoid multiple queries
         # This prevents N+1 queries by loading the user once at the beginning
         user_id = used_refresh["user_id"]
-        user = User.objects.only("id", "username", "email").get(id=user_id)
+        user = User.objects.only("id", "username", "email", "is_active").get(id=user_id)
+
+        # A disabled account, or a session past its absolute cap, gets no new
+        # pair (todo 705 M6, M5). The used token is burned either way.
+        session_start = session_start_of(used_refresh)
+        refusal = None
+        if not user.is_active:
+            refusal = (
+                ACCOUNT_DISABLED_CODE,
+                "Account disabled",
+                ACCOUNT_DISABLED_MESSAGE,
+            )
+        elif session_expired(session_start):
+            refusal = (
+                SESSION_EXPIRED_CODE,
+                "Session expired",
+                "Your session has expired. Please sign in again.",
+            )
+        if refusal is not None:
+            try:
+                used_refresh.blacklist()
+            except Exception as e:
+                logger.error(f"[AUTH] Blacklisting a refused refresh failed: {e}")
+            return clear_jwt_cookies(
+                create_error_response(*refusal, status.HTTP_401_UNAUTHORIZED)
+            )
 
         # A refresh is a sign-in for expire_unverified_accounts (todo 485).
         # The cron runs flushexpiredtokens first, which deletes the rotated
@@ -578,6 +642,9 @@ def token_refresh(request: Request) -> Response:
                 except Exception as e:
                     logger.error(f"[AUTH] last_token_refresh stamp failed: {str(e)}")
                 used_refresh.blacklist()
+                # Only this blacklisting makes a later presentation reuse:
+                # logout, a refusal and a revocation leave no mark.
+                mark_rotated(used_refresh[api_settings.JTI_CLAIM])
         except Exception as e:
             # Blacklist failures are CRITICAL security issues
             logger.error(
@@ -598,7 +665,7 @@ def token_refresh(request: Request) -> Response:
         response = Response(
             {"message": "Token refreshed successfully"}, status=status.HTTP_200_OK
         )
-        response = set_jwt_cookies(response, user)
+        response = set_jwt_cookies(response, user, session_start=session_start)
         return response
     except User.DoesNotExist:
         logger.error("[AUTH] User not found for token refresh")

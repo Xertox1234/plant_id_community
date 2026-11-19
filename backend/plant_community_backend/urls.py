@@ -17,6 +17,7 @@ from apps.blog.api.viewsets import (
 from apps.blog.feeds import AtomBlogPostsFeed, BlogPostsFeed
 
 # Import core views
+from apps.core import otp_views
 from apps.core.views import ReactAppView, csp_report_view, csrf_token_view
 from apps.forum_host.feeds import ForumTopicsFeed
 from apps.forum_host.redirects import RedirectsAPIViewSet
@@ -107,6 +108,9 @@ api_router.register_endpoint("series", BlogSeriesAPIViewSet)
 urlpatterns = [
     # Django Admin
     path("admin/", admin.site.urls),
+    # Admin second factor (todo 705 M22), ahead of Wagtail's catch-all.
+    path("cms/otp/setup/", otp_views.otp_setup, name="admin-otp-setup"),
+    path("cms/otp/verify/", otp_views.otp_verify, name="admin-otp-verify"),
     # Wagtail CMS Admin
     path("cms/", include(wagtailadmin_urls)),
     # Wagtail Documents

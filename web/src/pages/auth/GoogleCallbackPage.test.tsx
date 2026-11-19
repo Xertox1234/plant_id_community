@@ -82,6 +82,15 @@ describe('GoogleCallbackPage', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
+  it('says the account is disabled on ?error=account_disabled, not "try again"', async () => {
+    renderAt('/auth/google/callback?error=account_disabled');
+
+    await expectErrorAnnounced(
+      'This account has been disabled, so it cannot sign in. Contact support if you think this is a mistake.'
+    );
+    expect(mockRefreshUser).not.toHaveBeenCalled();
+  });
+
   it('shows a generic message when neither success nor a known error is present', async () => {
     renderAt('/auth/google/callback');
 

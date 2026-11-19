@@ -143,7 +143,7 @@ repos:
   # bug-finding families (bugbear, flake8-django, pylint errors, leftover
   # breakpoints, implicit string concatenation). Config: backend/pyproject.toml
   # [tool.ruff], discovered hierarchically, so the cwd no longer matters. The
-  # rev must equal the ruff== pin in backend/requirements.txt.
+  # rev must equal the ruff== pin in backend/requirements-dev.in (todo 708).
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.17
     hooks:
