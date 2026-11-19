@@ -4,10 +4,9 @@ priority: p2
 issue_id: "715"
 tags: [mobile, flutter, firebase, auth, security, device-check, owner]
 dependencies: []
-triage: blocked-device
-triaged: 2026-11-17
-blocked_on: "Sign in with Apple needs the Apple Developer capability and the Firebase Apple provider set up by the owner; the upgrade check needs a real iPhone and Android device; M17 needs the owner's Firebase console change"
-owner_decision: "Split out of todo 704 (owner 2026-11-17): H8, M14 and M17 need console setup or a device check"
+triage: ready
+triaged: 2026-11-19
+owner_decision: "Owner 2026-11-19: H8 already done (717/719), record it confirmed; upgrade check moves to a separate p1 owner device todo 720; owner sets the Firebase password policy to 14 now and the app's validators follow in this PR; criterion 0 confirmed by the owner (2026-11-19): It asked me to sign in with apple first, then continued successfully (build 26, todo 719); criterion 2 confirmed by the owner (2026-11-19): Firebase console 2026-11-19, reloaded and still set: Password policy = Require enforcement, minimum length 14, maximum 4096, Force upgrade on sign-in off, no character-class requirements"
 ---
 
 # Mobile: Sign in with Apple, secure-storage options, password policy
@@ -50,7 +49,7 @@ Source: `docs/audits/2026-11-10-auth-legal.md`; detail in todo 704.
 - [ ] Sign in with Apple completes on a real iPhone — record the date and
       result here.
 - [ ] Upgrading over an installed build keeps the user signed in on iOS and
-      Android — record the date and devices here.
+      Android — record the date and devices here. → todo 720 (re-pointed 2026-11-19)
 - [ ] Firebase password policy minimum is 14 — record the date and the
       console value here.
 - [ ] `flutter test` and `flutter analyze` are clean.
