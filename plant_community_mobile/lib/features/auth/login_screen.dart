@@ -575,12 +575,15 @@ String? validateEmail(String? value) {
   return null;
 }
 
-/// Firebase's own minimum. Rejecting locally saves a round trip and gives the
-/// user the rule before they submit.
+/// For a NEW password (sign-up) only. The sign-in form must not use it: the
+/// policy does not force an upgrade on sign-in, so an older account with a
+/// shorter password still signs in.
 String? validatePassword(String? value) {
   final password = value ?? '';
   if (password.isEmpty) return 'Enter a password';
-  if (password.length < 6) return 'Use at least 6 characters';
+  if (password.length < minPasswordLength) {
+    return 'Use at least $minPasswordLength characters';
+  }
   return null;
 }
 

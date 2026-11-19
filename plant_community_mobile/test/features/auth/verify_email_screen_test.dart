@@ -90,11 +90,11 @@ void main() {
     );
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Password'),
-      'secret1',
+      'secret1secret1', // 14: the sign-up minimum (todo 715)
     );
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Confirm password'),
-      'secret1',
+      'secret1secret1',
     );
     // Sign-up is gated on the consent box.
     await tester.ensureVisible(find.byType(Checkbox));

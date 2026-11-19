@@ -136,6 +136,15 @@ void main() {
     expect(find.text('Enter your email'), findsOneWidget);
     expect(firebase.resetEmails, isEmpty);
   });
+
+  group('validatePassword (todo 715, audit M17)', () {
+    test('a new password needs the Firebase policy minimum of 14', () {
+      expect(minPasswordLength, 14);
+      expect(validatePassword(''), 'Enter a password');
+      expect(validatePassword('a' * 13), 'Use at least 14 characters');
+      expect(validatePassword('a' * 14), isNull);
+    });
+  });
 }
 
 /// [FakeAuthService] with the real reset method, over a fake Firebase.

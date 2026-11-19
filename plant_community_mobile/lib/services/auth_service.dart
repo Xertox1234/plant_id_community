@@ -121,6 +121,12 @@ const appleAccountExistsMessage =
     'This email already has an account. Sign in the way you did before.';
 const registrationFailedMessage = 'Registration failed. Please try again.';
 const signOutFailedMessage = 'Sign out failed. Please try again.';
+
+/// The minimum length of a new password: the Firebase Auth password policy
+/// (Require enforcement, minimum 14, set in the console on 2026-11-19,
+/// todo 715) and the web sign-up's own minimum. Firebase enforces it; the
+/// sign-up form checks it locally to save a round trip.
+const int minPasswordLength = 14;
 const authFailedMessage = 'Something went wrong. Please try again.';
 
 /// [AuthService.sendPasswordResetEmail] could not send for a reason that is
@@ -230,9 +236,36 @@ class AuthService extends _$AuthService {
   @visibleForTesting
   FirebaseAuth get firebaseAuth => FirebaseAuth.instance;
   FirebaseAuth get _firebaseAuth => firebaseAuth;
-  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
+  final FlutterSecureStorage _secureStorage = authTokenStorage;
+
+  /// Where the Django access token and the sign-up consent marker live
+  /// (todo 715, audit M14). iOS: after first unlock, so a token refresh
+  /// in the background can write it, and `ThisDeviceOnly`, so an encrypted
+  /// backup or a new phone never receives it. An item an older build wrote
+  /// under the default (`unlocked`) level is still found: the plugin reads
+  /// and deletes across levels, and the next write replaces it under this
+  /// one, which every launch's exchange does. Android: the manifest turns
+  /// cloud backup off (`android:allowBackup="false"`). On Android 12+ that
+  /// does not stop a device-to-device transfer; a store copied that way
+  /// cannot be opened with the new device's key, and the plugin resets it,
+  /// so the next launch's exchange simply writes it again.
+  ///
+  /// None of this keeps the user signed in: Firebase holds that session in
+  /// its own store, and the access token is minted again on every launch.
+  @visibleForTesting
+  static const FlutterSecureStorage authTokenStorage = FlutterSecureStorage(
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+    ),
+  );
 
   static const String _jwtKey = 'django_jwt_token';
+
+  /// The key older builds kept the Django refresh token under. Nothing reads
+  /// it: an expired access token is replaced by a new exchange of the
+  /// Firebase token (todo 462), so the refresh token is no longer stored
+  /// (todo 715). Deleted once per launch and on every clear, so an old
+  /// install's copy goes.
   static const String _refreshTokenKey = 'django_refresh_token';
 
   /// The Firebase uid whose owner ticked the sign-up consent box on this
@@ -367,6 +400,9 @@ class AuthService extends _$AuthService {
       apiService.setSessionExpiredHandler(null);
       apiService.setAccessTokenRefresher(null);
     });
+
+    // An older build's stored refresh token (todo 715): nothing reads it.
+    unawaited(_deleteLegacyRefreshToken());
 
     // If user is already signed in, exchange token
     if (currentUser != null) {
@@ -1088,9 +1124,9 @@ class AuthService extends _$AuthService {
         options: Options(extra: {ApiService.skipAuthRefreshKey: true}),
       );
 
-      // Extract JWT tokens from response
+      // The access token only: the refresh token in the response is never
+      // stored, since nothing would read it (todo 715).
       final jwtToken = response.data['access_token'] as String?;
-      final refreshToken = response.data['refresh_token'] as String?;
 
       if (jwtToken == null) {
         throw AuthException('No JWT token in response');
@@ -1105,17 +1141,14 @@ class AuthService extends _$AuthService {
         return;
       }
 
-      // Store tokens securely
+      // Store the token securely
       await _secureStorage.write(key: _jwtKey, value: jwtToken);
-      if (refreshToken != null) {
-        await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
-      }
 
       if (!_isCurrentExchange(user, exchangeGeneration)) {
         if (kDebugMode) {
           debugPrint('[AUTH] Clearing tokens from superseded token exchange');
         }
-        await _clearJWTIfMatches(jwtToken, refreshToken);
+        await _clearJWTIfMatches(jwtToken);
         return;
       }
 
@@ -1228,21 +1261,21 @@ class AuthService extends _$AuthService {
         _firebaseAuth.currentUser?.uid == user.uid;
   }
 
-  Future<void> _clearJWTIfMatches(
-    String accessToken,
-    String? refreshToken,
-  ) async {
+  Future<void> _clearJWTIfMatches(String accessToken) async {
     final storedAccessToken = await _secureStorage.read(key: _jwtKey);
     if (storedAccessToken == accessToken) {
       await _secureStorage.delete(key: _jwtKey);
     }
+  }
 
-    if (refreshToken != null) {
-      final storedRefreshToken = await _secureStorage.read(
-        key: _refreshTokenKey,
-      );
-      if (storedRefreshToken == refreshToken) {
-        await _secureStorage.delete(key: _refreshTokenKey);
+  /// [_refreshTokenKey], best effort: storage that fails here fails the
+  /// exchange's own write too, and that path reports it.
+  Future<void> _deleteLegacyRefreshToken() async {
+    try {
+      await _secureStorage.delete(key: _refreshTokenKey);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AUTH] Could not delete the legacy refresh token: $e');
       }
     }
   }
@@ -1378,7 +1411,6 @@ class AuthService extends _$AuthService {
     }
     final data = response.data;
     final jwtToken = data is Map ? data['access_token'] : null;
-    final refreshToken = data is Map ? data['refresh_token'] : null;
     if (!_isCurrentExchange(user, generation)) {
       throw const RefreshSupersededException();
     }
@@ -1386,13 +1418,9 @@ class AuthService extends _$AuthService {
       throw AuthException('The sign-in server sent an unexpected response.');
     }
 
-    final storedRefresh = refreshToken is String ? refreshToken : null;
     await _secureStorage.write(key: _jwtKey, value: jwtToken);
-    if (storedRefresh != null) {
-      await _secureStorage.write(key: _refreshTokenKey, value: storedRefresh);
-    }
     if (!_isCurrentExchange(user, generation)) {
-      await _clearJWTIfMatches(jwtToken, storedRefresh);
+      await _clearJWTIfMatches(jwtToken);
       throw const RefreshSupersededException();
     }
 
@@ -1819,8 +1847,13 @@ class AuthService extends _$AuthService {
         return 'This account has been disabled. Please contact support.';
       case 'email-already-in-use':
         return 'An account already exists with this email.';
+      // 'password-does-not-meet-requirements' is what the console policy
+      // (Require enforcement) answers; 'weak-password' is Firebase's own
+      // six-character floor. Both mean the same rule to the user.
       case 'weak-password':
-        return 'Password is too weak. Use at least 6 characters.';
+      case 'password-does-not-meet-requirements':
+        return 'Password is too weak. Use at least $minPasswordLength '
+            'characters.';
       case 'operation-not-allowed':
         // Reached by BOTH paths now. Naming only email/password sent someone
         // hunting the wrong console toggle when Google is the one disabled.

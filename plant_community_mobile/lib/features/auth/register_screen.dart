@@ -145,7 +145,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                             controller: _passwordController,
                             decoration: InputDecoration(
                               labelText: 'Password',
-                              helperText: 'At least 6 characters',
+                              helperText:
+                                  'At least $minPasswordLength characters',
                               prefixIcon: const Icon(LucideIcons.lock),
                               suffixIcon: IconButton(
                                 icon: Icon(
