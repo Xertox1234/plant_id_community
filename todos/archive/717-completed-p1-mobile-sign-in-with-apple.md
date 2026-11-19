@@ -84,7 +84,7 @@ it, App Review will reject the public release.
       (test).
 - [x] Deleting an Apple-linked account revokes the Apple token (test with
       the revoke call mocked).
-- [ ] Owner: on a real iPhone (TestFlight), sign up with Apple using "Hide My → todo 718 (re-pointed 2026-11-19)
+- [ ] Owner: on a real iPhone (TestFlight), sign up with Apple using "Hide My → todo 719 (re-pointed 2026-11-19)
       Email", receive the verification or welcome email at the relay address,
       then delete the account — record the date and build number.
 - [x] Privacy policy (en/es/fr) mentions Apple sign-in.
@@ -198,7 +198,7 @@ hand or declined:
   revoked, and the next Apple sign-in asks for consent again. Tests: the
   order `reauth, revokeApple, delete, signOut, clearCache`; a refused
   deletion `reauth, revokeApple, delete`; a cancelled Apple re-auth revokes
-  nothing. The real device check is todo 718 (Settings → Sign in with Apple
+  nothing. The real device check is todo 719 (Settings → Sign in with Apple
   no longer lists the app).
 - **Fixed (low):** `signOut()` now clears `_appleRefreshUid` and the unused
   `_appleRevocation` code.
@@ -228,7 +228,7 @@ Round 2 was clean. Every finding was low and all are declined:
 
 - **No authorization code from the Apple re-auth:** deletion goes ahead with no
   revoke, and the miss is logged only in debug builds. Apple always returns a code
-  for a fresh sign-in. The device check (todo 718, step 6) shows whether the
+  for a fresh sign-in. The device check (todo 719, step 6) shows whether the
   revoke happened.
 - **Revoke before a refused deletion:** the trade-off chosen in round 1. It is
   documented and tested: the next Apple sign-in simply asks for consent again.
@@ -236,7 +236,7 @@ Round 2 was clean. Every finding was low and all are declined:
   would be a separate change.
 - **Stale `_appleRefreshUid` in the early auth-state path:** costs at most one
   extra token refresh, and it is cleared on sign-out. Whether the name reaches
-  the token is a device question (todo 718, step 3).
+  the token is a device question (todo 719, step 3).
 - **Doc-comment wrapping on `_endSession`:** the line got shorter when the
   revoke moved out. `dart format` reports no changes.
 - **`debugDefaultTargetPlatformOverride` reset at the end of each test:** only
