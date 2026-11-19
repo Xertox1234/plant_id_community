@@ -118,8 +118,12 @@ class _PostCardState extends State<PostCard> {
             children: [
               // The avatar leads both lines, so the date sits under the name
               // on the same text edge instead of under the avatar.
+              // A second way in for a finger only: the name beside it is the
+              // labelled control, so the detector publishes no semantics of
+              // its own (an action with no label is an unnamed button).
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
+                excludeFromSemantics: true,
                 onTap: author.isDeleted ? null : widget.onAuthorTap,
                 child: ExcludeSemantics(
                   child: AuthorAvatar(author: author, radius: 20),
@@ -310,9 +314,9 @@ class _EditedStamp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // The web's stamp is `gt-label normal-case tracking-normal` — the mono
-    // label face, neither uppercased nor letterspaced, and NOT italic. The
-    // italic here was a Flutter-only treatment with no counterpart on the web.
+    // The forum's detail style, like the date above it: neither uppercased
+    // nor letterspaced, and NOT italic. (The web uses its mono label face
+    // here; on the phone Geist Mono is kept for the uppercase eyebrow only.)
     final style = forumMeta(context);
     final onTap = this.onTap;
     if (onTap == null) return Text('edited', style: style);

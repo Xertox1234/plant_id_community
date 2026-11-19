@@ -153,12 +153,12 @@ class ForumUserProfileScreen extends ConsumerWidget {
               // Earned badges are public identity (todo 348): shown even
               // when the viewer has blocked this member.
               if (profile.badges.isNotEmpty) ...[
-                const SizedBox(height: forumHomeSectionGap),
-                const ForumHomeHeader('Badges'),
+                const SizedBox(height: forumSectionGap),
+                const ForumSectionHeader('Badges'),
                 ForumBadgeChips(badges: profile.badges),
               ],
-              const SizedBox(height: forumHomeSectionGap),
-              const ForumHomeHeader('Recent topics'),
+              const SizedBox(height: forumSectionGap),
+              const ForumSectionHeader('Recent topics'),
               if (profile.recentTopics.isEmpty)
                 const _EmptyLine('No topics yet.')
               else
@@ -167,10 +167,14 @@ class ForumUserProfileScreen extends ConsumerWidget {
                     for (final t in profile.recentTopics)
                       ForumListRow(
                         title: t.title,
-                        meta:
-                            '${t.replyCount} '
-                            '${t.replyCount == 1 ? 'reply' : 'replies'} · '
-                            '${forumRelativeTime(t.createdAt)}',
+                        // Joined, so a topic with no date has no
+                        // dangling separator.
+                        meta: [
+                          '${t.replyCount} '
+                              '${t.replyCount == 1 ? 'reply' : 'replies'}',
+                          if (t.createdAt != null)
+                            forumRelativeTime(t.createdAt),
+                        ].join(' · '),
                         onTap: () => context.pushNamed(
                           'forumTopic',
                           pathParameters: {'id': '${t.id}'},
@@ -179,8 +183,8 @@ class ForumUserProfileScreen extends ConsumerWidget {
                       ),
                   ],
                 ),
-              const SizedBox(height: forumHomeSectionGap),
-              const ForumHomeHeader('Recent posts'),
+              const SizedBox(height: forumSectionGap),
+              const ForumSectionHeader('Recent posts'),
               if (profile.recentPosts.isEmpty)
                 const _EmptyLine('No replies yet.')
               else

@@ -372,7 +372,9 @@ void main() {
           );
           final gap =
               tester.getTopLeft(chevron).dx - tester.getTopRight(picture).dx;
-          expect(gap, inInclusiveRange(AppSpacing.sm, AppSpacing.sm + 3));
+          // 8pt between the stack and the chevron, plus the picture's own
+          // 3pt border and inset; a point of slack either way.
+          expect(gap, inInclusiveRange(AppSpacing.sm, AppSpacing.sm + 4));
           expect(
             (tester.getTopLeft(chevron).dy - tester.getTopLeft(picture).dy)
                 .abs(),

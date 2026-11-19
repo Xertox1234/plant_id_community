@@ -26,7 +26,7 @@ class ForumWhosOnline extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const ForumHomeHeader("Who's online"),
+        const ForumSectionHeader("Who's online"),
         _Panel(stats: stats),
       ],
     );

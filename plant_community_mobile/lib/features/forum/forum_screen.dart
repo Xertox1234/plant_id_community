@@ -27,7 +27,7 @@ import 'widgets/home/forum_season_card.dart';
 import 'widgets/home/forum_whos_online.dart';
 
 /// Gap between home sections (design: 30pt; nearest token).
-const double _sectionGap = forumHomeSectionGap;
+const double _sectionGap = forumSectionGap;
 
 /// First-visit entrance (spec §8.2): each section fades in and rises 8pt,
 /// 40 ms after the one above it.
@@ -542,7 +542,7 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ForumHomeHeader(title);
+    return ForumSectionHeader(title);
   }
 }
 

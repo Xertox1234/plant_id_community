@@ -11,8 +11,8 @@ import '../forum_stats_grid.dart';
 import '../forum_style.dart';
 
 /// "Your season": the member's all-time numbers in one card (the redesigned
-/// twin of `ForumStatsGrid`, same `meStatsProvider` data). Four equal stats
-/// split by hairlines, a labelled progress bar for the next badge, and the
+/// twin of `ForumStatsGrid`, same `meStatsProvider` data). Four equal,
+/// left-aligned stats, a labelled progress bar for the next badge, and the
 /// earned badges beneath. The stats are all-time, so nothing here claims a
 /// season window.
 class ForumSeasonCard extends StatelessWidget {
@@ -50,16 +50,14 @@ class ForumSeasonCard extends StatelessWidget {
               // 4.5:1 in both modes.
               CanopyLabel('Your season', color: context.canopy.ink2),
               const SizedBox(height: AppSpacing.sm),
-              IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _Stat(value: stats.identificationsShared, label: 'IDs'),
-                    _Stat(value: stats.posts, label: 'Posts'),
-                    _Stat(value: stats.solutionsAccepted, label: 'Solutions'),
-                    _Stat(value: stats.streakDays, label: 'Day streak'),
-                  ],
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _Stat(value: stats.identificationsShared, label: 'IDs'),
+                  _Stat(value: stats.posts, label: 'Posts'),
+                  _Stat(value: stats.solutionsAccepted, label: 'Solutions'),
+                  _Stat(value: stats.streakDays, label: 'Day streak'),
+                ],
               ),
               if (hasTrack) ...[
                 const SizedBox(height: AppSpacing.md),

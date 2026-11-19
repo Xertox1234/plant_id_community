@@ -111,7 +111,7 @@ Cause analysis below is from the code (`lib/core/routing/main_shell.dart` etc.),
    **FORUM DONE (2026-11-18).** The forum's shared look lives in
    `lib/features/forum/widgets/forum_style.dart`: `forumItemTitle` (Geist 15/600),
    `forumMeta` (Geist 12.5 on `ink2`, tabular figures) for every count and date,
-   `ForumHomeHeader`, `ForumListRow`, `ForumEmptyState`, 20pt chevrons. Geist Mono is
+   `ForumSectionHeader`, `ForumListRow`, `ForumEmptyState`, 20pt chevrons. Geist Mono is
    for the uppercase eyebrow only, NOT for counts or dates (this supersedes "relative
    time in Geist Mono" above). `forumRelativeTime` returns "Aug 16" past a week, never
    ISO. A new forum screen uses these instead of picking its own styles.

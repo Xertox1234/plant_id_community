@@ -11,7 +11,7 @@ import '../../utils/board_identity.dart';
 import '../forum_style.dart';
 
 /// Gap between one category and the next.
-const double _categoryGap = forumHomeSectionGap;
+const double _categoryGap = forumSectionGap;
 
 /// How long a category's card takes to open or close, as the activity card.
 const Duration _collapseDuration = Duration(milliseconds: 250);
@@ -122,7 +122,7 @@ class _CategoryHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final icon = category.icon.trim();
     return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: forumHomeHeaderHeight),
+      constraints: const BoxConstraints(minHeight: forumHeaderHeight),
       child: Align(
         alignment: AlignmentDirectional.centerStart,
         // Only the title is announced (as a header); the emoji's name is not.

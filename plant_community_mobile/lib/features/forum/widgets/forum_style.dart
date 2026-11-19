@@ -12,11 +12,11 @@ import '../../../shared/widgets/canopy_accents.dart';
 /// Height of every section header row. The collapsible category headers are
 /// tap targets and need 48pt, so the plain ones match it and all headers sit
 /// the same distance from the content above and below them.
-const double forumHomeHeaderHeight = 48;
+const double forumHeaderHeight = 48;
 
-/// Gap above a header row. With the title centred in [forumHomeHeaderHeight]
+/// Gap above a header row. With the title centred in [forumHeaderHeight]
 /// this puts about 32pt of air above the title's text.
-const double forumHomeSectionGap = 20;
+const double forumSectionGap = 20;
 
 /// Size of every trailing chevron in the forum.
 const double forumChevronSize = 20;
@@ -35,15 +35,15 @@ TextStyle? forumItemTitle(BuildContext context) =>
     Theme.of(context).textTheme.titleMedium;
 
 /// A plain (not collapsible) section heading, announced as a header.
-class ForumHomeHeader extends StatelessWidget {
-  const ForumHomeHeader(this.title, {super.key});
+class ForumSectionHeader extends StatelessWidget {
+  const ForumSectionHeader(this.title, {super.key});
 
   final String title;
 
   @override
   Widget build(BuildContext context) {
     return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: forumHomeHeaderHeight),
+      constraints: const BoxConstraints(minHeight: forumHeaderHeight),
       child: Align(
         alignment: AlignmentDirectional.centerStart,
         child: Semantics(

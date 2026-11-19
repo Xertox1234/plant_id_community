@@ -295,7 +295,7 @@ class _SectionHeader extends StatelessWidget {
     // The forum's section header, with the same air above it as elsewhere.
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.sm),
-      child: ForumHomeHeader(title),
+      child: ForumSectionHeader(title),
     );
   }
 }
