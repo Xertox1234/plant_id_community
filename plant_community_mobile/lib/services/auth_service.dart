@@ -741,12 +741,12 @@ class AuthService extends _$AuthService {
     }
   }
 
-  /// Revoke the Apple tokens of an account whose deletion the server just
-  /// accepted (Guideline 5.1.1(v), todo 717), with the authorization code
+  /// Revoke the Apple tokens of an account about to be deleted
+  /// (Guideline 5.1.1(v), todo 717), with the authorization code
   /// the Apple re-auth in [freshIdTokenAfterReauth] kept. The delete screen
-  /// calls it before signing out: the call needs the Firebase user, which
-  /// the server erases only later. After the deletion is accepted, not
-  /// before: a refused deletion keeps a working Apple sign-in.
+  /// calls it before it sends the deletion request: the call needs the
+  /// Firebase user, and the server queues its erase the moment it accepts
+  /// the request (todo 717 review).
   ///
   /// Only for that same account, once (the code is single-use). Best-effort
   /// and bounded: the account is already being deleted, so a failure is
@@ -978,6 +978,9 @@ class AuthService extends _$AuthService {
       // new generation is the sign-out's own: a refresh the clear's 401
       // starts in it only re-sends the clear (todo 500 finding 3).
       _signOutGeneration = ++_authGeneration;
+      // Nothing Apple-specific outlives the session (todo 717 review).
+      _appleRefreshUid = null;
+      _appleRevocation = null;
       // And end the API session now, not at the setAuthToken(null) below: a
       // refresh that finishes during the clear is overtaken by this sign-out
       // and must not report "Your session expired" (todo 498). The token

@@ -35,8 +35,8 @@ Uri subscriptionsUri(TargetPlatform platform) => platform == TargetPlatform.iOS
 /// Self-service account deletion (Plan B task 10).
 ///
 /// The button re-authenticates (a fresh Apple sign-in, a fresh Google pick,
-/// or the password), posts the fresh Firebase ID token to `account/delete/`,
-/// revokes the Apple tokens of an Apple-linked account, then signs out and
+/// or the password), revokes the Apple tokens of an Apple-linked account,
+/// posts the fresh Firebase ID token to `account/delete/`, then signs out and
 /// shows the final dialog, whose OK goes to the login screen.
 ///
 /// The route is deliberately NOT in the router's `protectedRoutes`: signing
@@ -93,6 +93,12 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     String? reauthError;
     try {
       final token = await auth.freshIdTokenAfterReauth(password: password);
+      // Before the request, never after the 202: the server queues the
+      // erase at once and its first steps delete the Firebase user, which
+      // the revoke needs (Guideline 5.1.1(v), todo 717 review). A refused
+      // deletion afterwards only means the next Apple sign-in asks for
+      // consent again. A no-op for every other method; never throws.
+      await auth.revokeAppleSignIn();
       result = await deletion.deleteAccount(token);
     } on ReauthCancelledException {
       // Backed out: nothing sent, nothing to say.
@@ -138,9 +144,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     }
   }
 
-  /// Revokes an Apple-linked account's Apple tokens
-  /// ([AuthService.revokeAppleSignIn], todo 717: a no-op for any other
-  /// sign-in method), then signs out (JWT and Firebase session) through the
+  /// Signs out (JWT and Firebase session) through the
   /// notifier held since the tap, clears the on-device Firestore offline cache (the deleted
   /// account's `users/<uid>/identified_plants`), and forgets the account
   /// profile, as the Profile logout does. Never throws, and needs no `ref`:
@@ -153,9 +157,6 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     Future<void> Function() clearOfflineCache,
   ) async {
     if (mounted) setState(() => _finished = true);
-    // While still signed in to Firebase: the revoke needs the user. Never
-    // throws.
-    await auth.revokeAppleSignIn();
     try {
       await auth.signOut();
     } catch (e) {

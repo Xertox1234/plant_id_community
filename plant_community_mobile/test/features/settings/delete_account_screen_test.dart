@@ -185,25 +185,24 @@ void main() {
     expect(find.text('LOGIN SCREEN'), findsOneWidget);
   });
 
-  testWidgets('an Apple-linked account revokes its Apple tokens after the '
-      'server accepts the deletion and before signing out (todo 717)', (
-    tester,
-  ) async {
+  testWidgets('an Apple-linked account revokes its Apple tokens before the '
+      'deletion request: the server erases the Firebase user the revoke '
+      'needs as soon as it accepts (todo 717 review)', (tester) async {
     final harness = await _pump(tester, method: ReauthMethod.apple);
 
     await _tapDelete(tester);
 
     expect(harness.events, [
       'reauth',
-      'delete:fresh-token',
       'revokeApple',
+      'delete:fresh-token',
       'signOut',
       'clearCache',
     ]);
     expect(find.text(_finalMessage), findsOneWidget);
   });
 
-  testWidgets('a refused deletion keeps the Apple sign-in (no revoke)', (
+  testWidgets('a refused deletion was already revoked and stays signed in', (
     tester,
   ) async {
     final harness = await _pump(tester, method: ReauthMethod.apple);
@@ -211,7 +210,7 @@ void main() {
 
     await _tapDelete(tester);
 
-    expect(harness.events, ['reauth', 'delete:fresh-token']);
+    expect(harness.events, ['reauth', 'revokeApple', 'delete:fresh-token']);
     expect(find.text('Try again later.'), findsOneWidget);
   });
 
@@ -258,6 +257,16 @@ void main() {
     expect(harness.auth.state.isAuthenticated, isTrue);
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.text('Delete my account'), findsOneWidget);
+  });
+
+  testWidgets('a cancelled Apple re-auth revokes nothing', (tester) async {
+    final harness = await _pump(tester, method: ReauthMethod.apple);
+    harness.auth.reauthError = ReauthCancelledException();
+
+    await _tapDelete(tester);
+
+    expect(harness.events, ['reauth']);
+    expect(harness.auth.state.isAuthenticated, isTrue);
   });
 
   testWidgets('a failed re-auth shows its message and deletes nothing', (

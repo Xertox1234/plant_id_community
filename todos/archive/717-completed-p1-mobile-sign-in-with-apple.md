@@ -182,3 +182,42 @@ it, App Review will reject the public release.
 ### 2026-11-19 - Completed by the todo sweep (run 2026-11-19-1634)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-19 - Review round 1: non-blocking findings
+
+Round 1 was clean (nothing blocking). Each non-blocking finding was fixed by
+hand or declined:
+
+- **Fixed (medium, raised twice):** `delete_account_screen.dart` revoked the
+  Apple token only after the 202. The server queues `delete_account_task` on
+  commit, and its `erase_firebase_data` step deletes the Firebase user that
+  `revokeTokenWithAuthorizationCode` needs, so the revoke could fail without
+  anyone noticing. The revoke now runs right after the Apple re-auth, before the
+  deletion request. That is the reauthenticate → revoke → delete order used in
+  community Firebase guides. A refused deletion now leaves the Apple grant
+  revoked, and the next Apple sign-in asks for consent again. Tests: the
+  order `reauth, revokeApple, delete, signOut, clearCache`; a refused
+  deletion `reauth, revokeApple, delete`; a cancelled Apple re-auth revokes
+  nothing. The real device check is todo 718 (Settings → Sign in with Apple
+  no longer lists the app).
+- **Fixed (low):** `signOut()` now clears `_appleRefreshUid` and the unused
+  `_appleRevocation` code.
+- **Declined (medium):** `LEGAL_POLICY_VERSION` not bumped for the new privacy
+  wording. The owner decided this on 2026-11-19: Apple sign-in is opt-in, so
+  nothing changes for existing accounts.
+- **Declined (low, three phrasings):** a stale `_appleRefreshUid` forces at most
+  one extra ID-token refresh. That is harmless, and it is now cleared on sign-out.
+- **Declined (low):** re-tapping Apple while a Firebase user with the same uid
+  remains after a failed exchange. Google has the same gap today; a fix
+  belongs to both buttons, not only to this PR.
+- **Declined (low):** no Apple revoke when a new Apple user declines the
+  consent sheet. No Django account was ever created, and Guideline
+  5.1.1(v) applies to account deletion.
+- **Declined (low):** `debugDefaultTargetPlatformOverride` reset at the end of
+  each test rather than in a tear-down. That only matters once a test is
+  already failing.
+- **Declined (low):** two doc-comment lines over 80 columns. `dart format`
+  reports no changes.
+- **Declined (low):** the backend Apple tests mainly pin current behaviour.
+  The backend logic is shared with Google on purpose, and the tests cover
+  the relay email, the 428 consent step, and a returning sign-in.
