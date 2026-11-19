@@ -319,11 +319,11 @@ class _NotificationCard extends StatelessWidget {
   }
 }
 
-/// The actor's avatar with the verb's tile tone as a badge on its corner.
-/// With no avatar image the disc is the actor's initial on a tile gradient
-/// picked from their username, so a person keeps one colour down the list —
-/// the shared [AuthorAvatar] fallback is a small grey initial, too quiet at
-/// this size.
+/// The actor's avatar with the verb's tile tone as a round badge on its
+/// corner. With no avatar image the square is the actor's initial on a tile
+/// gradient picked from their username, so a person keeps one colour down
+/// the list — louder than the shared [AuthorAvatar]'s tinted fill, which is
+/// too quiet at this size.
 class _ActorAvatar extends StatelessWidget {
   const _ActorAvatar({
     required this.actor,
@@ -359,7 +359,7 @@ class _ActorAvatar extends StatelessWidget {
         height: _size,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          shape: BoxShape.circle,
+          borderRadius: forumAvatarRadius(_size),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,

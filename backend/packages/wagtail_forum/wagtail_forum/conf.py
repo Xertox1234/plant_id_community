@@ -123,6 +123,9 @@ DEFAULTS: dict[str, Any] = {
     "LATEST_REPLIES_PARTICIPANTS": 5,
     # users/experts/ ("Community experts" rail): row cap and minimum trust.
     "EXPERTS_LIMIT": 4,
+    # boards/<slug>/contributors/ (the topic list's "Top contributors"): how
+    # many members it returns.
+    "BOARD_CONTRIBUTORS_LIMIT": 5,
     "EXPERTS_MIN_TRUST_LEVEL": 3,  # TrustLevel.REGULAR
     # community/stats/ ("Who's online" panel): how long the site-wide counts
     # are cached as one shared value, and how many online members it shows.

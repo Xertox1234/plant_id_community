@@ -273,10 +273,16 @@ void main() {
       ..user = _user(avatar: 'https://cdn.example.test/avatars/me.jpg');
     await _pump(tester, api);
 
-    final avatar = tester.widget<CircleAvatar>(find.byType(CircleAvatar));
-    expect(avatar.backgroundImage, isA<CachedNetworkImageProvider>());
+    final avatar = tester.widget<DecoratedBox>(
+      find.descendant(
+        of: find.byKey(const ValueKey('edit-profile-avatar')),
+        matching: find.byType(DecoratedBox),
+      ),
+    );
+    final image = (avatar.decoration as BoxDecoration).image?.image;
+    expect(image, isA<CachedNetworkImageProvider>());
     expect(
-      (avatar.backgroundImage! as CachedNetworkImageProvider).url,
+      (image! as CachedNetworkImageProvider).url,
       'https://cdn.example.test/avatars/me.jpg',
     );
   });

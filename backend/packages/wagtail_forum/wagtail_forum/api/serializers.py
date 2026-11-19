@@ -591,6 +591,9 @@ class TopicDetailSerializer(serializers.ModelSerializer):
     is_solved = serializers.SerializerMethodField()
     solved_post_id = serializers.IntegerField(read_only=True, allow_null=True)
     can_mark_solution = serializers.SerializerMethodField()
+    # Whether THIS viewer may pin/unpin the topic (moderators). DETAIL-ONLY:
+    # the action lives on the topic screen. See get_can_pin.
+    can_pin = serializers.SerializerMethodField()
     # The plant-ID snapshot the author attached at compose time (audit M6).
     # DETAIL-ONLY, deliberately: the card renders above the opening post and
     # nowhere else, so the topic list and both search hit-builders stay
@@ -630,6 +633,7 @@ class TopicDetailSerializer(serializers.ModelSerializer):
             "solved_post_id",
             "solved_at",
             "can_mark_solution",
+            "can_pin",
             "identification",
             "is_blocked",
             "is_muted",
@@ -717,6 +721,13 @@ class TopicDetailSerializer(serializers.ModelSerializer):
         # anonymous short-circuits inside solution_block.
         request = self.context.get("request")
         return obj.can_mark_solution_by(getattr(request, "user", None))
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_can_pin(self, obj):
+        # Single-sourced on the model so the affordance matches TopicPinView's
+        # write guard exactly. Anonymous short-circuits before any query.
+        request = self.context.get("request")
+        return obj.can_pin_by(getattr(request, "user", None))
 
     @extend_schema_field(IDENTIFICATION_SCHEMA)
     def get_identification(self, obj):

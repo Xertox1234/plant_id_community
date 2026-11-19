@@ -77,6 +77,28 @@ void main() {
         isTrue,
       );
     });
+
+    test('a list row parses tags, and has none when the payload has none', () {
+      expect(
+        ForumTopicListItem.fromJson({
+          'id': 1,
+          'tags': ['Monstera', 'root rot', ''],
+        }).tags,
+        ['Monstera', 'root rot'],
+      );
+      expect(ForumTopicListItem.fromJson({'id': 1}).tags, isEmpty);
+    });
+
+    test('a board parses default_sort', () {
+      expect(
+        ForumBoard.fromJson({
+          'id': 1,
+          'default_sort': '-created_at',
+        }).defaultSort,
+        '-created_at',
+      );
+      expect(ForumBoard.fromJson({'id': 1}).defaultSort, '');
+    });
   });
 
   group('ForumProfile block flags (todo 341)', () {

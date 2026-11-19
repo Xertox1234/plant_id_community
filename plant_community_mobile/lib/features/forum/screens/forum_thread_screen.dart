@@ -69,6 +69,9 @@ class ForumThreadScreen extends ConsumerWidget {
     final isLocked = topic?.isLocked ?? false;
     final isSubscribed = topic?.isSubscribed ?? false;
     final isBookmarked = topic?.isBookmarked ?? false;
+    final isPinned = topic?.isPinned ?? false;
+    // Server authority (moderators), as for the solution affordance below.
+    final canPin = isAuthenticated && (topic?.canPin ?? false);
     // Server authority for the mark/unmark affordance (topic author or a
     // moderator) — never re-derived from the viewer's identity here.
     final canMarkSolution =
@@ -83,6 +86,12 @@ class ForumThreadScreen extends ConsumerWidget {
           title: Text(title),
           actions: [
             if (isAuthenticated && detail.hasValue) ...[
+              if (canPin)
+                IconButton(
+                  tooltip: isPinned ? 'Unpin topic' : 'Pin topic',
+                  icon: Icon(isPinned ? LucideIcons.pinOff : LucideIcons.pin),
+                  onPressed: () => _togglePin(context, ref),
+                ),
               IconButton(
                 tooltip: isBookmarked ? 'Remove bookmark' : 'Bookmark',
                 // Lucide has no filled bookmark, so the SAVED state is a different
@@ -177,7 +186,7 @@ class ForumThreadScreen extends ConsumerWidget {
         floatingActionButton: (isAuthenticated && !isLocked && !live.gone)
             ? FloatingActionButton.extended(
                 onPressed: () => _openReply(context, ref),
-                icon: const Icon(LucideIcons.reply),
+                icon: const Icon(LucideIcons.reply, size: 15),
                 label: const Text('Reply'),
               )
             : null,
@@ -308,6 +317,31 @@ class ForumThreadScreen extends ConsumerWidget {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> _togglePin(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final pinned = await ref.read(_detailOf(ref).notifier).togglePin();
+      if (pinned == null) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            pinned
+                ? 'Pinned to the top of the forum.'
+                : 'Unpinned from the top of the forum.',
+          ),
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            forumErrorMessage(e, fallback: 'Could not update the pin.'),
+          ),
+        ),
+      );
     }
   }
 

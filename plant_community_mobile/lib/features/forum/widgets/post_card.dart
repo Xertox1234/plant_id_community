@@ -148,10 +148,16 @@ class _PostCardState extends State<PostCard> {
                 ),
               ),
               if (post.isOpeningPost)
-                Icon(
-                  LucideIcons.pin,
-                  size: 16,
-                  color: theme.colorScheme.onSurfaceVariant,
+                // A sprout, not a pin: this marks the post the topic grew
+                // from, and a pin now means "pinned to the top of the forum"
+                // (the thread's own pin button, the list's Pinned label).
+                Tooltip(
+                  message: 'Opening post',
+                  child: Icon(
+                    LucideIcons.sprout,
+                    size: 16,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
               _PostMenu(
                 post: post,

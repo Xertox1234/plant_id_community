@@ -249,7 +249,13 @@ class AppTheme {
         // shape, but a CircleBorder on an extended FAB paints a circle in the
         // middle of the pill and leaves the icon and label outside it.
         shape: const StadiumBorder(),
-        extendedTextStyle: AppTypography.button,
+        // A labelled action ("New topic", "Reply") is a small pill, 36pt
+        // tall with a 13pt label, not Material's 56pt slab. The button's
+        // own padded tap target keeps the touch area at 48pt.
+        extendedSizeConstraints: const BoxConstraints.tightFor(height: 36),
+        extendedPadding: const EdgeInsets.symmetric(horizontal: 12),
+        extendedIconLabelSpacing: 5,
+        extendedTextStyle: AppTypography.buttonSm.copyWith(fontSize: 13),
       ),
 
       // ── inputs ──────────────────────────────────────────────────────────

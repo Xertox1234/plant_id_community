@@ -18,6 +18,7 @@ class ForumBoard {
     this.isClosed = false,
     this.canPost = false,
     this.lastPostAt,
+    this.defaultSort = '',
   });
 
   final int id;
@@ -34,6 +35,10 @@ class ForumBoard {
   final bool canPost;
   final DateTime? lastPostAt;
 
+  /// The forum's own `?sort=` value (`default_sort`), applied by the server
+  /// when a list request names none. Empty when the payload has none.
+  final String defaultSort;
+
   factory ForumBoard.fromJson(Map<String, dynamic> json) {
     return ForumBoard(
       id: json['id'] as int,
@@ -49,6 +54,7 @@ class ForumBoard {
       isClosed: json['is_closed'] as bool? ?? false,
       canPost: json['can_post'] as bool? ?? false,
       lastPostAt: DateTime.tryParse(json['last_post_at'] as String? ?? ''),
+      defaultSort: json['default_sort'] as String? ?? '',
     );
   }
 }

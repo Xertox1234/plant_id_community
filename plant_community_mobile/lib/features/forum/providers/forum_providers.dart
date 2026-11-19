@@ -176,7 +176,60 @@ Future<void> _awaitUnlocks(Ref ref, String? viewer) async {
   } catch (_) {}
 }
 
-/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// A forum's top contributors: the members with the most posts in it
+/// (`GET /forum/boards/{slug}/contributors/`). Keyed on [viewer] because the
+/// server leaves out members the viewer has blocked. A 4xx (a locked forum,
+/// or a server that predates the endpoint) fails at once; the section that
+/// reads it is then simply absent.
+@Riverpod(retry: forumRetry)
+Future<List<ForumContributor>> boardContributors(
+  Ref ref,
+  String boardSlug,
+  String? viewer,
+) async {
+  final api = ref.watch(forumApiProvider);
+  await _awaitUnlocks(ref, viewer);
+  return api.fetchBoardContributors(boardSlug);
+}
+
+/// How one board's topic list is sorted and filtered. Both `null` is the
+/// server's own order with no filter.
+class BoardTopicsFilter {
+  const BoardTopicsFilter({this.sort, this.tag});
+
+  /// A `?sort=` value, or `null` for the forum's default order.
+  final String? sort;
+
+  /// A tag name (`?tag=`), or `null` for every topic.
+  final String? tag;
+
+  @override
+  bool operator ==(Object other) =>
+      other is BoardTopicsFilter && other.sort == sort && other.tag == tag;
+
+  @override
+  int get hashCode => Object.hash(sort, tag);
+}
+
+/// The sort and tag filter chosen on a board's topic list. Lives as long as
+/// that list is on screen, so leaving the forum clears it.
+@riverpod
+class BoardTopicsFilterState extends _$BoardTopicsFilterState {
+  @override
+  BoardTopicsFilter build(String boardSlug) => const BoardTopicsFilter();
+
+  void setSort(String? sort) =>
+      state = BoardTopicsFilter(sort: sort, tag: state.tag);
+
+  /// Choosing the active tag again clears it.
+  void toggleTag(String tag) => state = BoardTopicsFilter(
+    sort: state.sort,
+    tag: state.tag == tag ? null : tag,
+  );
+}
+
+/// Topics in a board, cursor-paginated with [loadMore], in the order and
+/// under the tag filter of [boardTopicsFilterStateProvider]. A locked forum
 /// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 @Riverpod(retry: forumRetry)
 class BoardTopics extends _$BoardTopics {
@@ -194,7 +247,12 @@ class BoardTopics extends _$BoardTopics {
     _builds++;
     final api = ref.watch(forumApiProvider);
     await _awaitUnlocks(ref, viewer);
-    final page = await api.fetchTopics(boardSlug: boardSlug);
+    final filter = ref.watch(boardTopicsFilterStateProvider(boardSlug));
+    final page = await api.fetchTopics(
+      boardSlug: boardSlug,
+      sort: filter.sort,
+      tag: filter.tag,
+    );
     return PagedList(items: page.items, nextUrl: page.next);
   }
 
@@ -283,6 +341,35 @@ class TopicDetail extends _$TopicDetail {
   }
 
   bool _bookmarkInFlight = false;
+
+  /// Pin the topic in its forum, or unpin it. NOT optimistic: a pin reorders
+  /// the forum for everyone, so the icon changes only once the server has
+  /// agreed. Refetches every board's topic list (the pinned row moves) and
+  /// rethrows so the caller can surface the error.
+  ///
+  /// Returns the topic's pinned state after the call, or `null` when nothing
+  /// was sent (no topic loaded yet, or a toggle already in flight). The
+  /// caller words its confirmation from this, never from a provider read
+  /// after the await: the screen may be gone by then.
+  Future<bool?> togglePin() async {
+    final current = state.asData?.value;
+    if (current == null || _pinInFlight) return null;
+    _pinInFlight = true;
+    try {
+      final pinned = await ref
+          .read(forumApiProvider)
+          .setTopicPinned(current.id, pinned: !current.isPinned);
+      if (!ref.mounted) return pinned;
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(latest.copyWith(isPinned: pinned));
+      ref.invalidate(boardTopicsProvider);
+      return pinned;
+    } finally {
+      _pinInFlight = false;
+    }
+  }
+
+  bool _pinInFlight = false;
 
   Future<void> _toggleBookmarkOnce(ForumTopicDetail current) async {
     final wasBookmarked = current.isBookmarked;

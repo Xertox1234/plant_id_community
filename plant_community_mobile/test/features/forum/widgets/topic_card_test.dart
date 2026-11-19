@@ -12,6 +12,34 @@ void main() {
     return tester.pumpWidget(MaterialApp(home: Scaffold(body: child)));
   }
 
+  group('TopicRow tags and pin', () {
+    testWidgets('shows at most three of a topic\'s tags', (tester) async {
+      await pump(
+        tester,
+        TopicRow(topic: topic(tags: ['hoya', 'aroid', 'tree', 'fern'])),
+      );
+
+      expect(find.text('#hoya'), findsOneWidget);
+      expect(find.text('#tree'), findsOneWidget);
+      expect(find.text('#fern'), findsNothing);
+    });
+
+    testWidgets('only a pinned row sits on a wash', (tester) async {
+      final wash = find.descendant(
+        of: find.byType(TopicRow),
+        matching: find.byWidgetPredicate(
+          (w) => w is ColoredBox && w.color.a > 0,
+        ),
+      );
+      await pump(tester, TopicRow(topic: topic()));
+      expect(wash, findsNothing);
+
+      await pump(tester, TopicRow(topic: topic(isPinned: true)));
+      expect(wash, findsOneWidget);
+      expect(find.text('Pinned'), findsOneWidget);
+    });
+  });
+
   group('TopicCard author (todo 317)', () {
     testWidgets('renders an AuthorIdentity for the topic author', (
       tester,

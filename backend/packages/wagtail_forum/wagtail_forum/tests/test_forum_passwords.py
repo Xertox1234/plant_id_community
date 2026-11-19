@@ -102,6 +102,19 @@ def test_a_locked_forum_hides_its_topics_until_unlocked(locked):
     assert client.get(topic_url).status_code == 200
 
 
+def test_a_locked_forum_hides_its_contributors_until_unlocked(locked):
+    """Member names are at stake: the contributors list follows the topic
+    list's gate exactly."""
+    client, _ = _member()
+
+    refused = client.get("/forum/boards/club/contributors/")
+    assert refused.status_code == 403
+    assert refused.json()["code"] == "forum_locked"
+
+    _unlock(client)
+    assert client.get("/forum/boards/club/contributors/").status_code == 200
+
+
 def test_a_locked_row_hides_its_rules_icon_and_image_until_unlocked(locked):
     # Owner decision 2026-11-01: a locked row shows its name and description
     # only. Rules, rules URL, icon and image appear once the session unlocks.

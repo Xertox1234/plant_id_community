@@ -8,6 +8,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../core/routing/app_router.dart';
 import '../../core/theme/green_thumb_extension.dart';
+import '../forum/widgets/author_identity.dart' show forumAvatarRadius;
 import '../../models/user_profile.dart';
 import '../../services/api_service.dart';
 import '../../services/user_profile_service.dart';
@@ -272,25 +273,37 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     ? 'No profile photo'
                     : 'Your profile photo',
                 image: true,
-                child: CircleAvatar(
-                  radius: 48,
-                  backgroundColor: cs.primaryContainer,
-                  // Cached, like every other network image in the app.
-                  backgroundImage: avatarUrl != null
-                      ? CachedNetworkImageProvider(avatarUrl)
-                      : null,
-                  onBackgroundImageError: avatarUrl != null
-                      ? (error, _) {
-                          if (kDebugMode) {
-                            debugPrint('[EDIT_PROFILE] Avatar failed: $error');
-                          }
-                        }
-                      : null,
-                  child: _uploading || _removing
-                      ? const CircularProgressIndicator()
-                      : avatarUrl == null
-                      ? Icon(LucideIcons.user, size: 40, color: cs.primary)
-                      : null,
+                // A rounded square, the same shape as the forum avatar.
+                child: SizedBox.square(
+                  key: const ValueKey('edit-profile-avatar'),
+                  dimension: 96,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: cs.primaryContainer,
+                      borderRadius: forumAvatarRadius(96),
+                      // Cached, like every other network image in the app.
+                      image: avatarUrl != null
+                          ? DecorationImage(
+                              image: CachedNetworkImageProvider(avatarUrl),
+                              fit: BoxFit.cover,
+                              onError: (error, _) {
+                                if (kDebugMode) {
+                                  debugPrint(
+                                    '[EDIT_PROFILE] Avatar failed: $error',
+                                  );
+                                }
+                              },
+                            )
+                          : null,
+                    ),
+                    child: Center(
+                      child: _uploading || _removing
+                          ? const CircularProgressIndicator()
+                          : avatarUrl == null
+                          ? Icon(LucideIcons.user, size: 40, color: cs.primary)
+                          : null,
+                    ),
+                  ),
                 ),
               ),
             ),

@@ -353,17 +353,245 @@ final class BoardsProvider
 
 String _$boardsHash() => r'2d4b1a28a8f788fffe696a21b012ad82c6369460';
 
-/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// A forum's top contributors: the members with the most posts in it
+/// (`GET /forum/boards/{slug}/contributors/`). Keyed on [viewer] because the
+/// server leaves out members the viewer has blocked. A 4xx (a locked forum,
+/// or a server that predates the endpoint) fails at once; the section that
+/// reads it is then simply absent.
+
+@ProviderFor(boardContributors)
+final boardContributorsProvider = BoardContributorsFamily._();
+
+/// A forum's top contributors: the members with the most posts in it
+/// (`GET /forum/boards/{slug}/contributors/`). Keyed on [viewer] because the
+/// server leaves out members the viewer has blocked. A 4xx (a locked forum,
+/// or a server that predates the endpoint) fails at once; the section that
+/// reads it is then simply absent.
+
+final class BoardContributorsProvider
+    extends
+        $FunctionalProvider<
+          AsyncValue<List<ForumContributor>>,
+          List<ForumContributor>,
+          FutureOr<List<ForumContributor>>
+        >
+    with
+        $FutureModifier<List<ForumContributor>>,
+        $FutureProvider<List<ForumContributor>> {
+  /// A forum's top contributors: the members with the most posts in it
+  /// (`GET /forum/boards/{slug}/contributors/`). Keyed on [viewer] because the
+  /// server leaves out members the viewer has blocked. A 4xx (a locked forum,
+  /// or a server that predates the endpoint) fails at once; the section that
+  /// reads it is then simply absent.
+  BoardContributorsProvider._({
+    required BoardContributorsFamily super.from,
+    required (String, String?) super.argument,
+  }) : super(
+         retry: forumRetry,
+         name: r'boardContributorsProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$boardContributorsHash();
+
+  @override
+  String toString() {
+    return r'boardContributorsProvider'
+        ''
+        '$argument';
+  }
+
+  @$internal
+  @override
+  $FutureProviderElement<List<ForumContributor>> $createElement(
+    $ProviderPointer pointer,
+  ) => $FutureProviderElement(pointer);
+
+  @override
+  FutureOr<List<ForumContributor>> create(Ref ref) {
+    final argument = this.argument as (String, String?);
+    return boardContributors(ref, argument.$1, argument.$2);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is BoardContributorsProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$boardContributorsHash() => r'098492c7d41a9f89323f876e81ff5f9e8dfc7089';
+
+/// A forum's top contributors: the members with the most posts in it
+/// (`GET /forum/boards/{slug}/contributors/`). Keyed on [viewer] because the
+/// server leaves out members the viewer has blocked. A 4xx (a locked forum,
+/// or a server that predates the endpoint) fails at once; the section that
+/// reads it is then simply absent.
+
+final class BoardContributorsFamily extends $Family
+    with
+        $FunctionalFamilyOverride<
+          FutureOr<List<ForumContributor>>,
+          (String, String?)
+        > {
+  BoardContributorsFamily._()
+    : super(
+        retry: forumRetry,
+        name: r'boardContributorsProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// A forum's top contributors: the members with the most posts in it
+  /// (`GET /forum/boards/{slug}/contributors/`). Keyed on [viewer] because the
+  /// server leaves out members the viewer has blocked. A 4xx (a locked forum,
+  /// or a server that predates the endpoint) fails at once; the section that
+  /// reads it is then simply absent.
+
+  BoardContributorsProvider call(String boardSlug, String? viewer) =>
+      BoardContributorsProvider._(argument: (boardSlug, viewer), from: this);
+
+  @override
+  String toString() => r'boardContributorsProvider';
+}
+
+/// The sort and tag filter chosen on a board's topic list. Lives as long as
+/// that list is on screen, so leaving the forum clears it.
+
+@ProviderFor(BoardTopicsFilterState)
+final boardTopicsFilterStateProvider = BoardTopicsFilterStateFamily._();
+
+/// The sort and tag filter chosen on a board's topic list. Lives as long as
+/// that list is on screen, so leaving the forum clears it.
+final class BoardTopicsFilterStateProvider
+    extends $NotifierProvider<BoardTopicsFilterState, BoardTopicsFilter> {
+  /// The sort and tag filter chosen on a board's topic list. Lives as long as
+  /// that list is on screen, so leaving the forum clears it.
+  BoardTopicsFilterStateProvider._({
+    required BoardTopicsFilterStateFamily super.from,
+    required String super.argument,
+  }) : super(
+         retry: null,
+         name: r'boardTopicsFilterStateProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
+
+  @override
+  String debugGetCreateSourceHash() => _$boardTopicsFilterStateHash();
+
+  @override
+  String toString() {
+    return r'boardTopicsFilterStateProvider'
+        ''
+        '($argument)';
+  }
+
+  @$internal
+  @override
+  BoardTopicsFilterState create() => BoardTopicsFilterState();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(BoardTopicsFilter value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<BoardTopicsFilter>(value),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is BoardTopicsFilterStateProvider &&
+        other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
+}
+
+String _$boardTopicsFilterStateHash() =>
+    r'2f1d79a033323fed6b3b125625ad1ef2ecac2238';
+
+/// The sort and tag filter chosen on a board's topic list. Lives as long as
+/// that list is on screen, so leaving the forum clears it.
+
+final class BoardTopicsFilterStateFamily extends $Family
+    with
+        $ClassFamilyOverride<
+          BoardTopicsFilterState,
+          BoardTopicsFilter,
+          BoardTopicsFilter,
+          BoardTopicsFilter,
+          String
+        > {
+  BoardTopicsFilterStateFamily._()
+    : super(
+        retry: null,
+        name: r'boardTopicsFilterStateProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The sort and tag filter chosen on a board's topic list. Lives as long as
+  /// that list is on screen, so leaving the forum clears it.
+
+  BoardTopicsFilterStateProvider call(String boardSlug) =>
+      BoardTopicsFilterStateProvider._(argument: boardSlug, from: this);
+
+  @override
+  String toString() => r'boardTopicsFilterStateProvider';
+}
+
+/// The sort and tag filter chosen on a board's topic list. Lives as long as
+/// that list is on screen, so leaving the forum clears it.
+
+abstract class _$BoardTopicsFilterState extends $Notifier<BoardTopicsFilter> {
+  late final _$args = ref.$arg as String;
+  String get boardSlug => _$args;
+
+  BoardTopicsFilter build(String boardSlug);
+  @$mustCallSuper
+  @override
+  WhenComplete runBuild() {
+    final ref = this.ref as $Ref<BoardTopicsFilter, BoardTopicsFilter>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<BoardTopicsFilter, BoardTopicsFilter>,
+              BoardTopicsFilter,
+              Object?,
+              Object?
+            >;
+    return element.handleCreate(ref, () => build(_$args));
+  }
+}
+
+/// Topics in a board, cursor-paginated with [loadMore], in the order and
+/// under the tag filter of [boardTopicsFilterStateProvider]. A locked forum
 /// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 
 @ProviderFor(BoardTopics)
 final boardTopicsProvider = BoardTopicsFamily._();
 
-/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// Topics in a board, cursor-paginated with [loadMore], in the order and
+/// under the tag filter of [boardTopicsFilterStateProvider]. A locked forum
 /// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 final class BoardTopicsProvider
     extends $AsyncNotifierProvider<BoardTopics, PagedList<ForumTopicListItem>> {
-  /// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+  /// Topics in a board, cursor-paginated with [loadMore], in the order and
+  /// under the tag filter of [boardTopicsFilterStateProvider]. A locked forum
   /// answers 403 `forum_locked`, which [forumRetry] does not re-request.
   BoardTopicsProvider._({
     required BoardTopicsFamily super.from,
@@ -401,9 +629,10 @@ final class BoardTopicsProvider
   }
 }
 
-String _$boardTopicsHash() => r'd94fe54dd811d702d7239eee895829a3d249453b';
+String _$boardTopicsHash() => r'0cacb800ca4245340c87747d8d7fffc77e5767f2';
 
-/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// Topics in a board, cursor-paginated with [loadMore], in the order and
+/// under the tag filter of [boardTopicsFilterStateProvider]. A locked forum
 /// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 
 final class BoardTopicsFamily extends $Family
@@ -424,7 +653,8 @@ final class BoardTopicsFamily extends $Family
         isAutoDispose: true,
       );
 
-  /// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+  /// Topics in a board, cursor-paginated with [loadMore], in the order and
+  /// under the tag filter of [boardTopicsFilterStateProvider]. A locked forum
   /// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 
   BoardTopicsProvider call(String boardSlug, String? viewer) =>
@@ -434,7 +664,8 @@ final class BoardTopicsFamily extends $Family
   String toString() => r'boardTopicsProvider';
 }
 
-/// Topics in a board, cursor-paginated with [loadMore]. A locked forum
+/// Topics in a board, cursor-paginated with [loadMore], in the order and
+/// under the tag filter of [boardTopicsFilterStateProvider]. A locked forum
 /// answers 403 `forum_locked`, which [forumRetry] does not re-request.
 
 abstract class _$BoardTopics
@@ -519,7 +750,7 @@ final class TopicDetailProvider
   }
 }
 
-String _$topicDetailHash() => r'32e70dd61a20269555276522b583a819b55d7cd2';
+String _$topicDetailHash() => r'dd6a7c73c4f3265b1927af101b189905a25fa063';
 
 /// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
 /// bookmark toggle and the accepted-answer mark/clear (todo 341).

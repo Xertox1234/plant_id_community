@@ -315,7 +315,10 @@ class _Skeleton extends StatelessWidget {
         SizedBox.square(
           dimension: 28,
           child: DecoratedBox(
-            decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: fill,
+              borderRadius: forumAvatarRadius(28),
+            ),
           ),
         ),
         const SizedBox(width: 10),

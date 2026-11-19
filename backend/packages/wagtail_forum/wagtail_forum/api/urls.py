@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .bookmarks import TopicBookmarkListView, TopicBookmarkView
+from .contributors import BoardContributorsView
 from .direct_messages import (
     ConversationDetailView,
     ConversationListView,
@@ -26,6 +27,7 @@ from .notifications import (
     NotificationMarkReadView,
     NotificationUnreadCountView,
 )
+from .pins import TopicPinView
 from .polls import PollVoteView
 from .solutions import TopicSolutionView
 from .subscriptions import TopicSubscriptionView
@@ -62,6 +64,11 @@ urlpatterns = [
     path("boards/", BoardListView.as_view(), name="board-list"),
     path("categories/", CategoryListView.as_view(), name="category-list"),
     path("boards/<slug:slug>/topics/", TopicListView.as_view(), name="topic-list"),
+    path(
+        "boards/<slug:slug>/contributors/",
+        BoardContributorsView.as_view(),
+        name="board-contributors",
+    ),
     # Read marks (todo 671) and link redirects (todo 670).
     path(
         "boards/<slug:slug>/read/",
@@ -106,6 +113,7 @@ urlpatterns = [
         TopicSolutionView.as_view(),
         name="topic-solution",
     ),
+    path("topics/<int:topic_id>/pin/", TopicPinView.as_view(), name="topic-pin"),
     path("topics/<int:topic_id>/posts/", PostListView.as_view(), name="post-list"),
     path(
         "topics/<int:topic_id>/latest-replies/",

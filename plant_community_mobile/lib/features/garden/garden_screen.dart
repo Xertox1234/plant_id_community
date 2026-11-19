@@ -30,7 +30,7 @@ class GardenScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Care Schedule'), centerTitle: true),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _addPlant(context, ref),
-        icon: const Icon(LucideIcons.plus),
+        icon: const Icon(LucideIcons.plus, size: 15),
         label: const Text('Add plant'),
       ),
       body: SafeArea(
