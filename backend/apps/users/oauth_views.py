@@ -33,6 +33,8 @@ from .consent import (
     record_policy_acceptance,
 )
 from .constants import (
+    ACCOUNT_DISABLED_CODE,
+    ACCOUNT_DISABLED_MESSAGE,
     OAUTH_PENDING_SIGNUP_TTL_SECONDS,
     OAUTH_PENDING_SIGNUP_USER_DATA_KEYS,
     OAUTH_PROVIDER_TIMEOUT_SECONDS,
@@ -337,6 +339,16 @@ def oauth_callback(request, provider):
             frontend_url = get_oauth_redirect_url(provider)
             return HttpResponseRedirect(f"{frontend_url}?error=user_creation_failed")
 
+        # A disabled account gets no session and no tokens (todo 705 M6),
+        # as the Firebase exchange and the refresh already refuse it.
+        if not user.is_active:
+            logger.warning(
+                f"[SECURITY] {provider} sign-in refused for a disabled account "
+                f"{log_safe_user_context(user)}"
+            )
+            frontend_url = get_oauth_redirect_url(provider)
+            return HttpResponseRedirect(f"{frontend_url}?error={ACCOUNT_DISABLED_CODE}")
+
         # Log the user in with explicit backend
         django_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         # A sign-up abandoned earlier in this browser is moot once signed in.
@@ -431,6 +443,16 @@ def oauth_finish_signup(request):
         return Response(
             {"error": SIGNUP_FAILED_MESSAGE, "code": SIGNUP_FAILED_CODE},
             status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not user.is_active:
+        logger.warning(
+            f"[SECURITY] {provider} sign-up finish refused for a disabled account "
+            f"{log_safe_user_context(user)}"
+        )
+        return Response(
+            {"error": ACCOUNT_DISABLED_MESSAGE, "code": ACCOUNT_DISABLED_CODE},
+            status=status.HTTP_401_UNAUTHORIZED,
         )
 
     django_login(request, user, backend="django.contrib.auth.backends.ModelBackend")

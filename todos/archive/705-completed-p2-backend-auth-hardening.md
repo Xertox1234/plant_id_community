@@ -183,6 +183,41 @@ One fix per commit, test first:
 - Fix: `token_refresh` now records each rotation in a `RotatedRefreshToken` row (`apps/users/models.py`, migration `apps/users/migrations/0025_rotatedrefreshtoken.py`), written by `mark_rotated` (`apps/users/refresh_sessions.py`) in the transaction that blacklists the token, idempotent for the two-tab race. Only a token with that row, rotated over 30 s ago, is reuse; any other blacklisted token is a plain 401.
 - Tests: `NonRotationBlacklistIsNotReuseTest` in `apps/users/tests/test_refresh_sessions.py` (provider-link revocation, logout, refused refresh, rotation-only marker). A token rotated before deploy has no row and gets a plain 401, as on main.
 
+### 2026-11-18 — review round 1 (PR #1375), non-blocking findings
+
+The blocking finding (reuse detection counted every blacklisted token) was
+repaired by the round 1 repair above. Fixed by hand before round 2, each with a
+test that fails without it:
+
+- `/blog-admin/` (staff-only moderation, settings and export pages) skipped the
+  second-factor gate; it is now in `ADMIN_OTP_PATH_PREFIXES`.
+- The web OAuth callback and the sign-up finish logged in and issued JWTs to a
+  disabled account. Both now refuse it (`account_disabled`), as the Firebase
+  exchange and the refresh do.
+- The OTP gate and the setup and verify pages now apply to staff only; a
+  regular user never creates a TOTPDevice row.
+- Both OTP pages send `Cache-Control: no-store` (`never_cache`), since setup
+  shows the TOTP secret.
+
+Declined:
+
+- A staff password stolen before the first device is enrolled lets the
+  attacker enrol theirs. This is inherent to enrolling on first visit; the only
+  staff account is the owner's, who enrols right after deploy (owner hand-off).
+- The "Sign out" link on the OTP pages is a GET, which Wagtail's logout
+  refuses. Closing the tab or the session expiry ends it; cosmetic.
+- The inactive check runs after `get_or_create_user_from_firebase`, so a
+  disabled account's first provider link still runs its side effects. No token
+  is issued, which is what M6 asks.
+- The `OutstandingToken` row keeps the default `expires_at`, not the capped
+  `exp`. The cap is enforced from the token's own claim; the row only drives
+  blacklist cleanup.
+- A 403 without Retry-After from the OTP rate limit, a docstring that mentions
+  `.in` files in the vuln gate, a duplicated revoke helper, and hardcoded admin
+  mount paths are cosmetic or maintenance items; no behaviour is wrong.
+- No test covers the `admin_otp` rate limit itself; the decorator is the
+  shared, tested `apps.core.ratelimit`.
+
 ## Notes
 
 M22 carries the most risk here: staff can delete accounts.

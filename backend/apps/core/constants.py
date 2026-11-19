@@ -231,7 +231,9 @@ ADMIN_LOGIN_FAILURE_RATE = "5/15m"
 ADMIN_LOGIN_RATELIMIT_GROUP = "admin_login_failures"
 # Every signed-in request under these prefixes needs a verified second factor
 # (django-otp TOTP, or a one-time static token for recovery).
-ADMIN_OTP_PATH_PREFIXES = ("/cms/", "/admin/")
+# /blog-admin/ is a set of @staff_member_required session pages (moderation,
+# settings, export), so it needs the same second factor as the admin.
+ADMIN_OTP_PATH_PREFIXES = ("/cms/", "/admin/", "/blog-admin/")
 ADMIN_OTP_SETUP_PATH = "/cms/otp/setup/"
 ADMIN_OTP_VERIFY_PATH = "/cms/otp/verify/"
 # Paths a signed-in but unverified user may still reach: the two-factor pages

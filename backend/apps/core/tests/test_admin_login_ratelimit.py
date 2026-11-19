@@ -120,6 +120,36 @@ class StaffSecondFactorTest(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response["Location"].startswith(ADMIN_OTP_SETUP_PATH))
 
+    def test_blog_admin_is_gated_too(self):
+        self._sign_in()
+        response = self.client.get("/blog-admin/")
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].startswith(ADMIN_OTP_SETUP_PATH))
+
+    def test_a_non_staff_session_is_not_sent_to_enrol(self):
+        member = User.objects.create_user(
+            username="member", email="member@example.com", password=PASSWORD
+        )
+        self.client.force_login(member)
+        response = self.client.get("/cms/")
+        self.assertFalse(response.get("Location", "").startswith(ADMIN_OTP_SETUP_PATH))
+
+    def test_a_non_staff_user_cannot_open_the_setup_page(self):
+        from django_otp.plugins.otp_totp.models import TOTPDevice
+
+        member = User.objects.create_user(
+            username="member2", email="member2@example.com", password=PASSWORD
+        )
+        self.client.force_login(member)
+        response = self.client.get(ADMIN_OTP_SETUP_PATH)
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(TOTPDevice.objects.filter(user=member).exists())
+
+    def test_the_two_factor_pages_are_never_cached(self):
+        self._sign_in()
+        response = self.client.get(ADMIN_OTP_SETUP_PATH)
+        self.assertIn("no-store", response["Cache-Control"])
+
     def test_enrolling_a_totp_app_opens_the_admin(self):
         self._sign_in()
         page = self.client.get(ADMIN_OTP_SETUP_PATH)

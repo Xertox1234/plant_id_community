@@ -119,5 +119,9 @@ class StaffOTPRequiredMiddleware:
         user = getattr(request, "user", None)
         if user is None or not user.is_authenticated:
             return False
+        # Only staff reach these pages; a regular user's session is left to
+        # the admin's own refusal instead of being sent to enrol a device.
+        if not (user.is_staff or user.is_superuser):
+            return False
         is_verified = getattr(user, "is_verified", None)
         return not (callable(is_verified) and is_verified())

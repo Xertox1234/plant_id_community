@@ -127,3 +127,55 @@ class OAuthCallbackPassesTheVerifierTest(TestCase):
             )
         self.assertEqual(handler.call_args.args[2], "kept-verifier")
         self.assertNotIn(oauth_views.OAUTH_PKCE_VERIFIER_KEY, self.client.session)
+
+
+class OAuthDisabledAccountTest(TestCase):
+    """A disabled account gets no session and no JWT from web OAuth (M6)."""
+
+    def setUp(self):
+        cache.clear()
+        from django.contrib.auth import get_user_model
+
+        self.user = get_user_model().objects.create_user(
+            username="gone", email="gone@example.com", is_active=False
+        )
+
+    def test_the_callback_refuses_a_disabled_account(self):
+        session = self.client.session
+        session["oauth_state"] = "test-state"
+        session.save()
+        with patch.object(
+            oauth_views, "_handle_google_callback", return_value={"email": "x"}
+        ), patch.object(oauth_views, "_find_or_create_user", return_value=self.user):
+            response = self.client.get(
+                reverse("v1:users:oauth_callback", kwargs={"provider": "google"}),
+                {"code": "abc", "state": "test-state"},
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("error=account_disabled", response["Location"])
+        self.assertNotIn("access_token", response.cookies)
+        self.assertNotIn("refresh_token", response.cookies)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_the_signup_finish_refuses_a_disabled_account(self):
+        import time
+
+        OAUTH_PENDING_SIGNUP_KEY = oauth_views.OAUTH_PENDING_SIGNUP_KEY
+
+        session = self.client.session
+        session[OAUTH_PENDING_SIGNUP_KEY] = {
+            "provider": "google",
+            "user_data": {"email": "gone@example.com"},
+            "created_at": int(time.time()),
+        }
+        session.save()
+        with patch.object(oauth_views, "_find_or_create_user", return_value=self.user):
+            response = self.client.post(
+                reverse("v1:users:oauth_finish_signup"),
+                {"accepted_terms": True},
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["code"], "account_disabled")
+        self.assertNotIn("access_token", response.cookies)
+        self.assertNotIn("_auth_user_id", self.client.session)

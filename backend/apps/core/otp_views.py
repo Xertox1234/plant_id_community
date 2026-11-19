@@ -15,10 +15,11 @@ import base64
 import logging
 from urllib.parse import urlencode
 
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 from django_otp import login as otp_login
 from django_otp import match_token, user_has_device
@@ -49,11 +50,22 @@ def _next_url(request: HttpRequest) -> str:
     return ADMIN_HOME
 
 
+def _is_staff(user) -> bool:
+    return bool(user.is_staff or user.is_superuser)
+
+
+# Only staff enrol or verify a device: a regular account is refused, so a
+# non-staff session never creates a TOTPDevice row.
+staff_only = user_passes_test(_is_staff, login_url=CMS_LOGIN_URL)
+
+
 def _token(request: HttpRequest) -> str:
     return "".join(str(request.POST.get("token", "")).split())
 
 
+@never_cache
 @login_required(login_url=CMS_LOGIN_URL)
+@staff_only
 @require_http_methods(["GET", "POST"])
 @ratelimit(group="admin_otp", key="user", rate=ADMIN_OTP_ATTEMPT_RATE, method="POST")
 def otp_setup(request: HttpRequest) -> HttpResponse:
@@ -97,7 +109,9 @@ def otp_setup(request: HttpRequest) -> HttpResponse:
     )
 
 
+@never_cache
 @login_required(login_url=CMS_LOGIN_URL)
+@staff_only
 @require_http_methods(["GET", "POST"])
 @ratelimit(group="admin_otp", key="user", rate=ADMIN_OTP_ATTEMPT_RATE, method="POST")
 def otp_verify(request: HttpRequest) -> HttpResponse:
