@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p1
 issue_id: "719"
 tags: [mobile, ios, auth, apple, device-check, owner]
@@ -40,7 +40,7 @@ never signed in to Houseplant MD:
 
 ## Acceptance Criteria
 
-- [ ] Owner: on a real iPhone (TestFlight), sign up with Apple using "Hide My
+- [x] Owner: on a real iPhone (TestFlight), sign up with Apple using "Hide My
       Email", receive the verification or welcome email at the relay address,
       then delete the account — record the date and build number.
 
@@ -49,3 +49,23 @@ never signed in to Houseplant MD:
 ### 2026-11-19 - Filed
 
 - Moved here from todo 717's device criterion (owner decision 2026-11-19).
+
+### 2026-11-19 - Implemented by the todo sweep (run 2026-11-19-1922)
+
+- No code change: the only criterion is an owner device check, which the owner ran on
+  TestFlight build 26 (main b865a814) on 2026-11-19.
+- Owner's report: an Apple "Hide My Email" sign-up made a new account; deletion asked for
+  Sign in with Apple again, then succeeded; the deletion email arrived at the relay address and
+  Houseplant MD is gone from iPhone Settings → Sign in with Apple.
+- The relay email checked was the account-deletion email, because the app sends no email at
+  sign-up (an Apple-verified address is marked verified). The owner confirmed this satisfies the
+  criterion ("Yes, close it").
+- Criterion 0 recorded as owner-confirmed for Land to tick with the owner's words.
+
+### 2026-11-19 - Confirmed by the owner, ticked by the todo sweep (run 2026-11-19-1922)
+
+- AC 1: confirmed by the owner on 2026-11-19: "Owner, TestFlight build 26, 2026-11-19: Apple Hide My Email sign-up made a new account ('no plants, this must be a new account'); deletion 'asked me to sign in with apple first, then continued successfully'; 'got the deletion email, and the app is gone from settings'. The relay email received was the deletion email: the app sends none at sign-up. Owner confirmed this satisfies the criterion ('Yes, close it')." (`state.py confirm`; no command or evidence)
+
+### 2026-11-19 - Completed by the todo sweep (run 2026-11-19-1922)
+
+- Archived by `land.py archive`; review is on the PR.
