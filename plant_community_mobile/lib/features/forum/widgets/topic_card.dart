@@ -18,6 +18,9 @@ const EdgeInsets _rowPadding = EdgeInsets.symmetric(
   vertical: 12,
 );
 
+/// Most tags one row shows; the rest are on the topic itself.
+const int _maxRowTags = 3;
+
 /// Radius of the leading avatar; with [_avatarGap] it sets the text edge.
 const double _avatarRadius = 17;
 const double _avatarGap = 12;
@@ -66,13 +69,20 @@ class TopicRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CanopyPressable(
+    final row = CanopyPressable(
       onTap: onTap,
       style: CanopyPressStyle.highlight,
       child: Padding(
         padding: _rowPadding,
         child: _TopicRowContent(topic: topic, onAuthorTap: onAuthorTap),
       ),
+    );
+    if (!topic.isPinned) return row;
+    // A pinned topic sits on a wash of the pin's own colour, so the top of
+    // the list reads as set apart before the "Pinned" word is read.
+    return ColoredBox(
+      color: context.canopy.clay.withValues(alpha: 0.10),
+      child: row,
     );
   }
 }
@@ -136,7 +146,7 @@ class _TopicRowContent extends StatelessWidget {
                     _Status(
                       icon: LucideIcons.pin,
                       label: 'Pinned',
-                      color: canopy.ink2,
+                      color: canopy.clay,
                     ),
                   if (topic.isLocked)
                     _Status(
@@ -152,6 +162,17 @@ class _TopicRowContent extends StatelessWidget {
                     ),
                 ],
               ),
+              if (topic.tags.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: [
+                    for (final tag in topic.tags.take(_maxRowTags))
+                      _TagLabel(tag),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -242,6 +263,33 @@ class _Status extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// One of a topic's tags, as a quiet label under the author line.
+class _TagLabel extends StatelessWidget {
+  const _TagLabel(this.tag);
+
+  final String tag;
+
+  @override
+  Widget build(BuildContext context) {
+    final canopy = context.canopy;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: canopy.surface3,
+        borderRadius: BorderRadius.circular(AppSpacing.rXs),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        child: Text(
+          '#$tag',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTypography.micro.copyWith(color: canopy.ink2),
+        ),
+      ),
     );
   }
 }

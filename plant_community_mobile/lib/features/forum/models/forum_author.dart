@@ -68,3 +68,18 @@ String? trustLevelLabel(int? level) {
   if (level == null) return null;
   return forumTrustLevelLabels[level] ?? 'Level $level';
 }
+
+/// A member in a forum's "Top contributors": the author plus how many live
+/// posts they have in that forum (`boards/{slug}/contributors/`).
+class ForumContributor {
+  const ForumContributor({required this.author, required this.postCount});
+
+  final ForumAuthor author;
+  final int postCount;
+
+  factory ForumContributor.fromJson(Map<String, dynamic> json) =>
+      ForumContributor(
+        author: ForumAuthor.fromJson(json),
+        postCount: json['post_count'] as int? ?? 0,
+      );
+}

@@ -220,6 +220,21 @@ class Topic(
             return (BLOCK_FORBIDDEN, None)
         return None
 
+    def can_pin_by(self, user):
+        """Whether *user* may pin/unpin this topic: moderators only.
+
+        Moderator means ``wagtail_forum.change_post``, the SAME predicate as
+        :meth:`solution_block` and the edit/redact path, so the API guard
+        (``TopicPinView``) and the serializer's ``can_pin`` affordance read
+        one rule. Unlike accepting an answer, the topic's author gets no say:
+        a pin reorders the forum for everyone.
+        """
+        return bool(
+            user is not None
+            and user.is_authenticated
+            and user.has_perm("wagtail_forum.change_post")
+        )
+
     def can_mark_solution_by(self, user):
         """Boolean form of :meth:`solution_block` for the serializer's
         ``can_mark_solution`` affordance."""

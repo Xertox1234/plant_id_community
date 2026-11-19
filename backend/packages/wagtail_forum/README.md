@@ -586,6 +586,7 @@ Things worth knowing before changing this:
 | `WAGTAILFORUM_LATEST_REPLIES_EXCERPT_CHARS` | `160` | Length of each plain-text reply excerpt in `GET topics/<id>/latest-replies/`. |
 | `WAGTAILFORUM_LATEST_REPLIES_PARTICIPANTS` | `5` | Max `participants` (most recent poster first) in `GET topics/<id>/latest-replies/`. |
 | `WAGTAILFORUM_EXPERTS_LIMIT` | `4` | Max row count for `GET users/experts/` (the "Community experts" / "Experts online" landing rail). |
+| `WAGTAILFORUM_BOARD_CONTRIBUTORS_LIMIT` | `5` | Max row count for `GET boards/<slug>/contributors/` (a forum's "Top contributors": members ranked by live posts in that forum). |
 | `WAGTAILFORUM_EXPERTS_MIN_TRUST_LEVEL` | `3` | Minimum trust level to appear in `GET users/experts/`. (3 = TrustLevel.REGULAR) |
 | `WAGTAILFORUM_COMMUNITY_STATS_CACHE_SECONDS` | `60` | Server-side TTL of the site-wide counts in `GET community/stats/` (the "Who's online" panel), cached as one shared value for every viewer. The online sample and newest member are built per request and never cached; the response itself is always `private, no-store`. |
 | `WAGTAILFORUM_COMMUNITY_ONLINE_SAMPLE` | `5` | Max `online_sample` rows (most recently seen first) in `GET community/stats/`. |

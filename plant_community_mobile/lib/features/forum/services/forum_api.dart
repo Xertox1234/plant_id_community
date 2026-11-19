@@ -28,10 +28,13 @@ abstract class ForumApi {
   Future<String?> unlockBoard(String slug, String password);
 
   /// First page (when [cursorUrl] is null) or a subsequent page (pass the
-  /// absolute `next` URL from a prior [CursorPage]).
+  /// absolute `next` URL from a prior [CursorPage]). [sort] is one of the
+  /// server's `?sort=` values and [tag] an exact tag name (`?tag=`); a
+  /// cursor URL already carries both.
   Future<CursorPage<ForumTopicListItem>> fetchTopics({
     required String boardSlug,
     String? sort,
+    String? tag,
     String? cursorUrl,
   });
 
@@ -309,6 +312,15 @@ abstract class ForumApi {
   Future<bool> bookmarkTopic(int topicId);
   Future<bool> unbookmarkTopic(int topicId);
 
+  /// Pin ([pinned] true) or unpin a topic in its forum; moderators only
+  /// (`POST`/`DELETE /forum/topics/{id}/pin/`). Idempotent server-side and
+  /// key-less; returns the resulting `is_pinned`.
+  Future<bool> setTopicPinned(int topicId, {required bool pinned});
+
+  /// The members with the most posts in one forum, most first
+  /// (`GET /forum/boards/{slug}/contributors/`).
+  Future<List<ForumContributor>> fetchBoardContributors(String boardSlug);
+
   /// The caller's bookmarked topics, most recently bookmarked first
   /// (`GET /forum/me/bookmarks/`, `TopicListSerializer` rows). First page
   /// when [cursorUrl] is null; pass the absolute `next` URL for a later one.
@@ -496,13 +508,15 @@ class HttpForumApi implements ForumApi {
   Future<CursorPage<ForumTopicListItem>> fetchTopics({
     required String boardSlug,
     String? sort,
+    String? tag,
     String? cursorUrl,
   }) async {
+    final query = {'sort': ?sort, 'tag': ?tag};
     final resp = cursorUrl != null
         ? await _api.get(cursorUrl)
         : await _api.get(
             '/forum/boards/$boardSlug/topics/',
-            queryParameters: sort != null ? {'sort': sort} : null,
+            queryParameters: query.isEmpty ? null : query,
           );
     return CursorPage.fromJson(
       resp.data as Map<String, dynamic>,
@@ -924,6 +938,27 @@ class HttpForumApi implements ForumApi {
   Future<bool> unbookmarkTopic(int topicId) async {
     final resp = await _api.delete('/forum/topics/$topicId/bookmark/');
     return (resp.data as Map<String, dynamic>)['bookmarked'] as bool? ?? false;
+  }
+
+  @override
+  Future<bool> setTopicPinned(int topicId, {required bool pinned}) async {
+    final path = '/forum/topics/$topicId/pin/';
+    final resp = pinned ? await _api.post(path) : await _api.delete(path);
+    return (resp.data as Map<String, dynamic>)['is_pinned'] as bool? ?? pinned;
+  }
+
+  @override
+  Future<List<ForumContributor>> fetchBoardContributors(
+    String boardSlug,
+  ) async {
+    final resp = await _api.get('/forum/boards/$boardSlug/contributors/');
+    final results =
+        (resp.data as Map<String, dynamic>)['results'] as List<dynamic>? ??
+        const [];
+    return [
+      for (final row in results)
+        ForumContributor.fromJson(row as Map<String, dynamic>),
+    ];
   }
 
   @override

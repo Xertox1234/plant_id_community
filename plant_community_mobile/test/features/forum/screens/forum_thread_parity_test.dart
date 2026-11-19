@@ -25,6 +25,71 @@ Widget _wrap(FakeForumApi api, {bool loggedIn = true}) => ProviderScope(
 Finder _menu() => find.byIcon(LucideIcons.ellipsisVertical);
 
 void main() {
+  group('Thread pin toggle (moderators)', () {
+    testWidgets('a moderator pins, then unpins, and is told each time', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail(id: 10, canPin: true)
+        ..posts = CursorPage(items: [post(id: 1)]);
+
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Pin topic'));
+      await tester.pumpAndSettle();
+      expect(api.pinCalls, [(10, true)]);
+      expect(find.text('Pinned to the top of the forum.'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Unpin topic'));
+      await tester.pumpAndSettle();
+      expect(api.pinCalls, [(10, true), (10, false)]);
+      expect(find.byTooltip('Pin topic'), findsOneWidget);
+    });
+
+    testWidgets('an already pinned topic offers Unpin', (tester) async {
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail(id: 10, canPin: true, isPinned: true)
+        ..posts = CursorPage(items: [post(id: 1)]);
+
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Unpin topic'), findsOneWidget);
+      expect(find.byTooltip('Pin topic'), findsNothing);
+    });
+
+    testWidgets('a member who cannot pin sees no pin button', (tester) async {
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail(id: 10)
+        ..posts = CursorPage(items: [post(id: 1)]);
+
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Pin topic'), findsNothing);
+      expect(find.byTooltip('Unpin topic'), findsNothing);
+    });
+
+    testWidgets('a refused pin leaves the button as it was and says why', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail(id: 10, canPin: true)
+        ..posts = CursorPage(items: [post(id: 1)])
+        ..failPinWith = ApiException('Nope', statusCode: 500);
+
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Pin topic'));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Pin topic'), findsOneWidget);
+      expect(find.text('Pinned to the top of the forum.'), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+    });
+  });
+
   group('Thread bookmark toggle (todo 341)', () {
     testWidgets('reflects isBookmarked and flips on tap', (tester) async {
       final api = FakeForumApi()

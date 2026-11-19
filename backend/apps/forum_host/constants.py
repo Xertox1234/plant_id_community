@@ -102,6 +102,10 @@ DEFAULT_FORUM_RATELIMITS = {
     # badge, and each mark can fan out a push to the answer's author.
     "solution_mark": "20/m",
     "solution_clear": "20/m",
+    # Pin/unpin a topic (moderators). Same tier and reasoning as the solution
+    # mark: a deliberate, occasional action, so a burst is a UI bug.
+    "topic_pin": "20/m",
+    "topic_unpin": "20/m",
     # Same tier as `search` — a debounced live-search-as-you-type box.
     "mention_user_search": "30/m",
     # Premium AI thread-summary GET (todo 255 slice 3 / H14). A cache miss

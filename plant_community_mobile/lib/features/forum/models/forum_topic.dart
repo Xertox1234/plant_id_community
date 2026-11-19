@@ -18,6 +18,7 @@ class ForumTopicListItem {
     this.lastPostAuthor,
     required this.isUnread,
     this.isSolved = false,
+    this.tags = const [],
   });
 
   final int id;
@@ -27,6 +28,9 @@ class ForumTopicListItem {
   final bool isPinned;
   final bool isClosed;
   final bool locked;
+
+  /// The topic's tag names (`tags`), as the server spells them.
+  final List<String> tags;
   final int replyCount;
   final int viewCount;
   final DateTime? lastPostAt;
@@ -64,6 +68,10 @@ class ForumTopicListItem {
             ),
       isUnread: json['is_unread'] as bool? ?? false,
       isSolved: json['is_solved'] as bool? ?? false,
+      tags: [
+        for (final tag in json['tags'] as List<dynamic>? ?? const [])
+          if (tag is String && tag.isNotEmpty) tag,
+      ],
     );
   }
 
@@ -133,6 +141,7 @@ class ForumTopicDetail {
     this.isBookmarked = false,
     this.solvedPostId,
     this.canMarkSolution = false,
+    this.canPin = false,
     this.isBlocked = false,
     this.canBlock = false,
     this.identification,
@@ -168,6 +177,9 @@ class ForumTopicDetail {
   /// moderator) — server authority, never re-derived client-side.
   final bool canMarkSolution;
 
+  /// Whether this viewer may pin/unpin the topic (`can_pin`: moderators).
+  final bool canPin;
+
   /// Whether the viewer has blocked the topic's author (todo 284/M9).
   final bool isBlocked;
 
@@ -192,6 +204,7 @@ class ForumTopicDetail {
   ForumTopicDetail copyWith({
     bool? isSubscribed,
     bool? isBookmarked,
+    bool? isPinned,
     int? solvedPostId,
     bool clearSolvedPostId = false,
     ForumPoll? poll,
@@ -202,7 +215,7 @@ class ForumTopicDetail {
       slug: slug,
       board: board,
       author: author,
-      isPinned: isPinned,
+      isPinned: isPinned ?? this.isPinned,
       isClosed: isClosed,
       locked: locked,
       replyCount: replyCount,
@@ -217,6 +230,7 @@ class ForumTopicDetail {
           ? null
           : (solvedPostId ?? this.solvedPostId),
       canMarkSolution: canMarkSolution,
+      canPin: canPin,
       isBlocked: isBlocked,
       canBlock: canBlock,
       identification: identification,
@@ -252,6 +266,7 @@ class ForumTopicDetail {
       isBookmarked: json['is_bookmarked'] as bool? ?? false,
       solvedPostId: json['solved_post_id'] as int?,
       canMarkSolution: json['can_mark_solution'] as bool? ?? false,
+      canPin: json['can_pin'] as bool? ?? false,
       isBlocked: json['is_blocked'] as bool? ?? false,
       canBlock: json['can_block'] as bool? ?? false,
       identification: json['identification'] is Map<String, dynamic>

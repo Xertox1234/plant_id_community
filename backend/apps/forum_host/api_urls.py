@@ -11,6 +11,9 @@ from django.urls import path
 # Same treatment as NotificationListView — a page load, not a polling target.
 from wagtail_forum.api.bookmarks import TopicBookmarkListView
 
+# GET-only public read (a forum's top contributors) — no throttle wrapper.
+from wagtail_forum.api.contributors import BoardContributorsView
+
 # GET-only, page-load views — no throttle wrapper, same treatment as
 # NotificationListView/TopicBookmarkListView/MyBlocksView (todo 319/M10).
 from wagtail_forum.api.direct_messages import (
@@ -74,6 +77,7 @@ from .api import (
     TopicBookmarkView,
     TopicDetailView,
     TopicListView,
+    TopicPinView,
     TopicSolutionView,
     TopicSubscriptionView,
     UserBlockView,
@@ -159,6 +163,7 @@ urlpatterns = [
         TopicSolutionView.as_view(),
         name="topic-solution",
     ),
+    path("topics/<int:topic_id>/pin/", TopicPinView.as_view(), name="topic-pin"),
     path("topics/<int:topic_id>/posts/", PostListView.as_view(), name="post-list"),
     # GET-only + AllowAny, mounted straight from the package (no throttle
     # wrapper) — same treatment as topics/recent/ above.
@@ -228,6 +233,13 @@ urlpatterns = [
     # After users/search/ so the literals aren't captured as usernames (mirrors
     # the package). GET-only + AllowAny — mounted straight, no throttle wrapper.
     path("users/experts/", ExpertsView.as_view(), name="users-experts"),
+    # GET-only, public read — mounted straight, no throttle wrapper (mirrors
+    # ExpertsView): two queries, capped at BOARD_CONTRIBUTORS_LIMIT rows.
+    path(
+        "boards/<slug:slug>/contributors/",
+        BoardContributorsView.as_view(),
+        name="board-contributors",
+    ),
     # GET-only + AllowAny — mounted straight, no throttle wrapper (mirrors
     # ExpertsView). The counts are one cached value; the per-viewer online
     # sample and newest member are two small bounded queries.

@@ -639,13 +639,18 @@ class FakeForumApi implements ForumApi {
   Object? topicsError;
   int fetchTopicsCalls = 0;
 
+  /// The `(sort, tag)` of each [fetchTopics] call, in order.
+  final List<(String?, String?)> fetchTopicsFilters = [];
+
   @override
   Future<CursorPage<ForumTopicListItem>> fetchTopics({
     required String boardSlug,
     String? sort,
+    String? tag,
     String? cursorUrl,
   }) async {
     fetchTopicsCalls++;
+    fetchTopicsFilters.add((sort, tag));
     final err = topicsError;
     if (err != null) throw err;
     return topics;
@@ -1118,6 +1123,31 @@ class FakeForumApi implements ForumApi {
     final fail = failBookmarkWith;
     if (fail != null) throw fail;
     return false;
+  }
+
+  /// The `(topicId, pinned)` of each [setTopicPinned] call, in order.
+  final List<(int, bool)> pinCalls = [];
+  ApiException? failPinWith;
+
+  @override
+  Future<bool> setTopicPinned(int topicId, {required bool pinned}) async {
+    pinCalls.add((topicId, pinned));
+    final fail = failPinWith;
+    if (fail != null) throw fail;
+    return pinned;
+  }
+
+  /// [fetchBoardContributors] fixture; [contributorsError] makes it throw.
+  List<ForumContributor> contributors = const [];
+  Object? contributorsError;
+
+  @override
+  Future<List<ForumContributor>> fetchBoardContributors(
+    String boardSlug,
+  ) async {
+    final err = contributorsError;
+    if (err != null) throw err;
+    return contributors;
   }
 
   @override
@@ -1701,13 +1731,15 @@ ForumTopicListItem topic({
   int id = 10,
   String title = 'Sample topic',
   ForumAuthor? authorOverride,
+  List<String> tags = const [],
+  bool isPinned = false,
 }) {
   return ForumTopicListItem(
     id: id,
     title: title,
     slug: 'sample-topic',
     author: authorOverride ?? author(),
-    isPinned: false,
+    isPinned: isPinned,
     isClosed: false,
     locked: false,
     replyCount: 3,
@@ -1715,6 +1747,7 @@ ForumTopicListItem topic({
     lastPostAt: DateTime(2026, 1, 2),
     lastPostAuthor: author(),
     isUnread: false,
+    tags: tags,
   );
 }
 
@@ -1725,6 +1758,8 @@ ForumTopicDetail topicDetail({
   bool isBookmarked = false,
   int? solvedPostId,
   bool canMarkSolution = false,
+  bool canPin = false,
+  bool isPinned = false,
   bool locked = false,
   bool isClosed = false,
   int replyCount = 3,
@@ -1737,7 +1772,7 @@ ForumTopicDetail topicDetail({
     slug: 'sample-topic',
     board: const ForumTopicBoardRef(id: 1, slug: 'general', title: 'General'),
     author: author(),
-    isPinned: false,
+    isPinned: isPinned,
     isClosed: isClosed,
     locked: locked,
     replyCount: replyCount,
@@ -1750,6 +1785,7 @@ ForumTopicDetail topicDetail({
     isBookmarked: isBookmarked,
     solvedPostId: solvedPostId,
     canMarkSolution: canMarkSolution,
+    canPin: canPin,
     poll: poll,
     identification: identification,
   );

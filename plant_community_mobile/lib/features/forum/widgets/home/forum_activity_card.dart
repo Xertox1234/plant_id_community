@@ -204,7 +204,7 @@ class _ReplierStack extends StatelessWidget {
               left: i * step,
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  shape: BoxShape.circle,
+                  borderRadius: forumAvatarRadius(_radius * 2),
                   border: Border.all(
                     color: Theme.of(context).colorScheme.surface,
                     width: _ring,
