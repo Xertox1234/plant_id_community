@@ -177,6 +177,12 @@ One fix per commit, test first:
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
+### 2026-11-18 - Repaired by the todo sweep (run 2026-11-18-0148)
+
+- Review round 1 (medium, regression): reuse detection counted any token blacklisted over 30 s ago, so a token revoked by a first provider link, a logout or a refused refresh coming back ended the account's new sessions too.
+- Fix: `token_refresh` now records each rotation in a `RotatedRefreshToken` row (`apps/users/models.py`, migration `apps/users/migrations/0025_rotatedrefreshtoken.py`), written by `mark_rotated` (`apps/users/refresh_sessions.py`) in the transaction that blacklists the token, idempotent for the two-tab race. Only a token with that row, rotated over 30 s ago, is reuse; any other blacklisted token is a plain 401.
+- Tests: `NonRotationBlacklistIsNotReuseTest` in `apps/users/tests/test_refresh_sessions.py` (provider-link revocation, logout, refused refresh, rotation-only marker). A token rotated before deploy has no row and gets a plain 401, as on main.
+
 ## Notes
 
 M22 carries the most risk here: staff can delete accounts.

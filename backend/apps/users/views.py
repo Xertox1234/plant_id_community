@@ -28,6 +28,7 @@ from rest_framework.decorators import (
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.settings import api_settings
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from . import view_schemas as vs
@@ -53,6 +54,7 @@ from .email_verification import (
 )
 from .models import User, UserPlantCollection
 from .refresh_sessions import (
+    mark_rotated,
     reused_refresh_token_user_id,
     revoke_all_refresh_tokens,
     session_expired,
@@ -534,8 +536,9 @@ def token_refresh(request: Request) -> Response:
 
     Todo 705: refused with 401 for a disabled account (``account_disabled``),
     for a session older than the absolute cap (``SESSION_EXPIRED``), and for a
-    rotated token presented again (``REFRESH_TOKEN_REUSED``), which also
-    blacklists every refresh token the account holds.
+    token this view rotated presented again (``REFRESH_TOKEN_REUSED``), which
+    also blacklists every refresh token the account holds. A token blacklisted
+    by logout, a refusal or a revocation is a plain 401.
     """
     # CSRF is now enforced by @csrf_protect decorator for all POST requests
     # No need for manual CSRF check here
@@ -640,6 +643,9 @@ def token_refresh(request: Request) -> Response:
                 except Exception as e:
                     logger.error(f"[AUTH] last_token_refresh stamp failed: {str(e)}")
                 used_refresh.blacklist()
+                # Only this blacklisting makes a later presentation reuse:
+                # logout, a refusal and a revocation leave no mark.
+                mark_rotated(used_refresh[api_settings.JTI_CLAIM])
         except Exception as e:
             # Blacklist failures are CRITICAL security issues
             logger.error(

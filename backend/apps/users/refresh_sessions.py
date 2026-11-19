@@ -6,9 +6,12 @@ one sign-in. Two rules end it:
 * an absolute cap: ``REFRESH_SESSION_MAX_AGE_SECONDS`` from the sign-in,
   carried through every rotation in ``REFRESH_SESSION_START_CLAIM``
   (``authentication.issue_refresh_token`` writes it);
-* reuse: a rotated (blacklisted) refresh token presented again means two
-  parties hold the chain, so every refresh token the account has is
-  blacklisted and everyone signs in again.
+* reuse: a ROTATED refresh token presented again means two parties hold the
+  chain, so every refresh token the account has is blacklisted and everyone
+  signs in again. Rotated means ``token_refresh`` blacklisted it while
+  issuing its successor (``mark_rotated``, a ``RotatedRefreshToken`` row). A
+  token blacklisted any other way (logout, a refused refresh, a revocation
+  such as a first provider link) is not reuse: it gets a plain 401.
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from .constants import (
     REFRESH_SESSION_MAX_AGE_SECONDS,
     REFRESH_SESSION_START_CLAIM,
 )
+from .models import RotatedRefreshToken
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +70,11 @@ def reused_refresh_token_user_id(raw_token: str) -> Optional[str]:
 
     Reuse is a token that is genuinely ours (signature and expiry verified
     FIRST, so a forged token naming a victim's user id cannot end the
-    victim's sessions) and already blacklisted more than
-    ``REFRESH_REUSE_GRACE_SECONDS`` ago. A younger blacklisting is two tabs
-    refreshing with one cookie at once: refused by the caller, not reuse.
+    victim's sessions) and that a refresh ROTATED more than
+    ``REFRESH_REUSE_GRACE_SECONDS`` ago. A younger rotation is two tabs
+    refreshing with one cookie at once: refused by the caller, not reuse. A
+    token blacklisted by anything but rotation (no ``RotatedRefreshToken``)
+    is never reuse, however old.
     """
     try:
         # simplejwt hints Token, but decodes an encoded token string.
@@ -81,13 +87,25 @@ def reused_refresh_token_user_id(raw_token: str) -> Optional[str]:
     user_id = payload.get(api_settings.USER_ID_CLAIM)
     if not jti or user_id is None:
         return None
-    blacklisted = BlacklistedToken.objects.filter(token__jti=jti).first()
-    if blacklisted is None:
+    rotation = RotatedRefreshToken.objects.filter(token__jti=jti).first()
+    if rotation is None:
         return None
     cutoff = timezone.now() - timedelta(seconds=REFRESH_REUSE_GRACE_SECONDS)
-    if blacklisted.blacklisted_at > cutoff:
+    if rotation.rotated_at > cutoff:
         return None
     return str(user_id)
+
+
+def mark_rotated(jti: str) -> None:
+    """Record that a refresh rotated the token ``jti``. Call it only from the
+    rotation in ``token_refresh``, after ``blacklist()`` (which ensures the
+    outstanding row) and in the same transaction. Idempotent: two overlapping
+    rotations of one token write one row and never raise (ON CONFLICT DO
+    NOTHING)."""
+    outstanding = OutstandingToken.objects.only("id").get(jti=jti)
+    RotatedRefreshToken.objects.bulk_create(
+        [RotatedRefreshToken(token=outstanding)], ignore_conflicts=True
+    )
 
 
 def revoke_all_refresh_tokens(user_id: str) -> int:

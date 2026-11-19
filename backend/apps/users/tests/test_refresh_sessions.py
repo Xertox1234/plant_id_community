@@ -188,3 +188,70 @@ class RotatedTokenReuseTest(RefreshSessionTestBase):
 
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
             self.assertEqual(self._live_tokens(), live_before)
+
+
+class NonRotationBlacklistIsNotReuseTest(RefreshSessionTestBase):
+    """Only a token a refresh ROTATED counts as reused (todo 705 review).
+
+    A token blacklisted by a revocation, a logout or a refused refresh is a
+    plain 401 when it comes back, however late, and ends no other session.
+    """
+
+    def _assert_plain_401_and_other_session_lives(self, stale, survivor):
+        response = self._refresh_with(stale)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotEqual(response.data.get("code"), REFRESH_TOKEN_REUSED_CODE)
+        self.assertEqual(self._refresh_with(survivor).status_code, status.HTTP_200_OK)
+
+    def test_a_token_revoked_by_a_first_provider_link_is_not_reuse(self):
+        # The probe: browser A's token is revoked when a password user first
+        # links Google in browser B, which then signs in afresh.
+        from apps.users.account_links import revoke_refresh_tokens
+
+        with freeze_time() as frozen:
+            browser_a = issue_refresh_token(self.user)
+            revoke_refresh_tokens(self.user)
+            browser_b = issue_refresh_token(self.user)
+            frozen.tick(REFRESH_REUSE_GRACE_SECONDS + 5)
+
+            self._assert_plain_401_and_other_session_lives(browser_a, browser_b)
+
+    def test_a_logged_out_token_is_not_reuse(self):
+        with freeze_time() as frozen:
+            logged_out = issue_refresh_token(self.user)
+            other = issue_refresh_token(self.user)
+            self.client.force_authenticate(self.user)
+            self.client.cookies["refresh_token"] = str(logged_out)
+            self.assertEqual(
+                self.client.post("/api/v1/auth/logout/").status_code,
+                status.HTTP_200_OK,
+            )
+            self.client.force_authenticate(None)
+            self.assertTrue(
+                BlacklistedToken.objects.filter(token__jti=logged_out["jti"]).exists()
+            )
+            frozen.tick(REFRESH_REUSE_GRACE_SECONDS + 5)
+
+            self._assert_plain_401_and_other_session_lives(logged_out, other)
+
+    def test_a_token_burned_by_a_refused_refresh_is_not_reuse(self):
+        with freeze_time() as frozen:
+            expired = issue_refresh_token(self.user)
+            expired[REFRESH_SESSION_START_CLAIM] = int(time.time()) - 31 * DAY
+            expired.set_exp(lifetime=timedelta(days=1))
+            other = issue_refresh_token(self.user)
+            refused = self._refresh_with(expired)
+            self.assertEqual(refused.data["code"], SESSION_EXPIRED_CODE)
+            frozen.tick(REFRESH_REUSE_GRACE_SECONDS + 5)
+
+            self._assert_plain_401_and_other_session_lives(expired, other)
+
+    def test_only_the_rotation_marks_a_token(self):
+        from apps.users.models import RotatedRefreshToken
+
+        token = issue_refresh_token(self.user)
+        self.assertEqual(self._refresh_with(token).status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            list(RotatedRefreshToken.objects.values_list("token__jti", flat=True)),
+            [token["jti"]],
+        )

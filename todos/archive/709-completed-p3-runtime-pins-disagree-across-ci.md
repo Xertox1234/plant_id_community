@@ -143,3 +143,7 @@ Source: stack audit, 2026-11-15.
 ### 2026-11-18 - Completed by the todo sweep (run 2026-11-18-0148)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-18 - Repaired by the todo sweep (run 2026-11-18-0148)
+
+- No change to this todo's files; the review finding was in todo 705's refresh code. Its criteria were re-run against the repaired tree.
