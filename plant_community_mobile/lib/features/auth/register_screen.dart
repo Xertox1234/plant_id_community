@@ -9,7 +9,12 @@ import '../../core/theme/green_thumb_extension.dart';
 import '../../services/auth_service.dart';
 import 'consent_checkbox.dart';
 import 'login_screen.dart'
-    show GoogleSignInButton, dismissAfterAuth, validateEmail, validatePassword;
+    show
+        AppleSignInButton,
+        GoogleSignInButton,
+        dismissAfterAuth,
+        validateEmail,
+        validatePassword;
 import 'verify_email_screen.dart';
 
 /// Email/password account creation.
@@ -203,6 +208,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                 : const Text('Create account'),
                           ),
                           SizedBox(height: ext.gapY),
+                          // Apple first, at least as prominent as Google
+                          // (Guideline 4.8, todo 717); iOS only.
+                          AppleSignInButton(
+                            enabled: !_submitting && _acceptedTerms,
+                            acceptedTerms: _acceptedTerms,
+                          ),
                           // Offered here too: Google needs no verification mail,
                           // so it signs in at once. See
                           // AuthService.signInWithGoogle.

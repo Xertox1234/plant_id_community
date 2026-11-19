@@ -34,9 +34,10 @@ Uri subscriptionsUri(TargetPlatform platform) => platform == TargetPlatform.iOS
 
 /// Self-service account deletion (Plan B task 10).
 ///
-/// The button re-authenticates (a fresh Google pick, or the password), posts
-/// the fresh Firebase ID token to `account/delete/`, then signs out and shows
-/// the final dialog, whose OK goes to the login screen.
+/// The button re-authenticates (a fresh Apple sign-in, a fresh Google pick,
+/// or the password), posts the fresh Firebase ID token to `account/delete/`,
+/// revokes the Apple tokens of an Apple-linked account, then signs out and
+/// shows the final dialog, whose OK goes to the login screen.
 ///
 /// The route is deliberately NOT in the router's `protectedRoutes`: signing
 /// out re-runs the redirect, and redirecting off this page would drop the
@@ -137,8 +138,10 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     }
   }
 
-  /// Signs out (JWT and Firebase session) through the notifier held since
-  /// the tap, clears the on-device Firestore offline cache (the deleted
+  /// Revokes an Apple-linked account's Apple tokens
+  /// ([AuthService.revokeAppleSignIn], todo 717: a no-op for any other
+  /// sign-in method), then signs out (JWT and Firebase session) through the
+  /// notifier held since the tap, clears the on-device Firestore offline cache (the deleted
   /// account's `users/<uid>/identified_plants`), and forgets the account
   /// profile, as the Profile logout does. Never throws, and needs no `ref`:
   /// it runs even after this screen is gone. A failed sign-out or cache
@@ -150,6 +153,9 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     Future<void> Function() clearOfflineCache,
   ) async {
     if (mounted) setState(() => _finished = true);
+    // While still signed in to Firebase: the revoke needs the user. Never
+    // throws.
+    await auth.revokeAppleSignIn();
     try {
       await auth.signOut();
     } catch (e) {

@@ -46,6 +46,13 @@ class _FakeAuth extends FakeAuthService {
     return 'fresh-token';
   }
 
+  /// Recorded for an Apple account only: the real one is a no-op unless an
+  /// Apple re-auth kept a code (todo 717).
+  @override
+  Future<void> revokeAppleSignIn() async {
+    if (method == ReauthMethod.apple) events.add('revokeApple');
+  }
+
   @override
   Future<void> signOut() async {
     events.add('signOut');
@@ -176,6 +183,36 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('LOGIN SCREEN'), findsOneWidget);
+  });
+
+  testWidgets('an Apple-linked account revokes its Apple tokens after the '
+      'server accepts the deletion and before signing out (todo 717)', (
+    tester,
+  ) async {
+    final harness = await _pump(tester, method: ReauthMethod.apple);
+
+    await _tapDelete(tester);
+
+    expect(harness.events, [
+      'reauth',
+      'delete:fresh-token',
+      'revokeApple',
+      'signOut',
+      'clearCache',
+    ]);
+    expect(find.text(_finalMessage), findsOneWidget);
+  });
+
+  testWidgets('a refused deletion keeps the Apple sign-in (no revoke)', (
+    tester,
+  ) async {
+    final harness = await _pump(tester, method: ReauthMethod.apple);
+    harness.deletion.result = const AccountDeletionFailed('Try again later.');
+
+    await _tapDelete(tester);
+
+    expect(harness.events, ['reauth', 'delete:fresh-token']);
+    expect(find.text('Try again later.'), findsOneWidget);
   });
 
   testWidgets('a password user is asked for the password first', (

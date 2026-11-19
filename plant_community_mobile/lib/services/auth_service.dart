@@ -112,6 +112,13 @@ const emailStillUnverifiedMessage =
 /// platform message is not written for users, and can carry internals.
 const signInFailedMessage = 'Sign in failed. Please try again.';
 const googleSignInFailedMessage = 'Google sign in failed. Please try again.';
+const appleSignInFailedMessage = 'Apple sign in failed. Please try again.';
+
+/// Firebase's `account-exists-with-different-credential`: the email Apple
+/// shared already signs in another way (Google or a password), and Firebase
+/// keeps one account per email.
+const appleAccountExistsMessage =
+    'This email already has an account. Sign in the way you did before.';
 const registrationFailedMessage = 'Registration failed. Please try again.';
 const signOutFailedMessage = 'Sign out failed. Please try again.';
 const authFailedMessage = 'Something went wrong. Please try again.';
@@ -121,17 +128,36 @@ const authFailedMessage = 'Something went wrong. Please try again.';
 const passwordResetFailedMessage =
     'Could not send the reset email. Please try again.';
 
+/// Whether this device offers "Continue with Apple" (todo 717): iOS only.
+/// App Store Guideline 4.8 asks for it on iOS, where Google sign-in is
+/// offered; on Android the button is hidden (owner decision 2026-11-19), and
+/// firebase_auth's native Apple flow refuses macOS.
+bool appleSignInSupported([TargetPlatform? platform]) =>
+    !kIsWeb && (platform ?? defaultTargetPlatform) == TargetPlatform.iOS;
+
 /// How [AuthService.freshIdTokenAfterReauth] proves it is still the account
 /// holder before an account deletion (Plan B task 10).
-enum ReauthMethod { google, password }
+enum ReauthMethod { apple, google, password }
 
 /// The re-auth method for an account with these linked sign-in methods
-/// (`User.providerData` provider ids): `google.com` wins over `password`
-/// when both are linked, since it needs no typing and works for an account
-/// whose password the user never set or forgot. `null` for anything else
-/// (no other provider is offered by this app).
-ReauthMethod? reauthMethodFor(Iterable<String> providerIds) {
+/// (`User.providerData` provider ids).
+///
+/// `apple.com` wins wherever Apple sign-in is offered ([appleSignInSupported],
+/// [platform] defaulting to this device's): only a fresh Apple sign-in hands
+/// back the authorization code that revokes the account's Apple tokens when
+/// it is deleted (Guideline 5.1.1(v), todo 717). Then `google.com` wins over
+/// `password` when both are linked, since it needs no typing and works for
+/// an account whose password the user never set or forgot. `null` for
+/// anything else (no other provider is offered by this app).
+ReauthMethod? reauthMethodFor(
+  Iterable<String> providerIds, {
+  TargetPlatform? platform,
+}) {
   final ids = providerIds.toSet();
+  if (ids.contains(AppleAuthProvider.PROVIDER_ID) &&
+      appleSignInSupported(platform)) {
+    return ReauthMethod.apple;
+  }
   if (ids.contains(GoogleAuthProvider.PROVIDER_ID)) return ReauthMethod.google;
   if (ids.contains(EmailAuthProvider.PROVIDER_ID)) return ReauthMethod.password;
   return null;
@@ -219,6 +245,21 @@ class AuthService extends _$AuthService {
   /// listener's exchange can start before [signInWithGoogle] stores it. Set
   /// for the duration of that call only.
   bool _acceptedTermsPending = false;
+
+  /// [signInWithApple] is running. Any token exchange that starts meanwhile
+  /// forces a Firebase token refresh: Apple hands over the user's name only
+  /// on the first sign-in, Firebase puts it on the new user record, and a
+  /// token minted before that may lack the `name` claim the backend stores
+  /// (todo 717).
+  bool _appleSignInPending = false;
+
+  /// The uid an Apple sign-in just signed in: its next exchange forces the
+  /// refresh too, should the auth-state event arrive after the call returned.
+  String? _appleRefreshUid;
+
+  /// The authorization code the last Apple re-auth handed back, for
+  /// [revokeAppleSignIn], and whose account it is.
+  ({String uid, String code})? _appleRevocation;
 
   /// The Firebase uid whose exchange the server refused with 428. Only that
   /// user's Firebase account is deleted by [declineTerms]: the signed-in user
@@ -513,6 +554,100 @@ class AuthService extends _$AuthService {
     }
   }
 
+  /// Sign in with Apple, on iOS only ([appleSignInSupported], todo 717).
+  ///
+  /// firebase_auth runs Apple's native sheet itself
+  /// (`signInWithProvider(AppleAuthProvider)`), so no separate plugin is
+  /// needed. The `name` scope makes the plugin hand Apple's given and family
+  /// name to Firebase with the credential, on the one sign-in Apple sends
+  /// them; Firebase sets them as the new user's display name. The exchange
+  /// that follows forces a token refresh, so the `name` claim the backend
+  /// stores as the account's name is there. The backend still reads the name
+  /// only from the verified token, never from the request (audit C8).
+  ///
+  /// The email may be a `privaterelay.appleid.com` relay address ("Hide My
+  /// Email"); Apple marks it verified, so the exchange completes at once, and
+  /// it goes through the same `accepted_terms` consent gate as Google.
+  /// [acceptedTerms] works exactly as for [signInWithGoogle]. Closing the
+  /// sheet is a cancel, not an error: it returns false, and true once
+  /// Firebase signed the user in. Throws [AuthException] on a failure.
+  Future<bool> signInWithApple({bool acceptedTerms = false}) async {
+    if (acceptedTerms) _acceptedTermsPending = true;
+    _appleSignInPending = true;
+    try {
+      state = state.copyWith(isLoading: true, error: null);
+
+      final result = await _firebaseAuth.signInWithProvider(
+        appleAuthProvider(),
+      );
+      final signedIn = result.user;
+      if (signedIn != null) {
+        // Before any await: an auth-state event still to come must see it.
+        _appleRefreshUid = signedIn.uid;
+        if (acceptedTerms) {
+          await _secureStorage.write(
+            key: _acceptedTermsKey,
+            value: signedIn.uid,
+          );
+        }
+      }
+
+      if (kDebugMode) {
+        debugPrint(
+          '[AUTH] Apple sign in successful: ${redactEmail(signedIn?.email)}',
+        );
+      }
+
+      // The auth state listener handles the token exchange, as for Google.
+      if (state.isAuthenticated || state.consentRequired) {
+        state = _notLoading(state);
+      } else {
+        state = AuthState(firebaseUser: signedIn, isLoading: false);
+      }
+      return signedIn != null;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == _appleCanceledCode) {
+        state = state.copyWith(isLoading: false, error: null);
+        return false;
+      }
+      if (kDebugMode) {
+        debugPrint('[AUTH ERROR] Apple sign in failed: ${e.code}');
+      }
+      final errorMessage = _appleErrorMessage(e);
+      state = state.copyWith(isLoading: false, error: errorMessage);
+      throw AuthException(errorMessage);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH ERROR] Apple sign in failed: $e');
+      state = state.copyWith(isLoading: false, error: appleSignInFailedMessage);
+      throw AuthException(appleSignInFailedMessage);
+    } finally {
+      _acceptedTermsPending = false;
+      _appleSignInPending = false;
+    }
+  }
+
+  /// The code firebase_auth's iOS plugin reports when the user closes the
+  /// Apple sheet (`ASAuthorizationError.canceled`).
+  static const String _appleCanceledCode = 'canceled';
+
+  /// A Firebase code this app maps, or [appleSignInFailedMessage]: the
+  /// plugin's own Apple codes (`failed`, `invalid-response`, ...) are not
+  /// written for users.
+  String _appleErrorMessage(FirebaseAuthException e) {
+    if (e.code == 'account-exists-with-different-credential') {
+      return appleAccountExistsMessage;
+    }
+    final mapped = _handleFirebaseAuthException(e);
+    return mapped == authFailedMessage ? appleSignInFailedMessage : mapped;
+  }
+
+  /// The Apple provider for sign-in and re-auth: the email and the name, the
+  /// only data Apple sign-in shares (Guideline 4.8).
+  @visibleForTesting
+  AuthProvider appleAuthProvider() => AppleAuthProvider()
+    ..addScope('email')
+    ..addScope('name');
+
   /// How [freshIdTokenAfterReauth] will re-authenticate the current Firebase
   /// user, or `null` when signed out or no supported method is linked. The
   /// delete screen reads it first, to ask for a password only when one is
@@ -527,9 +662,11 @@ class AuthService extends _$AuthService {
   /// token, whose `auth_time` is now: the account-deletion endpoint accepts
   /// only a sign-in younger than 300 s (Plan B task 10).
   ///
-  /// Picks the credential with [reauthMethod]: a fresh Google
-  /// `authenticate()` when `google.com` is linked (preferred, [password]
-  /// ignored), else `EmailAuthProvider.credential(email, password)`.
+  /// Picks the credential with [reauthMethod]: a fresh Apple sign-in when
+  /// `apple.com` is linked on iOS, keeping its authorization code for
+  /// [revokeAppleSignIn]; else a fresh Google `authenticate()` when
+  /// `google.com` is linked ([password] ignored for both); else
+  /// `EmailAuthProvider.credential(email, password)`.
   ///
   /// Throws [ReauthCancelledException] when the user backs out (the Google
   /// sheet closed, no password given), and [AuthException] with a readable
@@ -543,26 +680,43 @@ class AuthService extends _$AuthService {
       throw AuthException('Sign in again to delete your account.');
     }
     final method = reauthMethod;
-    final AuthCredential credential;
+    _appleRevocation = null;
+    final Future<void> Function() reauthenticate;
     switch (method) {
+      case ReauthMethod.apple:
+        reauthenticate = () async {
+          final result = await user.reauthenticateWithProvider(
+            appleAuthProvider(),
+          );
+          final code = result.additionalUserInfo?.authorizationCode;
+          if (code == null || code.isEmpty) {
+            if (kDebugMode) {
+              debugPrint('[AUTH] Apple re-auth returned no authorization code');
+            }
+            return;
+          }
+          _appleRevocation = (uid: user.uid, code: code);
+        };
       case ReauthMethod.google:
-        credential = await _freshGoogleCredential();
+        final credential = await _freshGoogleCredential();
+        reauthenticate = () => user.reauthenticateWithCredential(credential);
       case ReauthMethod.password:
         final email = user.email;
         if (password == null || password.isEmpty) {
           throw ReauthCancelledException();
         }
         if (email == null) throw AuthException(reauthUnsupportedMessage);
-        credential = EmailAuthProvider.credential(
+        final credential = EmailAuthProvider.credential(
           email: email,
           password: password,
         );
+        reauthenticate = () => user.reauthenticateWithCredential(credential);
       case null:
         throw AuthException(reauthUnsupportedMessage);
     }
 
     try {
-      await user.reauthenticateWithCredential(credential);
+      await reauthenticate();
       final token = await user.getIdToken(true);
       if (token == null) {
         throw AuthException(
@@ -572,14 +726,42 @@ class AuthService extends _$AuthService {
       return token;
     } on FirebaseAuthException catch (e) {
       if (kDebugMode) debugPrint('[AUTH] Re-auth refused: ${e.code}');
+      if (method == ReauthMethod.apple && e.code == _appleCanceledCode) {
+        throw ReauthCancelledException();
+      }
       throw AuthException(switch (e.code) {
         'wrong-password' || 'invalid-credential'
             when method == ReauthMethod.password =>
           reauthWrongPasswordMessage,
         'wrong-password' || 'invalid-credential' => reauthNotConfirmedMessage,
         'user-mismatch' => reauthWrongAccountMessage,
+        _ when method == ReauthMethod.apple => _appleErrorMessage(e),
         _ => _handleFirebaseAuthException(e),
       });
+    }
+  }
+
+  /// Revoke the Apple tokens of an account whose deletion the server just
+  /// accepted (Guideline 5.1.1(v), todo 717), with the authorization code
+  /// the Apple re-auth in [freshIdTokenAfterReauth] kept. The delete screen
+  /// calls it before signing out: the call needs the Firebase user, which
+  /// the server erases only later. After the deletion is accepted, not
+  /// before: a refused deletion keeps a working Apple sign-in.
+  ///
+  /// Only for that same account, once (the code is single-use). Best-effort
+  /// and bounded: the account is already being deleted, so a failure is
+  /// logged, never thrown. A no-op for every other sign-in method.
+  Future<void> revokeAppleSignIn() async {
+    final pending = _appleRevocation;
+    _appleRevocation = null;
+    if (pending == null) return;
+    if (_firebaseAuth.currentUser?.uid != pending.uid) return;
+    try {
+      await _firebaseAuth
+          .revokeTokenWithAuthorizationCode(pending.code)
+          .timeout(_deviceStepTimeout);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH ERROR] Apple token revoke failed: $e');
     }
   }
 
@@ -859,6 +1041,9 @@ class AuthService extends _$AuthService {
   }) async {
     final exchangeGeneration = ++_authGeneration;
     final apiService = ref.read(apiServiceProvider);
+    // Read before the first await: the Apple sign-in clears it in `finally`.
+    final appleRefresh = _appleSignInPending || _appleRefreshUid == user.uid;
+    if (_appleRefreshUid == user.uid) _appleRefreshUid = null;
 
     try {
       if (kDebugMode) {
@@ -872,7 +1057,7 @@ class AuthService extends _$AuthService {
 
       // Get Firebase ID token
       final firebaseToken = await user.getIdToken(
-        forceRefresh || !user.emailVerified,
+        forceRefresh || appleRefresh || !user.emailVerified,
       );
 
       if (firebaseToken == null) {

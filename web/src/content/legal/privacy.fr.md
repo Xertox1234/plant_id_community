@@ -27,7 +27,14 @@ Canada qui sont énumérés plus bas.
 **Votre compte.** Votre adresse courriel, votre nom d'utilisateur, vos prénom
 et nom, votre biographie, votre lieu (texte libre, si vous en indiquez un),
 votre site Web et votre avatar. Si vous vous connectez avec Google,
-nous enregistrons ce mode de connexion. Dans l'application, la connexion passe par
+nous enregistrons ce mode de connexion. Dans l'application iPhone, vous pouvez
+aussi vous connecter avec Apple : Apple ne nous transmet que votre nom et votre
+adresse courriel, et si vous choisissez « Masquer mon adresse courriel »,
+l'adresse que nous recevons est une adresse de relais privée
+(`@privaterelay.appleid.com`) qu'Apple réachemine vers votre vraie boîte de
+réception; nous ne voyons donc jamais votre vraie adresse. Quand vous supprimez
+un compte qui utilise la connexion avec Apple, nous demandons aussi à Apple de
+révoquer l'accès de l'application. Dans l'application, la connexion passe par
 Google Firebase; nous conservons donc votre identifiant d'utilisateur Firebase.
 À l'inscription, vous confirmez avoir 14 ans ou plus et accepter cette
 politique et les Conditions d'utilisation; nous enregistrons la version
@@ -149,7 +156,9 @@ agit pour notre compte :
   leur santé.
 - **Google Firebase (États-Unis) :** la connexion, les plantes sauvegardées et
   les notifications push.
-- **Apple (États-Unis) :** les notifications push.
+- **Apple (États-Unis) :** les notifications push et, si vous l'utilisez, la
+  connexion avec Apple, qui vous réachemine nos courriels par le relais privé
+  d'Apple quand vous masquez votre adresse courriel.
 - **OpenAI (États-Unis) :** les messages du forum et les messages privés des
   membres nouveaux ou qui ne sont pas encore de confiance, pour détecter le
   pourriel, tant que ce filtrage est activé. Tant qu'une fonction facultative

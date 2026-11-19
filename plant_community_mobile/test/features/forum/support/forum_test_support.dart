@@ -1648,6 +1648,25 @@ class FakeAuthService extends AuthService {
     state = const AuthState(jwtToken: 'test-jwt');
   }
 
+  /// Taps on "Continue with Apple", recorded rather than performed: the
+  /// inherited implementation reaches firebase_auth's platform channel. Each
+  /// call's `acceptedTerms` is kept in [appleSignInAcceptedTerms].
+  int appleSignInCalls = 0;
+  final List<bool> appleSignInAcceptedTerms = [];
+
+  /// Set to make the next [signInWithApple] fail, for error-path tests.
+  AuthException? appleSignInError;
+
+  @override
+  Future<bool> signInWithApple({bool acceptedTerms = false}) async {
+    appleSignInCalls++;
+    appleSignInAcceptedTerms.add(acceptedTerms);
+    final error = appleSignInError;
+    if (error != null) throw error;
+    state = const AuthState(jwtToken: 'test-jwt');
+    return true;
+  }
+
   /// Consent-sheet answers, recorded rather than performed: the inherited
   /// ones reach Firebase and secure storage.
   int acceptTermsCalls = 0;
