@@ -158,6 +158,26 @@ class RotatedTokenReuseTest(RefreshSessionTestBase):
                     status.HTTP_401_UNAUTHORIZED,
                 )
 
+    def test_a_second_replay_of_the_same_token_ends_nothing_more(self):
+        # Detection fires once per stolen token: a later replay of it is a
+        # plain 401, so it cannot log the owner out again after they sign in
+        # afresh (todo 705 review round 2).
+        with freeze_time() as frozen:
+            first = issue_refresh_token(self.user)
+            self._refresh_with(first)
+            frozen.tick(REFRESH_REUSE_GRACE_SECONDS + 5)
+            detected = self._refresh_with(first)
+            self.assertEqual(detected.data["code"], REFRESH_TOKEN_REUSED_CODE)
+
+            fresh_sign_in = issue_refresh_token(self.user)
+            again = self._refresh_with(first)
+
+            self.assertEqual(again.status_code, status.HTTP_401_UNAUTHORIZED)
+            self.assertNotEqual(again.data.get("code"), REFRESH_TOKEN_REUSED_CODE)
+            self.assertEqual(
+                self._refresh_with(fresh_sign_in).status_code, status.HTTP_200_OK
+            )
+
     def test_a_reuse_inside_the_race_grace_revokes_nothing(self):
         with freeze_time():
             first = issue_refresh_token(self.user)

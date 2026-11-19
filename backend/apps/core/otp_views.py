@@ -22,9 +22,10 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 from django_otp import login as otp_login
-from django_otp import match_token, user_has_device
+from django_otp import match_token
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from .admin_security import can_open_admin, has_confirmed_totp
 from .constants import (
     ADMIN_OTP_ATTEMPT_RATE,
     ADMIN_OTP_DEVICE_NAME,
@@ -50,13 +51,10 @@ def _next_url(request: HttpRequest) -> str:
     return ADMIN_HOME
 
 
-def _is_staff(user) -> bool:
-    return bool(user.is_staff or user.is_superuser)
-
-
-# Only staff enrol or verify a device: a regular account is refused, so a
-# non-staff session never creates a TOTPDevice row.
-staff_only = user_passes_test(_is_staff, login_url=CMS_LOGIN_URL)
+# Only an account that can open the admin enrols or verifies a device (the
+# same check the middleware uses): a regular account is refused, so its
+# session never creates a TOTPDevice row.
+staff_only = user_passes_test(can_open_admin, login_url=CMS_LOGIN_URL)
 
 
 def _token(request: HttpRequest) -> str:
@@ -71,17 +69,21 @@ def _token(request: HttpRequest) -> str:
 def otp_setup(request: HttpRequest) -> HttpResponse:
     """Enrol a TOTP authenticator app, once.
 
-    A user who already has a confirmed device is sent to ``otp_verify``: a
-    second enrolment would let whoever holds only the password add a device.
+    A user who already has a confirmed TOTP device is sent to ``otp_verify``:
+    a second enrolment would let whoever holds only the password add a device.
+    A used recovery (static) device does not count, or recovery could never
+    end in a new enrolment.
     """
     user = request.user
     next_url = _next_url(request)
-    if user_has_device(user, confirmed=True):
+    if has_confirmed_totp(user):
         return HttpResponseRedirect(
             f"{ADMIN_OTP_VERIFY_PATH}?{urlencode({'next': next_url})}"
         )
 
-    device = TOTPDevice.objects.filter(user=user, confirmed=False).first()
+    device = (
+        TOTPDevice.objects.filter(user=user, confirmed=False).order_by("pk").first()
+    )
     if device is None:
         device = TOTPDevice.objects.create(
             user=user, name=ADMIN_OTP_DEVICE_NAME, confirmed=False

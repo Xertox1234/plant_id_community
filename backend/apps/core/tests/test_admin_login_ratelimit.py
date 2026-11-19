@@ -145,6 +145,49 @@ class StaffSecondFactorTest(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertFalse(TOTPDevice.objects.filter(user=member).exists())
 
+    def test_a_forum_moderator_without_staff_is_gated(self):
+        # Wagtail admin access comes from wagtailadmin.access_admin, which the
+        # Forum Moderators group has without is_staff (forum_host/bootstrap.py).
+        # Owner decision 2026-11-18: anyone who can open the admin needs TOTP.
+        from django.contrib.auth.models import Group, Permission
+
+        moderators = Group.objects.create(name="Moderators for test")
+        moderators.permissions.add(
+            Permission.objects.get(
+                content_type__app_label="wagtailadmin", codename="access_admin"
+            )
+        )
+        moderator = User.objects.create_user(
+            username="mod", email="mod@example.com", password=PASSWORD
+        )
+        moderator.groups.add(moderators)
+        self.assertFalse(moderator.is_staff)
+        self.client.force_login(moderator)
+
+        gated = self.client.get("/cms/")
+        self.assertEqual(gated.status_code, 302)
+        self.assertTrue(gated["Location"].startswith(ADMIN_OTP_SETUP_PATH))
+        self.assertEqual(self.client.get(ADMIN_OTP_SETUP_PATH).status_code, 200)
+
+    def test_recovery_then_removing_the_lost_device_reaches_enrolment(self):
+        # The documented recovery: addstatictoken, verify with it, delete the
+        # lost TOTP device. The used static device stays (confirmed), and must
+        # not keep the user at verify with no code left that works.
+        lost = TOTPDevice.objects.create(
+            user=self.admin, name="lost phone", confirmed=True
+        )
+        call_command("addstatictoken", "boss", "-t", "recover123")
+        self._sign_in()
+        ok = self.client.post(ADMIN_OTP_VERIFY_PATH, {"token": "recover123"})
+        self.assertEqual(ok.status_code, 302)
+        lost.delete()
+        self.client.logout()
+
+        self._sign_in()
+        gated = self.client.get("/cms/")
+        self.assertTrue(gated["Location"].startswith(ADMIN_OTP_SETUP_PATH))
+        self.assertEqual(self.client.get(ADMIN_OTP_SETUP_PATH).status_code, 200)
+
     def test_the_two_factor_pages_are_never_cached(self):
         self._sign_in()
         response = self.client.get(ADMIN_OTP_SETUP_PATH)

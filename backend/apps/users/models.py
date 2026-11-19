@@ -844,10 +844,11 @@ class RotatedRefreshToken(models.Model):
 
     Only rotation writes this row, in the transaction that blacklists the
     token; logout, a refused refresh and a session revocation do not. Reuse
-    detection (``refresh_sessions.reused_refresh_token_user_id``) counts only
+    detection (``refresh_sessions.end_sessions_on_reuse``) counts only
     a token with this row, so a token another path blacklisted coming back is
     a plain 401 and never ends the account's other sessions (todo 705 repair).
-    The row goes with its token when ``flushexpiredtokens`` deletes it.
+    Detection deletes the row, so it fires once per token. The row goes with
+    its token when ``flushexpiredtokens`` deletes it.
     """
 
     token = models.OneToOneField(

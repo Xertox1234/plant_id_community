@@ -218,6 +218,44 @@ Declined:
 - No test covers the `admin_otp` rate limit itself; the decorator is the
   shared, tested `apps.core.ratelimit`.
 
+### 2026-11-18 — review round 2 (PR #1375), non-blocking findings
+
+Round 2 was clean (no blocking finding, nothing refuted). Owner decisions
+2026-11-18: hand-fix the reuse replay before arming, and widen the second
+factor from staff to every account that can open the admin. Fixed by hand,
+each with a test that fails without it (the guards also mutation-checked):
+
+- Reuse detection fired on every replay of one stolen rotated token, ending
+  the account's fresh sign-ins each time until the token's `exp`. The
+  `RotatedRefreshToken` row is now deleted in the transaction that revokes
+  (`end_sessions_on_reuse`), so detection fires once and a later replay is a
+  plain 401; of two replays at once only the one that deleted the row revokes.
+- The second factor covered `is_staff`/`is_superuser` only, but Wagtail admits
+  anyone with `wagtailadmin.access_admin`, which the Forum Moderators group has
+  without staff. `can_open_admin` (one check shared by the middleware and the
+  two-factor pages) now includes that permission.
+- The documented recovery (`addstatictoken`, verify, delete the lost TOTP
+  device) locked the user out: the used static device stays confirmed, so
+  setup and the middleware sent them to verify forever. Both now key on a
+  confirmed TOTP device (`has_confirmed_totp`).
+- `?error=account_disabled` showed the generic "try again"; the web callback
+  page now says the account is disabled.
+- The unconfirmed-device lookup on the setup page is ordered by pk (no red
+  test: Postgres returns insertion order here in practice), and the
+  `env_integrity` and vuln-gate docstrings match the code.
+
+Declined:
+
+- Password-only first enrolment: as in round 1, an owner hand-off (enrol right
+  after deploy). It now also covers moderators, of whom there are none today.
+- The login throttle is check-then-increment, so a parallel burst can pass the
+  5/15m cap. Main had no limit; the burst is still bounded by TOTP behind it.
+- Staff-gated DRF actions accept a staff session or JWT without OTP. Same as
+  main; the owner decision scoped the factor to the admin pages.
+- Two tabs refreshing inside the 30 s grace get a plain 401. Same as main.
+- The constant-equals-literal test and the hardcoded admin mount paths are
+  maintenance items; constants are the project convention.
+
 ## Notes
 
 M22 carries the most risk here: staff can delete accounts.

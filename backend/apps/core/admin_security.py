@@ -18,7 +18,7 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
-from django_otp import user_has_device
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_ratelimit.core import get_usage
 
 from .constants import (
@@ -33,6 +33,30 @@ from .constants import (
 from .ratelimit import client_ip_key
 
 logger = logging.getLogger(__name__)
+
+
+def can_open_admin(user: Any) -> bool:
+    """Whether this account can reach an admin page, so needs the second factor.
+
+    Wagtail lets in anyone with ``wagtailadmin.access_admin``, not only staff:
+    the Forum Moderators group has it without ``is_staff``
+    (``apps/forum_host/bootstrap.py``). Owner decision 2026-11-18: all of them
+    enrol TOTP. The middleware and the two-factor pages share this check, so
+    they can never disagree and redirect in a loop.
+    """
+    return bool(
+        user.is_staff or user.is_superuser or user.has_perm("wagtailadmin.access_admin")
+    )
+
+
+def has_confirmed_totp(user: Any) -> bool:
+    """Whether the account has an enrolled authenticator app.
+
+    Not ``user_has_device``: the static device ``addstatictoken`` creates for
+    recovery stays confirmed after its code is used, so once the lost TOTP
+    device is removed it would keep the user at verify with no code that works.
+    """
+    return bool(TOTPDevice.objects.filter(user=user, confirmed=True).exists())
 
 
 def _login_failures(request: HttpRequest, increment: bool) -> dict[str, Any] | None:
@@ -87,8 +111,8 @@ class StaffOTPRequiredMiddleware:
     """Send a signed-in, unverified user on an admin path to the second factor.
 
     Must come after ``django_otp.middleware.OTPMiddleware``, which gives
-    ``request.user`` its ``is_verified()``. A user with a confirmed device is
-    asked for a code; one without is sent to enrol one. Anonymous requests
+    ``request.user`` its ``is_verified()``. A user with a confirmed TOTP device
+    is asked for a code; one without is sent to enrol one. Anonymous requests
     pass: the admin's own login redirect handles them.
     """
 
@@ -99,7 +123,7 @@ class StaffOTPRequiredMiddleware:
         if self._needs_second_factor(request):
             target = (
                 ADMIN_OTP_VERIFY_PATH
-                if user_has_device(request.user, confirmed=True)
+                if has_confirmed_totp(request.user)
                 else ADMIN_OTP_SETUP_PATH
             )
             return HttpResponseRedirect(
@@ -119,9 +143,9 @@ class StaffOTPRequiredMiddleware:
         user = getattr(request, "user", None)
         if user is None or not user.is_authenticated:
             return False
-        # Only staff reach these pages; a regular user's session is left to
-        # the admin's own refusal instead of being sent to enrol a device.
-        if not (user.is_staff or user.is_superuser):
+        # Only an account that can open the admin is asked; a regular user's
+        # session is left to the admin's own refusal instead of enrolling.
+        if not can_open_admin(user):
             return False
         is_verified = getattr(user, "is_verified", None)
         return not (callable(is_verified) and is_verified())

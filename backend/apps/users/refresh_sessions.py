@@ -21,6 +21,7 @@ import time
 from datetime import timedelta
 from typing import Any, Optional
 
+from django.db import transaction
 from django.utils import timezone
 from rest_framework_simplejwt.exceptions import TokenBackendError
 from rest_framework_simplejwt.settings import api_settings
@@ -65,16 +66,23 @@ def session_expired(session_start: Optional[int], now: Optional[float] = None) -
     return now - session_start > REFRESH_SESSION_MAX_AGE_SECONDS
 
 
-def reused_refresh_token_user_id(raw_token: str) -> Optional[str]:
-    """The account a REUSED refresh token belongs to, or None.
+def end_sessions_on_reuse(raw_token: str) -> Optional[tuple[str, int]]:
+    """End every session of the account a REUSED refresh token belongs to.
 
-    Reuse is a token that is genuinely ours (signature and expiry verified
-    FIRST, so a forged token naming a victim's user id cannot end the
+    Returns ``(user id, refresh tokens revoked)``, or None when the token is
+    not a reuse. Reuse is a token that is genuinely ours (signature and expiry
+    verified FIRST, so a forged token naming a victim's user id cannot end the
     victim's sessions) and that a refresh ROTATED more than
     ``REFRESH_REUSE_GRACE_SECONDS`` ago. A younger rotation is two tabs
     refreshing with one cookie at once: refused by the caller, not reuse. A
     token blacklisted by anything but rotation (no ``RotatedRefreshToken``)
     is never reuse, however old.
+
+    Detection fires once per token: its ``RotatedRefreshToken`` row is deleted
+    in the transaction that revokes the account's tokens, so a later replay of
+    the same stolen token is a plain 401 and cannot log the owner out again
+    after they sign in afresh (todo 705 review round 2). Two replays at once
+    both try the delete; only the one that deleted the row revokes.
     """
     try:
         # simplejwt hints Token, but decodes an encoded token string.
@@ -87,13 +95,15 @@ def reused_refresh_token_user_id(raw_token: str) -> Optional[str]:
     user_id = payload.get(api_settings.USER_ID_CLAIM)
     if not jti or user_id is None:
         return None
-    rotation = RotatedRefreshToken.objects.filter(token__jti=jti).first()
-    if rotation is None:
-        return None
     cutoff = timezone.now() - timedelta(seconds=REFRESH_REUSE_GRACE_SECONDS)
-    if rotation.rotated_at > cutoff:
-        return None
-    return str(user_id)
+    with transaction.atomic():
+        deleted, _ = RotatedRefreshToken.objects.filter(
+            token__jti=jti, rotated_at__lte=cutoff
+        ).delete()
+        if not deleted:
+            return None
+        revoked = revoke_all_refresh_tokens(str(user_id))
+    return str(user_id), revoked
 
 
 def mark_rotated(jti: str) -> None:

@@ -1,4 +1,4 @@
-"""Compare the running interpreter's packages against ``backend/requirements.txt``.
+"""Compare the running interpreter's packages against ``backend/requirements-dev.txt``.
 
 Why this exists: a local test result is evidence about the environment that
 produced it, and nothing at the moment of the run used to say what that

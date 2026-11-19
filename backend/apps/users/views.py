@@ -54,9 +54,8 @@ from .email_verification import (
 )
 from .models import User, UserPlantCollection
 from .refresh_sessions import (
+    end_sessions_on_reuse,
     mark_rotated,
-    reused_refresh_token_user_id,
-    revoke_all_refresh_tokens,
     session_expired,
     session_start_of,
 )
@@ -563,10 +562,10 @@ def token_refresh(request: Request) -> Response:
             # A rotated token coming back means two parties hold this chain:
             # end every session of the account (todo 705 M5). The helper
             # verifies the signature before it trusts the user id.
-            reused_by = reused_refresh_token_user_id(refresh_token)
-            if reused_by is None:
+            reuse = end_sessions_on_reuse(refresh_token)
+            if reuse is None:
                 raise
-            revoked = revoke_all_refresh_tokens(reused_by)
+            reused_by, revoked = reuse
             logger.warning(
                 f"[SECURITY] Rotated refresh token reused for user {reused_by}: "
                 f"revoked {revoked} outstanding refresh token(s)"

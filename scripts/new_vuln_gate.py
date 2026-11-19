@@ -107,7 +107,9 @@ def pip_changed(changed: Iterable[str]) -> bool:
 
     The audit reads `backend/requirements-dev.txt`, the pip-compile lock that
     holds every production pin plus the dev tools (todo 708), so a change to
-    either lock (or to an `.in` file, which changes a lock) is in scope.
+    either lock is in scope. An `.in` file is not matched itself: a change
+    to one reaches this gate through the lock it recompiles, which the
+    `backend-checks` lock check forces into the same diff.
     `test_the_gate_audits_the_dev_lock` guards that the workflow audits the
     file this scope assumes.
     """
