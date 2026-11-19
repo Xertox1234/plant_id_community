@@ -268,7 +268,11 @@ class _ForumTopicsScreenState extends ConsumerState<ForumTopicsScreen> {
       ),
       floatingActionButton: isAuthenticated && !locked
           ? FloatingActionButton.extended(
-              onPressed: () => _openComposer(context, topicsProvider),
+              onPressed: () => _openComposer(
+                context,
+                topicsProvider,
+                canPoll: board?.canPoll ?? false,
+              ),
               icon: const Icon(LucideIcons.plus, size: 15),
               label: const Text('New topic'),
             )
@@ -278,13 +282,15 @@ class _ForumTopicsScreenState extends ConsumerState<ForumTopicsScreen> {
 
   Future<void> _openComposer(
     BuildContext context,
-    BoardTopicsProvider topicsProvider,
-  ) async {
+    BoardTopicsProvider topicsProvider, {
+    required bool canPoll,
+  }) async {
     final result = await context.pushNamed<bool>(
       'forumCompose',
       extra: ForumComposeArgs.topic(
         boardSlug: _slug,
         boardTitle: widget.boardTitle,
+        canPoll: canPoll,
       ),
     );
     if (result == true) {

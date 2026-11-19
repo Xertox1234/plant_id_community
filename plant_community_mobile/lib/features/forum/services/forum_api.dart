@@ -70,6 +70,7 @@ abstract class ForumApi {
     required String slug,
     required List<Map<String, dynamic>> body,
     required String idempotencyKey,
+    Map<String, dynamic>? poll,
   });
 
   Future<CreateReplyResult> createReply({
@@ -591,10 +592,11 @@ class HttpForumApi implements ForumApi {
     required String slug,
     required List<Map<String, dynamic>> body,
     required String idempotencyKey,
+    Map<String, dynamic>? poll,
   }) async {
     final resp = await _api.post(
       '/forum/boards/$boardSlug/topics/',
-      data: {'title': title, 'slug': slug, 'body': body},
+      data: {'title': title, 'slug': slug, 'body': body, 'poll': ?poll},
       options: _idempotent(idempotencyKey),
     );
     return CreateTopicResult.fromJson(resp.data as Map<String, dynamic>);

@@ -130,3 +130,69 @@ DateTime? _parseDate(dynamic value) {
   }
   return null;
 }
+
+/// A poll being written in the new-topic composer: the write shape of the
+/// backend `TopicPollSerializer`. Created with the topic and not editable
+/// afterwards. The limits mirror `WAGTAILFORUM_POLL_*` (`conf.py`).
+class ForumPollDraft {
+  const ForumPollDraft({
+    this.question = '',
+    this.options = const ['', ''],
+    this.closesAt,
+    this.maxChoices = 1,
+  });
+
+  static const int minOptions = 2;
+  static const int maxOptions = 10;
+  static const int questionMaxLength = 300;
+  static const int optionMaxLength = 200;
+
+  final String question;
+
+  /// One entry per option row, blank rows included.
+  final List<String> options;
+
+  /// `null` for a poll that never closes.
+  final DateTime? closesAt;
+  final int maxChoices;
+
+  static String _clean(String text) =>
+      text.trim().split(RegExp(r'\s+')).join(' ');
+
+  /// The options as the server will store them: whitespace collapsed, blank
+  /// rows dropped.
+  List<String> get filledOptions => [
+    for (final option in options)
+      if (_clean(option).isNotEmpty) _clean(option),
+  ];
+
+  /// The server refuses options that differ only by case.
+  bool get hasDuplicateOptions {
+    final filled = filledOptions;
+    return {for (final option in filled) option.toLowerCase()}.length !=
+        filled.length;
+  }
+
+  /// What a voter may pick, never more than the options there are.
+  int get effectiveMaxChoices {
+    final filled = filledOptions.length;
+    return maxChoices.clamp(1, filled < 1 ? 1 : filled);
+  }
+
+  bool get isBlank =>
+      question.trim().isEmpty && filledOptions.isEmpty && closesAt == null;
+
+  bool get isValid =>
+      question.trim().isNotEmpty &&
+      filledOptions.length >= minOptions &&
+      !hasDuplicateOptions;
+
+  /// [closesAt] goes as a UTC instant: a local ISO string carries no offset
+  /// and the server would read it in its own time zone.
+  Map<String, dynamic> toJson() => {
+    'question': _clean(question),
+    'options': filledOptions,
+    if (effectiveMaxChoices > 1) 'max_choices': effectiveMaxChoices,
+    if (closesAt != null) 'closes_at': closesAt!.toUtc().toIso8601String(),
+  };
+}
