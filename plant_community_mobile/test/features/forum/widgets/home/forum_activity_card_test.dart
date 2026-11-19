@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:plant_community_mobile/core/constants/app_spacing.dart';
 import 'package:plant_community_mobile/core/theme/app_theme.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/providers/forum_providers.dart';
@@ -359,16 +360,24 @@ void main() {
             (chevronRight(1) - chevronRight(2)).abs(),
             lessThanOrEqualTo(1),
           );
-          // The picture stack ends on the same edge.
-          final pictureRight = tester
-              .getTopRight(
-                find.descendant(
-                  of: _card(2),
-                  matching: find.byType(CachedNetworkImage),
-                ),
-              )
-              .dx;
-          expect((pictureRight - chevronRight(2)).abs(), lessThanOrEqualTo(3));
+          // The picture sits beside the chevron, one small gap to its left,
+          // and starts level with it (both top-aligned in the card's row).
+          final chevron = find.descendant(
+            of: _card(2),
+            matching: find.byIcon(LucideIcons.chevronDown),
+          );
+          final picture = find.descendant(
+            of: _card(2),
+            matching: find.byType(CachedNetworkImage),
+          );
+          final gap =
+              tester.getTopLeft(chevron).dx - tester.getTopRight(picture).dx;
+          expect(gap, inInclusiveRange(AppSpacing.sm, AppSpacing.sm + 3));
+          expect(
+            (tester.getTopLeft(chevron).dy - tester.getTopLeft(picture).dy)
+                .abs(),
+            lessThanOrEqualTo(3),
+          );
         });
       }
     }

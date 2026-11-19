@@ -11,6 +11,7 @@ import '../models/models.dart';
 import '../providers/forum_providers.dart';
 import '../widgets/author_identity.dart';
 import '../widgets/forum_avatar_cluster.dart';
+import '../widgets/forum_style.dart';
 import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// The authenticated user's DM inbox (todo 339): one row per conversation,
@@ -113,8 +114,7 @@ class _ConversationsList extends StatelessWidget {
       // A scrollable so the RefreshIndicator above still works when empty.
       return ListView(
         children: const [
-          SizedBox(height: AppSpacing.xl3),
-          Center(child: Text('No messages yet.')),
+          ForumEmptyState(icon: LucideIcons.mail, title: 'No messages yet.'),
         ],
       );
     }
@@ -198,7 +198,7 @@ class _ConversationTile extends StatelessWidget {
           name,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.titleSmall?.copyWith(fontWeight: emphasis),
+          style: forumItemTitle(context)?.copyWith(fontWeight: emphasis),
         ),
         subtitle: Text(
           preview,
@@ -215,13 +215,7 @@ class _ConversationTile extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            if (time.isNotEmpty)
-              Text(
-                time,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
+            if (time.isNotEmpty) Text(time, style: forumMeta(context)),
             if (unread) ...[
               const SizedBox(height: AppSpacing.xs),
               Badge(label: Text('${conversation.unreadCount}')),

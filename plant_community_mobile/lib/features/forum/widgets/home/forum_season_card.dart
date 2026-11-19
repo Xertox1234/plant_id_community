@@ -8,6 +8,7 @@ import '../../../../shared/widgets/canopy_label.dart';
 import '../../../../shared/widgets/canopy_surfaces.dart';
 import '../../models/models.dart';
 import '../forum_stats_grid.dart';
+import '../forum_style.dart';
 
 /// "Your season": the member's all-time numbers in one card (the redesigned
 /// twin of `ForumStatsGrid`, same `meStatsProvider` data). Four equal stats
@@ -22,12 +23,11 @@ class ForumSeasonCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final canopy = context.canopy;
     final target = stats.badgeTarget;
     final hasTrack = target > 0 && stats.badgeName.isNotEmpty;
     final progressText = stats.badgeComplete
         ? '${stats.badgeName} badge · complete'
-        : '${stats.badgeName} badge · ${stats.badgeProgress} / $target IDs';
+        : '${stats.badgeName} badge · ${stats.badgeProgress} of $target IDs';
 
     return CanopyCard(
       child: Stack(
@@ -46,32 +46,24 @@ class ForumSeasonCard extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const CanopyLabel('Your season'),
+              // ink2, not the default ink3: 11pt ink3 on a card is under
+              // 4.5:1 in both modes.
+              CanopyLabel('Your season', color: context.canopy.ink2),
               const SizedBox(height: AppSpacing.sm),
               IntrinsicHeight(
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _Stat(value: stats.identificationsShared, label: 'IDs'),
-                    const _Rule(),
                     _Stat(value: stats.posts, label: 'Posts'),
-                    const _Rule(),
                     _Stat(value: stats.solutionsAccepted, label: 'Solutions'),
-                    const _Rule(),
-                    _Stat(
-                      value: stats.streakDays,
-                      label: 'Day streak',
-                      color: canopy.clay,
-                    ),
+                    _Stat(value: stats.streakDays, label: 'Day streak'),
                   ],
                 ),
               ),
               if (hasTrack) ...[
                 const SizedBox(height: AppSpacing.md),
-                Text(
-                  progressText,
-                  style: AppTypography.meta.copyWith(color: canopy.ink2),
-                ),
+                Text(progressText, style: forumMeta(context)),
                 const SizedBox(height: 6),
                 Semantics(
                   label: '${stats.badgeName} badge progress',
@@ -98,40 +90,33 @@ class ForumSeasonCard extends StatelessWidget {
   }
 }
 
-class _Rule extends StatelessWidget {
-  const _Rule();
-
-  @override
-  Widget build(BuildContext context) =>
-      SizedBox(width: 1, child: ColoredBox(color: context.canopy.line));
-}
-
 class _Stat extends StatelessWidget {
-  const _Stat({required this.value, required this.label, this.color});
+  const _Stat({required this.value, required this.label});
 
   final int value;
   final String label;
-  final Color? color;
 
   @override
   Widget build(BuildContext context) {
-    final canopy = context.canopy;
+    // Left-aligned, so the first number sits on the card's text edge like
+    // the eyebrow above it and the badge line below.
     return Expanded(
       child: Semantics(
         container: true,
         label: '$label: $value',
         excludeSemantics: true,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
+          padding: const EdgeInsetsDirectional.only(end: AppSpacing.sm),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               FittedBox(
                 fit: BoxFit.scaleDown,
+                alignment: AlignmentDirectional.centerStart,
                 child: Text(
                   '$value',
                   style: AppTypography.h2.copyWith(
-                    color: color ?? Theme.of(context).colorScheme.onSurface,
-                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
               ),
@@ -140,11 +125,8 @@ class _Stat extends StatelessWidget {
               // the label down instead, as the number above does.
               FittedBox(
                 fit: BoxFit.scaleDown,
-                child: Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: AppTypography.meta.copyWith(color: canopy.ink3),
-                ),
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(label, style: forumMeta(context)),
               ),
             ],
           ),

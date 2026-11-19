@@ -8,9 +8,10 @@ import '../../../../shared/widgets/canopy_accents.dart';
 import '../../forum_format.dart';
 import '../../models/models.dart';
 import '../../utils/board_identity.dart';
+import '../forum_style.dart';
 
 /// Gap between one category and the next.
-const double _categoryGap = AppSpacing.lg;
+const double _categoryGap = forumHomeSectionGap;
 
 /// How long a category's card takes to open or close, as the activity card.
 const Duration _collapseDuration = Duration(milliseconds: 250);
@@ -120,17 +121,20 @@ class _CategoryHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final icon = category.icon.trim();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      // Only the title is announced (as a header); the emoji's name is not.
-      child: Semantics(
-        header: true,
-        label: category.title,
-        excludeSemantics: true,
-        child: Text(
-          icon.isEmpty ? category.title : '$icon ${category.title}',
-          style: AppTypography.h3.copyWith(
-            color: Theme.of(context).colorScheme.onSurface,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: forumHomeHeaderHeight),
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        // Only the title is announced (as a header); the emoji's name is not.
+        child: Semantics(
+          header: true,
+          label: category.title,
+          excludeSemantics: true,
+          child: Text(
+            icon.isEmpty ? category.title : '$icon ${category.title}',
+            style: AppTypography.h3.copyWith(
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
           ),
         ),
       ),
@@ -158,8 +162,9 @@ class _CollapsibleHeader extends StatelessWidget {
     final canopy = context.canopy;
     final icon = category.icon.trim();
     final reduce = MediaQuery.disableAnimationsOf(context);
+    // The chevron sits on the same edge as the row chevrons in the card below.
     return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsetsDirectional.only(end: AppSpacing.md),
       child: Semantics(
         header: true,
         child: CanopyPressable(
@@ -198,8 +203,8 @@ class _CollapsibleHeader extends StatelessWidget {
                   curve: Easing.emphasizedDecelerate,
                   child: Icon(
                     LucideIcons.chevronDown,
-                    size: 18,
-                    color: canopy.ink3,
+                    size: forumChevronSize,
+                    color: canopy.ink2,
                   ),
                 ),
               ],
@@ -221,12 +226,11 @@ class _ForumRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final canopy = context.canopy;
     final identity = boardIdentityOf(forum);
     final last = forum.lastPostAt == null
         ? ''
-        : ' · ${forumRelativeTime(forum.lastPostAt)}';
+        : ' · ${forumListTime(forum.lastPostAt)}';
     final counts =
         '${_count(forum.topicCount, 'topic')} · '
         '${_count(forum.postCount, 'post')}$last';
@@ -248,55 +252,61 @@ class _ForumRow extends StatelessWidget {
             vertical: 12,
           ),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               CanopyAccentTile(
                 icon: identity.icon,
                 emoji: identity.emoji,
                 tone: identity.tone.colorOf(canopy),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      forum.title,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    Text(forum.title, style: forumItemTitle(context)),
                     if (forum.description.isNotEmpty)
                       Text(
                         forum.description,
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.bodySm.copyWith(
                           color: canopy.ink2,
                         ),
                       ),
-                    const SizedBox(height: 2),
-                    Text(
-                      counts,
-                      style: AppTypography.label.copyWith(color: canopy.ink3),
-                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(counts, style: forumMeta(context)),
                   ],
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              if (forum.hasUnread) ...[
-                SizedBox.square(
-                  key: const ValueKey('unread-dot'),
-                  dimension: 8,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: canopy.leaf,
-                      shape: BoxShape.circle,
+              // Level with the title's first line, not the row's middle.
+              Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (forum.hasUnread) ...[
+                      SizedBox.square(
+                        key: const ValueKey('unread-dot'),
+                        dimension: 8,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: canopy.leaf,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                    ],
+                    Icon(
+                      LucideIcons.chevronRight,
+                      size: forumChevronSize,
+                      color: canopy.ink2,
                     ),
-                  ),
+                  ],
                 ),
-                const SizedBox(width: AppSpacing.sm),
-              ],
-              Icon(LucideIcons.chevronRight, size: 18, color: canopy.ink3),
+              ),
             ],
           ),
         ),
@@ -316,7 +326,6 @@ class _LockedRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final canopy = context.canopy;
     final identity = boardIdentityOf(forum);
     return CanopyPressable(
@@ -334,26 +343,22 @@ class _LockedRow extends StatelessWidget {
             vertical: 12,
           ),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               CanopyAccentTile(
                 icon: LucideIcons.lock,
                 tone: identity.tone.colorOf(canopy),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      forum.title,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    Text(forum.title, style: forumItemTitle(context)),
                     if (forum.description.isNotEmpty)
                       Text(
                         forum.description,
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.bodySm.copyWith(
                           color: canopy.ink2,
@@ -378,7 +383,6 @@ class _LinkRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final canopy = context.canopy;
     final tone = boardIdentity(link.slug).tone.colorOf(canopy);
     final clicks = link.clickCount;
@@ -401,33 +405,26 @@ class _LinkRow extends StatelessWidget {
             vertical: 12,
           ),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               CanopyAccentTile(icon: LucideIcons.externalLink, tone: tone),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      link.title,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    Text(link.title, style: forumItemTitle(context)),
                     if (link.description.isNotEmpty)
                       Text(
                         link.description,
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.bodySm.copyWith(
                           color: canopy.ink2,
                         ),
                       ),
-                    const SizedBox(height: 2),
-                    Text(
-                      label,
-                      style: AppTypography.label.copyWith(color: canopy.ink3),
-                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(label, style: forumMeta(context)),
                   ],
                 ),
               ),

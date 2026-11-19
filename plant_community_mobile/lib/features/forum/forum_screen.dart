@@ -22,11 +22,12 @@ import 'widgets/forum_experts_strip.dart';
 import 'widgets/home/forum_activity_card.dart';
 import 'widgets/home/forum_categories_section.dart';
 import 'widgets/home/forum_home_footer.dart';
+import 'widgets/forum_style.dart';
 import 'widgets/home/forum_season_card.dart';
 import 'widgets/home/forum_whos_online.dart';
 
 /// Gap between home sections (design: 30pt; nearest token).
-const double _sectionGap = AppSpacing.xl;
+const double _sectionGap = forumHomeSectionGap;
 
 /// First-visit entrance (spec §8.2): each section fades in and rises 8pt,
 /// 40 ms after the one above it.
@@ -541,18 +542,7 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Semantics(
-        header: true,
-        child: Text(
-          title,
-          style: AppTypography.h3.copyWith(
-            color: Theme.of(context).colorScheme.onSurface,
-          ),
-        ),
-      ),
-    );
+    return ForumHomeHeader(title);
   }
 }
 

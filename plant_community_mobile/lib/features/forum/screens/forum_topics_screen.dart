@@ -14,6 +14,7 @@ import '../../../shared/widgets/clay_button.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
 import '../utils/board_identity.dart';
+import '../widgets/forum_style.dart';
 import '../widgets/topic_card.dart';
 import 'forum_composer_screen.dart';
 
@@ -189,7 +190,7 @@ class _BoardIntro extends StatelessWidget {
           Text(
             '${_count(board.topicCount, 'topic')} · '
             '${_count(board.postCount, 'post')}',
-            style: AppTypography.label.copyWith(color: canopy.ink3),
+            style: forumMeta(context),
           ),
         ],
       ),
@@ -215,24 +216,11 @@ class _TopicsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (paged.items.isEmpty) {
-      final canopy = context.canopy;
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl2),
-        child: Column(
-          children: [
-            CanopyAccentTile(icon: emptyIcon, tone: emptyTone, size: 48),
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              'No topics yet',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              'Be the first to post.',
-              style: AppTypography.bodySm.copyWith(color: canopy.ink2),
-            ),
-          ],
-        ),
+      return ForumEmptyState(
+        icon: emptyIcon,
+        tone: emptyTone,
+        title: 'No topics yet',
+        body: 'Be the first to post.',
       );
     }
     return Column(
