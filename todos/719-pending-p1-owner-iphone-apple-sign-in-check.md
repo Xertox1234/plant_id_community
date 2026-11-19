@@ -4,6 +4,9 @@ priority: p1
 issue_id: "719"
 tags: [mobile, ios, auth, apple, device-check, owner]
 dependencies: ["717"]
+triage: ready
+triaged: 2026-11-19
+owner_decision: "Owner 2026-11-19: device check done on TestFlight build 26 (main b865a814); owner answered 'Yes, close it' to whether it satisfies the criterion. Sign-up sends no email (an Apple-verified address is marked verified), so the relay email checked was the account-deletion email. (2026-11-19); criterion 0 confirmed by the owner (2026-11-19): Owner, TestFlight build 26, 2026-11-19: Apple Hide My Email sign-up made a new account ('no plants, this must be a new account'); deletion 'asked me to sign in with apple first, then continued successfully'; 'got the deletion email, and the app is gone from settings'. The relay email received was the deletion email: the app sends none at sign-up. Owner confirmed this satisfies the criterion ('Yes, close it')."
 ---
 
 # Owner: check Sign in with Apple on a real iPhone (TestFlight)
