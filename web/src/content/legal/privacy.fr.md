@@ -26,7 +26,7 @@ Canada qui sont énumérés plus bas.
 
 **Votre compte.** Votre adresse courriel, votre nom d'utilisateur, vos prénom
 et nom, votre biographie, votre lieu (texte libre, si vous en indiquez un),
-votre site Web et votre avatar. Si vous vous connectez avec Google ou GitHub,
+votre site Web et votre avatar. Si vous vous connectez avec Google,
 nous enregistrons ce mode de connexion. Dans l'application, la connexion passe par
 Google Firebase; nous conservons donc votre identifiant d'utilisateur Firebase.
 À l'inscription, vous confirmez avoir 14 ans ou plus et accepter cette

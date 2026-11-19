@@ -269,13 +269,15 @@ def test_a_legacy_placeholder_only_warns_under_debug():
         {
             "DEBUG": "True",
             "ENABLE_FILE_LOGGING": "False",
-            "GITHUB_CLIENT_SECRET": LEGACY_PLACEHOLDERS["GITHUB_CLIENT_SECRET"],
+            "GOOGLE_OAUTH2_CLIENT_SECRET": LEGACY_PLACEHOLDERS[
+                "GOOGLE_OAUTH2_CLIENT_SECRET"
+            ],
         }
     )
     combined = result.stdout + result.stderr
 
     assert result.returncode == 0, combined[-3000:]
-    assert "GITHUB_CLIENT_SECRET is still the old .env.example placeholder" in (
+    assert "GOOGLE_OAUTH2_CLIENT_SECRET is still the old .env.example placeholder" in (
         combined
     )
 

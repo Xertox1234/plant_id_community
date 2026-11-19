@@ -16,8 +16,6 @@ OPTIONAL_INTEGRATION_KEYS = (
     "PEXELS_API_KEY",
     "GOOGLE_OAUTH2_CLIENT_ID",
     "GOOGLE_OAUTH2_CLIENT_SECRET",
-    "GITHUB_CLIENT_ID",
-    "GITHUB_CLIENT_SECRET",
     "FIREBASE_PROJECT_ID",
     "FIREBASE_CREDENTIALS_PATH",
 )
@@ -40,8 +38,6 @@ LEGACY_PLACEHOLDERS = {
     "PEXELS_API_KEY": "your-pexels-api-key",  # pragma: allowlist secret
     "GOOGLE_OAUTH2_CLIENT_ID": "your-google-client-id.apps.googleusercontent.com",  # pragma: allowlist secret
     "GOOGLE_OAUTH2_CLIENT_SECRET": "your-google-client-secret",  # pragma: allowlist secret
-    "GITHUB_CLIENT_ID": "your-github-client-id",  # pragma: allowlist secret
-    "GITHUB_CLIENT_SECRET": "your-github-client-secret",  # pragma: allowlist secret
     "FIREBASE_PROJECT_ID": "your-firebase-project-id",  # pragma: allowlist secret
     "FIREBASE_CREDENTIALS_PATH": "path/to/firebase-service-account.json",  # pragma: allowlist secret
 }

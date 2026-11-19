@@ -133,7 +133,7 @@ class WebOAuthFirstLinkTest(TestCase):
 
     def test_linked_identity_follows_a_changed_provider_email(self):
         # Review round 1: matching by email first refused this identity as
-        # "linked elsewhere" once its GitHub/Google email changed.
+        # "linked elsewhere" once its Google email changed.
         user = _verified_login_account()
         self._sign_in()
 

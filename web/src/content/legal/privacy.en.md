@@ -23,8 +23,8 @@ answer questions about the service providers outside Canada listed below.
 ## What we collect and why
 
 **Your account.** Your email, username, first and last name, bio, location
-(free text, if you enter one), website and avatar. If you sign in with Google
-or GitHub, we record that sign-in. On the app, your login uses Google Firebase,
+(free text, if you enter one), website and avatar. If you sign in with Google,
+we record that sign-in. On the app, your login uses Google Firebase,
 so we store your Firebase user ID. When you sign up you confirm that you are 14 or
 older and accept this policy and the Terms of Service; we record which version
 you accepted and when. We use this to run your account and show your profile.
