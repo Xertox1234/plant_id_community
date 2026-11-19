@@ -221,3 +221,28 @@ hand or declined:
 - **Declined (low):** the backend Apple tests mainly pin current behaviour.
   The backend logic is shared with Google on purpose, and the tests cover
   the relay email, the 428 consent step, and a returning sign-in.
+
+### 2026-11-19 - Review round 2: non-blocking findings
+
+Round 2 was clean. Every finding was low and all are declined:
+
+- **No authorization code from the Apple re-auth:** deletion goes ahead with no
+  revoke, and the miss is logged only in debug builds. Apple always returns a code
+  for a fresh sign-in. The device check (todo 718, step 6) shows whether the
+  revoke happened.
+- **Revoke before a refused deletion:** the trade-off chosen in round 1. It is
+  documented and tested: the next Apple sign-in simply asks for consent again.
+  A server-side revoke would need an Apple client secret on the backend. That
+  would be a separate change.
+- **Stale `_appleRefreshUid` in the early auth-state path:** costs at most one
+  extra token refresh, and it is cleared on sign-out. Whether the name reaches
+  the token is a device question (todo 718, step 3).
+- **Doc-comment wrapping on `_endSession`:** the line got shorter when the
+  revoke moved out. `dart format` reports no changes.
+- **`debugDefaultTargetPlatformOverride` reset at the end of each test:** only
+  matters once a test is already failing (also declined in round 1).
+- **No backend test for an Apple relay email colliding with an existing
+  account:** the backend's email-linking rules are the same for every
+  provider and are covered by the existing Google and password tests. A
+  `privaterelay.appleid.com` address is unique per app, so it does not collide
+  with an existing account's email.
