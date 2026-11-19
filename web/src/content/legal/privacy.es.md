@@ -27,7 +27,14 @@ indican más adelante.
 
 **Su cuenta.** Su correo electrónico, nombre de usuario, nombre y apellido,
 biografía, ubicación (texto libre, si la escribe), sitio web y avatar. Si inicia
-sesión con Google, registramos ese inicio de sesión. En la aplicación,
+sesión con Google, registramos ese inicio de sesión. En la aplicación para
+iPhone también puede iniciar sesión con Apple: Apple solo nos comparte su nombre
+y su correo electrónico, y si elige "Ocultar mi correo electrónico", el correo
+que recibimos es una dirección de retransmisión privada
+(`@privaterelay.appleid.com`) que Apple reenvía a su bandeja real, de modo que
+nunca vemos su dirección real. Cuando elimina una cuenta que usa el inicio de
+sesión con Apple, también pedimos a Apple que revoque el acceso de la
+aplicación. En la aplicación,
 el inicio de sesión usa Google Firebase, por lo que guardamos su identificador de usuario
 de Firebase. Al registrarse, usted confirma que tiene 14 años o más y que acepta
 este aviso y los Términos de servicio; registramos qué versión aceptó y cuándo.
@@ -188,7 +195,9 @@ uno recibe solo lo que necesita para su tarea:
   sus fotos de escaneo, para identificar plantas y revisar su salud.
 - **Google Firebase (Estados Unidos):** inicio de sesión, plantas guardadas y
   notificaciones push.
-- **Apple (Estados Unidos):** notificaciones push.
+- **Apple (Estados Unidos):** notificaciones push y, si lo usa, el inicio de
+  sesión con Apple, que le reenvía nuestros correos mediante la retransmisión
+  privada de Apple cuando oculta su correo electrónico.
 - **OpenAI (Estados Unidos):** las publicaciones del foro y los mensajes
   privados de miembros nuevos o que aún no son de confianza, para detectar
   spam, mientras esa revisión esté activada. Mientras una función opcional de

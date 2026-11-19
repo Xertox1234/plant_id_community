@@ -191,6 +191,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 : const Text('Sign in'),
                           ),
                           SizedBox(height: ext.gapY),
+                          AppleSignInButton(enabled: !_submitting),
                           GoogleSignInButton(enabled: !_submitting),
                           SizedBox(height: ext.gapY),
                           TextButton(
@@ -416,6 +417,108 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
               : const Icon(LucideIcons.circleUser),
           label: Text(_busy ? 'Signing in...' : 'Continue with Google'),
         ),
+      ],
+    );
+  }
+}
+
+/// "Continue with Apple" -- shared by the sign-in and register screens, on
+/// iOS only ([appleSignInSupported]; hidden on Android, owner decision
+/// 2026-11-19). App Store Guideline 4.8 (todo 717): an app offering Google
+/// sign-in must offer an equivalent that shares only the name and email and
+/// lets the user hide the email.
+///
+/// Apple's button style (Human Interface Guidelines, Sign in with Apple):
+/// the Apple logo and "Continue with Apple", black on a light screen and
+/// white on a dark one, full width and placed above Google, so it is at
+/// least as prominent. Renders nothing where Apple sign-in is not offered,
+/// its gap included. See [AuthService.signInWithApple].
+class AppleSignInButton extends ConsumerStatefulWidget {
+  const AppleSignInButton({
+    super.key,
+    this.enabled = true,
+    this.acceptedTerms = false,
+  });
+
+  final bool enabled;
+
+  /// Whether the user ticked the consent box on this screen (sign-up only).
+  final bool acceptedTerms;
+
+  static const label = 'Continue with Apple';
+
+  @override
+  ConsumerState<AppleSignInButton> createState() => _AppleSignInButtonState();
+}
+
+class _AppleSignInButtonState extends ConsumerState<AppleSignInButton> {
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _submit() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final signedIn = await ref
+          .read(authServiceProvider.notifier)
+          .signInWithApple(acceptedTerms: widget.acceptedTerms);
+      // A closed sheet is a cancel: stay on this screen.
+      if (!mounted || !signedIn) return;
+      dismissAfterAuth(context);
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!appleSignInSupported()) return const SizedBox.shrink();
+    final ext =
+        Theme.of(context).extension<GreenThumbExtension>() ??
+        GreenThumbExtension.fallback;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final background = dark ? Colors.white : Colors.black;
+    final foreground = dark ? Colors.black : Colors.white;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_error != null) ...[
+          _AuthErrorBanner(message: _error!),
+          SizedBox(height: ext.gapY),
+        ],
+        FilledButton.icon(
+          onPressed: (!widget.enabled || _busy) ? null : _submit,
+          style: FilledButton.styleFrom(
+            backgroundColor: background,
+            foregroundColor: foreground,
+            disabledBackgroundColor: background.withValues(alpha: 0.4),
+            disabledForegroundColor: foreground.withValues(alpha: 0.7),
+            minimumSize: const Size.fromHeight(48),
+            textStyle: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          icon: _busy
+              ? SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: foreground,
+                  ),
+                )
+              : const Icon(Icons.apple, size: 22),
+          label: Text(_busy ? 'Signing in...' : AppleSignInButton.label),
+        ),
+        SizedBox(height: ext.gapY),
       ],
     );
   }

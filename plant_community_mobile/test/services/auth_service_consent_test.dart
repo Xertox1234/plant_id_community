@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -378,6 +379,237 @@ void main() {
     });
   });
 
+  group('Apple sign-in (todo 717)', () {
+    test('asks Apple for the email and the name, and with acceptedTerms '
+        'sends the flag on the first exchange', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      h.read();
+      final user = _FakeUser(uid: 'a1');
+      h.firebaseAuth.providerUser = user;
+
+      final signedIn = await h.notifier.signInWithApple(acceptedTerms: true);
+      await pumpEventQueue();
+
+      expect(signedIn, isTrue);
+      final provider = h.firebaseAuth.providers.single as AppleAuthProvider;
+      expect(provider.providerId, 'apple.com');
+      expect(provider.scopes, containsAll(['email', 'name']));
+      final body = h.api.exchangeBodies.single;
+      expect(body['accepted_terms'], isA<bool>());
+      expect(body['accepted_terms'], isTrue);
+      expect(h.state.isAuthenticated, isTrue);
+    });
+
+    test('the exchange forces a token refresh, so the name Apple sent on '
+        'the first sign-in reaches the backend', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      h.read();
+      final user = _FakeUser(uid: 'a1');
+      h.firebaseAuth.providerUser = user;
+
+      await h.notifier.signInWithApple();
+      await pumpEventQueue();
+
+      expect(user.idTokenForceRefresh, [true]);
+      expect(h.api.exchangeBodies.single.containsKey('accepted_terms'), false);
+      // The 428's consent retry needs no second refresh.
+    });
+
+    test(
+      '... also when the auth-state event comes after the call returned',
+      () async {
+        final h = _Harness();
+        addTearDown(h.dispose);
+        h.read();
+        final user = _FakeUser(uid: 'a1');
+        h.firebaseAuth.providerUser = user;
+        h.firebaseAuth.emitProviderUserLate = true;
+
+        await h.notifier.signInWithApple();
+        expect(h.api.exchangeBodies, isEmpty);
+        h.firebaseAuth.authStateController.add(user);
+        await pumpEventQueue();
+
+        expect(user.idTokenForceRefresh, [true]);
+        // Only that first exchange: a later one uses the cached token.
+        await h.signIn(user);
+        expect(user.idTokenForceRefresh, [true, false]);
+      },
+    );
+
+    test('a new Apple user without consent gets the consent sheet', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      h.api.errors.add(consentRefusal());
+      h.read();
+      h.firebaseAuth.providerUser = _FakeUser(uid: 'a1');
+
+      await h.notifier.signInWithApple();
+
+      expect(h.state.consentRequired, isTrue);
+      expect(h.state.isLoading, isFalse);
+      expect(h.state.error, isNull);
+    });
+
+    test('closing the Apple sheet is a cancel, not an error', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      h.read();
+      h.firebaseAuth.providerError = FirebaseAuthException(code: 'canceled');
+
+      final signedIn = await h.notifier.signInWithApple(acceptedTerms: true);
+
+      expect(signedIn, isFalse);
+      expect(h.state.error, isNull);
+      expect(h.state.isLoading, isFalse);
+      // No consent left pending for whoever signs in next.
+      await h.signIn(_FakeUser(uid: 'other'));
+      expect(h.api.exchangeBodies.single.containsKey('accepted_terms'), false);
+    });
+
+    test('an email that already signs in another way says so', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      h.read();
+      h.firebaseAuth.providerError = FirebaseAuthException(
+        code: 'account-exists-with-different-credential',
+      );
+
+      await expectLater(
+        h.notifier.signInWithApple(),
+        throwsA(
+          isA<AuthException>().having(
+            (e) => e.message,
+            'message',
+            appleAccountExistsMessage,
+          ),
+        ),
+      );
+    });
+
+    test('an Apple failure throws a fixed message', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      h.read();
+      h.firebaseAuth.providerError = FirebaseAuthException(code: 'failed');
+
+      await expectLater(
+        h.notifier.signInWithApple(),
+        throwsA(
+          isA<AuthException>().having(
+            (e) => e.message,
+            'message',
+            appleSignInFailedMessage,
+          ),
+        ),
+      );
+      expect(h.state.error, appleSignInFailedMessage);
+    });
+  });
+
+  group('deleting an Apple-linked account revokes its Apple tokens '
+      '(todo 717)', () {
+    setUp(() => debugDefaultTargetPlatformOverride = TargetPlatform.iOS);
+    tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    test('apple.com re-authenticates with Apple on iOS only', () {
+      expect(
+        reauthMethodFor(['apple.com'], platform: TargetPlatform.iOS),
+        ReauthMethod.apple,
+      );
+      expect(
+        reauthMethodFor([
+          'google.com',
+          'apple.com',
+          'password',
+        ], platform: TargetPlatform.iOS),
+        ReauthMethod.apple,
+      );
+      expect(
+        reauthMethodFor(['apple.com'], platform: TargetPlatform.android),
+        isNull,
+      );
+    });
+
+    Future<(_Harness, _FakeUser)> appleUser() async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      final user = _FakeUser(uid: 'a1', providerIds: ['apple.com']);
+      await h.signIn(user);
+      return (h, user);
+    }
+
+    test('the re-auth signs in with Apple again and keeps the code, which '
+        'revokeAppleSignIn hands to Firebase once', () async {
+      final (h, user) = await appleUser();
+      user.idTokenForceRefresh.clear();
+
+      expect(h.notifier.reauthMethod, ReauthMethod.apple);
+      final token = await h.notifier.freshIdTokenAfterReauth();
+
+      expect(token, 'firebase-id-token');
+      expect(user.idTokenForceRefresh, [true]);
+      final provider = user.reauthProviders.single as AppleAuthProvider;
+      expect(provider.scopes, containsAll(['email', 'name']));
+      expect(h.firebaseAuth.revokedCodes, isEmpty, reason: 'not before');
+
+      await h.notifier.revokeAppleSignIn();
+      await h.notifier.revokeAppleSignIn();
+
+      expect(h.firebaseAuth.revokedCodes, [_FakeUser.appleAuthCode]);
+    });
+
+    test('a revoke failure is logged, never thrown', () async {
+      final (h, _) = await appleUser();
+      h.firebaseAuth.revokeError = FirebaseAuthException(code: 'internal');
+      await h.notifier.freshIdTokenAfterReauth();
+
+      await h.notifier.revokeAppleSignIn();
+
+      expect(h.firebaseAuth.revokedCodes, [_FakeUser.appleAuthCode]);
+    });
+
+    test(
+      'no revoke for another account than the one re-authenticated',
+      () async {
+        final (h, _) = await appleUser();
+        await h.notifier.freshIdTokenAfterReauth();
+        await h.signIn(_FakeUser(uid: 'b2', providerIds: ['apple.com']));
+
+        await h.notifier.revokeAppleSignIn();
+
+        expect(h.firebaseAuth.revokedCodes, isEmpty);
+      },
+    );
+
+    test('a Google or password account has nothing to revoke', () async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      await h.signIn(_FakeUser(uid: 'p1'));
+      await h.notifier.freshIdTokenAfterReauth(
+        password: 'pw-123456', // pragma: allowlist secret
+      );
+
+      await h.notifier.revokeAppleSignIn();
+
+      expect(h.firebaseAuth.revokedCodes, isEmpty);
+    });
+
+    test('closing the Apple sheet during the re-auth is a cancel', () async {
+      final (h, user) = await appleUser();
+      user.reauthError = FirebaseAuthException(code: 'canceled');
+
+      await expectLater(
+        h.notifier.freshIdTokenAfterReauth(),
+        throwsA(isA<ReauthCancelledException>()),
+      );
+      await h.notifier.revokeAppleSignIn();
+      expect(h.firebaseAuth.revokedCodes, isEmpty);
+    });
+  });
+
   group('email registration consent', () {
     test('registering stores the consent for the new uid', () async {
       final h = _Harness();
@@ -534,6 +766,39 @@ class _FakeFirebaseAuth implements FirebaseAuth {
   /// stream before the call returns.
   User? credentialUser;
 
+  /// The user `signInWithProvider` (Apple) signs in, emitted on the
+  /// auth-state stream before the call returns unless [emitProviderUserLate];
+  /// or [providerError], thrown instead. [providers] records each provider.
+  User? providerUser;
+  bool emitProviderUserLate = false;
+  FirebaseAuthException? providerError;
+  final List<AuthProvider> providers = [];
+
+  /// Every code `revokeTokenWithAuthorizationCode` was given, and what it
+  /// throws.
+  final List<String> revokedCodes = [];
+  FirebaseAuthException? revokeError;
+
+  @override
+  Future<UserCredential> signInWithProvider(AuthProvider provider) async {
+    providers.add(provider);
+    final error = providerError;
+    if (error != null) throw error;
+    currentUser = providerUser;
+    if (!emitProviderUserLate) {
+      authStateController.add(providerUser);
+      await pumpEventQueue();
+    }
+    return _FakeUserCredential(providerUser);
+  }
+
+  @override
+  Future<void> revokeTokenWithAuthorizationCode(String code) async {
+    revokedCodes.add(code);
+    final error = revokeError;
+    if (error != null) throw error;
+  }
+
   @override
   Stream<User?> authStateChanges() => authStateController.stream;
 
@@ -576,10 +841,13 @@ class _FakeFirebaseAuth implements FirebaseAuth {
 }
 
 class _FakeUserCredential implements UserCredential {
-  _FakeUserCredential(this.user);
+  _FakeUserCredential(this.user, {this.additionalUserInfo});
 
   @override
   final User? user;
+
+  @override
+  final AdditionalUserInfo? additionalUserInfo;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -592,10 +860,53 @@ class _FakeUser implements User {
     List<String>? events,
     this.deleteError,
     this.deleteFailures,
+    this.providerIds = const ['password'],
   }) : _events = events ?? [];
 
   @override
   final String uid;
+
+  /// The sign-in methods linked to the account, as `providerData` lists them.
+  final List<String> providerIds;
+
+  @override
+  List<UserInfo> get providerData => [
+    for (final id in providerIds) _FakeUserInfo(id),
+  ];
+
+  /// The code an Apple re-auth hands back.
+  static const appleAuthCode = 'apple-authorization-code';
+
+  /// Every provider `reauthenticateWithProvider` was given, and what it
+  /// throws.
+  final List<AuthProvider> reauthProviders = [];
+  FirebaseAuthException? reauthError;
+
+  @override
+  Future<UserCredential> reauthenticateWithProvider(
+    AuthProvider provider,
+  ) async {
+    reauthProviders.add(provider);
+    final error = reauthError;
+    if (error != null) throw error;
+    return _FakeUserCredential(
+      this,
+      // ignore: invalid_use_of_protected_member
+      additionalUserInfo: AdditionalUserInfo(
+        isNewUser: false,
+        providerId: 'apple.com',
+        authorizationCode: appleAuthCode,
+      ),
+    );
+  }
+
+  @override
+  Future<UserCredential> reauthenticateWithCredential(
+    AuthCredential credential,
+  ) async => _FakeUserCredential(this);
+
+  /// Each `getIdToken` call's `forceRefresh` argument, in order.
+  final List<bool> idTokenForceRefresh = [];
 
   @override
   bool emailVerified;
@@ -610,8 +921,10 @@ class _FakeUser implements User {
   String? get email => '$uid@example.com';
 
   @override
-  Future<String?> getIdToken([bool forceRefresh = false]) async =>
-      'firebase-id-token';
+  Future<String?> getIdToken([bool forceRefresh = false]) async {
+    idTokenForceRefresh.add(forceRefresh);
+    return 'firebase-id-token';
+  }
 
   @override
   Future<void> delete() async {
@@ -632,6 +945,16 @@ class _FakeUser implements User {
 
   @override
   Future<void> sendEmailVerification([ActionCodeSettings? settings]) async {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeUserInfo implements UserInfo {
+  _FakeUserInfo(this.providerId);
+
+  @override
+  final String providerId;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
