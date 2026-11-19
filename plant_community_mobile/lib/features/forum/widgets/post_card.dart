@@ -2,13 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/theme/green_thumb_extension.dart';
 import '../../../shared/widgets/canopy_surfaces.dart';
 import '../forum_format.dart';
 import '../models/models.dart';
 import 'author_identity.dart';
 import 'forum_body_renderer.dart';
+import 'forum_style.dart';
 import 'reaction_pills.dart';
 
 /// A single forum post: author identity, moderation/edited markers, the
@@ -117,17 +116,33 @@ class _PostCardState extends State<PostCard> {
             ),
           Row(
             children: [
+              // The avatar leads both lines, so the date sits under the name
+              // on the same text edge instead of under the avatar.
+              // A second way in for a finger only: the name beside it is the
+              // labelled control, so the detector publishes no semantics of
+              // its own (an action with no label is an unnamed button).
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                excludeFromSemantics: true,
+                onTap: author.isDeleted ? null : widget.onAuthorTap,
+                child: ExcludeSemantics(
+                  child: AuthorAvatar(author: author, radius: 20),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    AuthorIdentity(author: author, onTap: widget.onAuthorTap),
+                    AuthorIdentity(
+                      author: author,
+                      onTap: widget.onAuthorTap,
+                      showAvatar: false,
+                    ),
                     if (forumRelativeTime(post.createdAt).isNotEmpty)
                       Text(
                         forumRelativeTime(post.createdAt),
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
+                        style: forumMeta(context),
                       ),
                   ],
                 ),
@@ -299,13 +314,10 @@ class _EditedStamp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // The web's stamp is `gt-label normal-case tracking-normal` — the mono
-    // label face, neither uppercased nor letterspaced, and NOT italic. The
-    // italic here was a Flutter-only treatment with no counterpart on the web.
-    final style = AppTypography.label.copyWith(
-      letterSpacing: 0,
-      color: context.canopy.ink3,
-    );
+    // The forum's detail style, like the date above it: neither uppercased
+    // nor letterspaced, and NOT italic. (The web uses its mono label face
+    // here; on the phone Geist Mono is kept for the uppercase eyebrow only.)
+    final style = forumMeta(context);
     final onTap = this.onTap;
     if (onTap == null) return Text('edited', style: style);
     return Tooltip(

@@ -60,20 +60,11 @@ const _monthNames = [
 /// then a short date a reader can scan ("Aug 16"; "Aug 16, 2025" in another
 /// year) instead of the ISO form. Returns an empty string for null.
 String forumListTime(DateTime? dt, {DateTime? now}) {
-  if (dt == null) return '';
-  final reference = now ?? DateTime.now();
-  if (reference.difference(dt).inDays < 7) {
-    return forumRelativeTime(dt, now: reference);
-  }
-  final local = dt.toLocal();
-  final label = '${_monthNames[local.month - 1]} ${local.day}';
-  return local.year == reference.toLocal().year
-      ? label
-      : '$label, ${local.year}';
+  return forumRelativeTime(dt, now: now);
 }
 
 /// Compact relative-time label for forum timestamps ("just now", "5m", "3h",
-/// "2d", or an absolute date beyond a week). Returns an empty string for null.
+/// "2d", then "Aug 16", or "Aug 16, 2025" in another year). Returns an empty string for null.
 String forumRelativeTime(DateTime? dt, {DateTime? now}) {
   if (dt == null) return '';
   final reference = now ?? DateTime.now();
@@ -82,8 +73,10 @@ String forumRelativeTime(DateTime? dt, {DateTime? now}) {
   if (diff.inMinutes < 60) return '${diff.inMinutes}m';
   if (diff.inHours < 24) return '${diff.inHours}h';
   if (diff.inDays < 7) return '${diff.inDays}d';
+  // Past a week: a short date a reader can scan, never the ISO form.
   final local = dt.toLocal();
-  final month = local.month.toString().padLeft(2, '0');
-  final day = local.day.toString().padLeft(2, '0');
-  return '${local.year}-$month-$day';
+  final label = '${_monthNames[local.month - 1]} ${local.day}';
+  return local.year == reference.toLocal().year
+      ? label
+      : '$label, ${local.year}';
 }

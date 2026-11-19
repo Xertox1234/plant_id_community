@@ -9,6 +9,7 @@ import '../../../shared/widgets/canopy_surfaces.dart';
 import '../forum_format.dart';
 import '../models/models.dart';
 import 'author_identity.dart';
+import 'forum_style.dart';
 
 /// Padding of one topic row, shared by [TopicCard] and [TopicRow] so both
 /// put the avatar and the title on the same edges.
@@ -88,10 +89,9 @@ class _TopicRowContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final canopy = context.canopy;
     final time = forumListTime(topic.lastPostAt);
-    final mono = AppTypography.label.copyWith(color: canopy.ink3);
+    final meta = forumMeta(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -113,9 +113,7 @@ class _TopicRowContent extends StatelessWidget {
                 topic.title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+                style: forumItemTitle(context),
               ),
               const SizedBox(height: AppSpacing.xs),
               // A Wrap: at large text the status drops below the name
@@ -163,7 +161,7 @@ class _TopicRowContent extends StatelessWidget {
         MediaQuery.withClampedTextScaling(
           maxScaleFactor: 1.3,
           child: Padding(
-            // Sits the 11pt mono on the title's first line.
+            // Sits the detail text on the title's first line.
             padding: const EdgeInsets.only(top: 3),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -186,7 +184,7 @@ class _TopicRowContent extends StatelessWidget {
                       ),
                       if (time.isNotEmpty) const SizedBox(width: 6),
                     ],
-                    if (time.isNotEmpty) Text(time, style: mono),
+                    if (time.isNotEmpty) Text(time, style: meta),
                   ],
                 ),
                 const SizedBox(height: 6),
@@ -200,11 +198,11 @@ class _TopicRowContent extends StatelessWidget {
                       children: [
                         Icon(
                           LucideIcons.messageCircle,
-                          size: 13,
-                          color: canopy.ink3,
+                          size: 14,
+                          color: canopy.ink2,
                         ),
                         const SizedBox(width: 4),
-                        Text('${topic.replyCount}', style: mono),
+                        Text('${topic.replyCount}', style: meta),
                       ],
                     ),
                   ),

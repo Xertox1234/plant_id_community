@@ -47,7 +47,7 @@ void main() {
       expect(find.text('YOUR SEASON'), findsOneWidget);
       expect(find.byType(ForumSeasonCard), findsOneWidget);
       expect(find.text('12'), findsOneWidget);
-      expect(find.text('Botanist badge · 4 / 10 IDs'), findsOneWidget);
+      expect(find.text('Botanist badge · 4 of 10 IDs'), findsOneWidget);
       expect(find.text('Day streak'), findsOneWidget);
       expect(find.byType(ForumBadgeChips), findsOneWidget);
       expect(find.widgetWithText(Chip, 'Botanist'), findsOneWidget);

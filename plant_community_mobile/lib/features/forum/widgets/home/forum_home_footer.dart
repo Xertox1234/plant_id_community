@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/constants/app_brand.dart';
 import '../../../../core/constants/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/green_thumb_extension.dart';
 import '../../../../shared/widgets/brand_mark.dart';
 import '../../../../shared/widgets/canopy_label.dart';
+import '../forum_style.dart';
 
 /// Quiet, centred footer for the end of the forum home: the brand mark (its
 /// deep-pine tile in both modes), the name, the eyebrow and a copyright line
@@ -29,9 +29,7 @@ class ForumHomeFooter extends StatelessWidget {
           Text(
             AppBrand.name,
             textAlign: TextAlign.center,
-            style: AppTypography.h3.copyWith(
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
+            style: forumItemTitle(context),
           ),
           const SizedBox(height: 2),
           // ink2, not the default ink3: the footer sits on the bare ground,
@@ -41,7 +39,7 @@ class ForumHomeFooter extends StatelessWidget {
           Text(
             '© $year ${AppBrand.name}',
             textAlign: TextAlign.center,
-            style: AppTypography.meta.copyWith(color: canopy.ink2),
+            style: forumMeta(context),
           ),
         ],
       ),

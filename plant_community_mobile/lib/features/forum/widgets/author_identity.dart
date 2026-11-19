@@ -114,8 +114,12 @@ class AuthorAvatar extends StatelessWidget {
       backgroundColor: ext.surface3,
       child: Text(
         initial,
-        style: AppTypography.label.copyWith(
-          letterSpacing: 0,
+        // Geist, not the mono label face: an "I" in mono reads as a glyph
+        // from another font beside the name it stands for.
+        // The initial grows with the disc (11pt at the smallest, as before)
+        // so a 56pt profile avatar does not carry an 11pt letter.
+        style: AppTypography.micro.copyWith(
+          fontSize: (radius * 0.7).clamp(11.0, 24.0),
           color: theme.colorScheme.onSurface,
           fontWeight: FontWeight.w600,
         ),

@@ -11,6 +11,7 @@ import '../../forum_format.dart';
 import '../../models/models.dart';
 import '../../providers/forum_providers.dart';
 import '../author_identity.dart';
+import '../forum_style.dart';
 import '../forum_avatar_cluster.dart';
 
 /// Hard cap on items in an expanded activity card, the solution included
@@ -206,7 +207,7 @@ class _ReplyRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final canopy = context.canopy;
-    final time = forumRelativeTime(reply.createdAt);
+    final time = forumListTime(reply.createdAt);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -229,11 +230,7 @@ class _ReplyRow extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  if (time.isNotEmpty)
-                    Text(
-                      time,
-                      style: AppTypography.label.copyWith(color: canopy.ink3),
-                    ),
+                  if (time.isNotEmpty) Text(time, style: forumMeta(context)),
                   if (isSolution)
                     CanopyChip(label: 'Solution', tone: canopy.leaf),
                 ],

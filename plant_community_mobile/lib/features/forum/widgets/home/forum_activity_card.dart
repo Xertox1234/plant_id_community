@@ -14,6 +14,7 @@ import '../../models/models.dart';
 import '../../providers/forum_providers.dart';
 import '../../utils/board_identity.dart';
 import '../author_identity.dart';
+import '../forum_style.dart';
 import 'forum_latest_replies_view.dart';
 
 /// Open: height grows on emphasized-decelerate (spec §8.3).
@@ -91,7 +92,7 @@ BoardIdentity _identityOf(WidgetRef ref, ForumRecentTopic topic) {
 
 /// The words a screen reader hears for the card's header.
 String _cardLabel(ForumRecentTopic topic, String chip) {
-  final time = forumRelativeTime(topic.lastPostAt);
+  final time = forumListTime(topic.lastPostAt);
   final photos = topic.thumbnails.length;
   return [
     chip,
@@ -121,7 +122,7 @@ class _BoardChip extends ConsumerWidget {
   }
 }
 
-/// Who replied, reply count and time, in Geist Mono.
+/// Who replied, reply count and time, in the home's detail style.
 class _Meta extends StatelessWidget {
   const _Meta({required this.topic, this.trailing});
 
@@ -131,16 +132,16 @@ class _Meta extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final canopy = context.canopy;
-    final style = AppTypography.label.copyWith(color: canopy.ink3);
-    final time = forumRelativeTime(topic.lastPostAt);
+    final style = forumMeta(context);
+    final time = forumListTime(topic.lastPostAt);
     // One avatar says nothing the count does not: the stack is for a thread
     // with several voices.
     final distinct = {for (final a in topic.repliers) a.username}.length;
     final repliers = distinct >= 2 ? topic.repliers : const <ForumAuthor>[];
     // A Wrap: at large text the pieces drop to a second line, never clip.
     return Wrap(
-      spacing: 14,
-      runSpacing: 4,
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.xs,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         Row(
@@ -148,15 +149,23 @@ class _Meta extends StatelessWidget {
           children: [
             if (repliers.isNotEmpty) ...[
               _ReplierStack(authors: repliers),
-              const SizedBox(width: 7),
+              const SizedBox(width: 6),
             ] else ...[
-              Icon(LucideIcons.messageCircle, size: 14, color: canopy.ink3),
-              const SizedBox(width: 5),
+              Icon(LucideIcons.messageCircle, size: 14, color: canopy.ink2),
+              const SizedBox(width: 6),
             ],
-            Text('${topic.replyCount}', style: style),
+            // The count always says what it counts. One Text with the
+            // time, so the separator's spacing is the font's, not the Wrap's.
+            Flexible(
+              child: Text(
+                time.isEmpty
+                    ? _replies(topic.replyCount)
+                    : '${_replies(topic.replyCount)} · $time',
+                style: style,
+              ),
+            ),
           ],
         ),
-        if (time.isNotEmpty) Text(time, style: style),
         ?trailing,
       ],
     );
@@ -296,20 +305,35 @@ class _Card extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
     final canopy = context.canopy;
     final reduce = MediaQuery.disableAnimationsOf(context);
     final identity = _identityOf(ref, topic);
     final thumbnails = topic.thumbnails;
+    final chevron = AnimatedRotation(
+      turns: expanded ? 0.5 : 0,
+      duration: reduce
+          ? Duration.zero
+          : (expanded ? _openDuration : _closeDuration),
+      curve: expanded
+          ? Easing.emphasizedDecelerate
+          : Easing.emphasizedAccelerate,
+      child: Icon(
+        LucideIcons.chevronDown,
+        size: forumChevronSize,
+        color: canopy.ink2,
+      ),
+    );
+    // One row, top-aligned: the text block, the pictures, then the chevron
+    // on the same edge as every other chevron on the home.
     final header = ExcludeSemantics(
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Row(
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
                     Flexible(child: _BoardChip(topic: topic)),
                     const SizedBox(width: AppSpacing.sm),
@@ -348,59 +372,35 @@ class _Card extends ConsumerWidget {
                       ),
                   ],
                 ),
-              ),
-              AnimatedRotation(
-                turns: expanded ? 0.5 : 0,
-                duration: reduce
-                    ? Duration.zero
-                    : (expanded ? _openDuration : _closeDuration),
-                curve: expanded
-                    ? Easing.emphasizedDecelerate
-                    : Easing.emphasizedAccelerate,
-                child: Icon(
-                  LucideIcons.chevronDown,
-                  size: 18,
-                  color: canopy.ink3,
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  topic.title,
+                  style: forumItemTitle(context),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      topic.title,
-                      style: theme.textTheme.titleLarge,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 10),
-                    _Meta(
-                      topic: topic,
-                      trailing: topic.isUnread
-                          ? Text(
-                              'New replies',
-                              style: AppTypography.micro.copyWith(
-                                color: canopy.clay,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            )
-                          : null,
-                    ),
-                  ],
+                const SizedBox(height: AppSpacing.xs),
+                _Meta(
+                  topic: topic,
+                  trailing: topic.isUnread
+                      ? Text(
+                          'New replies',
+                          style: AppTypography.micro.copyWith(
+                            color: canopy.clay,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        )
+                      : null,
                 ),
-              ),
-              if (thumbnails.isNotEmpty) ...[
-                const SizedBox(width: AppSpacing.md),
-                _ThumbnailStack(urls: thumbnails),
               ],
-            ],
+            ),
           ),
+          if (thumbnails.isNotEmpty) ...[
+            const SizedBox(width: AppSpacing.md),
+            _ThumbnailStack(urls: thumbnails),
+          ],
+          const SizedBox(width: AppSpacing.sm),
+          chevron,
         ],
       ),
     );
@@ -410,7 +410,6 @@ class _Card extends ConsumerWidget {
       expanded: expanded,
       semanticLabel: _cardLabel(topic, identity.chipLabel),
       child: CanopyCard(
-        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

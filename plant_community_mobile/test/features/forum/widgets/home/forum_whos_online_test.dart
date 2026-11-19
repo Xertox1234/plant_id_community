@@ -113,7 +113,7 @@ void main() {
       expect(find.byType(AuthorAvatarCluster), findsNothing);
     });
 
-    testWidgets('counts use the label role, not mono', (tester) async {
+    testWidgets('counts use the detail style, not mono', (tester) async {
       final api = FakeForumApi()
         ..communityStats = const ForumCommunityStats(
           registeredMembers: 9,
@@ -124,7 +124,9 @@ void main() {
       await tester.pumpAndSettle();
       for (final t in ['9 registered', '4 topics · 7 posts']) {
         final style = tester.widget<Text>(find.text(t)).style!;
-        expect(style.fontSize, AppTypography.label.fontSize);
+        expect(style.fontSize, AppTypography.meta.fontSize);
+        expect(style.fontFamily, AppTypography.meta.fontFamily);
+        expect(style.fontFamily, isNot(AppTypography.label.fontFamily));
       }
     });
 
