@@ -2039,6 +2039,58 @@ void main() {
     );
   });
 
+  group('todo 715 (audit M14)', () {
+    test('tokens are kept after first unlock, on this device only', () {
+      expect(
+        AuthService.authTokenStorage.iOptions.accessibility,
+        KeychainAccessibility.first_unlock_this_device,
+      );
+    });
+
+    test('the exchange stores the access token and never the refresh '
+        'token', () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      expect(harness.container.read(authServiceProvider).jwtToken, isNotNull);
+      const storage = FlutterSecureStorage();
+      expect(await storage.read(key: 'django_jwt_token'), isNotNull);
+      expect(await storage.read(key: 'django_refresh_token'), isNull);
+    });
+
+    test('a refresh stores the new access token and never the refresh '
+        'token', () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      expect(await harness.api.accessTokenRefresher!(), isNotNull);
+      const storage = FlutterSecureStorage();
+      expect(await storage.read(key: 'django_jwt_token'), isNotNull);
+      expect(await storage.read(key: 'django_refresh_token'), isNull);
+    });
+
+    test('an older build\'s stored refresh token is deleted at launch, '
+        'and the user stays signed in', () async {
+      FlutterSecureStorage.setMockInitialValues({
+        'django_jwt_token': 'old-jwt',
+        'django_refresh_token': 'old-refresh',
+      });
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      const storage = FlutterSecureStorage();
+      expect(await storage.read(key: 'django_refresh_token'), isNull);
+      expect(await storage.read(key: 'django_jwt_token'), isNotNull);
+      expect(
+        harness.container.read(authServiceProvider).isAuthenticated,
+        isTrue,
+      );
+    });
+  });
+
   group('todo 587', () {
     test(
       'item 2: a refresh 409 overtaken mid-clear keeps the newer tokens',

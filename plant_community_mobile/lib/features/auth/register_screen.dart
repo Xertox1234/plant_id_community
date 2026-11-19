@@ -13,6 +13,7 @@ import 'login_screen.dart'
         AppleSignInButton,
         GoogleSignInButton,
         dismissAfterAuth,
+        minPasswordLength,
         validateEmail,
         validatePassword;
 import 'verify_email_screen.dart';
@@ -145,7 +146,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                             controller: _passwordController,
                             decoration: InputDecoration(
                               labelText: 'Password',
-                              helperText: 'At least 6 characters',
+                              helperText:
+                                  'At least $minPasswordLength characters',
                               prefixIcon: const Icon(LucideIcons.lock),
                               suffixIcon: IconButton(
                                 icon: Icon(
