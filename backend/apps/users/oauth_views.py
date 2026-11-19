@@ -66,7 +66,7 @@ def _provider_settings(provider: str) -> dict[str, Any]:
 # `str` converter matches anything except `/` — so `?` and `#` get through and
 # reshape the query/fragment of the frontend URL we redirect to. Validating up
 # front makes that unreachable rather than merely harmless.
-SUPPORTED_PROVIDERS = frozenset({"google", "github"})
+SUPPORTED_PROVIDERS = frozenset({"google"})
 
 # RFC 6749 §4.1.2.1 error codes are `*( %x20-21 / %x23-5B / %x5D-7E )`; this is
 # the conservative subset every real provider uses, plus a length cap.
@@ -194,28 +194,6 @@ def oauth_login(request, provider):
                 f"code_challenge_method=S256"
             )
 
-        elif provider == "github":
-            # Build GitHub OAuth URL
-            client_id = _provider_settings("github")["APP"]["client_id"]
-            if not client_id:
-                return Response(
-                    {"error": "GitHub OAuth not configured"},
-                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
-                )
-
-            scope = "+".join(_provider_settings("github")["SCOPE"])
-
-            oauth_url = (
-                f"https://github.com/login/oauth/authorize?"
-                f"client_id={client_id}&"
-                f"redirect_uri={redirect_uri}&"
-                f"scope={scope}&"
-                f"response_type=code&"
-                f"state={state}&"
-                f"code_challenge={code_challenge}&"
-                f"code_challenge_method=S256"
-            )
-
         else:  # pragma: no cover - unreachable, guarded above
             return Response(
                 {"error": "Provider not supported"},
@@ -297,8 +275,6 @@ def oauth_callback(request, provider):
         # Exchange code for access token and get user info
         if provider == "google":
             user_data = _handle_google_callback(request, code, code_verifier)
-        elif provider == "github":
-            user_data = _handle_github_callback(request, code, code_verifier)
         else:  # pragma: no cover - unreachable, guarded above
             logger.error("[AUTH] Unsupported provider reached the callback dispatch")
             frontend_url = get_oauth_redirect_url(provider)
@@ -539,85 +515,6 @@ def _handle_google_callback(request, code, code_verifier=None):
         return None
 
 
-def _handle_github_callback(request, code, code_verifier=None):
-    """
-    Handle GitHub OAuth callback and return user data.
-    """
-    import requests
-
-    try:
-        # Exchange code for access token
-        token_url = "https://github.com/login/oauth/access_token"
-
-        token_data = {
-            "client_id": _provider_settings("github")["APP"]["client_id"],
-            "client_secret": _provider_settings("github")["APP"]["secret"],
-            "code": code,
-            "redirect_uri": _oauth_callback_uri("github"),
-        }
-        if code_verifier:
-            token_data["code_verifier"] = code_verifier
-
-        token_response = requests.post(
-            token_url,
-            data=token_data,
-            headers={"Accept": "application/json"},
-            timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS,
-        )
-        token_json = token_response.json()
-
-        if "access_token" not in token_json:
-            logger.error(
-                "[AUTH] GitHub token exchange failed: %s", token_json.get("error")
-            )
-            return None
-
-        # Get user profile
-        profile_url = "https://api.github.com/user"
-        headers = {
-            "Authorization": f"token {token_json['access_token']}",
-            "Accept": "application/vnd.github.v3+json",
-        }
-
-        profile_response = requests.get(
-            profile_url, headers=headers, timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS
-        )
-
-        if profile_response.status_code != 200:
-            logger.error(
-                "[AUTH] GitHub profile fetch failed: HTTP %s",
-                profile_response.status_code,
-            )
-            return None
-
-        user_data = profile_response.json()
-
-        # Get user email if not public
-        if not user_data.get("email"):
-            email_url = "https://api.github.com/user/emails"
-            email_response = requests.get(
-                email_url, headers=headers, timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS
-            )
-            if email_response.status_code == 200:
-                emails = email_response.json()
-                # Verified-email invariant (canonical: docs/patterns/security/
-                # authentication.md → "Trust only provider-verified emails").
-                # Require BOTH primary and verified — matching a Django account by
-                # an unverified email is an account-takeover vector.
-                primary_email = next(
-                    (e for e in emails if e.get("primary") and e.get("verified")),
-                    None,
-                )
-                if primary_email:
-                    user_data["email"] = primary_email["email"]
-
-        return user_data
-
-    except Exception as e:
-        logger.error("[AUTH] GitHub OAuth handling error: %s", type(e).__name__)
-        return None
-
-
 class UnverifiedLocalAccount(Exception):
     """The provider's email matches a local account that never proved it owns
     that email. Linking would hand the provider user an account someone else
@@ -726,7 +623,7 @@ def _find_or_create_user(provider, user_data, accepted_terms: bool = False):
 
         # A provider identity already linked to an account signs in to that
         # account, whatever email the provider reports now: the id is stable,
-        # the email is not (a GitHub primary email can change). Matching by
+        # the email is not (a provider's email can change). Matching by
         # email first would refuse the identity as "linked elsewhere".
         linked = _linked_account(provider, user_data)
         if linked is not None:
@@ -784,11 +681,6 @@ def _find_or_create_user(provider, user_data, accepted_terms: bool = False):
         if provider == "google":
             first_name = user_data.get("given_name", "")[:30]
             last_name = user_data.get("family_name", "")[:150]
-        elif provider == "github":
-            name = user_data.get("name", "")
-            name_parts = name.split(" ", 1) if name else ["", ""]
-            first_name = name_parts[0][:30]
-            last_name = name_parts[1][:150] if len(name_parts) > 1 else ""
         else:
             first_name = ""
             last_name = ""
@@ -814,16 +706,6 @@ def _find_or_create_user(provider, user_data, accepted_terms: bool = False):
         # Shared signup side-effects
         create_default_plant_collection(user)
         join_forum_members_group(user)
-
-        # Update additional fields for GitHub
-        if provider == "github":
-            if user_data.get("bio"):
-                user.bio = user_data.get("bio", "")[:500]
-            if user_data.get("blog"):
-                user.website = user_data.get("blog", "")[:200]
-            if user_data.get("location"):
-                user.location = user_data.get("location", "")[:100]
-            user.save()
 
         logger.info(f"[AUTH] Created new {log_safe_user_context(user)} via {provider}")
         return user

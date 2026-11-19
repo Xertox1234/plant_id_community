@@ -84,22 +84,3 @@ class GoogleCallbackLoggingTests(TestCase):
         self.assertIsNone(profile)
         self.assertIn("invalid_grant", logged)
         self.assertNotIn("eyJ.private.claims", logged)
-
-
-class GitHubCallbackLoggingTests(TestCase):
-    def setUp(self):
-        self.request = RequestFactory().get("/api/auth/oauth/github/callback/")
-
-    @patch("requests.get")
-    @patch("requests.post")
-    def test_a_refused_profile_fetch_logs_no_body(self, mock_post, mock_get):
-        mock_post.return_value = _response(200, {"access_token": TOKEN})
-        mock_get.return_value = _response(403, text=f'{{"email": "{EMAIL}"}}')
-
-        with self.assertLogs("apps.users.oauth_views", level="ERROR") as logs:
-            profile = oauth_views._handle_github_callback(self.request, code="abc")
-
-        logged = "\n".join(logs.output)
-        self.assertIsNone(profile)
-        self.assertNotIn(EMAIL, logged)
-        self.assertIn("403", logged)

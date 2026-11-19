@@ -1,7 +1,7 @@
 """What happens when a sign-in provider is first linked to an account
 (todo 447 item 1).
 
-A sign-in path links a provider (Google, GitHub, Apple through Firebase) to an
+A sign-in path links a provider (Google, Apple through Firebase) to an
 existing local account only when the account has verified its email
 (``email_verification``). One residual remains: a victim who cooperated with a
 squatter (forwarded the verification mail, or signed in with a password the
@@ -39,7 +39,6 @@ logger = logging.getLogger(__name__)
 
 PROVIDER_NAMES = {
     "google": "Google",
-    "github": "GitHub",
     "google.com": "Google",
     "apple.com": "Apple",
     "password": "Email and password",  # pragma: allowlist secret

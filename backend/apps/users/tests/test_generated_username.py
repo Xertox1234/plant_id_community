@@ -53,24 +53,13 @@ class OAuthFindOrCreateUsernameTest(TestCase):
         self.assertNotIn("jane", user.username)
         self.assertEqual(user.first_name, "Jane")
 
-    def test_github_signup_username_is_not_the_login(self):
-        user = oauth_views._find_or_create_user(
-            "github",
-            {"email": "jane@example.com", "id": 7, "login": "janedoe", "name": "J D"},
-            accepted_terms=True,
-        )
-
-        self.assertIsNotNone(user)
-        self.assertRegex(user.username, HANDLE)
-        self.assertEqual((user.first_name, user.last_name), ("J", "D"))
-
 
 class AllauthSocialSignupUsernameTest(TestCase):
     """allauth's default builds the username from the name or email local part;
     the adapters replace that with a generated handle."""
 
     def setUp(self):
-        self.request = RequestFactory().get("/accounts/github/login/callback/")
+        self.request = RequestFactory().get("/accounts/google/login/callback/")
 
     def test_social_populate_user_drops_the_provider_username(self):
         sociallogin = MagicMock()

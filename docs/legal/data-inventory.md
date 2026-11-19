@@ -10,8 +10,8 @@ then the three policy texts. Taken on 2026-11-06.
 ## What is collected
 
 - **Account.** Email, username, first and last name, bio, free-text location,
-  website, avatar (public storage, EXIF removed), Firebase UID, Google or
-  GitHub sign-in, and the policy version accepted (with the time of
+  website, avatar (public storage, EXIF removed), Firebase UID, Google
+  sign-in, and the policy version accepted (with the time of
   acceptance, recorded by the server at sign-up).
 - **Scans.** Photos are stored privately and re-encoded without EXIF.
   Undecided scans are deleted after 24 h; kept ones stay until removed or the

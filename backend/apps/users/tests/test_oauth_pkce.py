@@ -97,17 +97,6 @@ class OAuthCodeExchangePkceTest(TestCase):
             sent["redirect_uri"], f"{ORIGIN}/api/auth/oauth/google/callback/"
         )
 
-    def test_github_exchange_sends_the_verifier_and_the_fixed_uri(self):
-        with patch.object(
-            oauth_views, "_provider_settings", return_value=_PROVIDER_SETTINGS
-        ), patch("requests.post", return_value=self._token_reply()) as post:
-            oauth_views._handle_github_callback(self.request, "code", "the-verifier")
-        sent = post.call_args.kwargs["data"]
-        self.assertEqual(sent["code_verifier"], "the-verifier")
-        self.assertEqual(
-            sent["redirect_uri"], f"{ORIGIN}/api/auth/oauth/github/callback/"
-        )
-
 
 class OAuthCallbackPassesTheVerifierTest(TestCase):
     def setUp(self):

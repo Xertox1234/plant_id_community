@@ -257,7 +257,6 @@ THIRD_PARTY_APPS = [
     "allauth.account",
     "allauth.socialaccount",
     "allauth.socialaccount.providers.google",
-    "allauth.socialaccount.providers.github",
     # django-ai-core vector index for the forum "similar topics" feature
     # (todo 255 slice 4 / H15). The pgvector storage app ships the
     # `CREATE EXTENSION vector` migration; the index app owns the embedding +
@@ -1792,16 +1791,6 @@ SOCIALACCOUNT_PROVIDERS = {
             "key": "",
         },
     },
-    "github": {
-        "SCOPE": [
-            "user:email",
-        ],
-        "APP": {
-            "client_id": config("GITHUB_CLIENT_ID", default=""),
-            "secret": config("GITHUB_CLIENT_SECRET", default=""),
-            "key": "",
-        },
-    },
 }
 
 # Custom adapter for JWT integration
@@ -2109,12 +2098,7 @@ def validate_environment():
         config("GOOGLE_OAUTH2_CLIENT_ID", default="")
         and config("GOOGLE_OAUTH2_CLIENT_SECRET", default="")
     )
-    github_configured = bool(
-        config("GITHUB_CLIENT_ID", default="")
-        and config("GITHUB_CLIENT_SECRET", default="")
-    )
-
-    if not google_configured and not github_configured:
+    if not google_configured:
         warnings.append(
             "No OAuth providers configured - users can only register with username/password"
         )

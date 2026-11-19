@@ -27,7 +27,7 @@ indican más adelante.
 
 **Su cuenta.** Su correo electrónico, nombre de usuario, nombre y apellido,
 biografía, ubicación (texto libre, si la escribe), sitio web y avatar. Si inicia
-sesión con Google o GitHub, registramos ese inicio de sesión. En la aplicación,
+sesión con Google, registramos ese inicio de sesión. En la aplicación,
 el inicio de sesión usa Google Firebase, por lo que guardamos su identificador de usuario
 de Firebase. Al registrarse, usted confirma que tiene 14 años o más y que acepta
 este aviso y los Términos de servicio; registramos qué versión aceptó y cuándo.
