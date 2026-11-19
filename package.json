@@ -2,7 +2,7 @@
   "name": "plant_id_community",
   "devDependencies": {
     "railway": "^3.16.0",
-    "wrangler": "^4.158.0"
+    "wrangler": "^4.160.1"
   },
   "scripts": {
     "deploy": "wrangler deploy",
