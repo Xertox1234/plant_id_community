@@ -34,7 +34,11 @@ from pathlib import Path
 # whose whole value is being believed.
 PIN_RE = re.compile(r"^([A-Za-z0-9_.\-]+)(?:\[[^\]]*\])?\s*==\s*([^\s;]+)")
 
-REQUIREMENTS = Path(__file__).resolve().parents[2] / "requirements.txt"
+# The dev lock, not requirements.txt (todo 708): it holds every production pin
+# plus the test, type and lint tools, and it is what CI and local venvs
+# install. Comparing against the production lock alone would leave a stale
+# pytest or mypy unreported.
+REQUIREMENTS = Path(__file__).resolve().parents[2] / "requirements-dev.txt"
 
 # Packages this project pinned, then removed on purpose.
 #
@@ -210,7 +214,9 @@ def fix_hints(lines: list[str]) -> list[str]:
     """
     hints: list[str] = []
     if any(not line.lstrip().startswith(REMOVED_MARKER) for line in lines):
-        hints.append("Fix: pip install -r backend/requirements.txt (see todo 378).")
+        hints.append(
+            "Fix: pip install -r backend/requirements-dev.txt (see todos 378, 708)."
+        )
     if any(line.lstrip().startswith(REMOVED_MARKER) for line in lines):
         hints.append(
             "Fix: pip uninstall the package AND whatever it orphans — measure "
@@ -243,7 +249,7 @@ def main(argv: list[str]) -> int:
     if not lines:
         return 0
     print(
-        "backend/venv does not match backend/requirements.txt. Test results "
+        "backend/venv does not match backend/requirements-dev.txt. Test results "
         "from this environment are evidence about a tree CI does not run:"
     )
     for line in lines:

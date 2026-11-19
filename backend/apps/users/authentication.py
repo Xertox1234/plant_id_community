@@ -3,6 +3,7 @@ Secure authentication module with httpOnly cookie support for JWT tokens.
 """
 
 import logging
+import time
 from datetime import timedelta
 from typing import TYPE_CHECKING, Literal, Optional, Tuple, cast
 
@@ -15,6 +16,8 @@ from rest_framework.authentication import CSRFCheck
 from rest_framework.request import Request
 from rest_framework_simplejwt.authentication import AuthUser, JWTAuthentication
 from rest_framework_simplejwt.tokens import RefreshToken, Token
+
+from .constants import REFRESH_SESSION_MAX_AGE_SECONDS, REFRESH_SESSION_START_CLAIM
 
 logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
@@ -144,18 +147,44 @@ class CookieJWTAuthentication(JWTAuthentication):
             raise exceptions.PermissionDenied(f"CSRF Failed: {reason}")
 
 
-def set_jwt_cookies(response: HttpResponse, user: User) -> HttpResponse:
+def issue_refresh_token(
+    user: User, session_start: Optional[int] = None
+) -> RefreshToken:
+    """A refresh token for ``user`` that carries its session's start (todo 705 M5).
+
+    Every refresh token is minted here (``set_jwt_cookies`` and the Firebase
+    exchange), so every one carries ``REFRESH_SESSION_START_CLAIM``: the epoch
+    second of the sign-in that began the chain. A sign-in passes nothing and
+    starts a new session; a refresh passes the used token's start, so the
+    chain keeps it. The token also never outlives the session: its ``exp`` is
+    cut to the session's end when that comes first.
+    """
+    now = int(time.time())
+    start = now if session_start is None else int(session_start)
+    refresh = RefreshToken.for_user(user)
+    refresh[REFRESH_SESSION_START_CLAIM] = start
+    session_end = start + REFRESH_SESSION_MAX_AGE_SECONDS
+    if int(refresh["exp"]) > session_end:
+        refresh["exp"] = session_end
+    return refresh
+
+
+def set_jwt_cookies(
+    response: HttpResponse, user: User, session_start: Optional[int] = None
+) -> HttpResponse:
     """
     Set JWT tokens as httpOnly cookies in the response.
 
     Args:
         response: Django HttpResponse object
         user: User instance to generate tokens for
+        session_start: the refresh session's start (epoch seconds), passed by
+            the refresh view so a rotation keeps it; None starts a new session
 
     Returns:
         Modified response with JWT cookies set
     """
-    refresh = RefreshToken.for_user(user)
+    refresh = issue_refresh_token(user, session_start)
     access_token = refresh.access_token
 
     # Calculate max age in seconds
@@ -164,7 +193,15 @@ def set_jwt_cookies(response: HttpResponse, user: User) -> HttpResponse:
     access_lifetime = cast(timedelta, settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"])
     refresh_lifetime = cast(timedelta, settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"])
     access_max_age = int(access_lifetime.total_seconds())
-    refresh_max_age = int(refresh_lifetime.total_seconds())
+    # The cookie dies with the token: near the session cap the token's exp
+    # is earlier than the configured lifetime (issue_refresh_token).
+    refresh_max_age = max(
+        0,
+        min(
+            int(refresh_lifetime.total_seconds()),
+            int(refresh["exp"]) - int(time.time()),
+        ),
+    )
 
     samesite, secure = _jwt_cookie_flags()
 

@@ -2,6 +2,8 @@
 Custom OAuth views for handling social authentication with JWT token generation.
 """
 
+import base64
+import hashlib
 import logging
 import re
 import secrets
@@ -74,6 +76,41 @@ _OAUTH_ERROR_CODE = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 # OAUTH_PENDING_SIGNUP_KEY until they accept on the web app's /signup/finish.
 OAUTH_ACCEPTED_TERMS_KEY = "oauth_accepted_terms"
 OAUTH_PENDING_SIGNUP_KEY = "oauth_pending_signup"
+# PKCE (RFC 7636) verifier of the attempt in flight (todo 705 L6). Its S256
+# challenge goes to the provider with the authorisation request; the verifier
+# goes with the code exchange, so a code intercepted on the way back is
+# useless to anyone without this session.
+OAUTH_PKCE_VERIFIER_KEY = "oauth_pkce_verifier"
+
+
+class OAuthNotConfigured(Exception):
+    """The fixed callback origin is not set (API_PUBLIC_URL)."""
+
+
+def _oauth_callback_uri(provider: str) -> str:
+    """The provider callback, from configuration, never from the request.
+
+    Todo 705 L6: it was built from the Host header, so the redirect_uri sent
+    to the provider followed whatever host a request named. Development keeps
+    its fixed localhost URL; elsewhere it is ``API_PUBLIC_URL`` (this API's
+    public origin, via ``OAUTH_CALLBACK_ORIGIN``), and with that unset OAuth
+    refuses to start rather than fall back to the Host header.
+    """
+    path = f"/api/auth/oauth/{provider}/callback/"
+    if settings.DEBUG:
+        return f"http://localhost:8000{path}"
+    origin = (getattr(settings, "OAUTH_CALLBACK_ORIGIN", "") or "").rstrip("/")
+    if not origin:
+        raise OAuthNotConfigured
+    return f"{origin}{path}"
+
+
+def _pkce_pair() -> tuple[str, str]:
+    """A fresh (verifier, S256 challenge) pair."""
+    verifier = secrets.token_urlsafe(64)
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    return verifier, challenge
 
 
 def _frontend_base():
@@ -118,8 +155,18 @@ def oauth_login(request, provider):
         request.session.pop(OAUTH_ACCEPTED_TERMS_KEY, None)
 
     try:
+        try:
+            redirect_uri = _oauth_callback_uri(provider)
+        except OAuthNotConfigured:
+            logger.error("[AUTH] OAuth refused: API_PUBLIC_URL is not set")
+            return Response(
+                {"error": "OAuth not configured"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         state = secrets.token_urlsafe(32)
         request.session["oauth_state"] = state
+        code_verifier, code_challenge = _pkce_pair()
+        request.session[OAUTH_PKCE_VERIFIER_KEY] = code_verifier
 
         if provider == "google":
             # Build Google OAuth URL
@@ -130,12 +177,6 @@ def oauth_login(request, provider):
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
 
-            # Use backend URL (port 8000) for redirect URI to match OAuth app configuration
-            # In development, requests come through proxy (port 3000) but OAuth needs backend URL
-            if settings.DEBUG:
-                redirect_uri = "http://localhost:8000/api/auth/oauth/google/callback/"
-            else:
-                redirect_uri = f"{request.build_absolute_uri('/').rstrip('/')}/api/auth/oauth/google/callback/"
             scope = "+".join(_provider_settings("google")["SCOPE"])
 
             oauth_url = (
@@ -146,7 +187,9 @@ def oauth_login(request, provider):
                 f"response_type=code&"
                 f"access_type=online&"
                 f"prompt=select_account&"
-                f"state={state}"
+                f"state={state}&"
+                f"code_challenge={code_challenge}&"
+                f"code_challenge_method=S256"
             )
 
         elif provider == "github":
@@ -158,12 +201,6 @@ def oauth_login(request, provider):
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
 
-            # Use backend URL (port 8000) for redirect URI to match OAuth app configuration
-            # In development, requests come through proxy (port 3000) but OAuth needs backend URL
-            if settings.DEBUG:
-                redirect_uri = "http://localhost:8000/api/auth/oauth/github/callback/"
-            else:
-                redirect_uri = f"{request.build_absolute_uri('/').rstrip('/')}/api/auth/oauth/github/callback/"
             scope = "+".join(_provider_settings("github")["SCOPE"])
 
             oauth_url = (
@@ -172,7 +209,9 @@ def oauth_login(request, provider):
                 f"redirect_uri={redirect_uri}&"
                 f"scope={scope}&"
                 f"response_type=code&"
-                f"state={state}"
+                f"state={state}&"
+                f"code_challenge={code_challenge}&"
+                f"code_challenge_method=S256"
             )
 
         else:  # pragma: no cover - unreachable, guarded above
@@ -211,6 +250,9 @@ def oauth_callback(request, provider):
 
     # Read once, whatever the outcome: the flag belongs to this one attempt.
     accepted_terms = request.session.pop(OAUTH_ACCEPTED_TERMS_KEY, None) is True
+    # Likewise the PKCE verifier. A missing one is sent as nothing: the
+    # provider, which holds the challenge, then refuses the code exchange.
+    code_verifier = request.session.pop(OAUTH_PKCE_VERIFIER_KEY, None)
 
     try:
         # Get authorization code from query params
@@ -252,9 +294,9 @@ def oauth_callback(request, provider):
 
         # Exchange code for access token and get user info
         if provider == "google":
-            user_data = _handle_google_callback(request, code)
+            user_data = _handle_google_callback(request, code, code_verifier)
         elif provider == "github":
-            user_data = _handle_github_callback(request, code)
+            user_data = _handle_github_callback(request, code, code_verifier)
         else:  # pragma: no cover - unreachable, guarded above
             logger.error("[AUTH] Unsupported provider reached the callback dispatch")
             frontend_url = get_oauth_redirect_url(provider)
@@ -400,7 +442,7 @@ def oauth_finish_signup(request):
     return response
 
 
-def _handle_google_callback(request, code):
+def _handle_google_callback(request, code, code_verifier=None):
     """
     Handle Google OAuth callback and return user data.
     """
@@ -409,19 +451,16 @@ def _handle_google_callback(request, code):
     try:
         # Exchange code for access token
         token_url = "https://oauth2.googleapis.com/token"
-        # Use backend URL (port 8000) for redirect URI to match OAuth app configuration
-        if settings.DEBUG:
-            redirect_uri = "http://localhost:8000/api/auth/oauth/google/callback/"
-        else:
-            redirect_uri = f"{request.build_absolute_uri('/').rstrip('/')}/api/auth/oauth/google/callback/"
-
+        # The same fixed callback the authorisation request named (L6).
         token_data = {
             "client_id": _provider_settings("google")["APP"]["client_id"],
             "client_secret": _provider_settings("google")["APP"]["secret"],
             "code": code,
             "grant_type": "authorization_code",
-            "redirect_uri": redirect_uri,
+            "redirect_uri": _oauth_callback_uri("google"),
         }
+        if code_verifier:
+            token_data["code_verifier"] = code_verifier
 
         token_response = requests.post(
             token_url, data=token_data, timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS
@@ -478,7 +517,7 @@ def _handle_google_callback(request, code):
         return None
 
 
-def _handle_github_callback(request, code):
+def _handle_github_callback(request, code, code_verifier=None):
     """
     Handle GitHub OAuth callback and return user data.
     """
@@ -492,7 +531,10 @@ def _handle_github_callback(request, code):
             "client_id": _provider_settings("github")["APP"]["client_id"],
             "client_secret": _provider_settings("github")["APP"]["secret"],
             "code": code,
+            "redirect_uri": _oauth_callback_uri("github"),
         }
+        if code_verifier:
+            token_data["code_verifier"] = code_verifier
 
         token_response = requests.post(
             token_url,

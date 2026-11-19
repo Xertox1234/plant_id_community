@@ -5,6 +5,7 @@ Plant Community Web App - A comprehensive platform for plant enthusiasts
 Built with Django 5.2 LTS, Wagtail 7.0 LTS, and modern web technologies.
 """
 
+import importlib.util
 import logging
 import os
 import re
@@ -265,6 +266,11 @@ THIRD_PARTY_APPS = [
     # feature itself gates on FORUM_VECTOR_SEARCH_ENABLED (below).
     "django_ai_core.contrib.index",
     "django_ai_core.contrib.index.storage.pgvector",
+    # Admin second factor (todo 705 M22): TOTP apps, plus one-time static
+    # codes for recovery (`manage.py addstatictoken <username>`).
+    "django_otp",
+    "django_otp.plugins.otp_totp",
+    "django_otp.plugins.otp_static",
 ]
 
 # Local Apps
@@ -287,11 +293,17 @@ INSTALLED_APPS += [
     "channels",
 ]
 
-if DEBUG:
-    INSTALLED_APPS += [
-        "debug_toolbar",
-        "django_extensions",
-    ]
+# Dev tools, from requirements-dev.txt only (todo 708). The production image
+# installs requirements.txt alone, and its build runs compilemessages and
+# collectstatic with DEBUG=True, so each is added only when it is installed.
+_HAS_DEBUG_TOOLBAR = DEBUG and importlib.util.find_spec("debug_toolbar") is not None
+_HAS_DJANGO_EXTENSIONS = (
+    DEBUG and importlib.util.find_spec("django_extensions") is not None
+)
+if _HAS_DEBUG_TOOLBAR:
+    INSTALLED_APPS += ["debug_toolbar"]
+if _HAS_DJANGO_EXTENSIONS:
+    INSTALLED_APPS += ["django_extensions"]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -305,6 +317,12 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Admin sign-in hardening (todo 705 M22, apps/core/admin_security.py):
+    # OTPMiddleware gives request.user is_verified(); the staff middleware
+    # sends an unverified user on /cms/ or /admin/ to the second factor.
+    "django_otp.middleware.OTPMiddleware",
+    "apps.core.admin_security.StaffOTPRequiredMiddleware",
+    "apps.core.admin_security.AdminLoginThrottleMiddleware",
     "allauth.account.middleware.AccountMiddleware",  # OAuth middleware
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -324,7 +342,7 @@ if _HAS_REQUEST_ID:
         "request_id.middleware.RequestIdMiddleware"
     )  # Request ID tracking
 
-if DEBUG:
+if _HAS_DEBUG_TOOLBAR:
     MIDDLEWARE += ["debug_toolbar.middleware.DebugToolbarMiddleware"]
 
 ROOT_URLCONF = "plant_community_backend.urls"
@@ -387,6 +405,15 @@ DATABASES = {
 _IS_PYTEST_RUN = "pytest" in sys.modules
 _IS_DJANGO_TEST_RUN = "test" in sys.argv
 _IS_TEST_RUN = _IS_PYTEST_RUN or _IS_DJANGO_TEST_RUN
+
+# Every signed-in request to /cms/ or /admin/ needs a verified django-otp
+# second factor (todo 705 M22, owner decision 2026-11-17). Off under test runs
+# only, so the admin's own tests keep using force_login; the tests of the
+# gate itself turn it on (apps/core/tests/test_admin_login_ratelimit.py). Set
+# STAFF_OTP_REQUIRED=False in a local .env to skip it in development.
+STAFF_OTP_REQUIRED = config("STAFF_OTP_REQUIRED", default=not _IS_TEST_RUN, cast=bool)
+# The name an authenticator app shows for the account.
+OTP_TOTP_ISSUER = "Houseplant MD"
 if _IS_TEST_RUN:
     configured_database_url = config("DATABASE_URL", default="").strip()
     if _IS_PYTEST_RUN and configured_database_url:
@@ -867,6 +894,10 @@ SIMPLE_JWT = {
     "SLIDING_TOKEN_REFRESH_LIFETIME": timedelta(days=1),
 }
 
+# Password reset links (Django's token generator: Wagtail admin and allauth
+# resets) live one hour, not Django's default three days (todo 705 L7).
+PASSWORD_RESET_TIMEOUT = 60 * 60
+
 # JWT_SECRET_KEY Validation (CRITICAL SECURITY)
 # JWT tokens MUST use a separate signing key from Django's SECRET_KEY
 # This prevents SECRET_KEY compromise from affecting JWT authentication
@@ -1131,6 +1162,10 @@ WAGTAILFORUM_AUTHOR_AVATAR_FALLBACK = "apps.forum_host.avatars.account_avatar_ur
 # List-Unsubscribe URL on this origin plus List-Unsubscribe-Post; unset, the
 # header points at the web /unsubscribe page and one-click is off (todo 416).
 API_PUBLIC_URL = config("API_PUBLIC_URL", default="")
+# The origin of the web OAuth provider callbacks (todo 705 L6): fixed, never
+# the request's Host header. Unset (and not a test run) means web OAuth answers
+# 503 rather than guess; development (DEBUG) uses http://localhost:8000.
+OAUTH_CALLBACK_ORIGIN = API_PUBLIC_URL or ("http://testserver" if _IS_TEST_RUN else "")
 
 # Forum link preview cards (todo 428): a link posted on its own is stored as
 # a card (title, description, site, and OUR re-encoded copy of its image),

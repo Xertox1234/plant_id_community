@@ -19,8 +19,14 @@ from apps.core.ratelimit import (  # rate-preserving wrapper (Retry-After)
 )
 from apps.plant_identification.constants import RATE_LIMITS
 from apps.users.account_links import on_first_provider_link
+from apps.users.authentication import issue_refresh_token
 from apps.users.consent import ConsentRequired, consent_required_response, is_accepted
-from apps.users.constants import LEGAL_POLICY_VERSION
+from apps.users.constants import (
+    ACCOUNT_DISABLED_CODE,
+    ACCOUNT_DISABLED_MESSAGE,
+    FIREBASE_ALLOWED_SIGN_IN_PROVIDERS,
+    LEGAL_POLICY_VERSION,
+)
 from apps.users.deletion import (
     SignupBlocked,
     is_deletion_pending_for_firebase_uid,
@@ -60,7 +66,6 @@ from rest_framework.decorators import (
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework_simplejwt.tokens import RefreshToken
 
 
 class _VerifyOnlyCredential(firebase_credentials.Base):
@@ -522,7 +527,25 @@ def firebase_token_exchange(request: Request) -> Response:
         firebase_uid = decoded_token["uid"]
         firebase_email = decoded_token.get("email")
         email_verified = bool(decoded_token.get("email_verified"))
-        sign_in_provider = decoded_token.get("firebase", {}).get("sign_in_provider", "")
+        firebase_claim = decoded_token.get("firebase")
+        sign_in_provider = (
+            firebase_claim.get("sign_in_provider", "")
+            if isinstance(firebase_claim, dict)
+            else ""
+        )
+
+        # Only the providers the apps offer get a session (todo 705 M6). A
+        # real Firebase ID token always names its provider; one with none, or
+        # with anonymous/phone/custom, is refused like any invalid token, so
+        # the app treats it as signed out.
+        if sign_in_provider not in FIREBASE_ALLOWED_SIGN_IN_PROVIDERS:
+            logger.warning(
+                "[FIREBASE AUTH] Refused sign-in provider %r",
+                str(sign_in_provider)[:40],
+            )
+            return Response(
+                {"error": "Invalid Firebase token"}, status=status.HTTP_401_UNAUTHORIZED
+            )
 
         # Reject unverified-email tokens to prevent account takeover via Firebase
         # email/password sign-up to a never-verified address that collides with an
@@ -578,8 +601,18 @@ def firebase_token_exchange(request: Request) -> Response:
                 f"[FIREBASE AUTH] Existing user authenticated: {redact_email(user.email)}"
             )
 
-        # Generate Django JWT tokens
-        refresh = RefreshToken.for_user(user)
+        # A disabled (banned) account gets no tokens (todo 705 M6). Access
+        # tokens were already refused for it, but issuing a pair made the
+        # client look signed in. 401: the app signs out.
+        if not user.is_active:
+            logger.warning("[FIREBASE AUTH] Refused sign-in: the account is disabled")
+            return Response(
+                {"error": ACCOUNT_DISABLED_MESSAGE, "code": ACCOUNT_DISABLED_CODE},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Generate Django JWT tokens; a sign-in starts a new refresh session.
+        refresh = issue_refresh_token(user)
         access_token = str(refresh.access_token)
         refresh_token = str(refresh)
 

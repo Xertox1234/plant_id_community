@@ -37,6 +37,10 @@ WORKDIR /app
 # resolves. No secret ARG/ENV above this line → no secrets in image layers.
 COPY . .
 
+# requirements.txt is the production lock only (todo 708): the dev and test
+# tools are in requirements-dev.txt and never reach the image. settings.py adds
+# debug_toolbar/django_extensions only when installed, so the DEBUG=True build
+# steps below run without them.
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Compile translation catalogs at BUILD time. Django reads the compiled `.mo`,

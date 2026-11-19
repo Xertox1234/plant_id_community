@@ -1,0 +1,87 @@
+# Production dependencies: the packages the code imports or the deploy runs.
+#
+# requirements.txt is COMPILED from this file (pip-tools, todo 708; owner
+# decision 2026-11-17: pip-compile, no hashes, because the editable
+# wagtail_forum line below cannot be hashed). Never edit requirements.txt by
+# hand. Change this file, then run `bash bin/compile-requirements.sh` from
+# backend/, which rewrites both locks. CI (backend-checks) fails when a lock is
+# not what its .in compiles to.
+#
+# Dev and test tools (pytest, mypy, ruff, ipython, ...) live in
+# requirements-dev.in, so the production image (backend/Dockerfile) does not
+# install them. CI installs both locks.
+#
+# Each name is unconstrained unless a constraint below says why. Dependencies
+# that a package here pulls in (and its extras) are pinned in the lock with a
+# `# via` line naming the parent, so Dependabot never proposes a bump the
+# parent forbids.
+
+# The reusable forum package; its pyproject asks for Django and Wagtail.
+-e ./packages/wagtail_forum
+
+# Framework
+django
+wagtail
+django-modelcluster
+django-taggit
+djangorestframework
+djangorestframework-simplejwt
+drf-spectacular
+channels
+channels-redis
+
+# Django and Wagtail apps (INSTALLED_APPS, MIDDLEWARE)
+django-allauth
+django-auditlog
+django-cors-headers
+django-csp
+django-filter
+django-imagekit
+django-ratelimit
+django-redis
+django-request-id
+django-storages
+django-widget-tweaks
+django-otp
+django-ai-core
+wagtail-ai
+wagtail-headless-preview
+pgvector
+
+# Server and workers (bin/start.sh, Dockerfile). gunicorn is the documented
+# fallback start command in bin/start.sh.
+uvicorn[standard]
+gunicorn
+whitenoise[brotli]
+celery
+redis
+python-redis-lock
+
+# Database and configuration
+psycopg2-binary
+dj-database-url
+python-decouple
+python-dotenv
+# zoneinfo's data on an image without the system tz database.
+tzdata
+
+# Services the code calls
+anthropic
+openai
+boto3
+firebase-admin
+pywebpush
+requests
+sentry-sdk
+pybreaker
+
+# Content, images and text
+pillow
+python-magic
+nh3
+bleach
+fuzzywuzzy
+pyjwt
+
+# Logging
+python-json-logger

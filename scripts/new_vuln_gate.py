@@ -105,13 +105,11 @@ def npm_dirs_from_changes(changed: Iterable[str]) -> list[str]:
 def pip_changed(changed: Iterable[str]) -> bool:
     """Whether this diff touches a backend requirements file.
 
-    Deliberately broader than the file the audit actually reads
-    (`backend/requirements.txt`): `backend/requirements-dev.txt` is a pinless
-    `-r requirements.txt` overlay, so it has the same answer by construction.
-    Scoping IN a file with the same answer is harmless; scoping one OUT would be
-    a silent hole. `test_requirements_dev_carries_no_pins` guards the "by
-    construction" half — the day that file gains a pin of its own, it goes red
-    here rather than going falsely green in CI.
+    The audit reads `backend/requirements-dev.txt`, the pip-compile lock that
+    holds every production pin plus the dev tools (todo 708), so a change to
+    either lock (or to an `.in` file, which changes a lock) is in scope.
+    `test_the_gate_audits_the_dev_lock` guards that the workflow audits the
+    file this scope assumes.
     """
     return any(_PIP_MANIFEST_RE.match(p.strip()) for p in changed)
 
