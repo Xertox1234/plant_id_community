@@ -32,9 +32,11 @@ abstract class ForumUnlockStore {
   Future<void> clear();
 }
 
-/// [ForumUnlockStore] in flutter_secure_storage, the app's plain
-/// `FlutterSecureStorage()` setup (as the JWT in `auth_service.dart`), under
-/// one key holding `{"uid": ..., "tokens": {"<forum id>": "<token>"}}`.
+/// [ForumUnlockStore] in flutter_secure_storage with the default
+/// `FlutterSecureStorage()` options (the auth tokens in `auth_service.dart`
+/// use `first_unlock_this_device` since todo 715; these unlocks are only
+/// read in the foreground), under one key holding
+/// `{"uid": ..., "tokens": {"<forum id>": "<token>"}}`.
 class SecureForumUnlockStore implements ForumUnlockStore {
   const SecureForumUnlockStore([this._storage = const FlutterSecureStorage()]);
 

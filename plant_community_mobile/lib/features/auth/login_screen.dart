@@ -575,11 +575,6 @@ String? validateEmail(String? value) {
   return null;
 }
 
-/// The minimum length of a new password: the Firebase Auth password policy
-/// (set to 14 in the console on 2026-11-19, todo 715) and the web sign-up's
-/// own minimum. Firebase enforces it; checking locally saves a round trip.
-const int minPasswordLength = 14;
-
 /// For a NEW password (sign-up) only. The sign-in form must not use it: the
 /// policy does not force an upgrade on sign-in, so an older account with a
 /// shorter password still signs in.

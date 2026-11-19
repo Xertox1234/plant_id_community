@@ -88,3 +88,26 @@ Source: `docs/audits/2026-11-10-auth-legal.md`; detail in todo 704.
 ### 2026-11-19 - Completed by the todo sweep (run 2026-11-19-2027)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-19 - Review round 1 (PR #1389): clean, lows handled by hand
+
+Round 1 found no blocking finding. Of its lows:
+
+- Fixed: the console policy (Require enforcement) rejects a short password
+  with `password-does-not-meet-requirements`, which fell through to the
+  generic message. It now maps to the same text as `weak-password`, built
+  from `minPasswordLength`. The constant moved from `login_screen.dart` to
+  `auth_service.dart`, so the service no longer hardcodes 14. New tests
+  cover both codes.
+- Fixed: the storage doc comment said `allowBackup="false"` stops every
+  restore. On Android 12+ it does not stop a device-to-device transfer. That
+  case is harmless, because the plugin's default `resetOnError: true` wipes
+  a store the new key cannot open and the next launch's exchange writes it
+  again. The comment now says so.
+- Fixed: the `forum_unlock_store.dart` comment still described the auth
+  tokens' storage options as the plain default.
+- Declined: the launch-time `_deleteLegacyRefreshToken` duplicates
+  `_clearJWT` on the usual paths. It is kept on purpose, so an old build's
+  refresh token goes even when no exchange or sign-out runs.
+- Declined: the todo 587/607 race tests still plant a refresh token. They
+  still pin the order of the deletes they were written for.

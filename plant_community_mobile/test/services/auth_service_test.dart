@@ -2414,6 +2414,36 @@ void main() {
       );
     });
 
+    for (final code in [
+      'password-does-not-meet-requirements',
+      'weak-password',
+    ]) {
+      test('a "$code" sign-up refusal names the $minPasswordLength-character '
+          'minimum (todo 715)', () async {
+        final harness = _Harness();
+        addTearDown(harness.dispose);
+        harness.container.read(authServiceProvider);
+        harness.firebaseAuth.rawCreateError = FirebaseAuthException(code: code);
+
+        await expectLater(
+          harness.container
+              .read(authServiceProvider.notifier)
+              .registerWithEmailPassword(
+                email: 'ada@example.com',
+                password: _password,
+                displayName: 'Ada',
+              ),
+          throwsA(
+            isA<AuthException>().having(
+              (e) => e.message,
+              'message',
+              'Password is too weak. Use at least 14 characters.',
+            ),
+          ),
+        );
+      });
+    }
+
     test('a Google sign-in failure shows a fixed message, not the plugin\'s '
         'description', () async {
       final harness = _Harness(

@@ -13,7 +13,6 @@ import 'login_screen.dart'
         AppleSignInButton,
         GoogleSignInButton,
         dismissAfterAuth,
-        minPasswordLength,
         validateEmail,
         validatePassword;
 import 'verify_email_screen.dart';

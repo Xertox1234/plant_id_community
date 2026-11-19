@@ -121,6 +121,12 @@ const appleAccountExistsMessage =
     'This email already has an account. Sign in the way you did before.';
 const registrationFailedMessage = 'Registration failed. Please try again.';
 const signOutFailedMessage = 'Sign out failed. Please try again.';
+
+/// The minimum length of a new password: the Firebase Auth password policy
+/// (Require enforcement, minimum 14, set in the console on 2026-11-19,
+/// todo 715) and the web sign-up's own minimum. Firebase enforces it; the
+/// sign-up form checks it locally to save a round trip.
+const int minPasswordLength = 14;
 const authFailedMessage = 'Something went wrong. Please try again.';
 
 /// [AuthService.sendPasswordResetEmail] could not send for a reason that is
@@ -239,8 +245,10 @@ class AuthService extends _$AuthService {
   /// under the default (`unlocked`) level is still found: the plugin reads
   /// and deletes across levels, and the next write replaces it under this
   /// one, which every launch's exchange does. Android: the manifest turns
-  /// backup off (`android:allowBackup="false"`), so the encrypted store is
-  /// never restored onto a device whose key cannot open it.
+  /// cloud backup off (`android:allowBackup="false"`). On Android 12+ that
+  /// does not stop a device-to-device transfer; a store copied that way
+  /// cannot be opened with the new device's key, and the plugin resets it,
+  /// so the next launch's exchange simply writes it again.
   ///
   /// None of this keeps the user signed in: Firebase holds that session in
   /// its own store, and the access token is minted again on every launch.
@@ -1839,8 +1847,13 @@ class AuthService extends _$AuthService {
         return 'This account has been disabled. Please contact support.';
       case 'email-already-in-use':
         return 'An account already exists with this email.';
+      // 'password-does-not-meet-requirements' is what the console policy
+      // (Require enforcement) answers; 'weak-password' is Firebase's own
+      // six-character floor. Both mean the same rule to the user.
       case 'weak-password':
-        return 'Password is too weak. Use at least 14 characters.';
+      case 'password-does-not-meet-requirements':
+        return 'Password is too weak. Use at least $minPasswordLength '
+            'characters.';
       case 'operation-not-allowed':
         // Reached by BOTH paths now. Naming only email/password sent someone
         // hunting the wrong console toggle when Google is the one disabled.
