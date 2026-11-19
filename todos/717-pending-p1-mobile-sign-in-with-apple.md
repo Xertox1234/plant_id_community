@@ -4,6 +4,9 @@ priority: p1
 issue_id: "717"
 tags: [mobile, ios, auth, firebase, app-store, owner]
 dependencies: []
+triage: ready
+triaged: 2026-11-19
+owner_decision: "Owner 2026-11-19: build now. Owner setup is DONE 2026-11-19: Sign In with Apple capability on App ID com.plantcommunity.plantCommunityMobile (Team 3442937R38); SIWA key 4M43HB8B44; Services ID com.plantcommunity.plantCommunityMobile.signin (return URL https://plant-community-prod.firebaseapp.com/__/auth/handler); relay email sources houseplant-md.com, send.houseplant-md.com, noreply@houseplant-md.com all SPF green; Firebase plant-community-prod Apple provider Enabled with the OAuth code flow (Team ID, Key ID, private key), so revokeTokenWithAuthorizationCode works. Android: HIDE the Apple button (owner: 'hide on android'), iOS only. Privacy policy: add Apple sign-in + private relay wording, NO LEGAL_POLICY_VERSION bump (owner: opt-in, nothing changes for existing accounts). The owner TestFlight Hide-My-Email device criterion cannot run before a build ships: leave it unticked and report it as owner-only; it will be re-pointed to a follow-up todo. (2026-11-19)"
 ---
 
 # Mobile: add "Continue with Apple" for App Store review
