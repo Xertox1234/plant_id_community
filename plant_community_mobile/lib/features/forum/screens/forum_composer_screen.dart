@@ -22,19 +22,26 @@ import '../widgets/forum_mention_suggestions.dart';
 import '../widgets/forum_notice_banner.dart';
 import '../widgets/forum_rich_text_toolbar.dart';
 import '../widgets/link_preview_card_view.dart';
+import '../widgets/poll_draft_form.dart';
 
 /// Which kind of content the composer creates.
 enum ForumComposeMode { topic, reply, edit }
 
 /// Navigation arguments for [ForumComposerScreen], passed as go_router `extra`.
 class ForumComposeArgs {
-  const ForumComposeArgs.topic({required this.boardSlug, this.boardTitle})
-    : mode = ForumComposeMode.topic,
-      topicId = null,
-      postId = null,
-      initialBodyText = '',
-      hasNonTextContent = false,
-      quote = null;
+  /// A new topic in [boardSlug]. [canPoll] is the forum's `can_poll` for
+  /// the viewer: without it the poll form is not offered (the server would
+  /// refuse the poll anyway).
+  const ForumComposeArgs.topic({
+    required this.boardSlug,
+    this.boardTitle,
+    this.canPoll = false,
+  }) : mode = ForumComposeMode.topic,
+       topicId = null,
+       postId = null,
+       initialBodyText = '',
+       hasNonTextContent = false,
+       quote = null;
 
   /// Reply to [topicId]. [quote] (the "Quote" action, todo 342) pre-fills a
   /// read-only, removable quote card above the body field — sent as a
@@ -46,7 +53,8 @@ class ForumComposeArgs {
       boardTitle = null,
       postId = null,
       initialBodyText = '',
-      hasNonTextContent = false;
+      hasNonTextContent = false,
+      canPoll = false;
 
   /// Edit an existing post (todo 292). [parseForumRichHtmlToMarkup] is tried
   /// first (todo 314): when the body is a single paragraph block whose HTML
@@ -130,7 +138,8 @@ class ForumComposeArgs {
        boardSlug = null,
        boardTitle = null,
        topicId = null,
-       quote = null;
+       quote = null,
+       canPoll = false;
 
   final ForumComposeMode mode;
   final String? boardSlug;
@@ -140,6 +149,7 @@ class ForumComposeArgs {
   final String initialBodyText;
   final bool hasNonTextContent;
   final ForumQuoteDraft? quote;
+  final bool canPoll;
 }
 
 /// Compose a new topic or a reply. Holds one [ForumComposerController] for the
@@ -152,6 +162,7 @@ class ForumComposerScreen extends ConsumerStatefulWidget {
     super.key,
     required this.args,
     this.imagePicker = const DeviceForumImagePicker(),
+    this.pickPollCloseTime = pickForumPollCloseTime,
   });
 
   final ForumComposeArgs args;
@@ -159,6 +170,9 @@ class ForumComposerScreen extends ConsumerStatefulWidget {
   /// Wrapped behind an interface so tests can inject a fake without touching
   /// platform channels — see `forum_image_picker.dart`.
   final ForumImagePicker imagePicker;
+
+  /// The poll's closing-time picker, replaceable in tests like [imagePicker].
+  final Future<DateTime?> Function(BuildContext context) pickPollCloseTime;
 
   @override
   ConsumerState<ForumComposerScreen> createState() =>
@@ -180,6 +194,11 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
   ForumImageBlock? _attachedImage;
   bool _uploadingImage = false;
   String? _imageError;
+
+  /// The poll being written with a new topic; null while the form is closed.
+  ForumPollDraft? _poll;
+
+  bool get _supportsPoll => _isTopic && widget.args.canPoll;
 
   /// The pre-filled quote (reply mode, todo 342), removable with one tap.
   /// Not counted as unsent input: the user never typed it and the Quote
@@ -313,7 +332,8 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     if (_isEdit) return _bodyController.text != widget.args.initialBodyText;
     return _titleController.text.trim().isNotEmpty ||
         _bodyController.text.trim().isNotEmpty ||
-        _attachedImage != null;
+        _attachedImage != null ||
+        !(_poll?.isBlank ?? true);
   }
 
   Future<bool> _confirmDiscard() async {
@@ -353,6 +373,9 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     final hasImage = _supportsImage && _attachedImage != null;
     if (!hasText && !hasImage) return false;
     if (_isTopic && _titleController.text.trim().isEmpty) return false;
+    // An open poll form must be complete: the server refuses the whole topic
+    // for a poll with no question, under two options or repeated options.
+    if (!(_poll?.isValid ?? true)) return false;
     return true;
   }
 
@@ -414,6 +437,15 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
 
   Future<void> _submit() async {
     if (!_canSubmit || _submitting) return;
+    // The time can pass while the topic is being written, and the server
+    // refuses a poll that closes in the past.
+    final closesAt = _poll?.closesAt;
+    if (closesAt != null && !closesAt.isAfter(DateTime.now())) {
+      setState(() {
+        _error = 'The poll closing time has passed. Pick a later one.';
+      });
+      return;
+    }
     setState(() {
       _submitting = true;
       _error = null;
@@ -442,6 +474,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
           title: _titleController.text,
           bodyText: _bodyController.text,
           imageId: _attachedImage?.id,
+          poll: _poll,
         );
         status = result.status;
       } else {
@@ -710,6 +743,38 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
                 ),
               ],
             ),
+        ],
+        if (_supportsPoll) ...[
+          const SizedBox(height: AppSpacing.sm),
+          if (_poll == null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () => setState(() => _poll = const ForumPollDraft()),
+                icon: const Icon(LucideIcons.chartColumn),
+                label: const Text('Add poll'),
+              ),
+            )
+          else ...[
+            PollDraftForm(
+              initial: _poll!,
+              pickCloseTime: widget.pickPollCloseTime,
+              onChanged: (poll) => setState(() => _poll = poll),
+              onRemove: () => setState(() => _poll = null),
+            ),
+            if (!_poll!.isValid)
+              Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.xs),
+                child: Text(
+                  _poll!.hasDuplicateOptions
+                      ? 'Each option must be different.'
+                      : 'A poll needs a question and two options.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+          ],
         ],
         const SizedBox(height: AppSpacing.md),
         FilledButton(

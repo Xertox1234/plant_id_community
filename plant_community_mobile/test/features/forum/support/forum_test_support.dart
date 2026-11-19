@@ -213,6 +213,7 @@ class FakeForumApi implements ForumApi {
   final List<String> createTopicKeys = [];
   final List<String> createReplyKeys = [];
   final List<List<Map<String, dynamic>>> createTopicBodies = [];
+  final List<Map<String, dynamic>?> createTopicPolls = [];
   final List<List<Map<String, dynamic>>> createReplyBodies = [];
   final List<String> reactionKeys = [];
 
@@ -710,9 +711,11 @@ class FakeForumApi implements ForumApi {
     required String slug,
     required List<Map<String, dynamic>> body,
     required String idempotencyKey,
+    Map<String, dynamic>? poll,
   }) async {
     createTopicKeys.add(idempotencyKey);
     createTopicBodies.add(body);
+    createTopicPolls.add(poll);
     return CreateTopicResult(id: 1, slug: slug, status: topicStatus);
   }
 
