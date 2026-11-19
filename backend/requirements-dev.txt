@@ -80,7 +80,9 @@ botocore==1.43.126
     #   boto3
     #   s3transfer
 brotli==1.2.1
-    # via -r requirements.txt
+    # via
+    #   -r requirements.txt
+    #   whitenoise
 build==1.6.1
     # via pip-tools
 cachecontrol==0.14.4
@@ -143,7 +145,7 @@ condense-json==0.1.3
     # via
     #   -r requirements.txt
     #   llm
-coverage==7.17.2
+coverage[toml]==7.17.2
     # via pytest-cov
 cryptography==50.0.2
     # via
@@ -312,7 +314,7 @@ frozenlist==1.8.0
     #   aiosignal
 fuzzywuzzy==0.18.0
     # via -r requirements.txt
-google-api-core==2.44.0
+google-api-core[grpc]==2.44.0
     # via
     #   -r requirements.txt
     #   firebase-admin
@@ -392,8 +394,10 @@ httpcore2==2.16.0
     #   -r requirements.txt
     #   httpx2
 httptools==0.9.0
-    # via -r requirements.txt
-httpx==0.28.1
+    # via
+    #   -r requirements.txt
+    #   uvicorn
+httpx[http2]==0.28.1
     # via
     #   -r requirements.txt
     #   any-llm-sdk
@@ -590,7 +594,7 @@ pyasn1-modules==0.4.2
     #   google-auth
 pybreaker==1.4.1
     # via -r requirements.txt
-pycparser==2.23
+pycparser==3.11
     # via
     #   -r requirements.txt
     #   cffi
@@ -614,7 +618,7 @@ pygments==2.21.0
     #   ipython-pygments-lexers
     #   pytest
     #   rich
-pyjwt==2.15.1
+pyjwt[crypto]==2.15.1
     # via
     #   -r requirements.txt
     #   djangorestframework-simplejwt
@@ -643,7 +647,9 @@ python-dateutil==2.9.0.post0
 python-decouple==3.8
     # via -r requirements.txt
 python-dotenv==1.2.4
-    # via -r requirements.txt
+    # via
+    #   -r requirements.txt
+    #   uvicorn
 python-json-logger==4.2.0
     # via -r requirements.txt
 python-magic==0.4.27
@@ -661,6 +667,7 @@ pyyaml==6.0.3
     #   -r requirements.txt
     #   drf-spectacular
     #   llm
+    #   uvicorn
 queryish==0.3
     # via
     #   -r requirements.txt
@@ -805,10 +812,12 @@ urllib3==2.8.0
     #   requests
     #   sentry-sdk
     #   types-requests
-uvicorn==0.54.0
+uvicorn[standard]==0.54.0
     # via -r requirements.txt
 uvloop==0.23.0
-    # via -r requirements.txt
+    # via
+    #   -r requirements.txt
+    #   uvicorn
 vine==5.1.0
     # via
     #   -r requirements.txt
@@ -826,7 +835,9 @@ wagtail-ai==3.1.1
 wagtail-headless-preview==0.9.0
     # via -r requirements.txt
 watchfiles==1.3.0
-    # via -r requirements.txt
+    # via
+    #   -r requirements.txt
+    #   uvicorn
 wcwidth==0.9.4
     # via
     #   -r requirements.txt
@@ -836,12 +847,14 @@ webencodings==0.6.1
     #   -r requirements.txt
     #   bleach
 websockets==17.4
-    # via -r requirements.txt
+    # via
+    #   -r requirements.txt
+    #   uvicorn
 wheel==0.48.0
     # via pip-tools
-whitenoise==6.12.0
+whitenoise[brotli]==6.12.0
     # via -r requirements.txt
-willow==1.12.0
+willow[heif]==1.12.0
     # via
     #   -r requirements.txt
     #   wagtail
