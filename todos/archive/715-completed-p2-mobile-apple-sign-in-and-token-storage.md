@@ -111,3 +111,14 @@ Round 1 found no blocking finding. Of its lows:
   refresh token goes even when no exchange or sign-out runs.
 - Declined: the todo 587/607 race tests still plant a refresh token. They
   still pin the order of the deletes they were written for.
+
+### 2026-11-19 - Review round 2 (PR #1389): clean
+
+No blocking finding. Two lows, both declined:
+
+- `android:dataExtractionRules`, to exclude the secure store from Android 12+
+  device transfer as well. Declined: a transferred store cannot be opened with
+  the new device's key, and the plugin resets it (round 1 above).
+- The legacy-refresh-token test passes without `_deleteLegacyRefreshToken`,
+  because the signed-in launch exchange clears the key too. Declined, as in
+  round 1: the call stays as a belt-and-braces cleanup.
