@@ -63,3 +63,17 @@ With an older build installed and signed in on each phone:
 ### 2026-11-19 - Completed by the todo sweep (run 2026-11-20-0142)
 
 - Archived by `land.py archive`; review is on the PR.
+
+### 2026-11-19 - Review round 1 (clean; 2 lows handled here)
+
+- Builds: Android versionName 1.0.0 / versionCode 10 before and after (a
+  local profile APK does not bump it; firstInstallTime 2026-11-05 and the
+  kept data show it was an upgrade, not a fresh install). iPhone: the owner
+  updated to build 27 from the TestFlight build already installed; the
+  from-build number was not recorded.
+- Sign out and back in: not run on the Samsung (it needs the owner's
+  password, and the criterion only asks that the upgrade keeps the user
+  signed in). For the iPhone the owner was asked to do it and replied
+  "iPhone test successful".
+- The Samsung check was run by Claude at the owner's request ("Can you take
+  care of the Android test?"), not by the owner in person.
