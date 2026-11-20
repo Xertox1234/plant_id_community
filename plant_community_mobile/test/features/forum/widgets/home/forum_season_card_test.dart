@@ -59,16 +59,16 @@ void main() {
       expect(find.text('12'), findsOneWidget);
       expect(find.text('3'), findsOneWidget);
       expect(find.text('2'), findsOneWidget);
-      expect(find.text('Botanist badge · 4 of 20 IDs'), findsOneWidget);
+      expect(find.text('Botanist badge · 4 / 20 IDs'), findsOneWidget);
       final bar = tester.widget<LinearProgressIndicator>(
         find.byType(LinearProgressIndicator),
       );
       expect(bar.value, 0.2);
     });
 
-    testWidgets('a zero state reads 0 of 20 IDs', (tester) async {
+    testWidgets('a zero state reads 0 / 20 IDs', (tester) async {
       await _pump(tester, ForumSeasonCard(stats: myStats(badgeTarget: 20)));
-      expect(find.text('Botanist badge · 0 of 20 IDs'), findsOneWidget);
+      expect(find.text('Botanist badge · 0 / 20 IDs'), findsOneWidget);
     });
 
     testWidgets('a complete badge says so, no badge track hides the row', (
