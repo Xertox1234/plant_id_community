@@ -5,9 +5,9 @@ issue_id: "713"
 tags: [mobile, flutter, firebase, android, dependencies, dependabot, upgrade]
 dependencies: []
 triage: blocked-device
-triaged: 2026-11-17
-owner_decision: "Owner 2026-11-17: still blocked. TestFlight build 22 (main 3296feee) predates #1332 (permission_handler) and #1359 (AGP 9.1.1 / Gradle 9.3.1), so the device check must run on builds cut from main after 2026-11-17 22:28 UTC; can share a run with todo 715"
-blocked_on: "The owner's combined iPhone and Android device check on a new TestFlight build and a new Android build"
+triaged: 2026-11-20
+owner_decision: "Owner: cut a new TestFlight build and a new Android build now; the device check (shared with 715) happens in the remote session (2026-11-20)"
+blocked_on: "The owner's device check on iPhone and Android, using a new TestFlight build and a new Android build cut from main after 2026-11-17 22:28 UTC"
 ---
 
 # Mobile majors: FlutterFire set, plugin majors, Gradle 9 / AGP 9

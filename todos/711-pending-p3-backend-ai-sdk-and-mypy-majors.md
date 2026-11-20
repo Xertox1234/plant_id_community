@@ -4,10 +4,9 @@ priority: p3
 issue_id: "711"
 tags: [backend, dependencies, dependabot, upgrade, ai]
 dependencies: ["708"]
-triage: blocked-prod
-triaged: 2026-11-17
-blocked_on: "Todo 708 (requirements.in + pip-compile) must land first; the last AC needs the owner to make a real production AI call per enabled feature."
-owner_decision: "Owner: wait for todo 708 (requirements.in + lock) to land first (2026-11-17)"
+triage: ready
+triaged: 2026-11-20
+owner_decision: "Owner: the mypy criterion is met (mypy 2.4.0 in the dev lock); attempt openai 3 and any-llm-sdk 1.x; if they will not resolve, keep 711 open (2026-11-20)"
 ---
 
 # Backend majors, wave 2: openai 3, any-llm-sdk 1.x, mypy 2

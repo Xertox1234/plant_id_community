@@ -5,9 +5,9 @@ issue_id: "714"
 tags: [backend, dependencies, redis, websockets, prod-check, owner]
 dependencies: ["710"]
 triage: blocked-prod
-triaged: 2026-11-17
-blocked_on: "The owner checks prod: deploy logs show no redis TimeoutError, Redis redis_version is 6 or newer, and a live reply arrives after the socket sat idle about a minute."
-owner_decision: "Owner 2026-11-17 allowed read-only Railway reads. Seen 2026-11-18: no redis TimeoutError/Traceback in deploy logs of the 710 deploy (b36e57b8, 00:05Z) or the next one (73dbe512, 02:09Z); Celery 'Connected to redis'; Redis image redis:8.2.9 (>= 6). Still open: the owner's live forum reply over a socket idle > 5 s"
+triaged: 2026-11-20
+blocked_on: "The owner opens a prod forum topic, leaves it idle for about a minute, posts a reply from a second session, and records it in the Work Log."
+owner_decision: "Owner runs the idle-socket live-reply prod check in the remote session (2026-11-20)"
 ---
 
 # Prod check after the redis 8 bump: boot and one live forum reply over a socket

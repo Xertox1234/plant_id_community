@@ -4,6 +4,9 @@ priority: p2
 issue_id: "718"
 tags: [ci, security, github, codeql, owner]
 dependencies: []
+triage: ready
+triaged: 2026-11-20
+owner_decision: "Owner: gate through the ruleset code_scanning rule at the critical threshold (keep or confirm), and rename RATELIMIT_CLIENT_IP_META_KEY to stop the false positive (2026-11-20)"
 ---
 
 # CI: make CodeQL block a merge to main

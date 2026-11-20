@@ -4,10 +4,9 @@ priority: p3
 issue_id: "712"
 tags: [web, dependencies, dependabot, upgrade]
 dependencies: []
-triage: blocked-external
-triaged: 2026-11-17
-blocked_on: "typescript-eslint must release support for TypeScript 7. A Sentry event from the deployed site has to be checked in the Sentry dashboard."
-owner_decision: "Owner: keep open until TypeScript 7 lands (typescript-eslint support) (2026-11-17)"
+triage: ready
+triaged: 2026-11-20
+owner_decision: "Owner: ship jsdom 31 plus the Playwright run now; move the TypeScript 7 and Sentry-dashboard criteria to a follow-up todo (2026-11-20)"
 ---
 
 # Web majors: Vitest 5, jsdom 31, jest-dom 7, Sentry 11, TypeScript 7

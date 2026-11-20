@@ -4,9 +4,9 @@ priority: p1
 issue_id: "703"
 tags: [legal, email, casl, can-spam, backend, web]
 dependencies: []
-triage: blocked-owner
-blocked_on: the sender name and mailing address to print in emails
-triaged: 2026-11-10
+triage: ready
+triaged: 2026-11-20
+owner_decision: "Owner: ship the code now (settings, footer slot, every-template test, signed-out stop-all, newsletter lines) with sender name and mailing address blank until launch; re-point the Railway-values criterion to a launch todo (2026-11-20)"
 ---
 
 # Emails: sender name and postal address, and a signed-out "stop all email"
