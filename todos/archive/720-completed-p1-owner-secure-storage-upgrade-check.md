@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p1
 issue_id: "720"
 tags: [mobile, flutter, auth, security, device-check, owner]
@@ -33,7 +33,7 @@ With an older build installed and signed in on each phone:
 
 ## Acceptance Criteria
 
-- [ ] Owner: upgrading over an installed build keeps the user signed in on a
+- [x] Owner: upgrading over an installed build keeps the user signed in on a
       real iPhone (TestFlight) and the Samsung (Android) — record the date,
       build numbers and devices.
 
@@ -43,3 +43,23 @@ With an older build installed and signed in on each phone:
 
 - Moved here from todo 715's upgrade criterion (owner decision 2026-11-19:
   "Separate device todo").
+
+### 2026-11-19 - Implemented by the todo sweep (run 2026-11-20-0142)
+
+- No code change: the only criterion is an owner device check, confirmed by
+  the owner on 2026-11-19 and recorded as owner-confirmed in the sweep evidence.
+- iPhone: the owner upgraded to TestFlight build 27 (main 011f029c) over the
+  installed build and reported "iPhone test successful".
+- Samsung SM-A376B: at the owner's request, the profile APK from 011f029c was
+  installed with `adb install -r` over the Nov 5 build (firstInstallTime
+  2026-11-05 kept, lastUpdateTime 2026-11-19 16:19); a cold launch came up
+  signed in (Profile showed the owner's account), with no auth or storage
+  errors in logcat.
+
+### 2026-11-19 - Confirmed by the owner, ticked by the todo sweep (run 2026-11-20-0142)
+
+- AC 1: confirmed by the owner on 2026-11-19: "iPhone: owner reported 'iPhone test successful' after the TestFlight upgrade to build 27 (main 011f029c). Samsung SM-A376B: at the owner's request ('Can you take care of the Android test?') Claude checked the profile APK from 011f029c installed with adb install -r over the Nov 5 build (firstInstallTime 2026-11-05 kept, lastUpdateTime 2026-11-19 16:19): cold launch came up signed in (Profile showed the owner's account), no auth or storage errors in logcat" (`state.py confirm`; no command or evidence)
+
+### 2026-11-19 - Completed by the todo sweep (run 2026-11-20-0142)
+
+- Archived by `land.py archive`; review is on the PR.
