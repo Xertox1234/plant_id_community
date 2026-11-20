@@ -7,9 +7,9 @@ dependencies: []
 source_review: "todos/archive/638-completed-p3-notification-delivery-baseline.md"
 source_finding: "AC2"
 triage: blocked-prod
-triaged: 2026-11-03
-blocked_on: "Owner-approved read-only prod reads: one now for event linkage, one after the stated window (~14 days) for delivery counts and latency"
-owner_decision: "Still blocked: owner did not approve the read-only prod reads this run (2026-11-03)"
+triaged: 2026-11-20
+blocked_on: "Owner approval for read-only, counts-only prod DB queries: one on EmailProviderEvent linkage, one 14+ days after 2026-11-03 for counts and latency"
+owner_decision: "Owner approved read-only, counts-only prod queries (no addresses) for EmailProviderEvent linkage, outcome counts and p50/p90 latency since 2026-11-03; run them in the remote session (2026-11-20)"
 ---
 
 # Connect the Resend webhook and add delivery outcomes to the baseline

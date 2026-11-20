@@ -5,8 +5,9 @@ issue_id: "663"
 tags: [backend, plant-identification]
 dependencies: ["661"]
 triage: blocked-prod
-triaged: 2026-11-03
-blocked_on: "Owner exports at least a week of prod `[MERGE]` log lines from Railway, then makes the threshold call"
+triaged: 2026-11-20
+blocked_on: "The owner exports at least a week of prod Railway [MERGE] log lines and makes the threshold call."
+owner_decision: "Owner: close, keep the interim merge rule as is, without the prod log export (2026-11-20); the log-summary criterion cannot be ticked, so settle how to close in the remote session"
 ---
 
 # Tune the identify cross-provider rule from the logged `[MERGE]` lines

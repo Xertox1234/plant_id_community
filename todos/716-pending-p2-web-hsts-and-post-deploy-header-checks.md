@@ -5,9 +5,9 @@ issue_id: "716"
 tags: [web, security, headers, cloudflare, prod-check, owner]
 dependencies: ["706"]
 triage: blocked-prod
-triaged: 2026-11-17
-blocked_on: "The owner changes the Cloudflare zone HSTS setting; the curl, CMS preview and Sentry checks run on production after todo 706 deploys"
-owner_decision: "Split out of todo 706 (owner 2026-11-17): the Cloudflare change and the post-deploy checks stay with the owner"
+triaged: 2026-11-20
+blocked_on: "The owner changes HSTS in the Cloudflare zone, then runs the live curl, CMS-preview and Sentry checks on production."
+owner_decision: "Owner: turn off the Cloudflare zone HSTS so Django's max-age=31536000 passes through; owner changes the setting, then the live curl, CMS-preview and Sentry checks run in the remote session (2026-11-20)"
 ---
 
 # Web: Cloudflare HSTS and the post-deploy header checks

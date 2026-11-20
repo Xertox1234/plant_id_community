@@ -5,8 +5,9 @@ issue_id: "683"
 tags: [forum, forum-categories, wagtail, admin, owner-check]
 dependencies: ["668"]
 triage: blocked-owner
-triaged: 2026-11-03
-blocked_on: "The owner opens /cms/forum/forums/ as staff, does the drag, reload and keyboard check, and records the date."
+triaged: 2026-11-20
+blocked_on: "The owner opens /cms/forum/forums/ as staff, drags, reloads and tries the keyboard Move controls, then records the date."
+owner_decision: "Owner runs the /cms/forum/forums/ tree check in the remote session (2026-11-20)"
 ---
 
 # Owner browser check: forum structure drag-and-drop tree (todo 668)
