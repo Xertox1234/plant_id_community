@@ -67,11 +67,11 @@ check's title after arming a PR.
 - [ ] The chosen mechanism and blocking threshold are recorded in this todo.
 - [ ] A test PR that adds a known CodeQL alert at or above the threshold
       cannot be merged, and auto-merge does not merge it (record the PR
-      number).
+      number). → todo 723 (re-pointed 2026-11-21)
 - [ ] A Dart-only PR and a docs-only PR can still merge without waiting on a
-      CodeQL result that never arrives (record both PR numbers).
+      CodeQL result that never arrives (record both PR numbers). → todo 723 (re-pointed 2026-11-21)
 - [ ] A PR that logs a client IP through `log_safe_ip` is not blocked by
-      `py/clear-text-logging-sensitive-data`.
+      `py/clear-text-logging-sensitive-data`. → todo 723 (re-pointed 2026-11-21)
 - [ ] `CLAUDE.md` and the todo skills no longer describe CodeQL as outside
       the merge gate.
 

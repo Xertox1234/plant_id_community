@@ -62,12 +62,12 @@ One PR per row, in this order:
 ## Acceptance Criteria
 
 - [ ] Each of the five rows is bumped in a merged PR or declined on its
-      Dependabot PR, with the PR number and reason in the Work Log.
+      Dependabot PR, with the PR number and reason in the Work Log. → todo 722 (re-pointed 2026-11-21)
 - [ ] `npm run type-check`, `npm run lint`, `npx vitest run` and
       `npm run build` pass on each PR.
 - [ ] Playwright suite passes after the TypeScript and Vitest PRs.
 - [ ] After Sentry 11: one test event from the deployed site appears in Sentry
-      (date and event id recorded here).
+      (date and event id recorded here). → todo 722 (re-pointed 2026-11-21)
 
 ## Work Log
 
