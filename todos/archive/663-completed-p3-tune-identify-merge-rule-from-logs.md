@@ -1,13 +1,12 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "663"
 tags: [backend, plant-identification]
 dependencies: ["661"]
-triage: blocked-prod
+triage: ready
 triaged: 2026-11-20
-blocked_on: "The owner exports at least a week of prod Railway [MERGE] log lines and makes the threshold call."
-owner_decision: "Owner: close, keep the interim merge rule as is, without the prod log export (2026-11-20); the log-summary criterion cannot be ticked, so settle how to close in the remote session"
+owner_decision: "Owner: close, keep the interim merge rule as is, without the prod log export; waive the log-summary criterion (2026-11-20)"
 ---
 
 # Tune the identify cross-provider rule from the logged `[MERGE]` lines
@@ -57,14 +56,28 @@ The owner chose on 2026-10-25 to keep both as they are and tune them from real r
 
 ## Acceptance Criteria
 
-- [ ] A summary of at least a week of `[MERGE]` lines (count, agree rate, notable disagreements) is
-      recorded in this todo's Work Log.
-- [ ] The owner's threshold decision is recorded here. If the decision is "keep as is", close the todo
-      with that reason.
-- [ ] Any rule change has tests in `test_merge_ranking.py`, and the full backend `pytest` passes.
+- [x] A summary of at least a week of `[MERGE]` lines (count, agree rate, notable disagreements) is
+      recorded in this todo's Work Log. **Waived by owner 2026-11-20:** no log export; see the Work Log.
+- [x] The owner's threshold decision is recorded here. If the decision is "keep as is", close the todo
+      with that reason. (2026-11-20: "keep as is", recorded in the Work Log.)
+- [x] Any rule change has tests in `test_merge_ranking.py`, and the full backend `pytest` passes.
+      (2026-11-20: no rule change was made, so there is nothing to test.)
 
 ## Work Log
 
 ### 2026-10-25 - Filed
 
 - Filed with PR #1201 at the owner's request ("keep as is and tune").
+
+### 2026-11-20 - Closed: keep as is (owner decision)
+
+- Triage run 2026-11-20-2202 (PR #1393) found the interim rule still in place:
+  `_merge_suggestions` and the `[MERGE]` log line in
+  `backend/apps/plant_identification/services/combined_identification_service.py`,
+  pinned by `test_merge_ranking.py`.
+- The owner closed it as "keep as is" and waived the week of `[MERGE]` log lines. Plant.id is
+  capped at 3 calls a day, and identify-only scans skip Plant.id when PlantNet's top score is at or
+  above `SCAN_PLANTNET_CONFIDENCE_FLOOR`, so merges of both providers are rare and a week of lines
+  would say little. The owner approved closing with the log-summary criterion marked waived
+  (2026-11-20).
+- No code changed.
