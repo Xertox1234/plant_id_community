@@ -72,12 +72,12 @@ Source: `pip list --outdated` and `pip show` in `backend/venv`, 2026-11-15.
 - [ ] Full backend suite passes repo-wide on each PR.
 - [ ] The first Dependabot pip PR after todo 708 merges installs without a
       resolver conflict (record the PR number and date here; moved from 708
-      on 2026-11-17).
+      on 2026-11-17). → todo 721 (re-pointed 2026-11-21)
 - [ ] The first Railway deploy after todo 708 merges builds the backend Docker
       image (record the deployment id and date here; moved from 708 on
       2026-11-18).
 - [ ] After an AI SDK bump: one real call per enabled feature succeeds in
-      production (date and observation recorded here).
+      production (date and observation recorded here). → todo 721 (re-pointed 2026-11-21)
 
 ## Work Log
 

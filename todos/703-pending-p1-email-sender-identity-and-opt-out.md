@@ -61,7 +61,7 @@ Source: `docs/audits/2026-11-10-auth-legal.md`, rows H2 and M19.
 - [ ] The newsletter form states who is asking, a contact, and that the reader
       can unsubscribe.
 - [ ] Both settings are set on Railway — record the date and one received
-      email's footer here.
+      email's footer here. → todo 724 (re-pointed 2026-11-21)
 
 ## Work Log
 
