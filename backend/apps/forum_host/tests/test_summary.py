@@ -229,7 +229,7 @@ def test_task_is_noop_when_already_cached():
 
 
 @pytest.mark.django_db
-def test_task_skips_when_global_budget_exhausted():
+def test_task_skips_when_summary_budget_exhausted():
     from apps.forum_host.tasks import generate_topic_summary
 
     topic = _topic_with_posts(3)
@@ -288,12 +288,19 @@ def test_task_retries_on_transient_provider_error_with_backoff():
 
 
 GLOBAL_KEY = "ai_rate_limit:global"
+SUMMARY_KEY = constants.SUMMARY_BUDGET_CACHE_KEY
+
+
+def test_summaries_have_their_own_budget_key():
+    """Owner decision 2026-11-22 (audit 2026-11-21 R3): never the blog
+    editor's shared key."""
+    assert SUMMARY_KEY != GLOBAL_KEY
 
 
 @pytest.mark.django_db
-def test_a_failed_provider_call_does_not_spend_the_shared_ai_budget():
+def test_a_failed_provider_call_does_not_spend_the_summary_budget():
     """Peek, then consume only after the provider returned: a retried outage
-    must not bill the bucket the blog editor shares (audit 2026-11-21 M4)."""
+    must not bill the budget (audit 2026-11-21 M4)."""
     from apps.forum_host.tasks import generate_topic_summary
 
     topic = _topic_with_posts(3)
@@ -304,18 +311,32 @@ def test_a_failed_provider_call_does_not_spend_the_shared_ai_budget():
             with pytest.raises(Retry):
                 generate_topic_summary.run(topic.id)
 
-    assert cache.get(GLOBAL_KEY, 0) == 0
+    assert cache.get(SUMMARY_KEY, 0) == 0
 
 
 @pytest.mark.django_db
-def test_a_returned_provider_call_spends_one_slot_of_the_shared_budget():
+def test_a_returned_provider_call_spends_one_slot_of_the_summary_budget_only():
     from apps.forum_host.tasks import generate_topic_summary
 
     topic = _topic_with_posts(3)
     with patch(GEN, return_value="A summary."):
         generate_topic_summary(topic.id)
 
-    assert cache.get(GLOBAL_KEY, 0) == 1
+    assert cache.get(SUMMARY_KEY, 0) == 1
+    assert cache.get(GLOBAL_KEY, 0) == 0  # the blog editor's bucket is untouched
+
+
+@pytest.mark.django_db
+def test_a_full_blog_budget_does_not_block_summaries():
+    from apps.blog.services.ai_rate_limiter import AIRateLimiter
+    from apps.forum_host.tasks import generate_topic_summary
+
+    cache.set(GLOBAL_KEY, AIRateLimiter.GLOBAL_LIMIT, 3600)
+    topic = _topic_with_posts(3)
+    with patch(GEN, return_value="A summary.") as mock_gen:
+        generate_topic_summary(topic.id)
+
+    mock_gen.assert_called_once()
 
 
 @pytest.mark.django_db
