@@ -136,3 +136,9 @@ check's title after arming a PR.
 ### 2026-11-21 - Completed by the todo sweep (run 2026-11-20-2202)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-21 - Review round 1: non-blocking findings (PR #1396)
+
+- **Declined:** a reviewer asked that the comment above `RATELIMIT_CLIENT_IP_HEADER` in `settings.py` (and
+  `backend/docs/deployment/railway.md`) say the env var and the setting differ in name. Both already say so,
+  in the lines right after the env-var name ("The Django setting is RATELIMIT_CLIENT_IP_HEADER (todo 718)").

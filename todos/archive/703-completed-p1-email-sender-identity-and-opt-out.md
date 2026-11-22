@@ -133,3 +133,27 @@ Source: `docs/audits/2026-11-10-auth-legal.md`, rows H2 and M19.
 ## Notes
 
 P1: applies to every optional email already going out.
+
+### 2026-11-21 - Review round 1: non-blocking findings (PR #1396)
+
+Round 1 was clean (7 reviewers, no critical or high). The lows, each fixed by hand with a test or declined:
+
+- **Fixed:** `stop_all_optional_email` left a pending newsletter row's `confirmation_sent_at` in place, so a
+  confirmation link still in the inbox switched the newsletter back on after "stop all". It now clears the
+  stamp on unconfirmed rows, as `newsletter.confirm()` does. Test
+  `test_an_old_confirmation_link_cannot_undo_stop_all`; mutation (stamp kept) fails it.
+- **Fixed:** `_all_optional_subscribed` counted an unconfirmed newsletter row as subscribed, and did not guard
+  an empty address. It now matches `BlogNewsletter.is_subscribed` (confirmed rows only). Test
+  `test_a_pending_signup_alone_is_not_subscribed`; mutation (filter dropped) fails it.
+- **Fixed:** the user update and the newsletter unsubscribes now run in one `transaction.atomic()`, with the
+  rows locked, so a failure part-way cannot leave the master switch off and the newsletter on.
+- **Fixed:** `POST /unsubscribe/all/` had no 429 test. Test `test_stop_all_is_rate_limited_per_ip`; mutation
+  (decorator removed) fails it.
+- **Fixed:** re-wrapped the over-long header comment line in `web/src/pages/UnsubscribePage.tsx`.
+- **Declined:** a list token (e.g. a forwarded forum-reply email) can stop all optional email, not just its
+  own list. That is the todo's requirement: CASL and CAN-SPAM ask for one-step stop-all from any message.
+  The token is still scoped to its own user, and Settings turns everything back on.
+- **Declined:** the per-row `unsubscribe()` loop instead of one `.update()`. `email` is unique on
+  `BlogNewsletter`, so the loop is at most one row; a bulk update would also skip `unsubscribe()`'s own
+  fields.
+- Unsubscribe suite after the fixes: 49 passed.

@@ -124,8 +124,12 @@ def _all_optional_subscribed(user) -> bool:
 
     if user.email_notifications:
         return True
+    if not user.email:
+        return False
+    # Confirmed rows only: BlogNewsletter.is_subscribed, the rows a
+    # newsletter actually reaches. A pending signup receives nothing.
     return BlogNewsletter.objects.filter(
-        email__iexact=user.email, is_active=True
+        email__iexact=user.email, is_active=True, confirmed_at__isnull=False
     ).exists()
 
 
@@ -141,13 +145,22 @@ def stop_all_optional_email(user) -> None:
     """
     from apps.blog.models import BlogNewsletter
 
-    User.objects.filter(pk=user.pk).update(email_notifications=False)
+    # One transaction: a failure part-way must not leave the master switch
+    # off with the newsletter still on.
+    with transaction.atomic():
+        User.objects.filter(pk=user.pk).update(email_notifications=False)
+        if user.email:
+            for subscriber in BlogNewsletter.objects.select_for_update().filter(
+                email__iexact=user.email, is_active=True
+            ):
+                subscriber.unsubscribe()
+                if subscriber.confirmed_at is None:
+                    # A pending signup: void the confirmation links already
+                    # sent, as newsletter.confirm() does, so an old link in
+                    # the inbox cannot switch the newsletter back on.
+                    subscriber.confirmation_sent_at = None
+                    subscriber.save(update_fields=["confirmation_sent_at"])
     user.email_notifications = False
-    if user.email:
-        for subscriber in BlogNewsletter.objects.filter(
-            email__iexact=user.email, is_active=True
-        ):
-            subscriber.unsubscribe()
 
 
 @dataclass(frozen=True)

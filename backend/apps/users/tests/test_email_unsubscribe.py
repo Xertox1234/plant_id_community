@@ -588,6 +588,51 @@ class StopAllOptionalEmailTests(TestCase):
         self.other.refresh_from_db()
         self.assertTrue(self.other.email_notifications)
 
+    def test_an_old_confirmation_link_cannot_undo_stop_all(self):
+        # Review round 1: a pending signup kept its confirmation stamp, so a
+        # link still in the inbox switched the newsletter back on.
+        from apps.blog import newsletter
+        from apps.blog.models import BlogNewsletter
+
+        self.newsletter.delete()
+        pending = BlogNewsletter.objects.create(
+            email="stopper@example.com", confirmation_sent_at=timezone.now()
+        )
+        confirm_link = newsletter.make_confirm_token(pending)
+
+        self.assertEqual(self._post(make_token(self.user, LIST)).status_code, 200)
+
+        with self.assertRaises(newsletter.NewsletterTokenInvalid):
+            newsletter.confirm(confirm_link)
+        pending.refresh_from_db()
+        self.assertFalse(pending.is_active)
+        self.assertIsNone(pending.confirmed_at)
+
+    def test_a_pending_signup_alone_is_not_subscribed(self):
+        # Review round 1: an unconfirmed row receives no newsletter, so with
+        # the master switch off nothing optional can reach the account.
+        from apps.blog.models import BlogNewsletter
+
+        self.newsletter.delete()
+        BlogNewsletter.objects.create(email="stopper@example.com")
+        User.objects.filter(pk=self.user.pk).update(email_notifications=False)
+
+        response = self.client.post(
+            reverse("v1:users:email_unsubscribe_check"),
+            {"token": make_token(self.user, ALL_OPTIONAL)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data["subscribed"])
+
+    def test_stop_all_is_rate_limited_per_ip(self):
+        # Review round 1: deleting the @ratelimit on this route kept the
+        # suite green.
+        limit = int(RATE_LIMIT_EMAIL_UNSUBSCRIBE.split("/")[0])
+        for _ in range(limit):
+            self._post("x")
+        self.assertEqual(self._post("x").status_code, 429)
+
     def test_check_describes_the_all_optional_list(self):
         response = self.client.post(
             reverse("v1:users:email_unsubscribe_check"),

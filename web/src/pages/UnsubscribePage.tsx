@@ -4,9 +4,9 @@
  *
  * Opening the page changes nothing (mail scanners open links too); only the
  * buttons do. Besides the link's own list, every link can stop all optional
- * email in one step (todo 703: CASL and CAN-SPAM). Public on purpose: the signed token is the credential, so it
- * works signed out, and every outcome points at Settings, where the same
- * choice can be changed back.
+ * email in one step (todo 703: CASL and CAN-SPAM). Public on purpose: the
+ * signed token is the credential, so it works signed out, and every outcome
+ * points at Settings, where the same choice can be changed back.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
