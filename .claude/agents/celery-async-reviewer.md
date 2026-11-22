@@ -60,6 +60,13 @@ Review only the files passed to you. Do not read the full repo.
 - [ ] Collapse keys are per-EVENT-TYPE, never per-object — FCM retains max 4 distinct collapse keys per offline device; unique per-post keys silently drop the rest of an offline backlog
 - [ ] A batch that stops on `SenderIdMismatchError`/`ThirdPartyAuthError` waits for `FCM_CREDENTIALS_STOP_FAILURES` distinct recipients with nothing sent, and hands every untried recipient back (claim released or re-enqueued) — one stale token or an APNs-only fault must not drop the whole batch (PR #1052)
 
+- [ ] **SoftTimeLimitExceeded reaches the task.** Trace every call on a send
+      path, including shared senders in `apps/core/services/` and
+      `apps/users/services.py` and any broker hand-off, for an `except
+      Exception` that would swallow it; and check that a batch's guard covers
+      its per-recipient bookkeeping, not only the network call (audit
+      2026-11-21 M3; `docs/rules/celery.md`).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

@@ -120,3 +120,17 @@ Compact checklist auto-injected before edits. Long-form:
 - **pybreaker raises `CircuitBreakerError` on the call that trips it**, after
   that call ran. Never read the exception type as "nothing was spent"; record
   whether the wrapped function started (scan-2 audit review round).
+- **`SoftTimeLimitExceeded` is a signal: it lands wherever the task is, so a
+  guard around the network call alone is not enough.** The shared senders
+  (`EmailService.send_email`/`send_transactional_email`/`_track_email_sent`,
+  `NotificationService.send_notification`, `send_web_push_notification`) each
+  had a catch-all that turned it into a failed send, and a broker hand-off's
+  `except Exception` turned it into a lost recipient. Re-raise it ahead of every
+  catch-all on a send path, guard the WHOLE per-recipient loop including its
+  bookkeeping, record each outcome before any fold/cleanup step, release what
+  has no outcome, then re-raise (audit 2026-11-21 M3 and close review).
+- **Moving an enqueue into `transaction.on_commit` silences every test that
+  asserted it directly.** pytest-django never runs on_commit callbacks:
+  update those tests to `django_capture_on_commit_callbacks(execute=True)`, and
+  add one with `execute=False` proving nothing is enqueued before the commit
+  (audit 2026-11-21 L9).
