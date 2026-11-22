@@ -48,7 +48,7 @@ followers.
 
 ### 2026-11-21 - Filed from the forum backend audit
 
-- Deferred from `docs/audits/2026-11-21-forum-backend.md` M3 (the remainder after the clean-stop fix), L7 and L11. The owner approved the M3 split on 2026-11-21: the clean stop now, with chunking and limits deferred.
+- Deferred from `docs/audits/2026-11-21-forum-backend.md` M3 (the remainder after the clean-stop fix), L7 and L11. Owner decisions 2026-11-21: at triage, "per-task time limit + re-raise, chunking deferred"; then, offered a push-only split, they chose to fix all three channels now (done in the audit PR). The approved per-task time limit did not ship (it has to be sized to a chunk), so it is in this todo.
 
 ## Notes
 

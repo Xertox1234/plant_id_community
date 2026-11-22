@@ -4,7 +4,6 @@ priority: p3
 issue_id: "728"
 tags: [forum, email, digest, quiet-hours, celery]
 dependencies: []
-owner_decision: "2026-11-21: Respect quiet hours: hold a member's digest until their quiet window ends, like the other optional forum email."
 ---
 
 # The weekly forum digest respects each member's quiet hours
@@ -42,4 +41,5 @@ owner decided on 2026-11-21 that the digest should be held the same way.
 
 ### 2026-11-21 - Filed from the forum backend audit
 
-- From `docs/audits/2026-11-21-forum-backend.md` L10. Owner decision recorded in the frontmatter.
+- From `docs/audits/2026-11-21-forum-backend.md` L10.
+- Owner decision 2026-11-21 (audit triage): "Respect quiet hours: hold a member's digest until their quiet window ends, like the other optional forum email."
