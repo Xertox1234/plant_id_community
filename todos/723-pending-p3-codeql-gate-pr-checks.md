@@ -4,9 +4,9 @@ priority: p3
 issue_id: "723"
 tags: [ci, security, owner]
 dependencies: ["718"]
-triage: blocked-owner
-triaged: 2026-11-21
-blocked_on: "Owner OK to open throwaway PRs against main; todo 718 merged first"
+triage: ready
+triaged: 2026-11-22
+owner_decision: "Owner OK: a worker may open throwaway PRs against main, incl. one with a deliberate critical CodeQL alert and auto-merge armed; each is closed and its branch deleted (owner 2026-11-22)"
 ---
 
 # CodeQL merge gate: prove it with real PRs (from todo 718)

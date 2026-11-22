@@ -4,6 +4,9 @@ priority: p3
 issue_id: "727"
 tags: [forum, celery, notifications, performance, launch-readiness]
 dependencies: []
+triage: ready
+triaged: 2026-11-22
+owner_decision: "50 recipients per task, ~30 s Firebase httpTimeout (owner 2026-11-22)"
 ---
 
 # Forum notification fan-out: chunk recipients, size time limits, bound FCM sends

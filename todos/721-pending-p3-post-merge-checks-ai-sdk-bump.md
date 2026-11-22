@@ -5,8 +5,9 @@ issue_id: "721"
 tags: [backend, dependencies, owner]
 dependencies: ["711"]
 triage: blocked-prod
-triaged: 2026-11-21
-blocked_on: "Todo 711 must merge and deploy first; then a Dependabot pip PR and owner-run prod AI calls"
+triaged: 2026-11-22
+blocked_on: "The owner makes one real prod call per enabled AI feature, and the next Dependabot pip PR after #1397 runs its install job"
+owner_decision: "Owner delegated the live check to a Claude session driving Chrome (2026-11-22); run by hand outside the sweep"
 ---
 
 # Post-merge checks for the AI SDK bump (todo 711)

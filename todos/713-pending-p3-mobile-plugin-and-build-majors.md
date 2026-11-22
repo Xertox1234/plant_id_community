@@ -4,10 +4,9 @@ priority: p3
 issue_id: "713"
 tags: [mobile, flutter, firebase, android, dependencies, dependabot, upgrade]
 dependencies: []
-triage: blocked-device
-triaged: 2026-11-20
-owner_decision: "Owner: cut a new TestFlight build and a new Android build now; the device check (shared with 715) happens in the remote session (2026-11-20)"
-blocked_on: "The owner's device check on iPhone and Android, using a new TestFlight build and a new Android build cut from main after 2026-11-17 22:28 UTC"
+triage: ready
+triaged: 2026-11-22
+owner_decision: "Owner: device check done on build 28 (TestFlight 28 / Android versionCode 28) (2026-11-22); criterion 3 confirmed by the owner (2026-11-22): Device check done (owner answered 'Done' on 2026-11-22; build 28: TestFlight 28 and Android versionCode 28)"
 ---
 
 # Mobile majors: FlutterFire set, plugin majors, Gradle 9 / AGP 9

@@ -5,9 +5,9 @@ issue_id: "682"
 tags: [forum, forum-categories, owner, prod-check]
 dependencies: ["666"]
 triage: blocked-prod
-triaged: 2026-11-20
-blocked_on: "The owner creates a test forum in the live /cms/, sees it listed on the live /forum index within 60 s, and logs the date and what he saw."
-owner_decision: "Owner: Claude runs the live /cms/ to /forum check on the Samsung over wireless adb in the remote session (2026-11-20)"
+triaged: 2026-11-22
+blocked_on: "Someone signed in as a staff user on the live /cms/ creates a test forum, confirms it shows on live /forum within 60 s, then hides it."
+owner_decision: "Owner delegated the live check to a Claude session driving Chrome (2026-11-22); run by hand outside the sweep"
 ---
 
 # Forum categories: owner check that a forum created in /cms/ shows on the live web index

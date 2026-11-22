@@ -5,9 +5,9 @@ issue_id: "714"
 tags: [backend, dependencies, redis, websockets, prod-check, owner]
 dependencies: ["710"]
 triage: blocked-prod
-triaged: 2026-11-20
-blocked_on: "The owner opens a prod forum topic, leaves it idle for about a minute, posts a reply from a second session, and records it in the Work Log."
-owner_decision: "Owner runs the idle-socket live-reply prod check in the remote session (2026-11-20)"
+triaged: 2026-11-22
+blocked_on: "The owner opens a prod forum topic, leaves it idle for about a minute, posts a reply from a second session, and records the result in the Work Log."
+owner_decision: "Owner delegated the live check to a Claude session driving Chrome (2026-11-22); run by hand outside the sweep"
 ---
 
 # Prod check after the redis 8 bump: boot and one live forum reply over a socket

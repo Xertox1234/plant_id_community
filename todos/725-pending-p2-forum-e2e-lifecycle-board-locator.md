@@ -4,6 +4,8 @@ priority: p2
 issue_id: "725"
 tags: [web, forum, e2e, testing]
 dependencies: []
+triage: ready
+triaged: 2026-11-22
 ---
 
 # Forum e2e write-lifecycle test can't find a board on the forum index

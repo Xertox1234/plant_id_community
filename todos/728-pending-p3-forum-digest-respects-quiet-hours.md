@@ -4,6 +4,8 @@ priority: p3
 issue_id: "728"
 tags: [forum, email, digest, quiet-hours, celery]
 dependencies: []
+triage: ready
+triaged: 2026-11-22
 ---
 
 # The weekly forum digest respects each member's quiet hours

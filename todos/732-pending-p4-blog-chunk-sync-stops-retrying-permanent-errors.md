@@ -4,6 +4,8 @@ priority: p4
 issue_id: "732"
 tags: [celery, rag, blog, embeddings]
 dependencies: []
+triage: ready
+triaged: 2026-11-22
 ---
 
 # The blog chunk sync stops retrying permanent provider errors

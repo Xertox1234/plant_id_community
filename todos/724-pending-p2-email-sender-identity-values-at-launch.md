@@ -5,8 +5,9 @@ issue_id: "724"
 tags: [backend, email, legal, owner, launch]
 dependencies: ["703"]
 triage: blocked-owner
-triaged: 2026-11-21
-blocked_on: "Launch: the owner's sender name and mailing address"
+triaged: 2026-11-22
+blocked_on: "Launch: the owner supplies the legal sender name and mailing address and sets them on Railway"
+owner_decision: "Sender name and address are set at launch; not live yet (owner 2026-11-22)"
 ---
 
 # At launch: set the email sender name and mailing address on Railway (from todo 703)

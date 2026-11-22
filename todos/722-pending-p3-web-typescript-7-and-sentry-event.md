@@ -4,9 +4,9 @@ priority: p3
 issue_id: "722"
 tags: [web, dependencies, owner]
 dependencies: ["712"]
-triage: blocked-external
-triaged: 2026-11-21
-blocked_on: "A typescript-eslint release that accepts TypeScript 7; the owner's Sentry dashboard check"
+triage: ready
+triaged: 2026-11-22
+owner_decision: "needs-research: a planner checks npm for a typescript-eslint release accepting TS 7 and bumps if one exists; the Sentry event criterion stays owner-gated (owner 2026-11-22)"
 ---
 
 # Web: TypeScript 7 and the deployed Sentry event check (from todo 712)
