@@ -608,6 +608,27 @@ class StopAllOptionalEmailTests(TestCase):
         self.assertFalse(pending.is_active)
         self.assertIsNone(pending.confirmed_at)
 
+    def test_an_old_link_cannot_undo_stop_all_after_a_resignup(self):
+        # Review round 2: an earlier unsubscribe left the row inactive, and a
+        # new signup stamped it again. Stop-all must void that link too.
+        from apps.blog import newsletter
+        from apps.blog.models import BlogNewsletter
+
+        self.newsletter.delete()
+        row = BlogNewsletter.objects.create(
+            email="stopper@example.com",
+            is_active=False,
+            confirmation_sent_at=timezone.now(),
+        )
+        confirm_link = newsletter.make_confirm_token(row)
+
+        self.assertEqual(self._post(make_token(self.user, LIST)).status_code, 200)
+
+        with self.assertRaises(newsletter.NewsletterTokenInvalid):
+            newsletter.confirm(confirm_link)
+        row.refresh_from_db()
+        self.assertFalse(row.is_active)
+
     def test_a_pending_signup_alone_is_not_subscribed(self):
         # Review round 1: an unconfirmed row receives no newsletter, so with
         # the master switch off nothing optional can reach the account.

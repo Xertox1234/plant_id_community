@@ -114,9 +114,11 @@ _UNSUBSCRIBE_SCHEMA = extend_schema(
 # GET to the web app's /unsubscribe?token=…, so the token does reach the web
 # host's logs, browser history and any Referer, and it is signed, not
 # encrypted, so the user UUID inside is readable. That is accepted (todo 417):
-# holding the URL lets someone turn off one user's reply emails and nothing
-# else, the user can turn them back on in Settings, and the token expires
-# after UNSUBSCRIBE_MAX_AGE (90 days).
+# holding the URL lets someone change one user's optional email and nothing
+# else, and the token expires after UNSUBSCRIBE_MAX_AGE (90 days). Since todo
+# 703 any list's token can also stop ALL of that user's optional email in one
+# step (CASL/CAN-SPAM), which widens what a leaked URL can do: Settings turns
+# the master switch back on, but the newsletter needs a new confirmed signup.
 @_UNSUBSCRIBE_SCHEMA
 @api_view(["POST"])
 @authentication_classes([])

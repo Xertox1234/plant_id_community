@@ -137,8 +137,9 @@ def stop_all_optional_email(user) -> None:
     """Stop every optional email to the account (todo 703). Idempotent.
 
     Optional email is what docs/operations/notification-baseline.md calls
-    optional: forum notification email, the forum digest and the blog
-    newsletter. The master switch covers the first two; the newsletter is a
+    optional: forum notification email, plant ID and disease alert email,
+    the forum digest and the blog newsletter. The master switch covers all
+    but the newsletter (EmailService._should_send_email); the newsletter is a
     separate subscription by address, so a row for the account's address is
     unsubscribed too. Account mail (verification, password reset, security
     notices) is not optional and still goes.
@@ -150,14 +151,17 @@ def stop_all_optional_email(user) -> None:
     with transaction.atomic():
         User.objects.filter(pk=user.pk).update(email_notifications=False)
         if user.email:
-            for subscriber in BlogNewsletter.objects.select_for_update().filter(
-                email__iexact=user.email, is_active=True
-            ):
-                subscriber.unsubscribe()
-                if subscriber.confirmed_at is None:
-                    # A pending signup: void the confirmation links already
-                    # sent, as newsletter.confirm() does, so an old link in
-                    # the inbox cannot switch the newsletter back on.
+            rows = BlogNewsletter.objects.select_for_update().filter(
+                email__iexact=user.email
+            )
+            for subscriber in rows:
+                if subscriber.is_active:
+                    subscriber.unsubscribe()
+                if subscriber.confirmation_sent_at is not None:
+                    # A pending signup, an inactive row's re-signup included:
+                    # void the confirmation links already sent, as
+                    # newsletter.confirm() does, so an old link in the inbox
+                    # cannot switch the newsletter back on.
                     subscriber.confirmation_sent_at = None
                     subscriber.save(update_fields=["confirmation_sent_at"])
     user.email_notifications = False
@@ -201,7 +205,10 @@ LISTS: dict[str, EmailList] = {
     # Every optional email at once (todo 703): the welcome message's link,
     # and what the page's "stop all" button does with any list's link.
     ALL_OPTIONAL: EmailList(
-        label="All optional email: forum notifications, the forum digest and the blog newsletter",
+        label=(
+            "All optional email: forum notifications, plant ID and disease"
+            " alerts, the forum digest and the blog newsletter"
+        ),
         is_subscribed=_all_optional_subscribed,
         unsubscribe=stop_all_optional_email,
     ),

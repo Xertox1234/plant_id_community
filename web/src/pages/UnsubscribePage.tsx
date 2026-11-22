@@ -120,8 +120,9 @@ export default function UnsubscribePage() {
     state.list === ALL_OPTIONAL_LIST ? null : (
       <div className="flex flex-col gap-2 border-t border-line pt-4">
         <p className="text-body-sm text-ink-2">
-          Or stop every optional email from Houseplant MD: forum notifications, the forum digest and
-          the blog newsletter. Account email, such as password resets, still arrives.
+          Or stop every optional email from Houseplant MD: forum notifications, plant ID and disease
+          alerts, the forum digest and the blog newsletter. Account email, such as password resets,
+          still arrives.
         </p>
         <div>
           <Button

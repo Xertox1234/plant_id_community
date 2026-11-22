@@ -157,3 +157,34 @@ Round 1 was clean (7 reviewers, no critical or high). The lows, each fixed by ha
   `BlogNewsletter`, so the loop is at most one row; a bulk update would also skip `unsubscribe()`'s own
   fields.
 - Unsubscribe suite after the fixes: 49 passed.
+
+### 2026-11-21 - Review round 2: non-blocking findings (PR #1396)
+
+Round 2 was clean (7 reviewers, nothing blocking; run twice, because the first ingest saw this entry's fixes
+as review residue, so they were set aside and re-applied after the rerun). Each finding, fixed by hand with
+a test or declined:
+
+- **Fixed (medium, found by several reviewers):** stop-all voided confirmation links only on active
+  newsletter rows. After an earlier unsubscribe, a re-signup stamps the inactive row
+  (`request_confirmation_outcome` never sets `is_active`), so its old link still switched the newsletter
+  back on. Stop-all now clears `confirmation_sent_at` on every row at the address and calls `unsubscribe()`
+  only on active ones. Test `test_an_old_link_cannot_undo_stop_all_after_a_resignup`; mutation (active rows
+  only) fails it.
+- **Fixed:** the accepted-risk comment above the unsubscribe views (todo 417) said a leaked link turns off
+  one list only. It now records the wider scope since this todo: any list's token can stop all of that
+  user's optional email. Settings turns the master switch back on; the newsletter needs a new confirmed
+  signup. Accepted, as the one-step stop CASL and CAN-SPAM ask for.
+- **Fixed:** the stop-all copy and the `all_optional` label listed forum notifications, the digest and the
+  newsletter. The master switch also holds back plant ID and disease alert email
+  (`EmailService._should_send_email`), so both now name those too.
+- **Fixed:** the footer test's docstring claimed no email could ship without the footer. The security
+  lockout notice is built in code with `send_mail`, outside the template walk; the docstring now says so.
+  It is account mail, not commercial email.
+- **Declined:** the shared save-error line on the Unsubscribe page names no scope. Both buttons are on one
+  page and the line sits under them; the user sees what they clicked.
+- **Declined:** a Playwright case for the stop-all button. Vitest covers the page (15 tests), and the
+  backend covers the endpoint end to end. The forum e2e suite has a known failure on main (todo 725), so a
+  new e2e case is better added once that suite is green.
+- **Declined:** the settings comment on the env-var versus setting name, raised again; see round 1.
+- After the fixes: `test_email_unsubscribe.py` and `test_email_template_sender_footer.py`, 58 passed;
+  `UnsubscribePage.test.tsx`, 15 passed.

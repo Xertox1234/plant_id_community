@@ -135,7 +135,7 @@ describe('UnsubscribePage', () => {
 // all optional email in one step, not only the link's own list.
 describe('UnsubscribePage stop all optional email (todo 703)', () => {
   const ALL_LABEL =
-    'All optional email: forum notifications, the forum digest and the blog newsletter';
+    'All optional email: forum notifications, plant ID and disease alerts, the forum digest and the blog newsletter';
   const allStopped = { list: 'all_optional', label: ALL_LABEL, subscribed: false };
   const stopAllButton = () => screen.findByRole('button', { name: /stop all optional email/i });
 

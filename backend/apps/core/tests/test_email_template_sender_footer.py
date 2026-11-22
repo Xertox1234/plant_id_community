@@ -6,7 +6,9 @@ CASL s. 6(2) with SOR/2012-36 s. 2(1)(d), and CAN-SPAM 15 U.S.C.
 ``email_sender`` template tags, so this test walks every template under
 ``backend/**/templates/`` that is an email, renders each file's own source,
 and fails when the sender is missing. A new email template cannot ship
-without the footer.
+without the footer. Email built in code without a template (the security
+lockout notice's ``send_mail`` in ``apps/core/security.py``) is outside this
+walk; it is account mail, not commercial email.
 """
 
 import re
