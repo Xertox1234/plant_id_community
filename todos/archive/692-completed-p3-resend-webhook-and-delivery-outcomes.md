@@ -83,9 +83,10 @@ webhook was connected.
   `email.delivered`, 1 `email.bounced` (Permanent), 1 `suppression.added`;
   0 complaints. 1 suppressed address. 8 of 9 events carry Resend's email id.
 - 1 forum `EmailNotification` in the window (forum_reply, 2026-11-04), with our
-  Message-ID and no provider email id. Its `email.sent` and `email.delivered`
-  events arrived within 10 minutes of the send, but **0 of 9 events link to an
-  `EmailNotification`**. Hypothesis, not verified (the event's `data.message_id`
+  Message-ID and no provider email id. Its `email.delivered` event arrived
+  within 10 minutes of the send but did not link to the row. That is the only
+  eligible event (n = 1): `email.sent` and `suppression.added` are ignored by
+  design, and the other 3 emails have no `EmailNotification` row. Hypothesis, not verified (the event's `data.message_id`
   is not stored): Resend over SMTP does not echo our client-set Message-ID.
   The correlation fix moves to todo 726.
 - Sent→delivered latency, Resend side, pairing `email.sent` and
@@ -123,6 +124,7 @@ and 3 of this todo (0-based 0 and 2) are owner-confirmed.
 - AC 3: confirmed by the owner on 2026-11-21: "Owner confirmed (2026-11-21) the gap is recorded: 0 of 9 events link to an EmailNotification; the one forum email (2026-11-04) had email.sent + email.delivered events within 10 min but neither linked, and the row has no provider_email_id. Hypothesis, not verified: Resend over SMTP does not echo our client-set Message-ID. Fix re-homed to new todo 726" (`state.py confirm`; no command or evidence)
 
 - Round-1 review (2026-11-21, non-blocking, fixed by hand): "0 of 9 linked" overstated the evidence, because `email.sent` and `suppression.added` are never matched by design. Reworded to n = 1 (the forum email's `email.delivered`) in the baseline doc, todo 726 and here, and noted that `suppression.added` is recorded but not acted on.
+- Round-2 review (2026-11-21, non-blocking): re-pointing criterion 4 explicitly to todo 726 is declined, because the engine allows only `state.py repoint` re-points, never hand edits. The note below already names todo 726 as the new home of the `delivered_at − sent_at` p50/p90 (its AC2).
 - Criterion 4 stays unticked only because its text says "re-pointed from todo 638", which the engine reads as a re-point. The counts are recorded in the baseline doc's "Delivery outcomes (2026-11-21)" section, and the owner confirmed it on 2026-11-21 ("Confirm all three"). The latency there is a Resend-side substitute; the `delivered_at − sent_at` p50/p90 that criterion 4 names is not computable until events link, and moves to todo 726.
 
 ### 2026-11-21 - Completed by the todo sweep (run 2026-11-20-2202)
