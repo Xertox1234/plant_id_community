@@ -5,9 +5,9 @@ issue_id: "682"
 tags: [forum, forum-categories, owner, prod-check]
 dependencies: ["666"]
 triage: blocked-prod
-triaged: 2026-11-20
-blocked_on: "The owner creates a test forum in the live /cms/, sees it listed on the live /forum index within 60 s, and logs the date and what he saw."
-owner_decision: "Owner: Claude runs the live /cms/ to /forum check on the Samsung over wireless adb in the remote session (2026-11-20)"
+triaged: 2026-11-22
+blocked_on: "Someone signed in as a staff user on the live /cms/ creates a test forum, confirms it shows on live /forum within 60 s, then hides it."
+owner_decision: "Owner delegated the live check to a Claude session driving Chrome (2026-11-22); run by hand outside the sweep"
 ---
 
 # Forum categories: owner check that a forum created in /cms/ shows on the live web index
@@ -30,3 +30,15 @@ After 666 is merged and deployed, create a test forum under a category in `/cms/
 - [ ] Created forums appear on the web index without a deploy (owner's manual check on the live site, dated, with the observed result quoted in the Work Log).
 
 ## Work Log
+
+### 2026-11-22 - Live check run by Claude in desktop Chrome (owner-delegated 2026-11-22)
+
+- Signed in to the live `/cms/` as plantadmin, created forum "Test forum 682 (admin check)"
+  under General (id 18) at about 20:24:59Z.
+- Observed: the signed-in web `/forum` listed it at 20:25:10Z ("Test forum 682 (admin check)
+  0 THREADS · 0 POSTS · NO ACTIVITY YET"). An anonymous `GET /api/v1/forum/categories/` at
+  20:25:30Z (`cache-control: public, s-maxage=60, max-age=0`, `cf-cache-status: DYNAMIC`)
+  included it. About 31 s after creation, inside the 60 s window, with no deploy.
+- Cleanup: owner chose delete; the empty test forum was deleted in `/cms/` ("Forum 'Test
+  forum 682 (admin check)' deleted."). The tree is back to its five forums.
+- The criterion is met; the next triage can archive this todo after verifying it.

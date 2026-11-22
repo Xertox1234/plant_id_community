@@ -4,6 +4,9 @@ priority: p3
 issue_id: "726"
 tags: [notifications, email, observability, backend]
 dependencies: []
+triage: ready
+triaged: 2026-11-22
+owner_decision: "Ship step 1 now (EmailProviderEvent.message_id migration + store data.message_id); the prod-read criterion stays open (owner 2026-11-22)"
 ---
 
 # Link Resend webhook events to their EmailNotification

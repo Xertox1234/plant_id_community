@@ -4,6 +4,9 @@ priority: p3
 issue_id: "729"
 tags: [forum, wagtail, admin, moderation]
 dependencies: []
+triage: ready
+triaged: 2026-11-22
+owner_decision: "A mute is never overridden; otherwise keep the stronger level (owner 2026-11-22)"
 ---
 
 # Forum structure screen: log destructive actions and warn before erasing subscriptions

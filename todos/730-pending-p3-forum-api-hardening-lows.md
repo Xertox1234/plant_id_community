@@ -4,6 +4,9 @@ priority: p3
 issue_id: "730"
 tags: [forum, api, performance, security, privacy]
 dependencies: []
+triage: ready
+triaged: 2026-11-22
+owner_decision: "L2: negative cache only; per-user concurrent-fetch cap not shipped, noted in Work Log (owner 2026-11-22)"
 ---
 
 # Forum API hardening: six low findings from the 2026-11-21 audit

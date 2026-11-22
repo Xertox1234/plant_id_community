@@ -4,6 +4,8 @@ priority: p2
 issue_id: "731"
 tags: [blog, privacy, api, users]
 dependencies: []
+triage: ready
+triaged: 2026-11-22
 ---
 
 # Blog comment authors expose members' legal names to anonymous readers

@@ -5,9 +5,9 @@ issue_id: "714"
 tags: [backend, dependencies, redis, websockets, prod-check, owner]
 dependencies: ["710"]
 triage: blocked-prod
-triaged: 2026-11-20
-blocked_on: "The owner opens a prod forum topic, leaves it idle for about a minute, posts a reply from a second session, and records it in the Work Log."
-owner_decision: "Owner runs the idle-socket live-reply prod check in the remote session (2026-11-20)"
+triaged: 2026-11-22
+blocked_on: "The owner opens a prod forum topic, leaves it idle for about a minute, posts a reply from a second session, and records the result in the Work Log."
+owner_decision: "Owner delegated the live check to a Claude session driving Chrome (2026-11-22); run by hand outside the sweep"
 ---
 
 # Prod check after the redis 8 bump: boot and one live forum reply over a socket
@@ -61,3 +61,14 @@ After the 710 PR deploys to Railway:
 - Redis service image is `redis:8.2.9` (Railway service config), so RESP3
   (Redis >= 6) holds.
 - Still open: the owner's live forum reply over a socket idle > 5 s.
+
+### 2026-11-22 - Live check run by Claude in desktop Chrome (owner-delegated 2026-11-22)
+
+- Two tabs signed in as plantadmin on topic 55 ("Test poll from the mobile app", plantadmin's
+  own test topic, so no other member was notified). The watcher tab loaded the topic and sat
+  idle from 20:26:48Z.
+- At 20:27:50Z the second tab posted "Live check 714: reply over an idle socket. Safe to
+  ignore." The idle watcher, with no reload (navigation count 1), showed the live banner
+  "Load 1 new reply" by 20:28:05Z. Clicking it rendered the reply.
+- The socket was idle about 61 s, well over 5 s. Production booted and served throughout. The
+  criterion is met; the next triage can archive this todo after verifying it.
