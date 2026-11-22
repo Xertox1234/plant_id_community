@@ -269,14 +269,16 @@ tracking was never set up for `houseplant-md.com` (no tracking subdomain).
 | Suppressed addresses | 1 |
 | Events carrying Resend's email id | 8 of 9 |
 | Forum emails sent (`EmailNotification`) | 1 (forum_reply, 2026-11-04), with our Message-ID, no provider email id |
-| Events linked to an `EmailNotification` | **0 of 9** |
+| Events linked to an `EmailNotification` | **0**. Only handled types (`email.delivered`, `email.bounced`, `email.complained`, `email.suppressed`) are ever matched; `email.sent` and `suppression.added` are ignored by design. Of the 4 handled events, only the forum email's `email.delivered` had a row to link to: **n = 1** |
 | Sent→delivered latency, Resend side (`email.sent` → `email.delivered`, paired by Resend's email id) | 0.8 s, 0.9 s, 1.1 s: n = 3, p50 0.9 s, p90 ≈ 1.1 s |
 | `delivered_at − sent_at` on `EmailNotification` | **not computable**: no row is linked, so `delivered_at` is never set |
 
 What the numbers can't show:
 
-- **Linkage.** The forum email's `email.sent` and `email.delivered` events
-  arrived within 10 minutes of its send, yet neither linked to its row.
+- **Linkage.** The forum email's `email.delivered` event arrived within 10
+  minutes of its send, yet did not link to its row (its `email.sent` event is
+  never matched by design, and the other 3 emails have no `EmailNotification`
+  row). The evidence is that one event: n = 1.
   Hypothesis, not verified (the event's `data.message_id` is not stored, so what
   Resend sent back is unknown): Resend over SMTP does not echo our client-set
   Message-ID. Until that is fixed, outcomes are recorded per event and
@@ -285,6 +287,10 @@ What the numbers can't show:
   [todo 726](../../todos/726-pending-p3-resend-event-notification-linkage.md).
 - **Rates.** Four emails is far too few for a bounce or complaint rate; these
   are counts, not rates to set thresholds on.
+- **`suppression.added`.** Prod recorded one, but the code acts only on
+  `email.suppressed`, so this event is stored and ignored. The 1 suppressed
+  address came from the Permanent bounce. Whether Resend ever sends
+  `email.suppressed` is checked in todo 726.
 - **Latency.** n = 3 and Resend-side only: it measures Resend accepting the
   message to the receiving server accepting it, not our send call to delivery.
 
@@ -298,8 +304,9 @@ These need the owner. None of them can be settled from the repository.
 2. Done 2026-11-03 (todo 692): Resend's own open and click tracking was never set
    up for `houseplant-md.com` (no tracking subdomain), so there is nothing to
    turn off.
-3. **Events do not link to their email.** The 2026-11-21 read found 0 of 9
-   provider events linked to an `EmailNotification` (hypothesis, not verified:
+3. **Events do not link to their email.** The 2026-11-21 read found the one
+   eligible event (the forum email's `email.delivered`, n = 1) not linked to its
+   `EmailNotification` (hypothesis, not verified:
    Resend over SMTP does not echo our client-set Message-ID). Address-level
    suppression works either way. Per-email outcomes and `delivered_at − sent_at`
    wait on [todo 726](../../todos/726-pending-p3-resend-event-notification-linkage.md).

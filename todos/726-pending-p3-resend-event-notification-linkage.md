@@ -20,10 +20,14 @@ suppression is not affected. Re-homed from todo 692 on 2026-11-21.
 
 - Prod read 2026-11-21 (owner-approved, read-only, counts only; todo 692 Work
   Log): window 2026-11-03T20:52:57Z → 2026-11-22T01:57Z, 9 `EmailProviderEvent`
-  rows over 4 emails, **0 of 9 linked** to an `EmailNotification`. The one
+  rows over 4 emails, none linked to an `EmailNotification`. The one
   forum email in the window (forum_reply, 2026-11-04) carries our Message-ID
-  and no provider email id; its `email.sent` and `email.delivered` events
-  arrived within 10 minutes of the send but neither linked.
+  and no provider email id; its `email.delivered` event arrived within 10
+  minutes of the send but did not link. That is the only evidence (n = 1):
+  `email.sent` and `suppression.added` are not in `HANDLED_EVENTS`, so
+  `ingest()` ignores them before any matching, and the other 3 emails have no
+  `EmailNotification` row. Also check whether Resend sends `email.suppressed`
+  at all: prod recorded `suppression.added`, which the code does not act on.
 - Matching (`backend/apps/core/email_feedback.py`, the lookup around
   `normalize_message_id`) tries `data.message_id` against
   `EmailNotification.message_id`, then `data.email_id` against

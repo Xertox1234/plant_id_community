@@ -107,7 +107,7 @@ and 3 of this todo (0-based 0 and 2) are owner-confirmed.
 - `docs/operations/notification-baseline.md`: new section "Delivery outcomes
   (2026-11-21)" after "Initial baseline (2026-11-03)", with the window, event
   counts by type, delivered/bounced/complained (3 / 1 / 0), 1 suppressed
-  address, 0 of 9 events linked, and Resend-side sent→delivered latency
+  address, the one eligible event (n = 1) not linked, and Resend-side sent→delivered latency
   (n = 3, p50 0.9 s, p90 ≈ 1.1 s).
 - Same doc: the "Delivery latency" bullet, the Correlation bullet and "Still
   open" items 1–4 now say what is done and that `delivered_at − sent_at` waits
@@ -122,7 +122,8 @@ and 3 of this todo (0-based 0 and 2) are owner-confirmed.
 - AC 1: confirmed by the owner on 2026-11-21: "Owner confirmed (2026-11-21) on the approved counts-only prod read: RESEND_WEBHOOK_SECRET set and declared (#1259); 9 signed EmailProviderEvent rows recorded since 2026-11-03 20:52 UTC (4 email.sent, 3 email.delivered, 1 email.bounced Permanent, 1 suppression.added)" (`state.py confirm`; no command or evidence)
 - AC 3: confirmed by the owner on 2026-11-21: "Owner confirmed (2026-11-21) the gap is recorded: 0 of 9 events link to an EmailNotification; the one forum email (2026-11-04) had email.sent + email.delivered events within 10 min but neither linked, and the row has no provider_email_id. Hypothesis, not verified: Resend over SMTP does not echo our client-set Message-ID. Fix re-homed to new todo 726" (`state.py confirm`; no command or evidence)
 
-- Criterion 4 stays unticked only because its text says "re-pointed from todo 638", which the engine reads as a re-point. Its work IS done: the baseline doc's "Delivery outcomes (2026-11-21)" section records the counts and latency, and the owner confirmed it on 2026-11-21 ("Confirm all three").
+- Round-1 review (2026-11-21, non-blocking, fixed by hand): "0 of 9 linked" overstated the evidence, because `email.sent` and `suppression.added` are never matched by design. Reworded to n = 1 (the forum email's `email.delivered`) in the baseline doc, todo 726 and here, and noted that `suppression.added` is recorded but not acted on.
+- Criterion 4 stays unticked only because its text says "re-pointed from todo 638", which the engine reads as a re-point. The counts are recorded in the baseline doc's "Delivery outcomes (2026-11-21)" section, and the owner confirmed it on 2026-11-21 ("Confirm all three"). The latency there is a Resend-side substitute; the `delivered_at − sent_at` p50/p90 that criterion 4 names is not computable until events link, and moves to todo 726.
 
 ### 2026-11-21 - Completed by the todo sweep (run 2026-11-20-2202)
 
