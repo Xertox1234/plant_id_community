@@ -2118,5 +2118,21 @@
     "source": "codify: fix/todo-658-worker-pass-gap",
     "added": "2026-10-24",
     "severity": "warn"
+  },
+  {
+    "id": "forum-public-name-never-full-name",
+    "domains": [
+      "forum",
+      "security"
+    ],
+    "path_glob": [
+      "backend/packages/wagtail_forum/wagtail_forum/*.py"
+    ],
+    "content_present": "\\.get_full_name\\(",
+    "message": "A public forum name is forum_display_name(user) (forum display name, else username), never get_full_name(): sign-in copies the legal name into first_name (audit 2026-11-21 H1).",
+    "pattern_ref": "docs/rules/forum.md",
+    "source": "codify: audit/forum-backend-2026-11-21",
+    "added": "2026-11-21",
+    "severity": "warn"
   }
 ]

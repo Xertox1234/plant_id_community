@@ -196,21 +196,20 @@ def dispatch(event, **kwargs):
 
     def _build_payload(post):
         # actor_name feeds the FCM tray notification's body line (todo 253
-        # slice 6). This is HOST-app code, so the host User model's
-        # display_name property is the right source — the same naming policy
-        # the email channel already uses (send_forum_email reads
-        # post.author.display_name); the package-side host-agnostic rule
-        # (slice 4) applies to wagtail_forum code, not here.
+        # slice 6): the member's forum name (forum display name, else
+        # username), never the host User.display_name, which prefers the
+        # legal name sign-in copies into first_name (owner decision
+        # 2026-11-21, audit H1). The email channel uses the same rule.
         # actor_id is the host's send-time recheck input (todo 619,
         # eligibility.py): it is never sent to a device or a browser.
+        from wagtail_forum.api.serializers import forum_display_name
+
         author = getattr(post, "author", None)
         return {
             "topic_id": str(topic_id),
             "topic_title": topic.title if topic else "",
             "post_id": str(getattr(post, "id", "")),
-            "actor_name": (
-                getattr(author, "display_name", "") if author is not None else ""
-            ),
+            "actor_name": forum_display_name(author) if author is not None else "",
             "actor_id": str(author.pk) if author is not None else "",
         }
 
@@ -529,25 +528,30 @@ def dispatch(event, **kwargs):
             resolved_topic_id: int | None = obj.topic_id
         else:
             resolved_topic_id = getattr(obj, "id", None)
-        try:
-            send_forum_push.delay(
-                event,
-                author.pk,
-                {
-                    "topic_id": (
-                        str(resolved_topic_id) if resolved_topic_id is not None else ""
-                    ),
-                    "status": status,
-                    "obj_id": str(getattr(obj, "id", "")),
-                },
-            )
-        except Exception:
-            log_broker_failure(
-                logger,
-                "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
-                event,
-                author.pk,
-            )
+        decided_user_id = author.pk
+        decided_payload = {
+            "topic_id": (
+                str(resolved_topic_id) if resolved_topic_id is not None else ""
+            ),
+            "status": status,
+            "obj_id": str(getattr(obj, "id", "")),
+        }
+
+        def _enqueue_decided():
+            # After the commit, like every other branch (docs/rules/celery.md;
+            # audit 2026-11-21 L9): the decision can be fired inside an atomic
+            # block, and a push sent first makes the client refetch old state.
+            try:
+                send_forum_push.delay(event, decided_user_id, decided_payload)
+            except Exception:
+                log_broker_failure(
+                    logger,
+                    "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
+                    event,
+                    decided_user_id,
+                )
+
+        transaction.on_commit(_enqueue_decided)
 
     elif event == "answer_accepted":
         post = kwargs.get("post")
@@ -558,6 +562,7 @@ def dispatch(event, **kwargs):
             # tell. The topic's solved state still stands.
             return
 
+        from wagtail_forum.api.serializers import forum_display_name
         from wagtail_forum.models import NotificationVerb
         from wagtail_forum.notifications import create_notifications
 
@@ -566,9 +571,7 @@ def dispatch(event, **kwargs):
         # the answer, or the tray line reads "You accepted your answer".
         payload = {
             **_build_payload(post),
-            "actor_name": (
-                getattr(actor, "display_name", "") if actor is not None else ""
-            ),
+            "actor_name": forum_display_name(actor) if actor is not None else "",
             # The recheck's actor is the acceptor, too (todo 619).
             "actor_id": str(actor.pk) if actor is not None else "",
         }

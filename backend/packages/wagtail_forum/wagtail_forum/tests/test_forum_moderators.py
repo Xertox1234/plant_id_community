@@ -366,3 +366,24 @@ def test_a_delete_only_user_keeps_the_delete_view_and_the_full_listing(
     assert client.get(_url(in_other, "delete")).status_code == 200
     # Deleting is not editing.
     assert client.get(_url(in_other, "edit"), **XHR).status_code == 403
+
+
+def test_a_forum_moderator_bulk_unpublishes_in_their_forum_only(
+    client, forums, moderator
+):
+    """The bulk action asks the per-object policy for "publish" (audit
+    2026-11-21 L6), so a forum moderator may take down in bulk exactly what
+    they may take down one at a time: their own forum's posts, never
+    another forum's."""
+    mine, other = forums
+    _t1, in_mine = _topic(mine, "bulk-fronds")
+    _t2, in_other = _topic(other, "bulk-spines")
+    client.force_login(moderator)
+    url = reverse("wagtail_bulk_action", args=("wagtail_forum", "post", "unpublish"))
+
+    client.post(f"{url}?id={in_mine.pk}&id={in_other.pk}", data={})
+
+    in_mine.refresh_from_db()
+    in_other.refresh_from_db()
+    assert in_mine.live is False
+    assert in_other.live is True

@@ -81,10 +81,39 @@ def test_reply_added_enqueues_push_for_topic_author(django_capture_on_commit_cal
     # The recipient arg is now a BATCH list (todo 268): one enqueue for the
     # whole reply fan-out, not one .delay() per subscriber.
     assert call_args.args[1] == [topic_author.pk]
-    # actor_name feeds the FCM tray body line (todo 253 slice 6), resolved
-    # via the host User model's display_name — the same naming policy the
-    # email channel already uses.
-    assert call_args.args[2]["actor_name"] == replier.display_name
+    # actor_name feeds the FCM tray body line (todo 253 slice 6): the forum
+    # name, else the username (audit 2026-11-21 H1; see the test below).
+    assert call_args.args[2]["actor_name"] == "replier"
+
+
+@pytest.mark.django_db
+def test_reply_added_push_actor_name_is_the_forum_name_never_the_legal_name(
+    django_capture_on_commit_callbacks,
+):
+    """The tray line names the replier by forum display name, else username:
+    never the legal name sign-in copied into first_name (owner decision
+    2026-11-21, audit H1)."""
+    topic_author = User.objects.create_user(username="topicowner_n")
+    replier = User.objects.create_user(
+        username="member_rep00001", first_name="Ada", last_name="Lovelace"
+    )
+    board = make_forum(name="Names", slug="names")
+    topic = Topic.objects.create(
+        board=board, title="TN", slug="tn", author=topic_author
+    )
+    TopicSubscription.subscribe(topic_author, topic)
+
+    with (
+        patch("apps.forum_host.tasks.send_forum_push_batch.delay") as mock_delay,
+        patch("apps.forum_host.tasks.send_forum_email_batch.delay"),
+    ):
+        from apps.forum_host.notifications import dispatch
+
+        post = Post.objects.create(topic=topic, author=replier)
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("reply_added", topic=topic, post=post)
+
+    assert mock_delay.call_args.args[2]["actor_name"] == "member_rep00001"
 
 
 @pytest.mark.django_db
@@ -585,7 +614,9 @@ def test_reply_added_does_not_notify_for_self_reply(django_capture_on_commit_cal
 
 
 @pytest.mark.django_db
-def test_moderation_decided_enqueues_push_for_post_author():
+def test_moderation_decided_enqueues_push_for_post_author(
+    django_capture_on_commit_callbacks,
+):
     """moderation_decided must enqueue send_forum_push for the post's author."""
     author = User.objects.create_user(username="modauthor")
 
@@ -596,7 +627,9 @@ def test_moderation_decided_enqueues_push_for_post_author():
     with patch("apps.forum_host.tasks.send_forum_push.delay") as mock_delay:
         from apps.forum_host.notifications import dispatch
 
-        dispatch("moderation_decided", topic=topic, obj=post, status="published")
+        # Enqueued after the commit (audit 2026-11-21 L9).
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("moderation_decided", topic=topic, obj=post, status="published")
 
     mock_delay.assert_called_once()
     call_args = mock_delay.call_args
@@ -606,7 +639,9 @@ def test_moderation_decided_enqueues_push_for_post_author():
 
 
 @pytest.mark.django_db
-def test_moderation_decided_without_topic_kwarg_does_not_send_none_topic_id():
+def test_moderation_decided_without_topic_kwarg_does_not_send_none_topic_id(
+    django_capture_on_commit_callbacks,
+):
     """The real signal never passes `topic` (workflow.py calls notify(moderation_decided,
     sender=type(obj), obj=obj, status=status)) — topic_id must be derived from obj (todo 251).
     """
@@ -619,7 +654,8 @@ def test_moderation_decided_without_topic_kwarg_does_not_send_none_topic_id():
     with patch("apps.forum_host.tasks.send_forum_push.delay") as mock_delay:
         from apps.forum_host.notifications import dispatch
 
-        dispatch("moderation_decided", obj=post, status="published")
+        with django_capture_on_commit_callbacks(execute=True):
+            dispatch("moderation_decided", obj=post, status="published")
 
     mock_delay.assert_called_once()
     call_args = mock_delay.call_args
@@ -767,7 +803,9 @@ def test_reply_added_skips_push_when_notification_write_fails(
 
 
 @pytest.mark.django_db
-def test_moderation_decided_swallows_push_delay_failure(caplog):
+def test_moderation_decided_swallows_push_delay_failure(
+    caplog, django_capture_on_commit_callbacks
+):
     """A Celery/broker failure on enqueue must not propagate out of dispatch() (todo 252)."""
     author = User.objects.create_user(username="modauthor3")
 
@@ -781,10 +819,13 @@ def test_moderation_decided_swallows_push_delay_failure(caplog):
     ) as mock_delay:
         from apps.forum_host.notifications import dispatch
 
-        with caplog.at_level("ERROR", logger="forum_host.notifications"):
+        with (
+            caplog.at_level("ERROR", logger="forum_host.notifications"),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
             dispatch(
                 "moderation_decided", obj=post, status="published"
-            )  # must not raise
+            )  # must not raise, not even from the on_commit callback
 
     mock_delay.assert_called_once()
     assert "failed to enqueue push" in caplog.text
@@ -1120,3 +1161,29 @@ def test_reply_added_enqueue_count_is_constant_regardless_of_subscriber_count(
     # not lost.
     assert set(push_50.call_args.args[1]) == subscriber_pks_50
     assert set(email_50.call_args.args[1]) == subscriber_pks_50
+
+
+@pytest.mark.django_db
+def test_moderation_decided_push_waits_for_the_commit(
+    django_capture_on_commit_callbacks,
+):
+    """Enqueued through transaction.on_commit like every other branch
+    (docs/rules/celery.md): a push sent before the decision commits makes the
+    client refetch the old state (audit 2026-11-21 L9)."""
+    author = User.objects.create_user(username="decided")
+    board = make_forum(name="Decided", slug="decided")
+    topic = Topic.objects.create(board=board, title="TD", slug="td", author=author)
+    post = Post.objects.create(topic=topic, author=author)
+
+    from apps.forum_host.notifications import dispatch
+
+    with patch("apps.forum_host.tasks.send_forum_push.delay") as mock_delay:
+        with django_capture_on_commit_callbacks(execute=False) as callbacks:
+            dispatch("moderation_decided", obj=post, status="published")
+        mock_delay.assert_not_called()
+        for callback in callbacks:
+            callback()
+
+    mock_delay.assert_called_once()
+    assert mock_delay.call_args.args[0] == "moderation_decided"
+    assert mock_delay.call_args.args[1] == author.pk

@@ -5,7 +5,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.db.models import Count, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce
-from django.db.models.signals import post_delete, post_save, pre_delete
+from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import Signal, receiver
 from django.utils import timezone
 from wagtail.images import get_image_model_string
@@ -547,6 +547,56 @@ def update_counters_on_post_delete(sender, instance, **kwargs):
     if not instance.live or instance.topic_id in _deleting_map():
         return
     _refresh_for_post(instance)
+
+
+# A move made in the /cms/ editor (a Topic's board, a Post's topic) saves the
+# row through revision.publish(), whose receiver recounts only the
+# destination. Remember the row's old parent before the save and recount it
+# after, or the side it left keeps the moved counts (audit 2026-11-21 M2).
+# services.forum_structure.move_topics recounts both sides itself.
+_MOVE_FIELDS = {"wagtail_forum.Topic": "board_id", "wagtail_forum.Post": "topic_id"}
+
+
+def _remember_old_parent(sender, instance, update_fields=None, **kwargs):
+    field = _MOVE_FIELDS[sender._meta.label]
+    if instance.pk is None or (
+        update_fields is not None
+        and not {field, field.removesuffix("_id")} & set(update_fields)
+    ):
+        return
+    instance._wf_old_parent_id = (
+        sender._base_manager.filter(pk=instance.pk)
+        .values_list(field, flat=True)
+        .first()
+    )
+
+
+def _recount_the_parent_it_left(sender, instance, **kwargs):
+    old_id = instance.__dict__.pop("_wf_old_parent_id", None)
+    if old_id is None or old_id == getattr(instance, _MOVE_FIELDS[sender._meta.label]):
+        return
+    if sender._meta.label == "wagtail_forum.Topic":
+        _refresh_board_counters(old_id)
+        return
+    from .models import Topic
+
+    _refresh_topic_counters(old_id)
+    old_board_id = (
+        Topic.objects.filter(pk=old_id).values_list("board_id", flat=True).first()
+    )
+    if old_board_id is not None:
+        _refresh_board_counters(old_board_id)
+
+
+for _label in _MOVE_FIELDS:
+    pre_save.connect(
+        _remember_old_parent, sender=_label, dispatch_uid=f"wf_move_pre_{_label}"
+    )
+    post_save.connect(
+        _recount_the_parent_it_left,
+        sender=_label,
+        dispatch_uid=f"wf_move_post_{_label}",
+    )
 
 
 @receiver(

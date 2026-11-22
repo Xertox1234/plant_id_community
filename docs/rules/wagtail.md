@@ -315,3 +315,11 @@ Compact checklist auto-injected before edits. Long-form:
   `if not request.accepts("text/html"):`, the same test Wagtail's own
   `expects_json_response` uses. Without it, each autosave of a pending forum
   post re-ran the spam screen (todo 579 review, PR #1035).
+- **An editable FK that a denormalized counter keys on needs the old value
+  captured in `pre_save`.** The `published` receiver sees only the
+  destination, so moving a Topic's `board` or a Post's `topic` in the editor
+  left the side it left with stale counts. `revision.publish()` saves a copy
+  built from the revision, so read the stored value from the DB in `pre_save`
+  on the row being saved (skip on create and when `update_fields` omits the
+  field), recount it in `post_save` (`wagtail_forum/signals.py`, audit
+  2026-11-21 M2).

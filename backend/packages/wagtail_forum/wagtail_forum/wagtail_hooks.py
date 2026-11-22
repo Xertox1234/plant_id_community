@@ -12,7 +12,6 @@ from wagtail.admin.site_summary import SummaryItem
 from wagtail.permissions import register_permission_policy
 from wagtail.snippets.bulk_actions.snippet_bulk_action import SnippetBulkAction
 from wagtail.snippets.models import register_snippet
-from wagtail.snippets.permissions import get_permission_name
 from wagtail.snippets.views.chooser import (
     ChooseResultsView,
     ChooseView,
@@ -496,14 +495,13 @@ class ForumUnpublishBulkAction(SnippetBulkAction):
     classes = {"serious"}
 
     def check_perm(self, obj):
-        # Snippet permissions aren't per-object, so (like the built-in
-        # DeleteBulkAction) check once per model per request rather than once
-        # per selected row.
-        if getattr(self, "_can_change", None) is None:
-            self._can_change = self.request.user.has_perm(
-                get_permission_name("change", self.model)
-            )
-        return self._can_change
+        # What Wagtail's own unpublish asks (UnpublishAction's
+        # permission_policy_action is "publish"), through the model's policy
+        # like the built-in DeleteBulkAction: `change` alone let a user who
+        # may not publish take posts down in bulk (audit 2026-11-21 L6).
+        return self.permission_policy.user_has_permission_for_instance(
+            self.request.user, "publish", obj
+        )
 
     def get_execution_context(self):
         # SnippetBulkAction.get_execution_context() supplies {"self": self}

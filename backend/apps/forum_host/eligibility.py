@@ -154,24 +154,30 @@ def _unreadable_ids(users_by_pk, forum_id) -> set[int]:
     return set(users_by_pk) - readers
 
 
-def visible_posts(post_ids) -> dict:
-    """{post pk: post} for the posts in ``post_ids`` that ``visible_post``
-    would return, in one query."""
-    from wagtail_forum.api.views import _visible_boards
+def readable_posts(post_ids, users_by_pk) -> tuple[dict, dict]:
+    """The recheck's rule for many posts: ``({post pk: post}, {forum pk:
+    recipient pks who may not read it})``. A post counts when it is live on a
+    live topic, whoever may read its forum, and then each recipient's own
+    grants decide (``_live_post`` + ``_unreadable_ids``), never the guest
+    view: on a forum guests cannot read, the guest view hid every post from
+    the members who read it (audit 2026-11-21 M5). One query per distinct
+    forum, plus one."""
     from wagtail_forum.models import Post
 
     ids = [int(pk) for pk in post_ids]
     if not ids:
-        return {}
-    return {
+        return {}, {}
+    posts = {
         post.pk: post
         for post in Post.objects.filter(
-            pk__in=ids,
-            live=True,
-            topic__live=True,
-            topic__board__in=_visible_boards(),
+            pk__in=ids, live=True, topic__live=True
         ).select_related("topic__board", "author")
     }
+    unreadable = {
+        forum_id: _unreadable_ids(users_by_pk, forum_id)
+        for forum_id in {post.topic.board_id for post in posts.values()}
+    }
+    return posts, unreadable
 
 
 def blocked_recipient_ids(actor_id, recipient_ids) -> set[int]:

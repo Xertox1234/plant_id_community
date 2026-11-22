@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 
 import requests
 from apps.core.utils.pii_safe_logging import log_safe_user_context
+from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.db import IntegrityError, transaction
 
@@ -207,6 +208,10 @@ class NotificationService:
 
             return False
 
+        except SoftTimeLimitExceeded:
+            # The calling task's deadline, never a failed send (audit
+            # 2026-11-21 M3): swallowed, a batch ran on to the hard kill.
+            raise
         except Exception as e:
             logger.error(f"[PUSH] Unexpected error sending push notification: {e}")
             return False

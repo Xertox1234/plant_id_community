@@ -137,7 +137,18 @@ For **each** finding the user wants fixed:
 3. Run the targeted tests for the affected files; fix until they pass.
 4. **Verify** the fix landed — re-read/grep the changed code; run the specific
    test file(s).
-5. **kimi-review** the fix from the worktree root:
+5. **kimi-review** the fix from the worktree root — **unless the fix touches
+   authentication, permissions or visibility, input validation, privacy/PII,
+   secrets, migrations, or other security-sensitive logic.** The owner's
+   global rule (`~/.claude/CLAUDE.md`, "Cheap-Worker Scripts") keeps the cheap
+   workers off that code, absolute even inside a skill. For such a fix, run
+   the bundled `/security-review` or `/code-review` on its diff instead and
+   write "kimi skipped (security-class)" in the Verification column. The
+   commit's `kimi-review.sh` hook sends the WHOLE staged diff, so when it holds
+   such code ask the owner before committing with `SKIP_KIMI_REVIEW=1`
+   (2026-11-10 auth audit; 2026-11-21 forum audit, which missed this). Run
+   kimi with `timeout 900` and check its output is non-empty: a shorter
+   timeout killed one run silently.
 
    ```bash
    kimi-review --scope "[one-line fix description]" --profile plant_id --rules [domain]
@@ -216,7 +227,9 @@ Commit documentation separately: `docs: codify patterns and learnings from [scop
 - **Zero open findings at close** — everything verified, deferred (with todo), or
   false-positive.
 - **No documentation during the fix phase** — codify only in Phase 8.
-- **kimi-review is not optional** — every Phase 3 fix passes it before `verified`.
+- **kimi-review is not optional** — every Phase 3 fix passes it before `verified`,
+  except a security-class fix (Phase 3 step 5), which gets the bundled
+  security or code review instead.
 - **Deferred is not dropped** — every deferred item has a todo with priority and
   rationale.
 - **The changelog is append-only.**

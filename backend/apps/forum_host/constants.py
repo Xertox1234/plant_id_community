@@ -341,10 +341,18 @@ SUMMARY_PROMPT_VERSION = 1
 
 # Pending-generation lock: a cache.add() key (by content hash) that dedupes
 # concurrent enqueues, so a client polling during a slow generation enqueues at
-# most one task per thread state (bounds duplicate LLM spend). TTL >= the Celery
-# task time limit so a failed generation frees the lock for a later re-poll.
+# most one task per thread state (bounds duplicate LLM spend). The TTL covers
+# the task's worst case, every attempt running to the 120 s hard time limit
+# plus each backoff (3 x 120 + 10 + 20 = 390 s): a shorter lock let a poll
+# enqueue a second task while the first was still retrying (audit 2026-11-21
+# M4). It still expires, so a failed generation frees it for a later re-poll.
 SUMMARY_PENDING_LOCK_PREFIX = "forum_topic_summary_pending"
-SUMMARY_PENDING_LOCK_TTL = 120
+SUMMARY_PENDING_LOCK_TTL = 420
+
+# The summary task spends the SHARED hourly AI bucket (AIRateLimiter's
+# check_global_limit key, shared with the blog editor), through peek_budget +
+# consume_budget so only calls that reached the provider are billed (M4).
+SUMMARY_BUDGET_CACHE_KEY = "ai_rate_limit:global"
 
 # Celery retry policy for the summarization task (transient provider errors).
 SUMMARY_MAX_RETRIES = 2

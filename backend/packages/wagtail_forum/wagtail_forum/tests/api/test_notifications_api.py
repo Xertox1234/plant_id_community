@@ -466,3 +466,30 @@ def test_notification_list_null_actor_survives_recipient_having_blocks():
 
     assert resp.status_code == 200
     assert len(resp.data["results"]) == 1
+
+
+@pytest.mark.django_db
+def test_mark_read_refuses_an_oversized_ids_list_before_querying():
+    """Bounded before it is parsed (the _BoundedListField rule): one request
+    cannot build an arbitrarily large IN list (audit 2026-11-21 L16)."""
+    from wagtail_forum.api.notifications import MAX_MARK_READ_IDS
+
+    user = User.objects.create_user(username="markmany")
+    client = APIClient()
+    client.force_authenticate(user)
+
+    with CaptureQueriesContext(connection) as ctx:
+        too_many = client.post(
+            "/forum/notifications/mark-read/",
+            {"ids": list(range(MAX_MARK_READ_IDS + 1))},
+            format="json",
+        )
+    at_cap = client.post(
+        "/forum/notifications/mark-read/",
+        {"ids": list(range(MAX_MARK_READ_IDS))},
+        format="json",
+    )
+
+    assert too_many.status_code == 400
+    assert not any("notification" in q["sql"] for q in ctx.captured_queries)
+    assert at_cap.status_code == 200

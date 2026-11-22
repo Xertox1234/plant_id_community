@@ -27,6 +27,11 @@ from .serializers import NotificationMarkReadRequestSerializer, NotificationSeri
 from .versioning import UnversionedForumAPIMixin
 from .views import PrivateForumReadCacheMixin, _exclude_blocked_authors, _visible_boards
 
+# A mark-read names rows the client has loaded (one row on the web; a topic
+# group's unread rows on mobile, pages of 20-100), so this is far above real
+# use while still bounding the IN list one request can build (audit L16).
+MAX_MARK_READ_IDS = 500
+
 UNREAD_COUNT_SCHEMA = {
     "type": "object",
     "properties": {"count": {"type": "integer"}},
@@ -134,6 +139,14 @@ class NotificationMarkReadView(UnversionedForumAPIMixin, APIView):
         ids = request.data.get("ids")
         qs = Notification.objects.filter(recipient=request.user, read_at__isnull=True)
         if ids is not None:
+            if isinstance(ids, list) and len(ids) > MAX_MARK_READ_IDS:
+                # Bounded before the per-item check walks it.
+                raise ValidationError(
+                    {
+                        "ids": _("Mark at most %(n)d at a time.")
+                        % {"n": MAX_MARK_READ_IDS}
+                    }
+                )
             is_valid_ids = isinstance(ids, list) and all(
                 isinstance(i, int) and not isinstance(i, bool) for i in ids
             )

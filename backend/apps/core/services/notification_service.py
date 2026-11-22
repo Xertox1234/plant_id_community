@@ -11,6 +11,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_context
+from celery.exceptions import SoftTimeLimitExceeded
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
@@ -122,10 +123,11 @@ class NotificationService:
 
                 results[channel.value] = success
 
-            except Warning:
+            except (Warning, SoftTimeLimitExceeded):
                 # A RemovedInDjango70Warning is an error under pytest.ini (todo
                 # 364) and Warning subclasses Exception: never log it as a
-                # failed send (todos 454, 537).
+                # failed send (todos 454, 537). Nor the Celery soft time limit:
+                # the calling task decides what it means (audit 2026-11-21 M3).
                 raise
             except Exception as e:
                 logger.error(f"[NOTIFY] Failed to send notification via {channel}: {e}")
@@ -239,8 +241,8 @@ class NotificationService:
 
                 results[channel.value] = success
 
-            except Warning:
-                # As in send_notification (todos 454, 537).
+            except (Warning, SoftTimeLimitExceeded):
+                # As in send_notification (todos 454, 537; audit M3).
                 raise
             except Exception as e:
                 logger.error(

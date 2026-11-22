@@ -336,6 +336,32 @@ def test_deleted_topic_appears_in_sync_deleted_list():
 
 
 @pytest.mark.django_db
+def test_sync_tombstones_hide_hidden_forums_keep_deleted_ones_and_honour_board():
+    """A reader learns no ids from a forum they cannot see, still evicts a
+    topic whose forum was deleted (board_id is a plain int, no FK), and
+    ``?board=`` scopes the tombstones like the topics (audit 2026-11-21 L13)."""
+    from wagtail_forum.models.tombstones import TopicDeletedLog
+    from wagtail_forum.tests.factories import hide_forum
+
+    visible = make_forum(name="Open", slug="open")
+    other = make_forum(name="Other", slug="other")
+    hidden = make_forum(name="Hidden", slug="hidden")
+    hide_forum(hidden)
+    TopicDeletedLog.objects.create(topic_id=1, board_id=visible.pk)
+    TopicDeletedLog.objects.create(topic_id=2, board_id=other.pk)
+    TopicDeletedLog.objects.create(topic_id=3, board_id=hidden.pk)
+    TopicDeletedLog.objects.create(topic_id=4, board_id=987654)  # forum deleted
+    since = datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc).isoformat()
+
+    everything = APIClient().get("/forum/sync/", {"since": since})
+    one_board = APIClient().get("/forum/sync/", {"since": since, "board": "open"})
+
+    assert sorted(d["topic_id"] for d in everything.data["deleted"]) == [1, 2, 4]
+    # The deleted forum's tombstone (4) is kept under ?board= too.
+    assert sorted(d["topic_id"] for d in one_board.data["deleted"]) == [1, 4]
+
+
+@pytest.mark.django_db
 def test_full_resync_without_since_returns_empty_deleted():
     """A full resync (no `since`) always returns deleted=[] regardless of
     how many tombstones exist — clients rebuild from the topics list."""

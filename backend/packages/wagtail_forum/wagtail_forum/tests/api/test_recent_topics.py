@@ -809,6 +809,39 @@ def test_recent_topics_link_preview_never_serves_an_uncached_image():
 
 
 @pytest.mark.django_db
+def test_recent_topics_unusable_stored_card_url_is_skipped_not_500():
+    """A card whose stored URL fails ``is_card_url`` (a CMS edit or an import
+    writes blocks directly: here, credentials in the URL) has no envelope.
+    The listing skips it instead of failing for every reader (audit
+    2026-11-21 M1)."""
+    board = _board()
+    author = User.objects.create_user(username="ada")
+    topic = _plain_topic(board, author, "bad-card", timezone.now())
+    Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[
+            {
+                "type": "link_preview",
+                "value": {
+                    "url": "https://u:pw@example.com/p",  # pragma: allowlist secret
+                    "image": _PREVIEW_NAME,
+                },
+            },
+        ],
+    )
+
+    resp = APIClient().get("/forum/topics/recent/")
+
+    assert resp.status_code == 200
+    row = resp.data["results"][0]
+    assert row["id"] == topic.id
+    assert row["image_url"] is None
+
+
+@pytest.mark.django_db
 def test_recent_topics_uploaded_image_beats_link_preview():
     board = _board()
     author = User.objects.create_user(username="ada")

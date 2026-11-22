@@ -281,6 +281,12 @@ one session pinned nothing)
 - A network-reaching host hook enabled in settings without `not
   _IS_TEST_RUN` (tests would reach the network).
 
+- [ ] **Legal names in public payloads.** `rg -n "get_full_name\(|first_name|last_name|\.display_name" <changed serializers/views>`:
+      a member's name reaching an anonymous or other-user payload must be the
+      forum display name or username (`forum_display_name`), never
+      `get_full_name()` or the host `User.display_name` (owner decision
+      2026-11-21, audit H1; blog comments still open, todo 731).
+
 ## Output Format (Review Mode)
 
 Return ONLY this JSON structure (no surrounding prose, no markdown fences in the actual response — the example fences below show the schema):

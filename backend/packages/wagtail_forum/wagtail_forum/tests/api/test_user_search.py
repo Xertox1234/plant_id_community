@@ -40,6 +40,32 @@ def test_search_response_excludes_email():
 
 
 @pytest.mark.django_db
+def test_search_display_name_is_the_forum_name_never_the_legal_name():
+    """Forum display name, else username: never get_full_name() (owner
+    decision 2026-11-21, audit H1/M6)."""
+    from wagtail_forum.models import ForumProfile
+
+    User.objects.create_user(username="dana", first_name="Dana", last_name="Real")
+    fern = User.objects.create_user(
+        username="danb", first_name="Dana", last_name="Other"
+    )
+    profile = ForumProfile.for_user(fern)
+    profile.display_name = "Fern"
+    profile.save(update_fields=["display_name"])
+    requester = User.objects.create_user(username="requester_names")
+
+    client = APIClient()
+    client.force_authenticate(requester)
+    resp = client.get("/forum/users/search/?q=dan")
+
+    assert resp.status_code == 200
+    assert {row["username"]: row["display_name"] for row in resp.data} == {
+        "dana": "dana",
+        "danb": "Fern",
+    }
+
+
+@pytest.mark.django_db
 def test_search_requires_auth():
     resp = APIClient().get("/forum/users/search/?q=a")
     assert resp.status_code == 401
