@@ -54,18 +54,6 @@ updates:
       # not install). Remove when a Wagtail release lifts the cap.
       - dependency-name: "django-treebeard"
         versions: [">=6"]
-      # django-ai-core 0.1.6 requires any-llm-sdk>=1.23, a move tracked in
-      # todo 711; it broke the whole minor/patch group (#1322). Remove this
-      # entry in the PR that takes any-llm-sdk 1.x.
-      - dependency-name: "django-ai-core"
-        versions: [">=0.1.6"]
-      # llm (wagtail-ai's backend) needs sqlite-utils 4 from 0.32 and
-      # openai>3 from 0.33; sqlite-migrate 0.2 needs sqlite-utils 4 too.
-      # Same move as above (todo 711).
-      - dependency-name: "llm"
-        versions: [">=0.32"]
-      - dependency-name: "sqlite-migrate"
-        versions: [">=0.2"]
     groups:
       backend-minor-patch:
         patterns: ["*"]
@@ -93,7 +81,7 @@ updates:
         update-types: ["version-update:semver-major"]
       # TypeScript 7 cannot install: typescript-eslint (8.72.2, and its
       # canary) requires typescript <6.1.0, so #1330 failed `npm ci`. Remove
-      # this entry when typescript-eslint accepts 7 (todo 712).
+      # this entry when typescript-eslint accepts 7 (todo 722).
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
     groups:

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "712"
 tags: [web, dependencies, dependabot, upgrade]
@@ -63,9 +63,9 @@ One PR per row, in this order:
 
 - [ ] Each of the five rows is bumped in a merged PR or declined on its
       Dependabot PR, with the PR number and reason in the Work Log. → todo 722 (re-pointed 2026-11-21)
-- [ ] `npm run type-check`, `npm run lint`, `npx vitest run` and
+- [x] `npm run type-check`, `npm run lint`, `npx vitest run` and
       `npm run build` pass on each PR.
-- [ ] Playwright suite passes after the TypeScript and Vitest PRs.
+- [x] Playwright suite passes after the TypeScript and Vitest PRs.
 - [ ] After Sentry 11: one test event from the deployed site appears in Sentry
       (date and event id recorded here). → todo 722 (re-pointed 2026-11-21)
 
@@ -104,3 +104,29 @@ One PR per row, in this order:
   that entry then.
 - jsdom 31: no Dependabot PR yet.
 - Playwright suite not run after the Vitest PR.
+
+### 2026-11-21 - Implemented by the todo sweep (run 2026-11-20-2202)
+
+- jsdom 30.1.3 -> 31.0.1 (`web/package.json`, `web/package-lock.json`); only jsdom's own subtree changed in the lock. jsdom 31 asks Node `^22.22.2 || ^24.15.0 || >=26`; `.nvmrc` is 24.
+- `npm run type-check`, `npm run lint`, `npx vitest run` (145 files, 2204 tests) and `npm run build` pass with it; no config or test change was needed.
+- The TypeScript 7 hold comment in `.github/dependabot.yml` now names todo 722, where that criterion moved.
+
+### 2026-11-21 - Verified by the todo sweep (run 2026-11-20-2202)
+
+- AC 2: `cd web && npm run type-check && npm run lint && npx vitest run && npm run build` — evidence `.sweep-evidence/g4/712-ac1.txt` (not committed), last lines:
+
+  ```text
+  dist/assets/LegalDocumentPage-Chc_KGZE.js         103.79 kB │ gzip:  35.01 kB
+  dist/assets/vendor-1smKqyG9.js                    251.42 kB │ gzip:  79.84 kB
+  dist/assets/TipTapEditor-G7yjD2JR.js              466.56 kB │ gzip: 148.49 kB
+
+  ✓ built in 1.73s
+  ```
+
+### 2026-11-21 - Confirmed by the owner, ticked by the todo sweep (run 2026-11-20-2202)
+
+- AC 3: confirmed by the owner on 2026-11-21: "Owner chose 'Confirm; file the main failure': at the owner's request Claude ran the full Playwright suite on the g2 tree (jsdom 31, Vitest 5): 235 passed, 3 failed, 7 skipped. forum-responsive re-run alone: 50/50 passed (load timeout). The forum-authenticated write-lifecycle test fails identically on origin/main 5ce82c65 (chromium-authenticated and firefox-authenticated), so it predates this change; filed as todo 725 (2026-11-21)" (`state.py confirm`; no command or evidence)
+
+### 2026-11-21 - Completed by the todo sweep (run 2026-11-20-2202)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
