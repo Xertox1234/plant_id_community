@@ -349,10 +349,14 @@ SUMMARY_PROMPT_VERSION = 1
 SUMMARY_PENDING_LOCK_PREFIX = "forum_topic_summary_pending"
 SUMMARY_PENDING_LOCK_TTL = 420
 
-# The summary task spends the SHARED hourly AI bucket (AIRateLimiter's
-# check_global_limit key, shared with the blog editor), through peek_budget +
-# consume_budget so only calls that reached the provider are billed (M4).
-SUMMARY_BUDGET_CACHE_KEY = "ai_rate_limit:global"
+# Budget counter, SEPARATE from the blog editor's `ai_rate_limit:global`
+# (owner decision 2026-11-22, audit 2026-11-21 R3): sharing it let summary
+# polls starve the blog editor. Spent through peek_budget + consume_budget so
+# only calls that reached the provider are billed (M4). The limit keeps the
+# 100/hr summaries had under the shared key, so the aggregate hourly ceiling
+# rises by that much: the blog editor gets its full 100 back.
+SUMMARY_BUDGET_CACHE_KEY = "ai_rate_limit:forum_summary"
+SUMMARY_BUDGET_LIMIT = 100
 
 # Celery retry policy for the summarization task (transient provider errors).
 SUMMARY_MAX_RETRIES = 2

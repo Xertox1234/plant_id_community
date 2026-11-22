@@ -33,7 +33,7 @@ All paths are under `backend/`. Source: `docs/audits/2026-11-21-forum-backend.md
 3. L15: key the anonymous dedup on the same resolver as `apps.core.ratelimit.client_ip_key`, exposed through a host hook so the package stays host-agnostic.
 4. L17: write the pointer with a conditional `Topic.objects.filter(pk=…, posts__pk=post.pk, posts__live=True).update(...)`.
 5. L18: compute `unread_count` with a correlated subquery on the paginated slice.
-6. L19: ask the owner whether counts are allowed to be public. If not, zero them for locked rows and sum only unlocked rows.
+6. L19: the owner decided counts may not be public (2026-11-22). Zero `topic_count`/`post_count` on a locked row the reader has not unlocked, and sum only the rows the reader can see in the category totals.
 
 ## Acceptance Criteria
 
@@ -49,3 +49,7 @@ All paths are under `backend/`. Source: `docs/audits/2026-11-21-forum-backend.md
 ### 2026-11-21 - Filed from the forum backend audit
 
 - Deferred from `docs/audits/2026-11-21-forum-backend.md` L2, L14, L15, L17, L18 and L19.
+
+### 2026-11-22 - Owner decision on L19
+
+- Asked whether a password-locked forum's topic and post counts may be public, the owner answered "No". The counts are hidden like the forum's contents.

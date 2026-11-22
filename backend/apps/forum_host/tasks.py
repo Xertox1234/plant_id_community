@@ -1476,12 +1476,12 @@ def generate_topic_summary(self, topic_id: int) -> None:
 
     # Peek, then charge only a call that returned (audit 2026-11-21 M4):
     # check_global_limit billed every attempt, so a retried outage spent three
-    # slots of the bucket the blog editor shares for no summary.
+    # budget slots for no summary.
     if not AIRateLimiter.peek_budget(
-        constants.SUMMARY_BUDGET_CACHE_KEY, AIRateLimiter.GLOBAL_LIMIT
+        constants.SUMMARY_BUDGET_CACHE_KEY, constants.SUMMARY_BUDGET_LIMIT
     ):
         logger.info(
-            "[PERF] topic summary skipped for %s: global AI budget exhausted",
+            "[PERF] topic summary skipped for %s: summary AI budget exhausted",
             topic_id,
         )
         # A terminal exit frees the pending lock, so the long worst-case TTL
@@ -1506,7 +1506,7 @@ def generate_topic_summary(self, topic_id: int) -> None:
     # Charged before the emptiness check: an empty completion still reached
     # the provider and was billed (the compose-assist rule).
     AIRateLimiter.consume_budget(
-        constants.SUMMARY_BUDGET_CACHE_KEY, AIRateLimiter.GLOBAL_LIMIT
+        constants.SUMMARY_BUDGET_CACHE_KEY, constants.SUMMARY_BUDGET_LIMIT
     )
 
     if not summary or not summary.strip():

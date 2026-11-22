@@ -29,7 +29,7 @@ name.
 
 ## Recommended Action
 
-1. Owner decision: should blog commenters follow the forum rule (chosen name, else username, never the legal name)? The recommendation is yes, for consistency with H1.
+1. Owner decision 2026-11-22: blog commenters follow the forum rule (chosen name, else username, never the legal name).
 2. Give comment authors a public author serializer with no `first_name`/`last_name`, and a `display_name` that follows that rule. Keep the full `UserSerializer` for the user's own profile endpoints.
 3. Grep every other public use of `UserSerializer` and `User.display_name` (blog post list/detail, any follower or following lists), and apply the same rule where the person is a member rather than staff.
 
@@ -43,3 +43,7 @@ name.
 ### 2026-11-21 - Filed from the forum backend audit
 
 - Found while confirming the reach of `docs/audits/2026-11-21-forum-backend.md` H1. P2: real names reach anonymous readers, but the app is not live and has one real user.
+
+### 2026-11-22 - Owner decision
+
+- Offered the forum rule for blog commenters, the owner answered "Forum rule". Blog post bylines (CMS staff) were not part of that question and are still open: the second acceptance criterion stands.
