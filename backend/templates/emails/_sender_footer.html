@@ -1,0 +1,1 @@
+{% if email_sender_name or email_sender_address %}<p style="margin: 8px 0 0 0; font-size: 12px; color: #6c757d;">{% if email_sender_name %}{{ email_sender_name }}{% endif %}{% if email_sender_name and email_sender_address %}<br>{% endif %}{% if email_sender_address %}{{ email_sender_address|linebreaksbr }}{% endif %}</p>{% endif %}

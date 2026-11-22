@@ -5,8 +5,14 @@
  * A successful request only means a confirmation email MAY have been sent:
  * the backend answers the same for every address (so nobody can learn who is
  * subscribed), and the subscription starts when the emailed link is used.
+ *
+ * The form says who is asking, how to reach them, and that the reader can
+ * unsubscribe: CASL s. 10(1) wants all three when consent is asked for
+ * (todo 703). The contact is the Privacy Policy's, so it is filled in once,
+ * there, when the operator's details are published.
  */
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import {
@@ -70,6 +76,14 @@ export default function NewsletterSignup({ idPrefix }: NewsletterSignupProps) {
         <form onSubmit={submit} noValidate className="flex flex-col gap-3">
           <p className="text-body-sm text-ink-2">
             New posts from the blog, once a week. No more than that.
+          </p>
+          <p className="text-body-sm text-ink-2">
+            Sent by Houseplant MD. Every email has an unsubscribe link, so you can stop at any time.
+            Questions? Our{' '}
+            <Link to="/privacy" className="font-semibold text-ink underline">
+              Privacy Policy
+            </Link>{' '}
+            says how to contact us.
           </p>
           <Input
             type="email"

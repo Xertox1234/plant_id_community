@@ -1,4 +1,4 @@
-{% autoescape off %}{{ site_name }} - New Reply in Forum
+{% load email_sender %}{% autoescape off %}{{ site_name }} - New Reply in Forum
 
 {% if reply_count > 1 %}{{ reply_count }} new replies on a topic you're following. The latest, from {{ author_name }}:{% else %}{{ author_name }} replied to a topic you're following:{% endif %}
 
@@ -12,4 +12,4 @@ View topic to unfollow: {{ topic_url }}
 ---
 Manage forum notifications: {{ preferences_url }}
 {% if unsubscribe_url %}Unsubscribe: {{ unsubscribe_url }}
-{% endif %}{% endautoescape %}
+{% endif %}{% email_sender_footer_text %}{% endautoescape %}

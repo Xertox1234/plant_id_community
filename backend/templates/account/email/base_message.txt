@@ -1,0 +1,7 @@
+{% comment %}Host shadow of allauth's account/email/base_message.txt (django-allauth 65.21.1), the base of every allauth text email, with the sender footer added (todo 703). Keep the rest in step with allauth's copy when upgrading.{% endcomment %}{% load i18n email_sender %}{% autoescape off %}{% blocktrans with site_name=current_site.name %}Hello from {{ site_name }}!{% endblocktrans %}
+
+{% block content %}{% endblock content %}
+
+{% blocktrans with site_name=current_site.name site_domain=current_site.domain %}Thank you for using {{ site_name }}!
+{{ site_domain }}{% endblocktrans %}
+{% email_sender_footer_text %}{% endautoescape %}

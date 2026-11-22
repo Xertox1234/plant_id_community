@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { UnsubscribeError, checkUnsubscribe, confirmUnsubscribe } from './unsubscribeService';
+import {
+  UnsubscribeError,
+  checkUnsubscribe,
+  confirmUnsubscribe,
+  stopAllOptionalEmail,
+} from './unsubscribeService';
 
 function jsonResponse(body: unknown, status = 200) {
   return { ok: status < 400, status, json: () => Promise.resolve(body) } as Response;
@@ -41,6 +46,17 @@ describe('unsubscribeService', () => {
 
     await expect(confirmUnsubscribe('tok')).resolves.toMatchObject({ subscribed: false });
     expect(fetchMock.mock.calls[0][0]).toMatch(/\/api\/v1\/auth\/unsubscribe\/$/);
+  });
+
+  it('stops all optional email at /api/v1/auth/unsubscribe/all/, without cookies', async () => {
+    const all = { list: 'all_optional', label: 'All optional email', subscribed: false };
+    fetchMock.mockResolvedValue(jsonResponse(all));
+
+    await expect(stopAllOptionalEmail('tok')).resolves.toEqual(all);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/api\/v1\/auth\/unsubscribe\/all\/$/);
+    expect(init.credentials).toBe('omit');
+    expect(JSON.parse(init.body)).toEqual({ token: 'tok' });
   });
 
   it('maps the backend codes for a forged and an expired link', async () => {

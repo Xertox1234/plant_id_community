@@ -1,4 +1,4 @@
-{% autoescape off %}Someone asked to delete the {{ site_name }} account for this email address.
+{% load email_sender %}{% autoescape off %}Someone asked to delete the {{ site_name }} account for this email address.
 
 To confirm, open this link. It deletes the account and everything listed in our Privacy Policy, and it can't be undone:
 
@@ -10,4 +10,4 @@ If you didn't ask for this, ignore this email. Your account stays as it is.
 
 ---
 {{ site_name }}: this is a security message about your account. It is sent whatever your email preferences are.
-{% endautoescape %}
+{% email_sender_footer_text %}{% endautoescape %}

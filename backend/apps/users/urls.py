@@ -121,6 +121,12 @@ urlpatterns = [
         email_preferences_views.email_unsubscribe,
         name="email_unsubscribe",
     ),
+    # Stop all optional email with any list's link (todo 703).
+    path(
+        "unsubscribe/all/",
+        email_preferences_views.email_unsubscribe_all,
+        name="email_unsubscribe_all",
+    ),
     # RFC 8058 one-click (todo 416): the List-Unsubscribe header's URL.
     path(
         "unsubscribe/one-click/",

@@ -1,4 +1,4 @@
-{% autoescape off %}Someone created the {{ site_name }} account "{{ account }}" with this email address.
+{% load email_sender %}{% autoescape off %}Someone created the {{ site_name }} account "{{ account }}" with this email address.
 
 If that was you, sign in as "{{ account }}" and open this link to confirm the address:
 
@@ -10,4 +10,4 @@ If it wasn't you, don't open the link. Nobody can use this address to sign in wi
 
 ---
 {{ site_name }}: this is a security message about your account. It is sent whatever your email preferences are.
-{% endautoescape %}
+{% email_sender_footer_text %}{% endautoescape %}
