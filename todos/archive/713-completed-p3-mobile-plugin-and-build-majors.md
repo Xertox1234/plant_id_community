@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "713"
 tags: [mobile, flutter, firebase, android, dependencies, dependabot, upgrade]
@@ -82,13 +82,13 @@ Source: `flutter pub outdated` in `plant_community_mobile/` on Flutter 3.47.9,
 
 ## Acceptance Criteria
 
-- [ ] Each row in the table is bumped in a merged PR or declined on its
+- [x] Each row in the table is bumped in a merged PR or declined on its
       Dependabot PR, with the PR number and reason in the Work Log.
-- [ ] Gradle 9 / AGP 9 is taken (and the two `ignore` entries removed) or the
+- [x] Gradle 9 / AGP 9 is taken (and the two `ignore` entries removed) or the
       deferral is re-recorded here with its date and reason.
-- [ ] `flutter analyze` and `flutter test` pass; iOS and Android release
+- [x] `flutter analyze` and `flutter test` pass; iOS and Android release
       builds succeed.
-- [ ] Device check on iPhone and Android with date and build number recorded:
+- [x] Device check on iPhone and Android with date and build number recorded:
       sign-in, a scan, a push received, a reminder fired, a deep link opened,
       and a user signed in before the upgrade is still signed in after it.
 
@@ -157,6 +157,67 @@ Two fresh-context reviewers (correctness, Flutter checklist); no blocking findin
 - **Declined.** `flutter_local_notifications` has no Dart call site in `lib/` (native registration only). Dropping it would also drop the compileSdk 37 need, but removing a dependency is out of scope for a version-bump PR; worth a look on its own.
 - **Declined.** `compileSdk = 37` is hardcoded (commented with its revert condition), and `android.builtInKotlin=false` / `android.newDsl=false` are AGP 9 transitional opt-outs removed in AGP 10. Both are a deferred migration for the next AGP major, not a defect now.
 
+### 2026-11-22 - Implemented by the todo sweep (run 2026-11-22-1957)
+
+- No code change: every row is already on main. Row by row, with its merged PR: firebase_core 5.1.0, firebase_auth 7.0.1, cloud_firestore 7.1.0 and firebase_messaging 17.0.1 in #1331 (the Firebase group); flutter_secure_storage 11.2.0 in #1314; permission_handler 13.0.2 in #1332; cupertino_icons 2.0.0 in #1315; go_router 18.1.4, flutter_local_notifications 23.0.2, cached_network_image 4.0.7 and lucide_icons_flutter 4.0.3 in #1359. None was declined. `pubspec.lock` on main resolves each to its Latest column.
+- Gradle 9 / AGP 9 taken in #1359: Gradle 9.3.1 wrapper, AGP 9.1.1, Kotlin 2.4.21; the gradle entry in `.github/dependabot.yml` has no `ignore` entries left.
+- Re-ran `flutter analyze`, `flutter test`, `flutter build appbundle --release` (signed) and `flutter build ios --release --no-codesign` on Flutter 3.47.9 from this branch; build output went to the external drive.
+- Device check: the owner checked build 28 (TestFlight 28 and Android versionCode 28) on iPhone and Android and answered "Done" on 2026-11-22.
+
+### 2026-11-22 - Verified by the todo sweep (run 2026-11-22-1957)
+
+- AC 1: `bash -c 'W=.; for p in firebase_core firebase_auth cloud_firestore firebase_messaging go_router flutter_local_notifications flutter_secure_storage cached_network_image permission_handler lucide_icons_flutter cupertino_icons; do awk -v p="  $p:" "\$0==p{f=1;next} f&&/version:/{print p, \$2; exit}" $W/plant_community_mobile/pubspec.lock; done; /usr/bin/git -C $W log origin/main --oneline -E --grep="#(1331|1314|1332|1315|1359)\)"; grep -n -E "#(1331|1314|1332|1315|1359)" $W/todos/713-pending-p3-mobile-plugin-and-build-majors.md'` — evidence `.sweep-evidence/g3/713-ac0.txt` (not committed), last lines:
+
+  ```text
+  139:  is 2.2.0"). #1319 brings Kotlin 2.4.21. Merge #1319, then rebase #1331.
+  145:- Rows already merged on main: Firebase set #1331, flutter_secure_storage #1314, permission_handler #1332, cupertino_icons #1315 (AGP 8.13.2 / Kotlin 2.4.21 came in #1319). This PR bumps the other four, as the owner decided on 2026-11-17: go_router 18.1.4, flutter_local_notifications 23.0.2, cached_network_image 4.0.7, lucide_icons_flutter 4.0.3. Nothing else moved in `pubspec.lock` except their own transitive packages (octo_image 2.1.5 among them).
+  151:### 2026-11-17 - Review round 1: non-blocking findings (PR #1359, hand-landed)
+  162:- No code change: every row is already on main. Row by row, with its merged PR: firebase_core 5.1.0, firebase_auth 7.0.1, cloud_firestore 7.1.0 and firebase_messaging 17.0.1 in #1331 (the Firebase group); flutter_secure_storage 11.2.0 in #1314; permission_handler 13.0.2 in #1332; cupertino_icons 2.0.0 in #1315; go_router 18.1.4, flutter_local_notifications 23.0.2, cached_network_image 4.0.7 and lucide_icons_flutter 4.0.3 in #1359. None was declined. `pubspec.lock` on main resolves each to its Latest column.
+  163:- Gradle 9 / AGP 9 taken in #1359: Gradle 9.3.1 wrapper, AGP 9.1.1, Kotlin 2.4.21; the gradle entry in `.github/dependabot.yml` has no `ignore` entries left.
+  ```
+
+- AC 2: `bash -c 'W=.; grep -n distributionUrl $W/plant_community_mobile/android/gradle/wrapper/gradle-wrapper.properties; grep -n -E "com.android.application|kotlin.android" $W/plant_community_mobile/android/settings.gradle.kts; echo "--- gradle entry in dependabot.yml:"; awk "/package-ecosystem: \"gradle\"/{f=1} f&&/package-ecosystem: \"github-actions\"/{exit} f" $W/.github/dependabot.yml; echo "ignore entries in gradle block: $(awk "/package-ecosystem: \"gradle\"/{f=1} f&&/package-ecosystem: \"github-actions\"/{exit} f" $W/.github/dependabot.yml | grep -c ignore)"'` — evidence `.sweep-evidence/g3/713-ac1.txt` (not committed), last lines:
+
+  ```text
+          patterns: ["*"]
+          update-types: ["minor", "patch"]
+
+    # Workflow actions: one PR for all of them, majors included.
+  ignore entries in gradle block: 0
+  ```
+
+- AC 3: `bash -c 'cd plant_community_mobile && export TMPDIR=/Volumes/U34Bolt/plant_id_community/tmp && flutter analyze && flutter test && flutter build appbundle --release && flutter build ios --release --no-codesign && echo AC2_ALL_PASSED'` — evidence `.sweep-evidence/g3/713-ac2.txt` (not committed), last lines:
+
+  ```text
+  Running pod install...                                             18.3s
+  Running Xcode build...
+  Xcode build done.                                           319.4s
+  ✓ Built build/ios/iphoneos/Runner.app (62.0MB)
+  AC2_ALL_PASSED
+  ```
+
+### 2026-11-22 - Confirmed by the owner, ticked by the todo sweep (run 2026-11-22-1957)
+
+- AC 4: confirmed by the owner on 2026-11-22: "Device check done (owner answered 'Done' on 2026-11-22; build 28: TestFlight 28 and Android versionCode 28)" (`state.py confirm`; no command or evidence)
+
+### 2026-11-22 - Completed by the todo sweep (run 2026-11-22-1957)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
 ## Notes
 
 Needs the owner's phones, so a sweep will stop at the device check.
+
+### 2026-11-22 - Review round 1: non-blocking findings
+
+- **Declined: the AC 1 evidence command greps the pre-archive path (low).** The command quoted
+  above names `todos/713-pending-…`, which this PR archives, so re-running it verbatim greps a
+  missing file. The evidence it recorded was checked by the verifier before the move, and the
+  reviewer confirmed every value (11 lockfile versions, Gradle 9.3.1, AGP 9.1.1, Kotlin 2.4.21,
+  the 5 PR commits, 0 gradle ignore entries). Rewriting a recorded command after the fact would
+  falsify the evidence, so it stays as run.
+
+### 2026-11-22 - Review round 2: non-blocking findings
+
+- **Declined: the round-1 entry sits under `## Notes`, and the AC labels are 0-indexed in the
+  evidence (low).** Placement and labels only. Every value was re-checked on the branch.
