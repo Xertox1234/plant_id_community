@@ -1,0 +1,1 @@
+{% comment %}Host shadow of the package slot (todo 703): the digest's text part names the sender.{% endcomment %}{% load email_sender %}{% email_sender_footer_text %}

@@ -31,7 +31,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from .constants import RATE_LIMIT_EMAIL_UNSUBSCRIBE
-from .email_unsubscribe import LISTS, UnsubscribeTokenInvalid, read_token
+from .email_unsubscribe import (
+    ALL_OPTIONAL,
+    LISTS,
+    UnsubscribeTokenInvalid,
+    read_token,
+    stop_all_optional_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +151,31 @@ def email_unsubscribe(request: Request) -> Response:
         f"[EMAIL] {log_safe_user_context(user)} unsubscribed from {list_id} via email link"
     )
     return Response(_list_state(user, list_id))
+
+
+@_UNSUBSCRIBE_SCHEMA
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([permissions.AllowAny])
+@ratelimit(
+    key=client_ip_key, rate=RATE_LIMIT_EMAIL_UNSUBSCRIBE, method="POST", block=True
+)
+def email_unsubscribe_all(request: Request) -> Response:
+    """Stop all optional email to the token's user, whichever list the link
+    names (todo 703: one step, signed out). Idempotent.
+
+    Same credential model as ``email_unsubscribe``: the signed token is the
+    only credential. Answers with the ``all_optional`` list's state.
+    """
+    try:
+        user, _list_id = read_token(_body_token(request))
+    except UnsubscribeTokenInvalid as exc:
+        return _token_error(exc)
+    stop_all_optional_email(user)
+    logger.info(
+        f"[EMAIL] {log_safe_user_context(user)} stopped all optional email via email link"
+    )
+    return Response(_list_state(user, ALL_OPTIONAL))
 
 
 _ONE_CLICK_TOKEN = OpenApiParameter("token", str, OpenApiParameter.QUERY, required=True)

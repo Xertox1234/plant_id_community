@@ -736,9 +736,16 @@ class EmailService:
         Returns:
             bool: True if email was sent successfully
         """
+        from apps.users.email_unsubscribe import ALL_OPTIONAL, unsubscribe_url
+
         context = {
             "user": user,
             "user_first_name": user.first_name or user.username,
+            # It promotes features, so it carries a signed-out way to stop
+            # all optional email, not only the sign-in-gated Settings link
+            # (todo 703). Passed here, not through UNSUBSCRIBE_LISTS: the
+            # welcome is sent as ACCOUNT_VERIFICATION, which has no list.
+            "unsubscribe_url": unsubscribe_url(user, ALL_OPTIONAL),
         }
 
         return self.send_email(

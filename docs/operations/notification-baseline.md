@@ -108,6 +108,25 @@ Events acted on: `email.delivered`, `email.bounced`, `email.complained`,
   whose address hard-bounced cannot recover the account by email alone. A complaint
   never blocks account mail.
 
+## Sender identity and stopping all optional email
+
+Todo 703 (CASL s. 6(2) with SOR/2012-36 s. 2(1)(d); CAN-SPAM 15 U.S.C.
+7704(a)(5)(A)(iii)).
+
+- **Sender footer.** Every email prints `EMAIL_SENDER_NAME` and
+  `EMAIL_SENDER_ADDRESS` (the operator's name and postal address) in its footer:
+  `emails/base.html` outside its `footer` block, each `.txt` template, the forum
+  digest through the package's `wagtail_forum/email/_footer.*` slot, and allauth's
+  text mail through the host's `account/email/base_message.txt`. Both are blank
+  until launch (todo 724), and a blank value prints nothing.
+  `apps/core/tests/test_email_template_sender_footer.py` renders every email
+  template and fails when either is missing.
+- **Stop all optional email.** Any signed unsubscribe link's page offers "Stop all
+  optional email" (`POST /api/v1/auth/unsubscribe/all/`): it turns the account's
+  `email_notifications` master switch off and unsubscribes a blog newsletter row
+  for the account's address. Account mail still goes. Settings turns the switch
+  back on. The welcome email links to the same action (the `all_optional` list).
+
 ## Click attribution and opens
 
 Owner decision, 2026-10-12: first-party signed click redirects only. No open

@@ -32,7 +32,8 @@ depends on whether API and frontend share a registrable domain.
    address that changes per request, and `X-Real-IP` holds the client. A
    forged `X-Real-IP` or XFF from the client is overwritten upstream. So prod
    uses `RATELIMIT_CLIENT_IP_META_KEY=HTTP_X_REAL_IP` (set once its
-   `railway.ts` declaration was applied), which takes precedence over
+   `railway.ts` declaration was applied; the environment variable behind the
+   Django setting `RATELIMIT_CLIENT_IP_HEADER`, renamed in todo 718), which takes precedence over
    `RATELIMIT_TRUSTED_PROXY_COUNT`. No proxy count can find the client here:
    until then every per-IP limit (HTTP and the live socket gate) keyed on
    the changing internal address and never tripped.

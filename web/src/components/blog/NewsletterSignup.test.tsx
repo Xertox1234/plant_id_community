@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import NewsletterSignup from './NewsletterSignup';
 import { NewsletterSignupError, subscribeToNewsletter } from '../../services/newsletterService';
@@ -11,8 +12,17 @@ vi.mock('../../services/newsletterService', async (importOriginal) => {
 
 const subscribe = vi.mocked(subscribeToNewsletter);
 
+// The form links to the Privacy Policy, so it needs a router.
+function renderForm() {
+  return render(
+    <MemoryRouter>
+      <NewsletterSignup idPrefix="test" />
+    </MemoryRouter>
+  );
+}
+
 async function submit(email: string) {
-  render(<NewsletterSignup idPrefix="test" />);
+  renderForm();
   await userEvent.type(screen.getByLabelText(/email address/i), email);
   await userEvent.click(screen.getByRole('button', { name: /subscribe/i }));
 }
@@ -52,7 +62,19 @@ describe('NewsletterSignup', () => {
   });
 
   it('does not submit an empty address', async () => {
-    render(<NewsletterSignup idPrefix="test" />);
+    renderForm();
     expect(screen.getByRole('button', { name: /subscribe/i })).toBeDisabled();
+  });
+
+  // CASL s. 10(1) (todo 703): who is asking, a contact, and that the reader
+  // can unsubscribe, shown where consent is asked for.
+  it('says who is asking, how to reach them, and that the reader can unsubscribe', () => {
+    renderForm();
+    expect(screen.getByText(/sent by houseplant md/i)).toBeInTheDocument();
+    expect(screen.getByText(/unsubscribe link, so you can stop at any time/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /privacy policy/i })).toHaveAttribute(
+      'href',
+      '/privacy'
+    );
   });
 });

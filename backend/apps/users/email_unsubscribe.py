@@ -8,10 +8,17 @@ A list is registered only when its unsubscribe flips a preference the web
 Settings page can flip back — otherwise "unsubscribe" would be a one-way door.
 That is why ``forum_reply`` turns off the reply EMAIL cell of the forum
 notification matrix (todo 343), and not ``User.forum_notifications`` (which
-also silences push). A link turns off ONE list, never the account-wide
-``User.email_notifications`` master switch, which web Settings and the mobile
-profile both show since todo 620 (docs/notifications-policy.md). With that
-master switch off, no list's email is sent, whatever the list says.
+also silences push). A list's own link turns off that ONE list, never the
+account-wide ``User.email_notifications`` master switch, which web Settings
+and the mobile profile both show since todo 620 (docs/notifications-policy.md).
+With that master switch off, no list's email is sent, whatever the list says.
+
+The one exception is the reader's own choice to stop everything (todo 703,
+CASL and CAN-SPAM): ``stop_all_optional_email`` turns the master switch off
+and leaves the blog newsletter at the account's address, in one step, with
+any list's link. The ``all_optional`` list is that same action as a list, for
+email such as the welcome message that belongs to no other list. Settings
+turns the master switch back on, and the newsletter form signs up again.
 """
 
 from dataclasses import dataclass
@@ -31,6 +38,7 @@ else:
     User = get_user_model()
 
 UNSUBSCRIBE_SALT = "apps.users.email_unsubscribe"
+ALL_OPTIONAL = "all_optional"
 # Generous on purpose: people act on an email weeks after it arrives, and a
 # dead link just sends them to Settings to do the same thing by hand. It still
 # ends, so a link leaked from an old inbox does not work forever.
@@ -110,6 +118,38 @@ def _forum_digest_unsubscribe(user) -> None:
     ForumProfile.objects.filter(user=user).update(digest_frequency=DigestFrequency.OFF)
 
 
+def _all_optional_subscribed(user) -> bool:
+    """Whether any optional email can still reach the account."""
+    from apps.blog.models import BlogNewsletter
+
+    if user.email_notifications:
+        return True
+    return BlogNewsletter.objects.filter(
+        email__iexact=user.email, is_active=True
+    ).exists()
+
+
+def stop_all_optional_email(user) -> None:
+    """Stop every optional email to the account (todo 703). Idempotent.
+
+    Optional email is what docs/operations/notification-baseline.md calls
+    optional: forum notification email, the forum digest and the blog
+    newsletter. The master switch covers the first two; the newsletter is a
+    separate subscription by address, so a row for the account's address is
+    unsubscribed too. Account mail (verification, password reset, security
+    notices) is not optional and still goes.
+    """
+    from apps.blog.models import BlogNewsletter
+
+    User.objects.filter(pk=user.pk).update(email_notifications=False)
+    user.email_notifications = False
+    if user.email:
+        for subscriber in BlogNewsletter.objects.filter(
+            email__iexact=user.email, is_active=True
+        ):
+            subscriber.unsubscribe()
+
+
 @dataclass(frozen=True)
 class EmailList:
     label: str
@@ -144,6 +184,13 @@ LISTS: dict[str, EmailList] = {
         label="The weekly forum digest",
         is_subscribed=_forum_digest_subscribed,
         unsubscribe=_forum_digest_unsubscribe,
+    ),
+    # Every optional email at once (todo 703): the welcome message's link,
+    # and what the page's "stop all" button does with any list's link.
+    ALL_OPTIONAL: EmailList(
+        label="All optional email: forum notifications, the forum digest and the blog newsletter",
+        is_subscribed=_all_optional_subscribed,
+        unsubscribe=stop_all_optional_email,
     ),
 }
 

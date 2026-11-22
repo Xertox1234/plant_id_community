@@ -351,6 +351,7 @@ _base_context_processors = [
     "django.template.context_processors.request",
     "django.contrib.auth.context_processors.auth",
     "django.contrib.messages.context_processors.messages",
+    "apps.core.context_processors.email_sender",
 ]
 _template_dirs = [BASE_DIR / "templates"]
 
@@ -1340,6 +1341,17 @@ EMAIL_USE_LOCALTIME = config("EMAIL_USE_LOCALTIME", default=False, cast=bool)
 SITE_NAME = config("SITE_NAME", default="Houseplant MD")
 SITE_URL = config("SITE_URL", default="https://plantcommunity.com")
 
+# Who sends our email, printed in every email's footer (todo 703): CASL
+# s. 6(2) with SOR/2012-36 s. 2(1)(d) and CAN-SPAM 15 U.S.C. 7704(a)(5)(A)(iii)
+# want the sender's name and a valid postal address on commercial email. Read
+# at render time by apps.core.context_processors.email_sender, so every send
+# path gets them, with or without a request. Blank (the default) prints no
+# sender line: the owner sets both on Railway at launch (todo 724). They are
+# not declared in .railway/railway.ts until then, as for any variable Railway
+# does not have yet (see the comment there).
+EMAIL_SENDER_NAME = config("EMAIL_SENDER_NAME", default="")
+EMAIL_SENDER_ADDRESS = config("EMAIL_SENDER_ADDRESS", default="")
+
 # Logging configuration
 # Request ID configuration
 REQUEST_ID_HEADER = "X-Request-ID"
@@ -1631,7 +1643,11 @@ RATELIMIT_TRUSTED_PROXY_COUNT = max(
 # set RATELIMIT_CLIENT_IP_META_KEY=HTTP_X_ENVOY_EXTERNAL_ADDRESS. Takes precedence
 # over the count when set. The proxy MUST set this header authoritatively (else a
 # client could spoof it). Empty = use the XFF-count strategy.
-RATELIMIT_CLIENT_IP_META_KEY = config("RATELIMIT_CLIENT_IP_META_KEY", default="")
+# The Django setting is RATELIMIT_CLIENT_IP_HEADER (todo 718): CodeQL read the
+# old setting name's `_KEY` as a secret and raised every log line that carried
+# the resolved client IP. The environment variable keeps its old name, which
+# is the one set on Railway (=HTTP_X_REAL_IP) and declared in railway.ts.
+RATELIMIT_CLIENT_IP_HEADER = config("RATELIMIT_CLIENT_IP_META_KEY", default="")
 # One-time diagnostic: log how each rate-limited request resolved its client IP
 # (REMOTE_ADDR + candidate forwarding headers). Enable briefly on a new proxy to
 # confirm its real shape, then set back to False. Default off.

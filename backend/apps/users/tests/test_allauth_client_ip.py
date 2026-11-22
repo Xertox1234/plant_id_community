@@ -15,7 +15,7 @@ User = get_user_model()
 CLIENT_IP = "203.0.113.7"
 
 
-@override_settings(RATELIMIT_CLIENT_IP_META_KEY="HTTP_X_REAL_IP")
+@override_settings(RATELIMIT_CLIENT_IP_HEADER="HTTP_X_REAL_IP")
 class AllauthClientIpTests(TestCase):
     def setUp(self):
         cache.clear()

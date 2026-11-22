@@ -1,0 +1,5 @@
+{% autoescape off %}{% if email_sender_name or email_sender_address %}
+--
+{% if email_sender_name %}{{ email_sender_name }}
+{% endif %}{% if email_sender_address %}{{ email_sender_address }}
+{% endif %}{% endif %}{% endautoescape %}

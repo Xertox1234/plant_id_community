@@ -142,7 +142,7 @@ ENVOY_META = "HTTP_X_ENVOY_EXTERNAL_ADDRESS"
 
 
 @override_settings(
-    RATELIMIT_CLIENT_IP_META_KEY=ENVOY_META, RATELIMIT_TRUSTED_PROXY_COUNT=1
+    RATELIMIT_CLIENT_IP_HEADER=ENVOY_META, RATELIMIT_TRUSTED_PROXY_COUNT=1
 )
 class ClientIpMetaKeyTests(SimpleTestCase):
     """A configured single trusted header (e.g. Railway/Envoy) wins over XFF."""

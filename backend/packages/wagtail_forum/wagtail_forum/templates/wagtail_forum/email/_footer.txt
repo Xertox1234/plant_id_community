@@ -1,0 +1,1 @@
+{% comment %}Empty on purpose: a host shadows wagtail_forum/email/_footer.txt to add its own footer lines, such as its postal address, to the digest's text part.{% endcomment %}

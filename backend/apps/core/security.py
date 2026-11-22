@@ -638,7 +638,7 @@ This is an automated security message from Houseplant MD.
         ``X-Forwarded-For`` only under ``USE_X_FORWARDED_HOST``, which nothing
         set, and then trusted its rightmost entry. The shared resolver counts
         ``RATELIMIT_TRUSTED_PROXY_COUNT`` hops from the right (or reads
-        ``RATELIMIT_CLIENT_IP_META_KEY``), so a left-prepended, spoofed entry
+        ``RATELIMIT_CLIENT_IP_HEADER``), so a left-prepended, spoofed entry
         cannot move the result.
 
         Args:

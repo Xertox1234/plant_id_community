@@ -3,7 +3,8 @@
  * lands: /unsubscribe?token=<signed token>.
  *
  * Opening the page changes nothing (mail scanners open links too); only the
- * button does. Public on purpose: the signed token is the credential, so it
+ * buttons do. Besides the link's own list, every link can stop all optional
+ * email in one step (todo 703: CASL and CAN-SPAM). Public on purpose: the signed token is the credential, so it
  * works signed out, and every outcome points at Settings, where the same
  * choice can be changed back.
  */
@@ -15,9 +16,11 @@ import LoadingSpinner from '../components/ui/LoadingSpinner';
 import PageMeta from '../components/PageMeta';
 import { useOneTimeSearchParam } from '../hooks/useOneTimeSearchParam';
 import {
+  ALL_OPTIONAL_LIST,
   UnsubscribeError,
   checkUnsubscribe,
   confirmUnsubscribe,
+  stopAllOptionalEmail,
   type EmailListState,
   type UnsubscribeFailure,
 } from '../services/unsubscribeService';
@@ -67,7 +70,7 @@ export default function UnsubscribePage() {
     token ? { kind: 'loading' } : { kind: 'failed', reason: 'invalid' }
   );
   const [attempt, setAttempt] = useState(0);
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<'one' | 'all' | null>(null);
   const [saveError, setSaveError] = useState(false);
 
   useEffect(() => {
@@ -90,22 +93,55 @@ export default function UnsubscribePage() {
     setAttempt((n) => n + 1);
   };
 
-  const unsubscribe = useCallback(async () => {
-    setSaving(true);
-    setSaveError(false);
-    try {
-      const state = await confirmUnsubscribe(token);
-      setView({ kind: 'done', state });
-    } catch (err) {
-      const reason = failureReason(err);
-      // A link that went bad between loading and clicking (it expired) gets
-      // the full explanation; a transient failure keeps the button to retry.
-      if (reason === 'error') setSaveError(true);
-      else setView({ kind: 'failed', reason });
-    } finally {
-      setSaving(false);
-    }
-  }, [token]);
+  const act = useCallback(
+    async (scope: 'one' | 'all') => {
+      setSaving(scope);
+      setSaveError(false);
+      try {
+        const state = await (scope === 'all'
+          ? stopAllOptionalEmail(token)
+          : confirmUnsubscribe(token));
+        setView({ kind: 'done', state });
+      } catch (err) {
+        const reason = failureReason(err);
+        // A link that went bad between loading and clicking (it expired) gets
+        // the full explanation; a transient failure keeps the button to retry.
+        if (reason === 'error') setSaveError(true);
+        else setView({ kind: 'failed', reason });
+      } finally {
+        setSaving(null);
+      }
+    },
+    [token]
+  );
+
+  // Offered with every link whose own list is narrower than "everything".
+  const stopAll = (state: EmailListState) =>
+    state.list === ALL_OPTIONAL_LIST ? null : (
+      <div className="flex flex-col gap-2 border-t border-line pt-4">
+        <p className="text-body-sm text-ink-2">
+          Or stop every optional email from Houseplant MD: forum notifications, the forum digest and
+          the blog newsletter. Account email, such as password resets, still arrives.
+        </p>
+        <div>
+          <Button
+            variant="secondary"
+            onClick={() => act('all')}
+            loading={saving === 'all'}
+            disabled={saving !== null}
+            loadingText="Stopping…"
+          >
+            Stop all optional email
+          </Button>
+        </div>
+      </div>
+    );
+
+  const saveErrorLine = saveError && (
+    <p role="alert" className="text-body-sm text-error">
+      We couldn&apos;t unsubscribe you just now. Please try again.
+    </p>
+  );
 
   return (
     <div className="mx-auto max-w-xl px-4 py-16">
@@ -118,16 +154,18 @@ export default function UnsubscribePage() {
             <h1 className="gt-h1 text-balance">Unsubscribe from this email?</h1>
             <p className="text-ink-2">You&apos;ll stop getting:</p>
             <p className="font-semibold text-ink">{view.state.label}</p>
-            {saveError && (
-              <p role="alert" className="text-body-sm text-error">
-                We couldn&apos;t unsubscribe you just now. Please try again.
-              </p>
-            )}
+            {saveErrorLine}
             <div>
-              <Button onClick={unsubscribe} loading={saving} loadingText="Unsubscribing…">
+              <Button
+                onClick={() => act('one')}
+                loading={saving === 'one'}
+                disabled={saving !== null}
+                loadingText="Unsubscribing…"
+              >
                 Unsubscribe
               </Button>
             </div>
+            {stopAll(view.state)}
             <SettingsLink />
           </>
         )}
@@ -139,6 +177,8 @@ export default function UnsubscribePage() {
               You don&apos;t get this email:{' '}
               <span className="font-semibold">{view.state.label}</span>.
             </p>
+            {saveErrorLine}
+            {stopAll(view.state)}
             <SettingsLink />
           </>
         )}
@@ -150,6 +190,8 @@ export default function UnsubscribePage() {
               We won&apos;t send this email any more:{' '}
               <span className="font-semibold">{view.state.label}</span>.
             </p>
+            {saveErrorLine}
+            {stopAll(view.state)}
             <SettingsLink />
           </>
         )}

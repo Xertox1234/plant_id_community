@@ -15,4 +15,4 @@ Active topics you have not seen
 You receive this because your forum digest is set to weekly.
 Change or turn it off: {{ settings_url }}
 {% if unsubscribe_url %}Unsubscribe from this digest: {{ unsubscribe_url }}
-{% endif %}{% endautoescape %}
+{% endif %}{% include "wagtail_forum/email/_footer.txt" %}{% endautoescape %}
