@@ -60,6 +60,14 @@
   margin: 0;
 }
 
+/* Wagtail's `.icon` class carries no size of its own here, so an unsized
+ * SVG falls back to 300x150 and the up/down arrows vanish inside a small
+ * button (found on the live check, todo 683). */
+.wf-structure__move .icon {
+  width: 1rem;
+  height: 1rem;
+}
+
 .wf-structure__handle {
   cursor: grab;
   color: var(--w-color-text-meta);
