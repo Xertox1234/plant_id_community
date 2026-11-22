@@ -27,8 +27,10 @@ annotated-types==0.8.0
     #   -r requirements.txt
     #   pydantic
 anthropic==2.6.0
-    # via -r requirements.txt
-any-llm-sdk==0.20.3
+    # via
+    #   -r requirements.txt
+    #   any-llm-sdk
+any-llm-sdk==1.53.1
     # via
     #   -r requirements.txt
     #   django-ai-core
@@ -139,7 +141,7 @@ click-repl==0.4.1
     # via
     #   -r requirements.txt
     #   celery
-condense-json==0.1.3
+condense-json==1.1
     # via
     #   -r requirements.txt
     #   llm
@@ -157,10 +159,6 @@ defusedxml==0.7.1
     # via
     #   -r requirements.txt
     #   willow
-distro==1.9.0
-    # via
-    #   -r requirements.txt
-    #   openai
 dj-database-url==3.1.2
     # via -r requirements.txt
 django==6.1.3
@@ -197,7 +195,7 @@ django==6.1.3
     #   wagtail
     #   wagtail-ai
     #   wagtail-forum
-django-ai-core==0.1.5
+django-ai-core==0.1.7
     # via
     #   -r requirements.txt
     #   wagtail-ai
@@ -398,11 +396,12 @@ httpx==0.28.1
     #   -r requirements.txt
     #   any-llm-sdk
     #   firebase-admin
-    #   openai
 httpx2==2.16.0
     # via
     #   -r requirements.txt
     #   anthropic
+    #   llm
+    #   openai
 hyperframe==6.1.0
     # via
     #   -r requirements.txt
@@ -455,7 +454,7 @@ laces==0.1.2
     #   wagtail
 librt==0.16.0
     # via mypy
-llm==0.31.1
+llm==0.38
     # via
     #   -r requirements.txt
     #   wagtail-ai
@@ -489,7 +488,7 @@ mypy-extensions==1.2.0
     # via mypy
 nh3==0.3.7
     # via -r requirements.txt
-openai==2.34.0
+openai==3.57.0
     # via
     #   -r requirements.txt
     #   any-llm-sdk
@@ -498,6 +497,10 @@ openpyxl==3.1.5
     # via
     #   -r requirements.txt
     #   wagtail
+openresponses-types==2.4.0
+    # via
+    #   -r requirements.txt
+    #   any-llm-sdk
 opentelemetry-api==1.45.2
     # via
     #   -r requirements.txt
@@ -602,6 +605,7 @@ pydantic==2.14.3
     #   django-ninja
     #   llm
     #   openai
+    #   openresponses-types
     #   wagtail
 pydantic-core==2.50.4
     # via
@@ -719,15 +723,10 @@ sqlite-fts4==1.0.3
     # via
     #   -r requirements.txt
     #   sqlite-utils
-sqlite-migrate==0.1b0
+sqlite-utils==4.2.1
     # via
     #   -r requirements.txt
     #   llm
-sqlite-utils==3.38
-    # via
-    #   -r requirements.txt
-    #   llm
-    #   sqlite-migrate
 sqlparse==0.6.1
     # via
     #   -r requirements.txt
@@ -747,10 +746,6 @@ telepath==0.3.1
     # via
     #   -r requirements.txt
     #   wagtail
-tqdm==4.70.1
-    # via
-    #   -r requirements.txt
-    #   openai
 traitlets==5.16.1
     # via
     #   ipython
@@ -778,6 +773,7 @@ typing-extensions==4.16.0
     #   django-stubs-ext
     #   django-tasks
     #   grpcio
+    #   llm
     #   mypy
     #   openai
     #   opentelemetry-api
@@ -856,6 +852,7 @@ pip==26.3
     #   -r requirements.txt
     #   llm
     #   pip-tools
+    #   sqlite-utils
 setuptools==84.2.1
     # via
     #   -r requirements.txt

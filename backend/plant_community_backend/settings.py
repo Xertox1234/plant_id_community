@@ -1826,12 +1826,6 @@ WAGTAIL_AI = {
             "model": "gpt-4o-mini",  # Cost-effective model for text generation
             "api_key": config("OPENAI_API_KEY", default=""),
         },
-        # Future: Add vision provider for image alt text generation (Phase 3)
-        # "vision": {
-        #     "provider": "openai",
-        #     "model": "gpt-4o-vision-preview",
-        #     "api_key": config('OPENAI_API_KEY', default=''),
-        # },
     },
     # Legacy BACKENDS configuration (deprecated but kept for backward compatibility)
     # Will be removed when all code migrates to PROVIDERS
