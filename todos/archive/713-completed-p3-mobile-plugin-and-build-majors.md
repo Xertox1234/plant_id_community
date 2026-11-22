@@ -207,3 +207,12 @@ Two fresh-context reviewers (correctness, Flutter checklist); no blocking findin
 ## Notes
 
 Needs the owner's phones, so a sweep will stop at the device check.
+
+### 2026-11-22 - Review round 1: non-blocking findings
+
+- **Declined: the AC 1 evidence command greps the pre-archive path (low).** The command quoted
+  above names `todos/713-pending-…`, which this PR archives, so re-running it verbatim greps a
+  missing file. The evidence it recorded was checked by the verifier before the move, and the
+  reviewer confirmed every value (11 lockfile versions, Gradle 9.3.1, AGP 9.1.1, Kotlin 2.4.21,
+  the 5 PR commits, 0 gradle ignore entries). Rewriting a recorded command after the fact would
+  falsify the evidence, so it stays as run.
