@@ -136,6 +136,21 @@ def test_v2_post_bylines_use_the_chosen_name_never_the_legal_name():
 
 
 @pytest.mark.django_db
+def test_a_post_cached_before_the_fix_is_not_served():
+    """A pre-731 v2 detail entry (old key, legal-name author) stays unread."""
+    staff = _named_user("staff-writer", forum_name="The Plant Desk")
+    post = _post(staff)
+    stale = {
+        "id": post.pk,
+        "title": post.title,
+        "author": {"first_name": FIRST, "last_name": LAST, "display_name": FULL_NAME},
+    }
+    cache.set(f"blog:post:v2:{post.slug}", stale, 3600)
+
+    _assert_no_legal_name(APIClient().get(f"{V2}/{post.pk}/"), {"The Plant Desk"})
+
+
+@pytest.mark.django_db
 def test_public_name_rule():
     plain = _named_user("plain-user")
     chosen = _named_user("chosen-user", forum_name="Chosen")

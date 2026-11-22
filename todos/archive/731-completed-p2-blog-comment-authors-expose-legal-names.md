@@ -86,3 +86,32 @@ name.
 ### 2026-11-22 - Completed by the todo sweep (run 2026-11-22-1957)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-22 - Review round 1: non-blocking findings
+
+Round 1 was clean (no blocking findings). The non-blocking ones, each fixed or declined:
+
+- **Fixed: cached responses kept legal names for up to 24 h (medium, two reviewers).** v2 post
+  detail and list responses are cached under `blog:post:v2` / `blog:list:v2`, so entries cached
+  before deploy would have kept serving `first_name`/`last_name`. Bumped `CACHE_PREFIX_BLOG_POST`
+  and `CACHE_PREFIX_BLOG_LIST` to v3, `CACHE_PREFIX_BLOG_CATEGORY` to `blog:category:v2` and
+  `CACHE_PREFIX_POPULAR_POSTS` to `blog:popular:v2`. New test
+  `test_a_post_cached_before_the_fix_is_not_served` seeds an old-key, legal-name entry and checks
+  it is not served. Mutation check: with the post prefix set back to v2 the test fails; restored,
+  privacy + cache-service tests 23 passed.
+- **Fixed: comment fixture modelled the old payload (low).** `blogCommentService.test.ts` no
+  longer has `first_name`/`last_name`; `display_name` is the username. Vitest 37 passed.
+- **Declined: untested author-page, index and category paths (medium/low).** A grep of
+  `apps/blog` (non-test, non-migration) finds no remaining `first_name`, `last_name` or
+  `get_full_name` in any author payload. Every byline goes through `User.public_name`. The one
+  `first_name` left is `BlogNewsletter`'s own field, used to greet the recipient.
+- **Declined: a rename shows for up to 24 h in cached bylines (low).** That is the normal cache
+  staleness for any byline. The old name was the member's own chosen name, not a legal name.
+- **Declined: `public_name` imports a forum serializer module (low).** It is a function-local
+  import of the single forum naming rule. Moving it would duplicate the rule the owner wants
+  shared.
+- **Declined: whitespace-only template edits (low).** They come from the trailing-whitespace and
+  end-of-file pre-commit fixers.
+- **Declined: N+1 flatness test for `select_related` (low), demo seed titles use the username
+  (low, intended per the naming rule), no unit test for ForumCard's `data-testid` (belongs to
+  #1408).**

@@ -14,9 +14,7 @@ const BASE = 'http://localhost:8000/api/v1/blog';
 const author = {
   id: 2,
   username: 'june_park',
-  first_name: 'June',
-  last_name: 'Park',
-  display_name: 'June Park',
+  display_name: 'june_park', // public name (todo 731): no first/last name
   avatar_url: null,
 };
 
