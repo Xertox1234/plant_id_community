@@ -42,7 +42,9 @@ delivery outcomes through a webhook signed with Svix.
   `data.email_id` is stored from the first match, so later events carrying only that
   id still match. Mail sent outside `EmailService.send_email` (the digests, the
   newsletter, lockout and other account mail) has no `EmailNotification` row; for
-  that mail, only address-level suppression applies.
+  that mail, only address-level suppression applies. **Not working in
+  production:** the 2026-11-21 read found no event linked to its row (see
+  "Delivery outcomes (2026-11-21)"; fix in todo 726).
 - **Stored data.** Event type, times, Resend's email id and the bounce type and
   subtype. Never an address, a subject or the bounce message text, which can quote
   the address.
@@ -227,7 +229,11 @@ What the numbers can't show:
 
 - **Delivery latency.** `EmailNotification` is written at send time, so
   created→sent reads as 0 and measures nothing. Send→delivered needs the
-  webhook's `delivered_at`. Both are re-pointed to todo 692.
+  webhook's `delivered_at`. Both were re-pointed to todo 692. The Resend-side
+  figure (`email.sent` → `email.delivered`) is now recorded below under
+  "Delivery outcomes (2026-11-21)". `delivered_at − sent_at` on
+  `EmailNotification` still cannot be computed, because no provider event links
+  to its row, so `delivered_at` is never set: [todo 726](../../todos/726-pending-p3-resend-event-notification-linkage.md).
 - **Reminder lateness.** A care task stores only `notification_sent`, not when
   it was sent. The beat sweep runs every 15 minutes, which bounds the lateness;
   nothing records it.
@@ -241,25 +247,71 @@ What the numbers can't show:
 - **Web push.** No member has a browser push subscription, so every forum
   web-push intent is suppressed `no_destination`. That is expected, not a fault.
 
+## Delivery outcomes (2026-11-21)
+
+Todo 692. Window **2026-11-03T20:52:57Z → 2026-11-22T01:57Z (about 18 days)**,
+from the moment the webhook was connected. Read on production with the owner's
+approval (2026-11-20): read-only and counts-only, over `railway ssh … manage.py
+shell`, run by Claude in the remote session. No addresses, subjects or ids were
+printed.
+
+**Configuration at read time:** `RESEND_WEBHOOK_SECRET` set on
+`plant_id_community` since 2026-11-03 20:52:57 UTC and declared `preserve()` in
+`.railway/railway.ts` (PR #1259); the Resend webhook sends All Events (the
+dashboard's event picker would not narrow). Resend's own open and click
+tracking was never set up for `houseplant-md.com` (no tracking subdomain).
+
+| Measure | Value |
+|---|---|
+| `EmailProviderEvent` rows (signed, recorded) | 9, over 4 emails |
+| By type | 4 `email.sent`, 3 `email.delivered`, 1 `email.bounced` (Permanent), 1 `suppression.added` |
+| Delivered / bounced / complained (emails) | 3 / 1 (Permanent) / 0 |
+| Suppressed addresses | 1 |
+| Events carrying Resend's email id | 8 of 9 |
+| Forum emails sent (`EmailNotification`) | 1 (forum_reply, 2026-11-04), with our Message-ID, no provider email id |
+| Events linked to an `EmailNotification` | **0**. Only handled types (`email.delivered`, `email.bounced`, `email.complained`, `email.suppressed`) are ever matched; `email.sent` and `suppression.added` are ignored by design. Of the 4 handled events, only the forum email's `email.delivered` had a row to link to: **n = 1** |
+| Sent→delivered latency, Resend side (`email.sent` → `email.delivered`, paired by Resend's email id) | 0.8 s, 0.9 s, 1.1 s: n = 3, p50 0.9 s, p90 ≈ 1.1 s |
+| `delivered_at − sent_at` on `EmailNotification` | **not computable**: no row is linked, so `delivered_at` is never set |
+
+What the numbers can't show:
+
+- **Linkage.** The forum email's `email.delivered` event arrived within 10
+  minutes of its send, yet did not link to its row (its `email.sent` event is
+  never matched by design, and the other 3 emails have no `EmailNotification`
+  row). The evidence is that one event: n = 1.
+  Hypothesis, not verified (the event's `data.message_id` is not stored, so what
+  Resend sent back is unknown): Resend over SMTP does not echo our client-set
+  Message-ID. Until that is fixed, outcomes are recorded per event and
+  address-level suppression works, but no `EmailNotification` gets a
+  delivered, bounced or complained status. The fix is
+  [todo 726](../../todos/726-pending-p3-resend-event-notification-linkage.md).
+- **Rates.** Four emails is far too few for a bounce or complaint rate; these
+  are counts, not rates to set thresholds on.
+- **`suppression.added`.** Prod recorded one, but the code acts only on
+  `email.suppressed`, so this event is stored and ignored. The 1 suppressed
+  address came from the Permanent bounce. Whether Resend ever sends
+  `email.suppressed` is checked in todo 726.
+- **Latency.** n = 3 and Resend-side only: it measures Resend accepting the
+  message to the receiving server accepting it, not our send call to delivery.
+
 ## Still open
 
 These need the owner. None of them can be settled from the repository.
 
-1. In the Resend dashboard, create a webhook for `email.delivered`, `email.bounced`,
-   `email.complained` and `email.suppressed`, pointed at
-   `https://api.houseplant-md.com/api/v1/email/webhooks/resend/`, and set its signing
-   secret as `RESEND_WEBHOOK_SECRET` on Railway. Until then, no feedback is
-   recorded.
-2. **Turn off Resend's own open and click tracking** for `houseplant-md.com`. That
-   is third-party tracking, which the owner ruled out, and only the dashboard can
-   switch it off.
-3. That Resend keeps a client-set Message-ID over SMTP is documented for its API
-   but not yet observed for this sender. The first real event confirms it
-   (`EmailProviderEvent.notification` set). Address-level suppression works
-   either way.
-4. The initial baseline is recorded above (todo 638, archived). Items 1–3 and the
-   delivered/bounced/complained counts and delivery latency it could not measure
-   are [todo 692](../../todos/692-pending-p3-resend-webhook-and-delivery-outcomes.md).
+1. Done 2026-11-03 (todo 692): the Resend webhook is connected and
+   `RESEND_WEBHOOK_SECRET` is set on Railway and declared in `.railway/railway.ts`
+   (PR #1259). Signed events are recorded (see "Delivery outcomes (2026-11-21)").
+2. Done 2026-11-03 (todo 692): Resend's own open and click tracking was never set
+   up for `houseplant-md.com` (no tracking subdomain), so there is nothing to
+   turn off.
+3. **Events do not link to their email.** The 2026-11-21 read found the one
+   eligible event (the forum email's `email.delivered`, n = 1) not linked to its
+   `EmailNotification` (hypothesis, not verified:
+   Resend over SMTP does not echo our client-set Message-ID). Address-level
+   suppression works either way. Per-email outcomes and `delivered_at − sent_at`
+   wait on [todo 726](../../todos/726-pending-p3-resend-event-notification-linkage.md).
+4. The initial baseline (todo 638) and the delivery outcomes (todo 692) are
+   recorded above.
 5. **Sentry alert rules** (todo 623). The code sends Cron Monitor check-ins for
    every beat entry and ERROR events for broker, retry-exhaustion, outbox-lag
    and missing-push-config failures (`backend/docs/patterns/domain/celery.md`,
