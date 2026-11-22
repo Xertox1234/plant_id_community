@@ -160,3 +160,12 @@ Round 1 was clean (5 reviewers, nothing blocking). The lows:
 - **Declined:** a reviewer asked that the Wagtail AI, forum RAG and spam paths be run on this lockfile before
   merge. The full backend suite ran on it (7065 passed, `--create-db`), the blog AI and forum spam tests
   included, and no first-party code needed a change. Real calls in production are todo 721, after deploy.
+
+### 2026-11-21 - Review round 2: non-blocking findings (PR #1397)
+
+Round 2 was clean (5 reviewers, nothing blocking).
+
+- **Declined:** the per-request timeout tests mock `get_llm_service` / `LLMService.create`, so none proves
+  any-llm 1.53.1 still hands `timeout` to `AsyncOpenAI`. The reviewer read the 1.53.1 source and it does
+  (`TIMEOUT_SUPPORT = "native"`). A test that builds a real `LLMService` would pin the SDK's internals rather
+  than this app's code. The production calls in todo 721 exercise the real path after deploy.

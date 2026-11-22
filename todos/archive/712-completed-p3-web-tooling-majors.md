@@ -138,3 +138,11 @@ One PR per row, in this order:
   in the entry above. Two of the failures are the forum write-lifecycle test, which fails the same way on
   main (todo 725); the third passed 50/50 when re-run alone. This tree has the same jsdom 31.0.1 and Vitest
   5. Acceptance criteria are not reworded after the fact.
+
+### 2026-11-21 - Review round 2: non-blocking findings (PR #1397)
+
+- **Fixed:** the `vitest` group comment in `.github/dependabot.yml` still said "the Vitest 5 move is todo
+  712". It now says Vitest 5 landed in todo 712.
+- **Declined:** a reviewer asked whether the archive tripwire accepts this todo's two unchecked criteria.
+  Both carry a re-point marker to todo 722, and `python3 scripts/check_archived_todo_status.py` passes on
+  this tree (exit 0, no unallowed violations).

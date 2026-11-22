@@ -89,7 +89,7 @@ updates:
       # vitest, @vitest/ui and @vitest/coverage-v8 peer-pin each other to
       # the exact same version, so they only install together: #1311 and
       # #1312 each bumped one and both failed `npm ci` with ERESOLVE. One PR
-      # for the set, any update size (the Vitest 5 move is todo 712).
+      # for the set, any update size (Vitest 5 landed in todo 712).
       vitest:
         patterns:
           - "vitest"
