@@ -18,7 +18,7 @@
 
         <div class="post-meta">
             <span class="author">
-                By <a href="/blog/author/{{ page.author.username }}/">{{ page.author.get_full_name|default:page.author.username }}</a>
+                By <a href="/blog/author/{{ page.author.username }}/">{{ page.author.public_name }}</a>
             </span>
             <span class="date">{{ page.publish_date|date:"F j, Y" }}</span>
             {% if reading_time %}

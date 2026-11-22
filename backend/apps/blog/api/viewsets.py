@@ -179,6 +179,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             queryset = (
                 queryset.select_related(
                     "author",  # ForeignKey - reduces queries for author info
+                    "author__wagtail_forum_profile",  # public_name (todo 731)
                     "series",  # ForeignKey - reduces queries for series info
                 )
                 .prefetch_related(
@@ -218,6 +219,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             queryset = (
                 queryset.select_related(
                     "author",
+                    "author__wagtail_forum_profile",  # public_name (todo 731)
                     "series",
                 )
                 .prefetch_related(
@@ -270,7 +272,9 @@ class BlogPostPageViewSet(PagesAPIViewSet):
 
         else:
             # Any other/unlisted action: basic prefetching only
-            queryset = queryset.select_related("author", "series")
+            queryset = queryset.select_related(
+                "author", "author__wagtail_forum_profile", "series"
+            )
 
         return queryset.distinct()
 
@@ -445,7 +449,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
         posts_qs = (
             BlogPostPage.objects.live()
             .public()
-            .select_related("author", "series")
+            .select_related("author", "author__wagtail_forum_profile", "series")
             .prefetch_related(
                 "categories",
                 "tags",
@@ -539,7 +543,7 @@ class BlogPostPageViewSet(PagesAPIViewSet):
             .filter(
                 Q(categories__in=post.categories.all()) | Q(tags__in=post.tags.all())
             )
-            .select_related("author", "series")
+            .select_related("author", "author__wagtail_forum_profile", "series")
             .prefetch_related(
                 "categories",
                 "tags",

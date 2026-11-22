@@ -46,7 +46,7 @@ comments section, so there is no "#comments" link to keep.
             <p style="margin: 0 0 24px 0; font-size: 16px; color: #4b5563;">{{ post.excerpt|default:post.summary }}</p>
 
             <p style="margin: 0 0 24px 0; font-size: 14px; color: #6c757d;">
-                {% if post.author %}{{ post.author.get_full_name|default:post.author.username }} &middot; {% endif %}{{ post.published_date|date:"M d, Y" }}{% if post.reading_time %} &middot; {{ post.reading_time }} min read{% endif %}
+                {% if post.author %}{{ post.author.public_name }} &middot; {% endif %}{{ post.published_date|date:"M d, Y" }}{% if post.reading_time %} &middot; {{ post.reading_time }} min read{% endif %}
             </p>
 
             <a href="{{ app_url }}/blog/{{ post.slug }}" class="email-button" style="display: inline-block; padding: 14px 28px; border-radius: 6px; background-color: #2c5f41; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none;">Read the full article</a>
