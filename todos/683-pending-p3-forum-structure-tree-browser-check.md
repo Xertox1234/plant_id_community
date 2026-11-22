@@ -32,3 +32,18 @@ Open `/cms/forum/forums/` as staff. Drag a category, then a forum (including acr
 ## Work Log
 
 - 2026-10-29: Created when todo 668's manual browser check was re-pointed here at the owner's request.
+
+### 2026-11-22 - Partial check run by Claude in desktop Chrome (owner-delegated 2026-11-22)
+
+- **Keyboard alternative: PASS.** On live `/cms/forum/forums/`, focused "Move Garden design
+  up" and pressed Enter. After a reload the order was Plant identification | Care & problems |
+  Garden design | Pests & diseases. "Move Garden design down" then put the original order back,
+  and it stayed after another reload.
+- **Drag: NOT RUN.** Two synthetic drags of the handle did nothing: the browser tool's drag
+  doesn't fire native HTML5 drag events, so this says nothing about the feature. The owner
+  still has to drag, reload and check the order holds by hand.
+- **Finding (visual, P3):** the up/down Move buttons render as wide, empty boxes. The
+  `icon-arrow-up` / `icon-arrow-down` SVGs have no size (computed 300×150 px) inside a
+  24 px-tall button, so no arrow shows. The screen-reader label is still there.
+  `forum-structure.css` sizes only `.wf-structure__handle .icon`. Fix: give
+  `.wf-structure__move .icon` a 1rem width and height.

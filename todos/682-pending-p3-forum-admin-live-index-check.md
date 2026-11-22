@@ -30,3 +30,15 @@ After 666 is merged and deployed, create a test forum under a category in `/cms/
 - [ ] Created forums appear on the web index without a deploy (owner's manual check on the live site, dated, with the observed result quoted in the Work Log).
 
 ## Work Log
+
+### 2026-11-22 - Live check run by Claude in desktop Chrome (owner-delegated 2026-11-22)
+
+- Signed in to the live `/cms/` as plantadmin, created forum "Test forum 682 (admin check)"
+  under General (id 18) at about 20:24:59Z.
+- Observed: the signed-in web `/forum` listed it at 20:25:10Z ("Test forum 682 (admin check)
+  0 THREADS · 0 POSTS · NO ACTIVITY YET"). An anonymous `GET /api/v1/forum/categories/` at
+  20:25:30Z (`cache-control: public, s-maxage=60, max-age=0`, `cf-cache-status: DYNAMIC`)
+  included it. About 31 s after creation, inside the 60 s window, with no deploy.
+- Cleanup: owner chose delete; the empty test forum was deleted in `/cms/` ("Forum 'Test
+  forum 682 (admin check)' deleted."). The tree is back to its five forums.
+- The criterion is met; the next triage can archive this todo after verifying it.
