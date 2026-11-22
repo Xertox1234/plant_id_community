@@ -216,3 +216,8 @@ Needs the owner's phones, so a sweep will stop at the device check.
   reviewer confirmed every value (11 lockfile versions, Gradle 9.3.1, AGP 9.1.1, Kotlin 2.4.21,
   the 5 PR commits, 0 gradle ignore entries). Rewriting a recorded command after the fact would
   falsify the evidence, so it stays as run.
+
+### 2026-11-22 - Review round 2: non-blocking findings
+
+- **Declined: the round-1 entry sits under `## Notes`, and the AC labels are 0-indexed in the
+  evidence (low).** Placement and labels only. Every value was re-checked on the branch.
