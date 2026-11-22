@@ -115,3 +115,16 @@ Round 1 was clean (no blocking findings). The non-blocking ones, each fixed or d
 - **Declined: N+1 flatness test for `select_related` (low), demo seed titles use the username
   (low, intended per the naming rule), no unit test for ForumCard's `data-testid` (belongs to
   #1408).**
+
+### 2026-11-22 - Review round 2: non-blocking findings
+
+- **Declined: a forum rename leaves cached bylines stale up to the TTL (low, three reviewers).**
+  As in round 1, the cached value is the member's own chosen name, and main had the same gap.
+- **Declined: existing BlogAuthorPage titles may hold a legal name (low).** Those titles are
+  editorial content typed by staff, not copied from the provider. This PR changes only computed
+  author payloads. Staff can retitle a page in /cms/.
+- **Declined: admin search does one more query per row (low).** Staff-only page, at most 20
+  rows.
+- **Declined: `apps/users/constants.py` comment still shows `blog:post:v2` (low).** It is a
+  format example.
+- **Declined: `public_name` imports a forum serializer module (low).** Same as round 1.
