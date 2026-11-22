@@ -17,8 +17,8 @@ import { test, expect } from '@playwright/test';
  *   cd backend && python manage.py create_test_user && python manage.py seed_default_forum
  *
  * Selectors mirror the current id-anchored forum UI (no legacy /forum/category
- * or /forum/thread routes). The only forum data-testid is the image input, so
- * this targets stable roles/labels/titles/ids instead.
+ * or /forum/thread routes). Forum test ids are few (the image input, the board
+ * row link), so this mostly targets stable roles/labels/titles/ids instead.
  */
 
 // TipTap is a ProseMirror contenteditable; real keystrokes (not fill()) are
@@ -43,14 +43,13 @@ test.describe('Authenticated forum write lifecycle', () => {
     const replyBody = `E2E reply body ${stamp}`;
     const editedReply = `E2E edited reply body ${stamp}`;
 
-    // 1. Forum home → open the first board (id-anchored URL). A board CategoryCard
-    // link wraps an <h3>; the header search / new-thread links do not — filter on
-    // that so we don't grab `/forum/search`.
+    // 1. Forum home → open the first board (id-anchored URL). Every ForumCard row
+    // link carries data-testid="forum-board-link" (todo 725). It used to filter
+    // on a wrapped <h3>, but a card under a category header renders its name as
+    // an <h4> (CategoryListPage, todo 665); the test id does not depend on the
+    // heading level and never matches the header search / new-thread links.
     await page.goto('/forum');
-    const boardLink = page
-      .locator('a[href^="/forum/"]')
-      .filter({ has: page.locator('h3') })
-      .first();
+    const boardLink = page.getByTestId('forum-board-link').first();
     await expect(
       boardLink,
       'no forum board found — run: manage.py seed_default_forum'

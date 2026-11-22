@@ -35,7 +35,12 @@ function ForumCard({ forum, headingLevel = 'h3' }: ForumCardProps) {
 
   return (
     <Card interactive className="p-card">
-      <Link to={categoryPath(forum)} viewTransition className="flex items-start gap-4">
+      <Link
+        to={categoryPath(forum)}
+        viewTransition
+        className="flex items-start gap-4"
+        data-testid="forum-board-link"
+      >
         {forum.image_url ? (
           // The forum image (todo 669, owner decision 2026-10-31) replaces
           // the tile; decorative, the name beside it says what it is.
