@@ -272,6 +272,19 @@ class User(AbstractUser):  # type: ignore[django-manager-missing]
         return self.username
 
     @property
+    def public_name(self) -> str:
+        """The name other people see: the member's chosen (forum) display
+        name, else their username. Never ``get_full_name()``: sign in with
+        Apple, Google or Firebase copies the provider's name into
+        ``first_name``, and blog comments and bylines reach anonymous readers
+        (owner decisions 2026-11-21 and 2026-11-22, todo 731). ``display_name``
+        above stays for the member's own profile. No query when the caller
+        select_related-joined ``wagtail_forum_profile``."""
+        from wagtail_forum.api.serializers import forum_display_name
+
+        return str(forum_display_name(self))
+
+    @property
     def follower_count(self) -> int:
         """Return the number of followers."""
         return self.followers.count()

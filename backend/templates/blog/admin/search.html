@@ -12,10 +12,10 @@
                 <form method="GET" class="row g-3">
                     <div class="col-md-4">
                         <label for="q" class="form-label">Search Query</label>
-                        <input type="text" name="q" id="q" class="form-control" 
+                        <input type="text" name="q" id="q" class="form-control"
                                placeholder="Enter search terms..." value="{{ query }}">
                     </div>
-                    
+
                     <div class="col-md-2">
                         <label for="type" class="form-label">Content Type</label>
                         <select name="type" id="type" class="form-select">
@@ -25,17 +25,17 @@
                             <option value="categories" {% if content_type == 'categories' %}selected{% endif %}>Categories</option>
                         </select>
                     </div>
-                    
+
                     <div class="col-md-2">
                         <label for="date_from" class="form-label">From Date</label>
                         <input type="date" name="date_from" id="date_from" class="form-control" value="{{ date_from }}">
                     </div>
-                    
+
                     <div class="col-md-2">
                         <label for="date_to" class="form-label">To Date</label>
                         <input type="date" name="date_to" id="date_to" class="form-control" value="{{ date_to }}">
                     </div>
-                    
+
                     <div class="col-md-2">
                         <label class="form-label">&nbsp;</label>
                         <div>
@@ -81,7 +81,7 @@
                                     {% endif %}
                                     <small class="text-muted">
                                         Published: {{ post.first_published_at|date:"M j, Y" }}
-                                        {% if post.author %}| Author: {{ post.author.get_full_name|default:post.author.username }}{% endif %}
+                                        {% if post.author %}| Author: {{ post.author.public_name }}{% endif %}
                                     </small>
                                 </div>
                                 <div>
@@ -95,7 +95,7 @@
                 </div>
             </div>
         {% endif %}
-        
+
         <!-- Comments Results -->
         {% if results.comments %}
             <div class="col-12 mb-4">
@@ -126,7 +126,7 @@
                                     <small class="text-muted">{{ comment.created_at|date:"M j, Y H:i" }}</small>
                                 </div>
                                 <div>
-                                    <a href="{% url 'blog_admin:post_comments' comment.post.id %}" 
+                                    <a href="{% url 'blog_admin:post_comments' comment.post.id %}"
                                        class="btn btn-outline-primary btn-sm">
                                         <i class="bi bi-eye"></i>
                                     </a>
@@ -137,7 +137,7 @@
                 </div>
             </div>
         {% endif %}
-        
+
         <!-- Categories Results -->
         {% if results.categories %}
             <div class="col-12 mb-4">
@@ -168,7 +168,7 @@
                 </div>
             </div>
         {% endif %}
-        
+
         <!-- No Results -->
         {% if not results.posts and not results.comments and not results.categories %}
             <div class="col-12">

@@ -236,9 +236,7 @@ class BlogAuthorPageSerializer(PageSerializer):
             return {
                 "id": obj.author.id,
                 "username": obj.author.username,
-                "first_name": obj.author.first_name,
-                "last_name": obj.author.last_name,
-                "display_name": obj.author.get_full_name() or obj.author.username,
+                "display_name": obj.author.public_name,
             }
         return None
 
@@ -263,7 +261,7 @@ class BlogAuthorPageSerializer(PageSerializer):
             BlogPostPage.objects.live()
             .public()
             .filter(author=obj.author)
-            .select_related("author", "series")
+            .select_related("author", "author__wagtail_forum_profile", "series")
             .prefetch_related("categories", "tags")
             .order_by("-first_published_at")[:3]
         )
@@ -354,9 +352,7 @@ class BlogPostPageSerializer(serializers.ModelSerializer):
             return {
                 "id": obj.author.id,
                 "username": obj.author.username,
-                "first_name": obj.author.first_name,
-                "last_name": obj.author.last_name,
-                "display_name": obj.author.get_full_name() or obj.author.username,
+                "display_name": obj.author.public_name,
                 "author_page_url": self._get_author_page_url(obj.author),
             }
         return None
@@ -563,7 +559,7 @@ class BlogPostPageListSerializer(serializers.ModelSerializer):
             return {
                 "id": obj.author.id,
                 "username": obj.author.username,
-                "display_name": obj.author.get_full_name() or obj.author.username,
+                "display_name": obj.author.public_name,
             }
         return None
 
@@ -636,7 +632,7 @@ class BlogIndexPageSerializer(PageSerializer):
             BlogPostPage.objects.live()
             .public()
             .filter(is_featured=True)
-            .select_related("author", "series")
+            .select_related("author", "author__wagtail_forum_profile", "series")
             .prefetch_related(
                 "categories",
                 "tags",
@@ -679,7 +675,7 @@ class BlogIndexPageSerializer(PageSerializer):
         recent_posts = (
             BlogPostPage.objects.live()
             .public()
-            .select_related("author", "series")
+            .select_related("author", "author__wagtail_forum_profile", "series")
             .prefetch_related(
                 "categories",
                 "tags",
@@ -734,7 +730,7 @@ class BlogCategoryPageSerializer(PageSerializer):
             BlogPostPage.objects.live()
             .public()
             .filter(categories=obj.category)
-            .select_related("author", "series")
+            .select_related("author", "author__wagtail_forum_profile", "series")
             .prefetch_related(
                 "categories",
                 "tags",
