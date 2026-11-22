@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 from apps.core import email_feedback
 from apps.core.constants import EMAIL_TRACKED_LINK_KEYS
 from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_context
+from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import EmailMultiAlternatives, send_mail
@@ -357,6 +358,8 @@ class EmailService:
             )
             self.last_outcome = EmailOutcome.PERMANENT
             return False
+        except SoftTimeLimitExceeded:
+            raise  # the task's deadline, never a render failure (audit M3)
         except Exception as e:
             # The type only: a template error can quote a context value, such
             # as the signed unsubscribe link (todo 649 finding 1).
@@ -373,6 +376,8 @@ class EmailService:
             # Expected for the legacy .html-only templates — derive plain text
             # from the HTML that already rendered.
             text_content = html_to_text(html_content)
+        except SoftTimeLimitExceeded:
+            raise  # the task's deadline, never a render failure (audit M3)
         except Exception as e:
             # A genuine .txt render bug shouldn't drop an email whose .html is
             # fine; fall back to the stripped HTML but surface the bug in logs.
@@ -444,10 +449,12 @@ class EmailService:
             self.last_outcome = EmailOutcome.SENT
             return True
 
-        except Warning:
+        except (Warning, SoftTimeLimitExceeded):
             # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
             # and Warning subclasses Exception: never log it as a failed send
-            # (todo 454).
+            # (todo 454). Nor the Celery soft time limit: swallowed as a
+            # transient send failure it let a batch run on to the hard kill
+            # (audit 2026-11-21 M3); the calling task decides what it means.
             raise
         except ConnectionError as e:
             logger.error(
@@ -505,9 +512,9 @@ class EmailService:
                     results["sent"] += 1
                 else:
                     results["failed"] += 1
-            except Warning:
-                # Re-raised by send_email (todo 454): never count it as one
-                # recipient's failure.
+            except (Warning, SoftTimeLimitExceeded):
+                # Re-raised by send_email (todo 454, audit M3): never count it
+                # as one recipient's failure.
                 raise
             except Exception as e:
                 # recipient could be email or User object - handle both cases
@@ -650,6 +657,8 @@ class EmailService:
                 sent_at=timezone.now(),
                 status=EmailNotification.STATUS_SENT,
             )
+        except SoftTimeLimitExceeded:
+            raise  # the task's deadline, never a tracking failure (audit M3)
         except (ImportError, Exception) as e:
             # Log but don't fail email sending if tracking fails
             logger.warning(f"[EMAIL] Failed to track email: {e}")
@@ -715,10 +724,12 @@ class EmailService:
             )
             self.last_outcome = EmailOutcome.SENT
             return True
-        except Warning:
+        except (Warning, SoftTimeLimitExceeded):
             # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
             # and Warning subclasses Exception: never log it as a failed send
-            # (todo 454).
+            # (todo 454). Nor the Celery soft time limit: swallowed as a
+            # transient send failure it let a batch run on to the hard kill
+            # (audit 2026-11-21 M3); the calling task decides what it means.
             raise
         except Exception as e:
             logger.error(

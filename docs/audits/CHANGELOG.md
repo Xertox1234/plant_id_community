@@ -433,3 +433,64 @@ links to the full audit manifest with detailed findings and resolutions.
   deploy).
 - **Close baseline:** Backend full suite 6858 passed, 8 skipped (`pytest --create-db`); `ruff` and `mypy` clean on `apps/users`; `spectacular --validate --fail-on-warn` exit 0. Web 2153 passed (143 files); `tsc` and `eslint` clean. Mobile not re-run: no mobile file changed.
 - **Commit(s):** branch `audit/auth-legal-2026-11-10`.
+
+### 2026-11-21 — Forum Backend Audit (changes since the 2026-09-04 forum audit)
+
+- **Manifest:** `docs/audits/2026-11-21-forum-backend.md`.
+- **Why this area:** an area-selection pass ranked it first: about 13.1k
+  unaudited non-test lines in `wagtail_forum` and 17.8k in `forum_host` since
+  `8f9145f3`, with live replies over WebSockets and link-preview fetching
+  already on in prod.
+- **Scope:** `backend/packages/wagtail_forum/` and `backend/apps/forum_host/`
+  files changed since `8f9145f3`. Covered by security, DRF, Wagtail and Celery
+  reviewers, plus a gap-fill pass over the files the first pass skipped. The
+  web and Flutter forum clients are out of scope.
+- **Findings:** 0 critical, 1 high, 6 medium, 19 low (26 total).
+- **Resolved:** 14 verified (H1, M1–M6, L1, L3, L6, L8, L9, L13, L16). 11 are
+  deferred to todos 727–730, grouped by subsystem; 1 was declined after review
+  (L12, fix reverted); 0 are open.
+- **Headlines:**
+  - **H1/M6:** every forum author block, and @-mention search, fell back to
+    `get_full_name()`. Sign in with Apple, Google or Firebase copies the
+    provider's name into `first_name`, so anonymous readers saw legal names.
+    Owner decision: the forum display name, else the username, never the
+    full name. The host push tray line and the reply email follow the same
+    rule.
+  - **M3:** the shared email, notification and web-push senders swallowed
+    Celery's soft time limit as a failed send, so a large fan-out ran on until
+    the hard kill and lost every outcome not yet written. The senders now let
+    it through, and the three forum batches record what was sent, release the
+    rest for reconciliation and re-raise. Chunking, sized limits and FCM's
+    120 s default timeout are in todo 727.
+  - **M5:** coalesced reply notifications on a members-only forum dropped the
+    folded replies, because the count used the guest view. It now uses each
+    recipient's own forum grants.
+  - **M2:** moving a topic or a reply in /cms/ left the old forum's or topic's
+    counters stale.
+- **Process notes:**
+  - kimi-review raised three CRITICALs (M1, M3, M4). Each was disproven
+    against the code and a passing test. The owner chose a defensive
+    try/except for M1 and overrode M3 and M4.
+  - **kimi-review was sent permission, visibility, socket-auth, input-validation
+    and privacy diffs (L1, L6, L13, L16, M5, H1).** That breaks the owner's
+    standing rule that keeps the cheap workers off those areas. The audit
+    skill's "kimi-review every fix" step does not carry that exception, and
+    it was missed until close.
+  - One kimi run timed out silently and printed nothing; it was re-run.
+  - A first `--reuse-db` suite run showed 220 false failures from Wagtail
+    root-page residue. They all passed on `--create-db`.
+- **Not checked:** the WebSocket close-on-deactivation against a real device.
+  Neither client's handling of 4401 on an already-open socket was audited.
+- **Close review:**
+  - Round 1 (code-review-orchestrator) found that the M3 guard covered only
+    the send. The soft limit is a signal, so it can also land in the
+    bookkeeping. The guard was widened to cover it. Two small fixes came out
+    of the same round: `_track_email` and deleted-forum tombstones under
+    `?board=`.
+  - Round 2 verified those fixes and found one hand-off path that lost a
+    recipient. It was fixed by hand with a test; there was no third round.
+- **Verification:** the full backend suite ran with `--create-db`: 7106
+  passed, 8 skipped, 0 failed (baseline 7065). After the final hand fix,
+  `apps/forum_host` passed 1002. `mypy` is clean on 865 files and every
+  pre-commit hook passes.
+- **Commit(s):** branch `audit/forum-backend-2026-11-21`.

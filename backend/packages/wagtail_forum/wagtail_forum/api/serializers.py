@@ -188,6 +188,19 @@ def _fallback_avatar_url(user):
         return None
 
 
+def forum_display_name(user) -> str:
+    """The member's public forum name: their forum display name, else their
+    username. Never ``get_full_name()``: sign in with Apple, Google or
+    Firebase copies the provider's name claim into ``first_name``, and forum
+    payloads reach anonymous readers (owner decision 2026-11-21, audit H1).
+    The same rule as ``ForumProfile.__str__``. No query when the view
+    select_related-joined ``wagtail_forum_profile``."""
+    profile = getattr(user, "wagtail_forum_profile", None)
+    if profile and profile.display_name:
+        return str(profile.display_name)
+    return str(user.get_username())
+
+
 def serialize_forum_author(user, request=None):
     """Unified author object for EVERY topic + post payload (H26): `author`,
     `last_post_author`, and a post's author all share this shape.
@@ -202,11 +215,7 @@ def serialize_forum_author(user, request=None):
     if user is None:
         return _deleted_author()
     profile = getattr(user, "wagtail_forum_profile", None)
-    display_name = (
-        (profile.display_name if profile and profile.display_name else None)
-        or user.get_full_name()
-        or user.get_username()
-    )
+    display_name = forum_display_name(user)
     avatar = None
     # `avatar_id` (the FK column) is already loaded — gate on it so we never
     # touch `.avatar` (a query if NOT select_related-joined) for the common

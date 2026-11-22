@@ -451,6 +451,30 @@ def test_board_made_private_closes_4404_on_next_recheck(fast_recheck):
 
 
 @pytest.mark.django_db
+def test_deactivated_account_closes_4401_on_next_recheck(fast_recheck):
+    """The handshake's user is not trusted for the socket's lifetime: the
+    re-check reloads it, and a deactivated (banned) account loses the socket
+    (audit 2026-11-21 L1)."""
+    from channels.db import database_sync_to_async
+
+    topic, _o, author = _thread("ws-recheck-inactive")
+    deactivate = database_sync_to_async(
+        lambda: User.objects.filter(pk=author.pk).update(is_active=False)
+    )
+
+    async def run():
+        sock = Socket(topic.pk, author)
+        try:
+            assert await sock.open() == ("accepted", None)
+            await deactivate()
+            return await sock.comm.receive_output(timeout=2)
+        finally:
+            await sock.close()
+
+    assert async_to_sync(run)() == {"type": "websocket.close", "code": 4401}
+
+
+@pytest.mark.django_db
 def test_topic_unpublished_closes_4404_on_next_recheck(fast_recheck):
     """No topic.removed event arrives (the sender is patched off): the timer
     alone notices the topic went away."""
@@ -608,3 +632,22 @@ def test_consumer_crash_still_cancels_recheck(fast_recheck):
         TopicLiveConsumer, "receive_json", boom
     ):
         assert async_to_sync(run)() == (True, True)
+
+
+def test_topic_removed_after_the_recheck_left_the_group_does_not_discard_none():
+    """The re-check already left the group (group_name None) when an
+    in-flight topic.removed arrives: no group_discard(None, ...) (audit L3)."""
+    from apps.forum_host.consumers import TopicLiveConsumer
+
+    consumer = TopicLiveConsumer()
+    consumer.group_name = None
+    consumer._recheck_task = None
+    consumer.channel_name = "c"
+    consumer.channel_layer = mock.AsyncMock()
+    consumer.send_json = mock.AsyncMock()
+    consumer.close = mock.AsyncMock()
+
+    async_to_sync(consumer.forum_live_event)({"event": {"type": "topic.removed"}})
+
+    consumer.channel_layer.group_discard.assert_not_called()
+    consumer.close.assert_awaited_once_with(code=constants.LIVE_CLOSE_NOT_FOUND)

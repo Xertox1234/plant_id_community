@@ -63,7 +63,9 @@ def _member_reply():
 
 @override_settings(FORUM_RATELIMITS={"post_update": "100/h"})
 @pytest.mark.django_db
-def test_patch_idempotent_retry_yields_one_revision_and_one_push():
+def test_patch_idempotent_retry_yields_one_revision_and_one_push(
+    django_capture_on_commit_callbacks,
+):
     author, reply = _member_reply()
     client = APIClient()
     client.force_authenticate(author)
@@ -71,7 +73,11 @@ def test_patch_idempotent_retry_yields_one_revision_and_one_push():
 
     # Mock only the enqueue: the setup submits above already fired their own
     # (real, swallowed) pushes — the mock counts only pushes from the two PATCHes.
-    with patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push:
+    # The push is enqueued after the commit (audit 2026-11-21 L9).
+    with (
+        patch("apps.forum_host.tasks.send_forum_push.delay") as mock_push,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
         first = client.patch(
             f"/api/v1/forum/posts/{reply.id}/",
             payload,

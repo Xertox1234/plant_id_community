@@ -28,6 +28,7 @@ from apps.core.ratelimit import meta_from_asgi_scope, trusted_client_ip_from_met
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from wagtail_forum.api.views import visible_topics
 
@@ -44,6 +45,14 @@ def _topic_is_visible(topic_id: int, user=None) -> bool:
     # no unlocked session (todo 680).
     # bool() only for mypy: the package is untyped to it, so exists() is Any.
     return bool(visible_topics(user).filter(pk=topic_id).exists())
+
+
+@database_sync_to_async
+def _active_user(user_id: int):
+    """The reader reloaded, or None once the account is gone or deactivated
+    (a ban): the handshake's user is not trusted for the socket's lifetime
+    (audit 2026-11-21 L1)."""
+    return get_user_model().objects.filter(pk=user_id, is_active=True).first()
 
 
 class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
@@ -125,8 +134,12 @@ class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
             # The topic is gone for everyone: deliver the event, then drop the
             # subscription so this socket hears nothing more about it.
             self._cancel_recheck()
-            await self.channel_layer.group_discard(self.group_name, self.channel_name)
-            self.group_name = None
+            # The re-check may already have left the group (audit L3).
+            if self.group_name is not None:
+                await self.channel_layer.group_discard(
+                    self.group_name, self.channel_name
+                )
+                self.group_name = None
             await self.close(code=constants.LIVE_CLOSE_NOT_FOUND)
 
     def _cancel_recheck(self) -> None:
@@ -148,7 +161,21 @@ class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
                 * random.uniform(*constants.LIVE_VISIBILITY_RECHECK_JITTER)
             )
             try:
-                visible = await _topic_is_visible(self.topic_id, self.scope.get("user"))
+                user = await _active_user(self.user_id)
+                if user is None:
+                    logger.info(
+                        "[FORUM_LIVE] recheck closed user=%s topic=%s: inactive",
+                        self.user_id,
+                        self.topic_id,
+                    )
+                    if self.group_name is not None:
+                        await self.channel_layer.group_discard(
+                            self.group_name, self.channel_name
+                        )
+                        self.group_name = None
+                    await self.close(code=constants.LIVE_CLOSE_UNAUTHENTICATED)
+                    return
+                visible = await _topic_is_visible(self.topic_id, user)
             except Exception as exc:  # CancelledError is not an Exception
                 if not failure_logged:
                     failure_logged = True

@@ -2601,9 +2601,19 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         ).only("topic_id", "body"):
             for block in post.body.raw_data:
                 if block.get("type") == "link_preview":
-                    preview_url = link_preview_envelope(block.get("value"), request)[
-                        "image_url"
-                    ]
+                    # None for a stored URL that fails is_card_url (a CMS
+                    # edit or an import): skip the card, never 500 the list.
+                    # A card is decoration, so even an unexpected error costs
+                    # only its thumbnail (owner decision, audit 2026-11-21 M1).
+                    try:
+                        envelope = link_preview_envelope(block.get("value"), request)
+                    except Exception:
+                        logger.exception(
+                            "[FORUM] link card thumbnail failed for topic=%s",
+                            post.topic_id,
+                        )
+                        envelope = None
+                    preview_url = envelope["image_url"] if envelope else None
                     if preview_url:
                         preview_url_by_topic.setdefault(post.topic_id, preview_url)
                         stack = stack_by_topic.setdefault(post.topic_id, [])
@@ -3391,11 +3401,23 @@ class SyncView(UnversionedForumAPIMixin, APIView):
         if since:
             from ..models.tombstones import TopicDeletedLog
 
-            deleted = list(
-                TopicDeletedLog.objects.filter(deleted_at__gt=since).values(
-                    "topic_id", "board_id"
-                )
+            tombstones = TopicDeletedLog.objects.filter(deleted_at__gt=since)
+            # Never the ids of a forum this reader cannot see; a forum that
+            # no longer exists still evicts (board_id has no FK), and
+            # ``?board=`` scopes them like the topics (audit 2026-11-21 L13).
+            tombstones = tombstones.exclude(
+                board_id__in=Forum.objects.exclude(
+                    pk__in=_visible_boards(request=request).values("pk")
+                ).values("pk")
             )
+            if board_slug:
+                # A deleted forum's slug resolves to nothing, so its tombstones
+                # are kept whatever ``?board=`` says, or they never evict.
+                tombstones = tombstones.filter(
+                    Q(board_id__in=Forum.objects.filter(slug=board_slug).values("pk"))
+                    | ~Q(board_id__in=Forum.objects.values("pk"))
+                )
+            deleted = list(tombstones.values("topic_id", "board_id"))
         return Response(
             {
                 "topics": topics,

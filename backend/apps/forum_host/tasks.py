@@ -13,6 +13,7 @@ import logging
 from apps.core import fcm as core_fcm
 from apps.core.notification_ops import report_push_unconfigured
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.db import OperationalError
 from wagtail_forum.preferences import wants_channel
 
@@ -202,64 +203,73 @@ def send_forum_push(
         )
         return
 
+    # Every read before the first send (audit 2026-11-21 L8): a transient DB
+    # error here retries the task. Nothing has been sent yet, so the retry
+    # cannot duplicate a push.
     try:
-        user = User.objects.get(pk=recipient_user_id)
-    except User.DoesNotExist:
-        logger.warning(
-            "[FCM] forum push skipped — user %s not found", recipient_user_id
-        )
-        return
+        try:
+            user = User.objects.get(pk=recipient_user_id)
+        except User.DoesNotExist:
+            logger.warning(
+                "[FCM] forum push skipped — user %s not found", recipient_user_id
+            )
+            return
 
-    if getattr(user, "forum_notifications", True) is not True:
-        logger.debug(
-            "[FCM] forum push skipped — user %s has forum_notifications=False",
-            recipient_user_id,
-        )
-        return
+        if getattr(user, "forum_notifications", True) is not True:
+            logger.debug(
+                "[FCM] forum push skipped — user %s has forum_notifications=False",
+                recipient_user_id,
+            )
+            return
 
-    profile = ForumProfile.for_user(user)
-    if not wants_channel(profile.notification_preferences, event, "push"):
-        logger.debug(
-            "[FCM] forum push skipped — user %s opted out of push for %s",
-            recipient_user_id,
+        profile = ForumProfile.for_user(user)
+        if not wants_channel(profile.notification_preferences, event, "push"):
+            logger.debug(
+                "[FCM] forum push skipped — user %s opted out of push for %s",
+                recipient_user_id,
+                event,
+            )
+            return
+        # Send-time recheck (todo 619), on the first run and on every retry: the
+        # account, the content and the actor may have changed since enqueue.
+        check = recheck(
             event,
+            [user.pk],
+            data,
+            "push",
+            users=[user],
+            overrides_by_user={user.pk: profile.notification_preferences},
         )
-        return
-    # Send-time recheck (todo 619), on the first run and on every retry: the
-    # account, the content and the actor may have changed since enqueue.
-    check = recheck(
-        event,
-        [user.pk],
-        data,
-        "push",
-        users=[user],
-        overrides_by_user={user.pk: profile.notification_preferences},
-    )
-    if check.suppressed:
-        logger.debug(
-            "[FCM] forum push skipped — user %s no longer eligible (%s)",
-            recipient_user_id,
-            check.suppressed[user.pk],
-        )
-        return
-    try:
-        held = _hold_single_push(event, user.pk, data, token, handed_off)
+        if check.suppressed:
+            logger.debug(
+                "[FCM] forum push skipped — user %s no longer eligible (%s)",
+                recipient_user_id,
+                check.suppressed[user.pk],
+            )
+            return
+        try:
+            held = _hold_single_push(event, user.pk, data, token, handed_off)
+        except OperationalError as exc:
+            # The hold could not be written. Retried, not sent: a send now would
+            # land inside the member's quiet hours (review round 2, PR #1132).
+            raise self.retry(
+                exc=exc, countdown=self.default_retry_delay * (2**self.request.retries)
+            ) from exc
+        if held:
+            return
+        tokens = device_tokens_for_users([recipient_user_id]).get(recipient_user_id, [])
+        if token is not None:
+            tokens = [t for t in tokens if t == token]
+        if not tokens:
+            logger.debug(
+                "[FCM] forum push skipped — user %s has no FCM token", recipient_user_id
+            )
+            return
+
     except OperationalError as exc:
-        # The hold could not be written. Retried, not sent: a send now would
-        # land inside the member's quiet hours (review round 2, PR #1132).
         raise self.retry(
             exc=exc, countdown=self.default_retry_delay * (2**self.request.retries)
         ) from exc
-    if held:
-        return
-    tokens = device_tokens_for_users([recipient_user_id]).get(recipient_user_id, [])
-    if token is not None:
-        tokens = [t for t in tokens if t == token]
-    if not tokens:
-        logger.debug(
-            "[FCM] forum push skipped — user %s has no FCM token", recipient_user_id
-        )
-        return
 
     fcm = get_fcm_client()
     if fcm is None:
@@ -529,131 +539,185 @@ def send_forum_push_batch(
     # tokenless profiles (todo 606).
     untried: list[int] | None = None
     outcomes: dict = {"sent": [], "handed_off": [], "failed": [], "credentials": []}
-    for index, send in enumerate(paced.sends):
-        user = send.user
-        send_data = pacing.folded_data(data, send)
-        str_data = {k: str(v) for k, v in client_payload(send_data).items()}
-        str_data["event"] = event
-        content = _notification_content(event, send_data)
-        devices = tokens_by_user[user.pk]
-        user_sent = 0
-        user_credentials_failed = False
-        transient: list[str] = []
-        for device_token in devices:
-            try:
-                response = core_fcm.send_fcm_message(
-                    fcm, device_token, str_data, content, _forum_collapse_key(event)
-                )
-                logger.info(
-                    "[FCM] forum.%s sent to user=%s: %s", event, user.pk, response
-                )
-                user_sent += 1
-            except Exception as exc:
-                if core_fcm.is_fcm_credentials_error(exc):
-                    # Not retried, token kept (todo 566). It can be the
-                    # device's (a dev-build token, an APNs-only fault). One
-                    # ERROR per batch, below.
-                    user_credentials_failed = True
-                    last_credentials_exc = exc
-                    continue
-                if core_fcm.is_permanent_fcm_error(exc):
-                    if core_fcm.is_dead_fcm_token_error(exc):
-                        # That device only (todos 457, 621).
-                        core_fcm.clear_dead_fcm_token(user.pk, device_token)
-                    logger.log(
-                        _permanent_failure_level(exc),
-                        "[FCM] forum.%s send failed permanently (user=%s): %s"
-                        " — not retrying",
+    # The soft time limit stops the batch instead of being swallowed as a send
+    # failure: what was sent is recorded, the rest is released for
+    # reconciliation, then the limit is re-raised (audit 2026-11-21 M3).
+    time_limit_hit: SoftTimeLimitExceeded | None = None
+    # The limit can also land outside a device send (it is a signal): the
+    # recipients from there on with no recorded outcome go back too, and
+    # everyone already pushed is still recorded below (Phase 6 review).
+    index, folds_finished = 0, -1
+    try:
+        for index, send in enumerate(paced.sends):
+            user = send.user
+            send_data = pacing.folded_data(data, send)
+            str_data = {k: str(v) for k, v in client_payload(send_data).items()}
+            str_data["event"] = event
+            content = _notification_content(event, send_data)
+            devices = tokens_by_user[user.pk]
+            user_sent = 0
+            user_credentials_failed = False
+            transient: list[str] = []
+            for device_token in devices:
+                try:
+                    response = core_fcm.send_fcm_message(
+                        fcm, device_token, str_data, content, _forum_collapse_key(event)
+                    )
+                    logger.info(
+                        "[FCM] forum.%s sent to user=%s: %s", event, user.pk, response
+                    )
+                    user_sent += 1
+                except SoftTimeLimitExceeded as exc:
+                    time_limit_hit = exc
+                    break
+                except Exception as exc:
+                    if core_fcm.is_fcm_credentials_error(exc):
+                        # Not retried, token kept (todo 566). It can be the
+                        # device's (a dev-build token, an APNs-only fault). One
+                        # ERROR per batch, below.
+                        user_credentials_failed = True
+                        last_credentials_exc = exc
+                        continue
+                    if core_fcm.is_permanent_fcm_error(exc):
+                        if core_fcm.is_dead_fcm_token_error(exc):
+                            # That device only (todos 457, 621).
+                            core_fcm.clear_dead_fcm_token(user.pk, device_token)
+                        logger.log(
+                            _permanent_failure_level(exc),
+                            "[FCM] forum.%s send failed permanently (user=%s): %s"
+                            " — not retrying",
+                            event,
+                            user.pk,
+                            exc,
+                        )
+                        continue
+                    logger.warning(
+                        "[FCM] forum.%s send failed (user=%s): %s — re-enqueuing single",
                         event,
                         user.pk,
                         exc,
                     )
-                    continue
-                logger.warning(
-                    "[FCM] forum.%s send failed (user=%s): %s — re-enqueuing single",
-                    event,
-                    user.pk,
-                    exc,
-                )
-                transient.append(device_token)
-        sent += user_sent
-        if transient:
-            # Hand off to the retry-capable single-recipient task rather than
-            # retrying (and re-sending) the whole batch. When every device of
-            # the account failed transiently it re-sends to all of them;
-            # otherwise each failed device retries alone, so a device that
-            # has the push never gets it twice (todo 621).
-            # Guarded (todo 643 #1), as the credentials re-enqueue is: a
-            # broker that refuses the hand-off (kombu's OperationalError) must
-            # not abort the batch before the rest of it is tried and the
-            # credentials ERROR below is logged. Only the exception's type is
-            # logged: a broker message can carry its host or URL (#2).
-            try:
-                # ``send_data``: a fold's retry is still the folded message
-                # (its folded rows are finished as covered below).
-                if len(transient) == len(devices):
-                    # Marked so the single task never holds it for quiet
-                    # hours; only the accepted answer is held there, so only
-                    # it carries the flag (other events keep the message
-                    # shape a worker from before it can still run).
-                    flag = {"handed_off": True} if event == "answer_accepted" else {}
-                    send_forum_push.delay(event, user.pk, send_data, **flag)
-                else:
-                    for device_token in transient:
-                        send_forum_push.delay(
-                            event, user.pk, send_data, token=device_token
+                    transient.append(device_token)
+            sent += user_sent
+            if transient:
+                # Hand off to the retry-capable single-recipient task rather than
+                # retrying (and re-sending) the whole batch. When every device of
+                # the account failed transiently it re-sends to all of them;
+                # otherwise each failed device retries alone, so a device that
+                # has the push never gets it twice (todo 621).
+                # Guarded (todo 643 #1), as the credentials re-enqueue is: a
+                # broker that refuses the hand-off (kombu's OperationalError) must
+                # not abort the batch before the rest of it is tried and the
+                # credentials ERROR below is logged. Only the exception's type is
+                # logged: a broker message can carry its host or URL (#2).
+                try:
+                    # ``send_data``: a fold's retry is still the folded message
+                    # (its folded rows are finished as covered below).
+                    if len(transient) == len(devices):
+                        # Marked so the single task never holds it for quiet
+                        # hours; only the accepted answer is held there, so only
+                        # it carries the flag (other events keep the message
+                        # shape a worker from before it can still run).
+                        flag = (
+                            {"handed_off": True} if event == "answer_accepted" else {}
                         )
-            except Exception as exc:
-                logger.error(
-                    "[FCM] forum.%s re-enqueue single failed (user=%s): %s — "
-                    "%s device(s) dropped",
-                    event,
-                    user.pk,
-                    type(exc).__name__,
-                    len(transient),
+                        send_forum_push.delay(event, user.pk, send_data, **flag)
+                    else:
+                        for device_token in transient:
+                            send_forum_push.delay(
+                                event, user.pk, send_data, token=device_token
+                            )
+                except SoftTimeLimitExceeded:
+                    # Not a broker failure: the outer guard releases this row
+                    # instead of recording a hand-off that never happened
+                    # (close review round 2).
+                    raise
+                except Exception as exc:
+                    logger.error(
+                        "[FCM] forum.%s re-enqueue single failed (user=%s): %s — "
+                        "%s device(s) dropped",
+                        event,
+                        user.pk,
+                        type(exc).__name__,
+                        len(transient),
+                    )
+            # The outbox outcome (todo 624): a push on any device, or a hand-off
+            # to send_forum_push's retries, finishes the row.
+            delivered = bool(user_sent or transient)
+            if send.row is not None:
+                if time_limit_hit and not delivered:
+                    # Cut off before any device had it: not a failure, re-driven.
+                    _record(delivery.release, [send.row])
+                elif user_sent:
+                    outcomes["sent"].append(send.row)
+                elif delivered:
+                    # Handed off, not yet delivered: finished here (the single
+                    # task owns the retries) but marked so reply coalescing does
+                    # not anchor its window on a push that may never arrive.
+                    outcomes["handed_off"].append(send.row)
+                elif user_credentials_failed:
+                    outcomes["credentials"].append(send.row)
+                else:
+                    outcomes["failed"].append(send.row)
+            pacing.finish_folds(send, delivered)
+            folds_finished = index
+            if time_limit_hit:
+                later = paced.sends[index + 1 :]
+                _record(
+                    delivery.release,
+                    [s.row for s in later if s.row]
+                    + [pk for s in later for pk in s.folded],
                 )
-        # The outbox outcome (todo 624): a push on any device, or a hand-off
-        # to send_forum_push's retries, finishes the row.
-        delivered = bool(user_sent or transient)
-        if send.row is not None:
-            if user_sent:
-                outcomes["sent"].append(send.row)
-            elif delivered:
-                # Handed off, not yet delivered: finished here (the single
-                # task owns the retries) but marked so reply coalescing does
-                # not anchor its window on a push that may never arrive.
-                outcomes["handed_off"].append(send.row)
-            elif user_credentials_failed:
-                outcomes["credentials"].append(send.row)
-            else:
-                outcomes["failed"].append(send.row)
-        pacing.finish_folds(send, delivered)
-        if user_credentials_failed and not user_sent:
-            # Counted per recipient, at the recipient boundary: stop only
-            # when this many have failed and no send has worked yet, which is
-            # the server's setup (owner decision 2026-10-11, todo 593 round 3).
-            credentials_failed.append(user.pk)
-            if (
-                not sent
-                and len(credentials_failed) >= core_fcm.FCM_CREDENTIALS_STOP_FAILURES
-            ):
-                untried = [later.user.pk for later in paced.sends[index + 1 :]]
-                untried_rows = [
-                    later.row for later in paced.sends[index + 1 :] if later.row
-                ]
-                # With the rows each untried send had claimed for its fold,
-                # so the follow-up batch can fold them again.
-                untried_rows += [
-                    pk for later in paced.sends[index + 1 :] for pk in later.folded
-                ]
-                # Handed back for the follow-up batch below or, failing
-                # that, reconciliation.
-                _record(delivery.release, untried_rows)
                 break
+            if user_credentials_failed and not user_sent:
+                # Counted per recipient, at the recipient boundary: stop only
+                # when this many have failed and no send has worked yet, which is
+                # the server's setup (owner decision 2026-10-11, todo 593 round 3).
+                credentials_failed.append(user.pk)
+                if (
+                    not sent
+                    and len(credentials_failed)
+                    >= core_fcm.FCM_CREDENTIALS_STOP_FAILURES
+                ):
+                    untried = [later.user.pk for later in paced.sends[index + 1 :]]
+                    untried_rows = [
+                        later.row for later in paced.sends[index + 1 :] if later.row
+                    ]
+                    # With the rows each untried send had claimed for its fold,
+                    # so the follow-up batch can fold them again.
+                    untried_rows += [
+                        pk for later in paced.sends[index + 1 :] for pk in later.folded
+                    ]
+                    # Handed back for the follow-up batch below or, failing
+                    # that, reconciliation.
+                    _record(delivery.release, untried_rows)
+                    break
+    except SoftTimeLimitExceeded as exc:
+        time_limit_hit = exc
+        recorded = {row for rows in outcomes.values() for row in rows}
+        rest = paced.sends[index:]
+        _record(
+            delivery.release,
+            [s.row for s in rest if s.row and s.row not in recorded]
+            + [
+                pk
+                for n, s in enumerate(rest)
+                if n or folds_finished != index
+                for pk in s.folded
+            ],
+        )
     _record(delivery.mark_sent, outcomes["sent"])
     _record(delivery.mark_sent, outcomes["handed_off"], delivery.HANDED_OFF)
     _record(delivery.mark_failed, outcomes["failed"], "permanent")
     _record(delivery.mark_failed, outcomes["credentials"], "fcm_credentials")
+    if time_limit_hit:
+        logger.warning(
+            "[FCM] forum.%s batch hit the soft time limit after %d send(s); "
+            "the rest are released for reconciliation",
+            event,
+            sent,
+        )
+        raise time_limit_hit
     stop_note = ""
     if untried is not None:
         stop_note = (
@@ -864,40 +928,57 @@ def send_forum_web_push_batch(
     sent = []
     delivered_users: set[int] = set()
     transient_users: set[int] = set()
+    # The soft time limit stops the batch: what was sent is recorded, everyone
+    # else is released for reconciliation, then it is re-raised (audit M3).
+    time_limit_hit: SoftTimeLimitExceeded | None = None
     with web_push_session() as session:
-        for subscription in subscriptions:
-            title, body, url, tag = rendered[subscription.user_id]
-            if NotificationService.send_web_push_notification(
-                subscription,
-                title=title,
-                body=body,
-                icon="/favicon.svg",
-                badge="/favicon.svg",
-                data={"url": url, "event": event},
-                tag=tag,
-                requests_session=session,
-                mark_used=False,
-            ):
-                sent.append(subscription.pk)
-                delivered_users.add(subscription.user_id)
-            elif subscription.is_active:
-                # Still active, so not a 404/410: worth another attempt.
-                transient_users.add(subscription.user_id)
-    if sent:
-        # Never let this bookkeeping raise: an OperationalError here would
-        # autoretry the task and send every notification again.
         try:
-            PushSubscription.objects.filter(pk__in=sent).update(
-                last_used=timezone.now()
-            )
-        except OperationalError:
-            logger.warning(
-                "[WEB_PUSH] Could not record last_used for %d sent subscription(s)",
-                len(sent),
-            )
-    for pk, send in sends.items():
-        pacing.finish_folds(send, pk in delivered_users)
-    if claimed is not None:
+            for subscription in subscriptions:
+                title, body, url, tag = rendered[subscription.user_id]
+                if NotificationService.send_web_push_notification(
+                    subscription,
+                    title=title,
+                    body=body,
+                    icon="/favicon.svg",
+                    badge="/favicon.svg",
+                    data={"url": url, "event": event},
+                    tag=tag,
+                    requests_session=session,
+                    mark_used=False,
+                ):
+                    sent.append(subscription.pk)
+                    delivered_users.add(subscription.user_id)
+                elif subscription.is_active:
+                    # Still active, so not a 404/410: worth another attempt.
+                    transient_users.add(subscription.user_id)
+        except SoftTimeLimitExceeded as exc:
+            time_limit_hit = exc
+    # The limit can also land in this bookkeeping (it is a signal): the
+    # outcomes below are still written before it is re-raised (Phase 6 review).
+    try:
+        if sent:
+            # Never let this bookkeeping raise: an OperationalError here would
+            # autoretry the task and send every notification again.
+            try:
+                PushSubscription.objects.filter(pk__in=sent).update(
+                    last_used=timezone.now()
+                )
+            except OperationalError:
+                logger.warning(
+                    "[WEB_PUSH] Could not record last_used for %d sent subscription(s)",
+                    len(sent),
+                )
+        for pk, send in sends.items():
+            pacing.finish_folds(send, pk in delivered_users)
+    except SoftTimeLimitExceeded as exc:
+        time_limit_hit = time_limit_hit or exc
+    if claimed is not None and time_limit_hit:
+        retry = transient_users - delivered_users
+        cut_off = {s.user_id for s in subscriptions} - delivered_users - retry
+        _record(delivery.mark_sent, [claimed[pk] for pk in delivered_users])
+        _record(delivery.mark_retry, [claimed[pk] for pk in retry], "web_push_failed")
+        _record(delivery.release, [claimed[pk] for pk in cut_off])
+    elif claimed is not None:
         attempted = {s.user_id for s in subscriptions}
         retry = transient_users - delivered_users
         _record(delivery.mark_sent, [claimed[pk] for pk in delivered_users])
@@ -914,6 +995,14 @@ def send_forum_web_push_batch(
                 event,
                 len(retry),
             )
+    if time_limit_hit:
+        logger.warning(
+            "[WEB_PUSH] forum.%s batch hit the soft time limit after %d send(s); "
+            "the rest are released for reconciliation",
+            event,
+            len(sent),
+        )
+        raise time_limit_hit
 
 
 def _record(mark, *args):
@@ -1053,6 +1142,7 @@ def send_forum_email_batch(
     from apps.core.services.notification_service import NotificationService
     from django.conf import settings
     from django.contrib.auth import get_user_model
+    from wagtail_forum.api.serializers import forum_display_name
     from wagtail_forum.api.views import plain_text_excerpt
     from wagtail_forum.models import Post
 
@@ -1181,56 +1271,83 @@ def send_forum_email_batch(
         else None
     )
 
-    for send in paced.sends:
+    for index, send in enumerate(paced.sends):
         user = send.user
         shown = send.latest or post
         post_url = f"{topic_url}#post-{shown.pk}"
-        author_name = shown.author.display_name if shown.author else "[deleted]"
+        # The forum name, never the legal name (audit 2026-11-21 H1).
+        author_name = forum_display_name(shown.author) if shown.author else "[deleted]"
         excerpt = plain_text_excerpt(shown.body, FORUM_EMAIL_EXCERPT_MAX_CHARS)
         service.email_service.last_outcome = None
-        if event == "reply_added" or user.pk in via_reply:
-            sent = service.send_forum_reply_notification(
-                user=user,
-                topic_title=topic.title,
-                reply_author=author_name,
-                reply_excerpt=excerpt,
-                topic_url=topic_url,
-                post_url=post_url,
-                count=send.count,
+        try:
+            if event == "reply_added" or user.pk in via_reply:
+                sent = service.send_forum_reply_notification(
+                    user=user,
+                    topic_title=topic.title,
+                    reply_author=author_name,
+                    reply_excerpt=excerpt,
+                    topic_url=topic_url,
+                    post_url=post_url,
+                    count=send.count,
+                )
+            else:
+                sent = service.send_forum_event_notification(
+                    user=user,
+                    event=event,
+                    topic_title=topic.title,
+                    actor_name=actor_override or author_name,
+                    post_excerpt=excerpt,
+                    topic_url=topic_url,
+                    post_url=post_url,
+                    author_name=author_name,
+                )
+        except SoftTimeLimitExceeded:
+            # The deadline, not a failed send (audit 2026-11-21 M3). Every
+            # outcome so far is already recorded; this recipient (SMTP may
+            # have accepted it: at-least-once) and the rest are released for
+            # reconciliation, then the limit is re-raised.
+            later = paced.sends[index:]
+            pacing.finish_folds(send, False)
+            _record(
+                delivery.release,
+                [s.row for s in later if s.row]
+                + [pk for s in later[1:] for pk in s.folded],
             )
-        else:
-            sent = service.send_forum_event_notification(
-                user=user,
-                event=event,
-                topic_title=topic.title,
-                actor_name=actor_override or author_name,
-                post_excerpt=excerpt,
-                topic_url=topic_url,
-                post_url=post_url,
-                author_name=author_name,
+            logger.warning(
+                "[EMAIL] forum.%s batch hit the soft time limit; %d recipient(s) "
+                "released for reconciliation",
+                event,
+                len(later),
             )
+            raise
         logger.info("[EMAIL] forum.%s email to user=%s: sent=%s", event, user.pk, sent)
+        # The outcome is recorded before the fold bookkeeping, so a soft limit
+        # landing there (it is a signal) cannot leave a sent row claimed for a
+        # resend after the lease (Phase 6 review).
+        if send.row is not None:
+            rows = [send.row]
+            if sent:
+                _record(delivery.mark_sent, rows)
+            else:
+                # A False that is not a transport failure is never retried. A
+                # send that never reached send_email (no copy for the event)
+                # says PERMANENT itself (todo 652); an outcome still unset
+                # means an error escaped send_email before it sent (a database
+                # read), worth a retry.
+                outcome = service.email_service.last_outcome or EmailOutcome.TRANSIENT
+                if outcome == EmailOutcome.SUPPRESSED:
+                    # A provider suppression (bounce, complaint) is not an
+                    # opt-out: recorded as such, as the account tasks do (625).
+                    reason = (
+                        service.email_service.last_suppression_reason
+                        or "preference_off"
+                    )
+                    _record(delivery.mark_suppressed, rows, reason)
+                elif outcome == EmailOutcome.PERMANENT:
+                    _record(delivery.mark_failed, rows, "permanent")
+                else:
+                    _record(delivery.mark_retry, rows, "smtp_transient")
         pacing.finish_folds(send, bool(sent))
-        if send.row is None:
-            continue
-        rows = [send.row]
-        if sent:
-            _record(delivery.mark_sent, rows)
-            continue
-        # A False that is not a transport failure is never retried. A send
-        # that never reached send_email (no copy for the event) says
-        # PERMANENT itself (todo 652); an outcome still unset means an error
-        # escaped send_email before it sent (a database read), worth a retry.
-        outcome = service.email_service.last_outcome or EmailOutcome.TRANSIENT
-        if outcome == EmailOutcome.SUPPRESSED:
-            # A provider suppression (bounce, complaint) is not an opt-out:
-            # recorded as such, as the account tasks do (todo 625).
-            reason = service.email_service.last_suppression_reason or "preference_off"
-            _record(delivery.mark_suppressed, rows, reason)
-        elif outcome == EmailOutcome.PERMANENT:
-            _record(delivery.mark_failed, rows, "permanent")
-        else:
-            _record(delivery.mark_retry, rows, "smtp_transient")
 
 
 @shared_task(
@@ -1329,11 +1446,12 @@ def generate_topic_summary(self, topic_id: int) -> None:
     from apps.blog.services.ai_cache_service import AICacheService
     from apps.blog.services.ai_rate_limiter import AIRateLimiter
     from apps.blog.wagtail_ai_v3_integration import generate_ai_text
+    from django.core.cache import cache
     from django.utils import timezone
     from wagtail_forum.api.views import _visible_boards
     from wagtail_forum.models import Topic
 
-    from .summary import build_summary_source
+    from .summary import _pending_lock_key, build_summary_source
 
     # Defense in depth: the same board-visibility guard the endpoint enforces —
     # a restricted-board (PageViewRestriction) topic is never summarized even if
@@ -1356,11 +1474,19 @@ def generate_topic_summary(self, topic_id: int) -> None:
         # A racing task already produced the summary for this exact thread state.
         return
 
-    if not AIRateLimiter.check_global_limit():
+    # Peek, then charge only a call that returned (audit 2026-11-21 M4):
+    # check_global_limit billed every attempt, so a retried outage spent three
+    # slots of the bucket the blog editor shares for no summary.
+    if not AIRateLimiter.peek_budget(
+        constants.SUMMARY_BUDGET_CACHE_KEY, AIRateLimiter.GLOBAL_LIMIT
+    ):
         logger.info(
             "[PERF] topic summary skipped for %s: global AI budget exhausted",
             topic_id,
         )
+        # A terminal exit frees the pending lock, so the long worst-case TTL
+        # never blocks a later poll's fresh attempt (M4).
+        cache.delete(_pending_lock_key(content))
         return
 
     prompt = constants.SUMMARY_PROMPT_TEMPLATE.format(content=content)
@@ -1370,16 +1496,26 @@ def generate_topic_summary(self, topic_id: int) -> None:
         logger.warning(
             "[ERROR] topic summary generation failed for %s: %s", topic_id, exc
         )
+        if self.request.retries >= self.max_retries:
+            cache.delete(_pending_lock_key(content))  # the last attempt
         raise self.retry(
             exc=exc,
             countdown=self.default_retry_delay * (2**self.request.retries),
         ) from exc
+
+    # Charged before the emptiness check: an empty completion still reached
+    # the provider and was billed (the compose-assist rule).
+    AIRateLimiter.consume_budget(
+        constants.SUMMARY_BUDGET_CACHE_KEY, AIRateLimiter.GLOBAL_LIMIT
+    )
 
     if not summary or not summary.strip():
         # An empty completion is a transient provider glitch, never a real
         # summary — caching it would serve blank for the whole 30-day TTL. Treat
         # it like any transient failure: retry with backoff, never cache.
         logger.warning("[ERROR] topic summary empty for %s; retrying", topic_id)
+        if self.request.retries >= self.max_retries:
+            cache.delete(_pending_lock_key(content))  # the last attempt
         raise self.retry(
             exc=ValueError("empty summary"),
             countdown=self.default_retry_delay * (2**self.request.retries),

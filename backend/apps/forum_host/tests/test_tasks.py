@@ -293,6 +293,45 @@ def test_send_forum_push_retries_transient_errors_until_exhausted():
 
 
 @pytest.mark.django_db
+def test_send_forum_push_retries_a_db_blip_before_any_send():
+    """A transient DB error in the reads before any send retries the task
+    instead of losing the push (audit 2026-11-21 L8). Reads only: nothing has
+    been sent, so the retry cannot duplicate one."""
+    from django.db import OperationalError
+
+    user = User.objects.create_user(username="dbblip")
+    profile = ForumProfile.for_user(user)
+    profile.fcm_token = "live-token"
+    profile.save()
+    mock_fcm = MagicMock()
+    mock_fcm.send.return_value = "ok"
+    reads = iter([OperationalError("connection reset")])
+
+    def flaky_recheck(*args, **kwargs):
+        exc = next(reads, None)
+        if exc is not None:
+            raise exc
+        return real_recheck(*args, **kwargs)
+
+    from apps.forum_host import tasks as forum_tasks
+
+    real_recheck = forum_tasks.recheck
+    with patch(
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch(
+        "apps.core.firebase_config.get_fcm_client", return_value=mock_fcm
+    ), patch.object(
+        forum_tasks, "recheck", side_effect=flaky_recheck
+    ):
+        result = forum_tasks.send_forum_push.apply(
+            args=("reply_added", user.pk, {"topic_id": "1"})
+        )
+
+    assert result.status == "SUCCESS"
+    assert mock_fcm.send.call_count == 1  # retried once, sent once
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "prior_retries,expected_countdown", [(0, 30), (1, 60), (2, 120)]
 )

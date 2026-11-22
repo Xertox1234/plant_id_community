@@ -363,6 +363,45 @@ def test_bulk_unpublish_action_unpublishes_selected_posts(client):
 
 
 @pytest.mark.django_db
+def test_bulk_unpublish_needs_publish_not_only_change(client):
+    """The bulk action asks what Wagtail's own unpublish asks, the publish
+    permission: change_post alone took posts down (audit 2026-11-21 L6)."""
+    from django.contrib.auth.models import Permission
+    from django.urls import reverse
+    from wagtail_forum.models import ForumProfile, Post, Topic
+
+    author = User.objects.create_user(username="bulk_perm_author")
+    ForumProfile.for_user(author)
+    board = make_forum(name="BPerm", slug="bperm")
+    topic = Topic.objects.create(board=board, title="BP", slug="bp", author=author)
+    post = Post(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        body=[{"type": "paragraph", "value": "<p>keep me</p>"}],
+    )
+    post.save()
+    post.save_revision().publish()
+
+    editor = User.objects.create_user(username="change_only", is_staff=True)
+    editor.user_permissions.add(
+        Permission.objects.get(
+            content_type__app_label="wagtailadmin", codename="access_admin"
+        ),
+        Permission.objects.get(
+            content_type__app_label="wagtail_forum", codename="change_post"
+        ),
+    )
+    client.force_login(editor)
+    url = reverse("wagtail_bulk_action", args=("wagtail_forum", "post", "unpublish"))
+
+    client.post(f"{url}?id={post.pk}", data={})
+
+    post.refresh_from_db()
+    assert post.live is True
+
+
+@pytest.mark.django_db
 def test_bulk_unpublish_action_execution_context_carries_acting_user():
     """Pins `ForumUnpublishBulkAction.get_execution_context()`'s
     `user=self.request.user` override directly (todo 265).

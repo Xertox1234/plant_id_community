@@ -180,7 +180,7 @@ def _count_folds(sends, dispatched_id=None) -> None:
     queries per distinct author."""
     from wagtail_forum.models import ForumProfile, Post, TopicRead
 
-    from .eligibility import blocked_recipient_ids, visible_posts
+    from .eligibility import blocked_recipient_ids, readable_posts
 
     folding = [send for send in sends if send.folded]
     if not folding:
@@ -188,8 +188,10 @@ def _count_folds(sends, dispatched_id=None) -> None:
     post_ids = {
         int(pk) for send in folding for pk in send.folded.values() if str(pk).isdigit()
     }
-    # The same visibility predicate as the recheck, in one query.
-    visible = visible_posts(post_ids)
+    # The recheck's rule: live, then each member's own forum grants (M5).
+    visible, unreadable = readable_posts(
+        post_ids, {send.user.pk: send.user for send in folding}
+    )
     dispatched_at = None
     if str(dispatched_id or "").isdigit():
         dispatched_at = (
@@ -216,7 +218,11 @@ def _count_folds(sends, dispatched_id=None) -> None:
         worth = []
         for pk in send.folded.values():
             post = visible.get(int(pk)) if str(pk).isdigit() else None
-            if post is None or send.user.pk in hidden.get(post.author_id, set()):
+            if (
+                post is None
+                or send.user.pk in unreadable[post.topic.board_id]
+                or send.user.pk in hidden.get(post.author_id, set())
+            ):
                 continue
             published = post.first_published_at
             read_marks = [
@@ -353,11 +359,14 @@ def folded_data(data: dict, send: Send) -> dict:
     if send.latest is None:
         # The dispatched post is the newest: its own post and author.
         return {**data, "count": str(send.count)}
+    from wagtail_forum.api.serializers import forum_display_name
+
     author = getattr(send.latest, "author", None)
     return {
         **data,
         "post_id": str(send.latest.pk),
-        "actor_name": getattr(author, "display_name", "") if author else "",
+        # The forum name, never the legal name (audit 2026-11-21 H1).
+        "actor_name": forum_display_name(author) if author else "",
         "count": str(send.count),
     }
 
