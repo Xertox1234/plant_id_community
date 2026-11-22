@@ -149,3 +149,14 @@ Source: `pip list --outdated` and `pip show` in `backend/venv`, 2026-11-15.
 ### 2026-11-21 - Completed by the todo sweep (run 2026-11-20-2202)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-21 - Review round 1: non-blocking findings (PR #1397)
+
+Round 1 was clean (5 reviewers, nothing blocking). The lows:
+
+- **Fixed:** the pip block's header comment in `.github/dependabot.yml` still said the first Dependabot PR
+  check was todo 711 and that the holds below were 711 decisions. It now points the check at todo 721 and
+  says the one hold left (django-treebeard) is a Wagtail resolver cap.
+- **Declined:** a reviewer asked that the Wagtail AI, forum RAG and spam paths be run on this lockfile before
+  merge. The full backend suite ran on it (7065 passed, `--create-db`), the blog AI and forum spam tests
+  included, and no first-party code needed a change. Real calls in production are todo 721, after deploy.

@@ -130,3 +130,11 @@ One PR per row, in this order:
 ### 2026-11-21 - Completed by the todo sweep (run 2026-11-20-2202)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-21 - Review round 1: non-blocking findings (PR #1397)
+
+- **Declined:** a reviewer noted the ticked Playwright criterion has 3 failures in its run, and that the run
+  was on the first attempt's tree. The owner confirmed it knowing that: the counts and the reason are quoted
+  in the entry above. Two of the failures are the forum write-lifecycle test, which fails the same way on
+  main (todo 725); the third passed 50/50 when re-run alone. This tree has the same jsdom 31.0.1 and Vitest
+  5. Acceptance criteria are not reworded after the fact.

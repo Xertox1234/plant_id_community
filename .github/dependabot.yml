@@ -33,8 +33,9 @@ updates:
   # of requirements.in and requirements-dev.in (todo 708). Dependabot is
   # expected to detect pip-compile from the lock headers and update the locks
   # with it, so it should no longer propose a transitive bump a parent
-  # forbids; its first PR checks that (todo 711). The version holds below are
-  # decisions (todo 711), not resolver workarounds.
+  # forbids; its first PR after the todo 711 AI SDK bump checks that (todo
+  # 721). The AI SDK holds were lifted in todo 711; the hold left below is a
+  # Wagtail resolver cap.
   - package-ecosystem: "pip"
     directory: "/backend"
     schedule:
