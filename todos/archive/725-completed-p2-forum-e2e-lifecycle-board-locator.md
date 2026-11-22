@@ -96,3 +96,11 @@ role or test id, not a heading level. Then run the spec under both authenticated
   `ForumCard.test.tsx` case asserting the board link carries the id and its href. Mutation check:
   with the attribute deleted from `ForumCard.tsx` the case fails (1 failed, 20 passed); restored,
   21 passed.
+
+### 2026-11-22 - Review round 2: non-blocking findings
+
+- **Declined: `.first()` could pick a card in a collapsed category (low, two reviewers).** The
+  e2e user never collapses a section, and the pre-725 locator had the same `.first()` shape. If
+  it ever flakes, the fix is `.filter({ visible: true })`.
+- **Declined: the spec's header comment undercounts the forum's test ids (low).** Comment only;
+  it names the ids this spec uses.
