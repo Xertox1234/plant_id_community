@@ -89,3 +89,10 @@ role or test id, not a heading level. Then run the spec under both authenticated
 ### 2026-11-22 - Completed by the todo sweep (run 2026-11-22-1957)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-22 - Review round 1: non-blocking findings
+
+- **Fixed: no unit test pinned `data-testid="forum-board-link"` (low).** Added a
+  `ForumCard.test.tsx` case asserting the board link carries the id and its href. Mutation check:
+  with the attribute deleted from `ForumCard.tsx` the case fails (1 failed, 20 passed); restored,
+  21 passed.
