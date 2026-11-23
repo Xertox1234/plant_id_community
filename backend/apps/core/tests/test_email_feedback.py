@@ -501,7 +501,44 @@ class TestEventsAndCorrelation:
                 message_id="<x.reader@example.com@relay.example.net>",
             )
         )
-        assert EmailProviderEvent.objects.get().message_id == ""
+        assert (
+            EmailProviderEvent.objects.get().message_id
+            == email_feedback.MESSAGE_ID_REDACTED
+        )
+
+    def test_a_message_id_quoting_another_address_is_kept(self):
+        """Only the event's own recipients are checked: an id naming some
+        other address is stored as sent."""
+        _post(
+            _event(
+                EVENT_DELIVERED,
+                "reader@example.com",
+                message_id="<x.other@example.com@relay.example.net>",
+            )
+        )
+        assert (
+            EmailProviderEvent.objects.get().message_id
+            == "<x.other@example.com@relay.example.net>"
+        )
+
+    def test_a_recipient_parseaddr_cannot_read_is_still_checked(self):
+        event = email_feedback.ParsedEvent(
+            event_type=EVENT_DELIVERED,
+            occurred_at=timezone.now(),
+            email_id="",
+            message_id="<x.Reader@Example.com>@relay>",
+            recipients=("reader@example.com>",),
+            bounce_type="",
+            bounce_subtype="",
+        )
+        assert (
+            email_feedback._storable_message_id(event)
+            == email_feedback.MESSAGE_ID_REDACTED
+        )
+
+    def test_a_nul_in_the_message_id_is_removed(self):
+        _post(_event("email.sent", message_id="<a\x00b@resend.dev>"))
+        assert EmailProviderEvent.objects.get().message_id == "<ab@resend.dev>"
 
     def test_no_address_is_stored(self):
         _hard_bounce("Reader@Example.com")

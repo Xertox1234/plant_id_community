@@ -115,3 +115,24 @@ suppression is not affected. Re-homed from todo 692 on 2026-11-21.
 ### 2026-11-23 - Completed by the todo sweep (run 2026-11-22-1957)
 
 - Archived by `land.py archive`; review is on the PR.
+
+### 2026-11-23 - Review round 1: non-blocking findings
+
+- **Fixed: the baseline doc still pointed at 726 for open work (medium).** Five places in
+  `docs/operations/notification-baseline.md` now point at todo 733, and 733 gained a "Carried
+  over from todo 726" section with the fix-matching step and the `email.suppressed` check.
+- **Fixed: blank meant both "Resend sent none" and "dropped" (low, two reviewers).** A dropped
+  id is stored as `redacted:recipient` (`MESSAGE_ID_REDACTED`). Test updated.
+- **Fixed: a recipient `parseaddr` cannot read was skipped (low).** The check falls back to the
+  raw string, as `address_hash` does. New test; removing the fallback fails it.
+- **Fixed: a NUL in the id would fail the insert and 500 the webhook (low).** NUL is removed.
+  New test; removing the strip fails it.
+- **Fixed: no nearest-neighbour test (low).** A new test keeps an id that names another
+  address; a filter that blanks every id fails it.
+- **Declined, wording changed: encoded, cc/bcc and cut-off addresses are not recognised (low,
+  three phrasings).** The guard checks the verbatim recipient only. The docstring, the model
+  comment and the baseline now say "verbatim" instead of "no address is ever stored" for this
+  field. The webhook is signed, and Resend's ids have not been seen to carry an address.
+- **Declined: our Message-ID carries the notification's uuid and outlives a deleted
+  notification (low).** It is pseudonymous, nothing else keeps the uuid, and the event row is
+  deleted after `EMAIL_FEEDBACK_RETENTION_DAYS`.

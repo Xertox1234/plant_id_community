@@ -401,8 +401,9 @@ class EmailProviderEvent(models.Model):
     provider_email_id = models.CharField(max_length=64, blank=True, default="")
     # The event's ``data.message_id`` exactly as reported (trimmed), on every
     # recorded event, so a prod read can see what Resend sends back for our
-    # client-set Message-ID (todo 726). Blank when the event has none, or
-    # when it quotes a recipient address (never stored). ``db_default``: a
+    # client-set Message-ID (todo 726). Blank when the event has none;
+    # ``redacted:recipient`` when it quoted a recipient address verbatim
+    # (that id is never stored). ``db_default``: a
     # previous-release worker inserts rows without it during a rollout.
     message_id = models.CharField(max_length=255, blank=True, default="", db_default="")
     bounce_type = models.CharField(max_length=32, blank=True, default="")

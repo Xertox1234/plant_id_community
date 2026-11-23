@@ -433,6 +433,9 @@ def _find_notification(event: ParsedEvent):
     return None
 
 
+MESSAGE_ID_REDACTED = "redacted:recipient"
+
+
 def _apply_to_notification(row, event: ParsedEvent) -> None:
     """Order-independent: each event sets its own timestamp once (the
     earliest wins), and the status moves only up the ladder sent < delivered
@@ -470,15 +473,20 @@ def _apply_to_notification(row, event: ParsedEvent) -> None:
 
 
 def _storable_message_id(event: ParsedEvent) -> str:
-    """The event's ``data.message_id`` as reported, for the ledger (todo 726),
-    or blank when it quotes a recipient's address: no address is ever
-    stored. Our own Message-ID names only the sender domain."""
-    value = event.message_id
+    """The event's ``data.message_id`` as reported, for the ledger (todo 726).
+
+    An id that quotes one of the event's recipient addresses verbatim is not
+    stored: ``MESSAGE_ID_REDACTED`` goes in its place, so a prod read can
+    tell "dropped" from "Resend sent none" (blank). The check is on the
+    verbatim address only; an encoded form is not recognised. Our own
+    Message-ID names only the sender domain. NUL is removed: Postgres
+    refuses it in text, and a failed insert would 500 the webhook."""
+    value = event.message_id.replace("\x00", "")
     lowered = value.lower()
     for recipient in event.recipients:
-        address = parseaddr(recipient)[1].strip().lower()
+        address = (parseaddr(recipient)[1] or recipient).strip().lower()
         if address and address in lowered:
-            return ""
+            return MESSAGE_ID_REDACTED
     return value
 
 
