@@ -95,3 +95,10 @@ Open a throwaway PR with a known critical alert and confirm it cannot merge; cit
 ### 2026-11-23 - Completed by the todo sweep (run 2026-11-22-1957)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-23 - Review round 1: non-blocking findings
+
+- **Declined: the "AC 2" entry cites evidence file `723-ac1.txt` (low).** The engine numbers
+  evidence files from 0, so `723-ac1.txt` is the second criterion's file. The quoted output is the
+  right one (PRs #1390 and #1405), and the file is not committed. Renaming a recorded evidence
+  path after the fact would falsify the record, so it stays as run.
