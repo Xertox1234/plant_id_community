@@ -36,10 +36,10 @@ dependencies:
   cupertino_icons: ^2.0.0
 
   # Firebase
-  firebase_core: ^5.1.0  # >=4.15.1 pins Firebase iOS SDK 12.19.3 (Firestore eMudhra CA fix)
-  firebase_auth: ^7.0.1
-  cloud_firestore: ^7.1.0
-  firebase_messaging: ^17.0.1  # Push notifications (16.7 adds AuthorizationStatus.deniedPermanently)
+  firebase_core: ^5.2.0  # >=4.15.1 pins Firebase iOS SDK 12.19.3 (Firestore eMudhra CA fix)
+  firebase_auth: ^7.1.0
+  cloud_firestore: ^7.2.0
+  firebase_messaging: ^17.1.0  # Push notifications (16.7 adds AuthorizationStatus.deniedPermanently)
 
   # State Management
   flutter_riverpod: ^3.1.0
@@ -119,7 +119,7 @@ dev_dependencies:
   # FirebaseMessagingPlatform.onMessageOpenedApp directly (todo 311). Already
   # a transitive dependency at this resolved version; listed explicitly to
   # satisfy depend_on_referenced_packages now a test file imports it.
-  firebase_messaging_platform_interface: ^4.11.1
+  firebase_messaging_platform_interface: ^4.12.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
