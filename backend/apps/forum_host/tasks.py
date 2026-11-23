@@ -9,12 +9,14 @@ Fired by forum_host/notifications.py dispatch() via .delay() so that:
 """
 
 import logging
+from datetime import timedelta
 
 from apps.core import fcm as core_fcm
 from apps.core.notification_ops import report_push_unconfigured
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from django.db import OperationalError
+from django.utils import timezone
 from wagtail_forum.preferences import wants_channel
 
 from . import constants, pacing
@@ -35,6 +37,15 @@ logger = logging.getLogger("forum_host.tasks")
 DIGEST_SOFT_TIME_LIMIT = 25 * 60
 DIGEST_TIME_LIMIT = 30 * 60
 DIGEST_CONTINUATION_DELAY = 60
+# A recovery run that finds the run lock held (an hourly quiet-hours run can
+# be mid-send when it fires) waits and tries again instead of ending its
+# retry chain: every DIGEST_LOCK_WAIT_DELAY seconds, at most
+# DIGEST_LOCK_WAIT_MAX_RUNS times. 8 x 5 min = 40 min, longer than the lock
+# can outlive its holder (WAGTAILFORUM_DIGEST_RUN_LOCK_SECONDS, 35 min).
+DIGEST_LOCK_WAIT_DELAY = 5 * 60
+DIGEST_LOCK_WAIT_MAX_RUNS = 8
+# The line `send_forum_digest` writes when another run holds its lock.
+DIGEST_LOCK_HELD_MARKER = "another run holds the lock"
 
 
 @shared_task(
@@ -46,7 +57,9 @@ DIGEST_CONTINUATION_DELAY = 60
     time_limit=DIGEST_TIME_LIMIT,
     ignore_result=True,
 )
-def send_forum_weekly_digest(self, recovery: int = 0):
+def send_forum_weekly_digest(
+    self, recovery: int = 0, quiet_only: bool = False, lock_wait: int = 0
+):
     """Celery beat entry (settings.CELERY_BEAT_SCHEDULE) for the package's
     `send_forum_digest` command (todo 340). The package owns content and
     sending; this is only the host's scheduling wire.
@@ -65,6 +78,26 @@ def send_forum_weekly_digest(self, recovery: int = 0):
     (``recovery`` counts them, todo 619): the failed members are still due,
     and the command's claim rechecks their consent and never repeats an
     accepted send (``apps.core.delivery.schedule_weekly_recovery``).
+
+    Quiet hours (todo 728): the command skips a due member whose quiet
+    window covers the run and leaves them due. ``quiet_only`` is the hourly
+    follow-up beat entries' run (``forum-weekly-digest-quiet-release-*``),
+    which looks only at members with quiet hours on and sends to those whose
+    window has ended. It is a beat entry, not an ``eta`` on this task: a hold
+    can last most of a day, and a broker message that old is redelivered by
+    Redis's visibility timeout (see ``pacing``). The run lock and the
+    per-member claim are the same for both runs, so no member gets two.
+
+    The shared lock must not cost a recovery run its turn: a recovery run
+    lands about 30 and 90 minutes after the main run, where an hourly
+    follow-up run can be holding the lock. The command then exits with no
+    summary line, which would read as "nothing failed" and end the retries.
+    So a recovery run turned away by the lock is re-enqueued with the same
+    ``recovery`` count (``lock_wait`` counts the waits, bounded by
+    ``DIGEST_LOCK_WAIT_MAX_RUNS``). Any other run turned away is left alone,
+    as before; that includes a soft-limit continuation of the main run that
+    meets an hourly run's lock, whose remaining members then wait for the
+    next weekly run.
     """
     from io import StringIO
 
@@ -75,15 +108,31 @@ def send_forum_weekly_digest(self, recovery: int = 0):
     logger.info("[EMAIL] forum weekly digest: starting (task=%s)", self.request.id)
     out = StringIO()
     try:
-        call_command("send_forum_digest", frequency="weekly", stdout=out)
+        # The option is passed only on the follow-up run, so the main run's
+        # call is exactly what it was before todo 728.
+        scope = (
+            {
+                "quiet_hours_only": True,
+                "held_at": _last_main_digest_run(timezone.now()).isoformat(),
+            }
+            if quiet_only
+            else {}
+        )
+        call_command("send_forum_digest", frequency="weekly", stdout=out, **scope)
     except SoftTimeLimitExceeded:
         logger.warning(
             "[EMAIL] forum weekly digest hit the soft time limit (task=%s); "
             "re-enqueuing to finish the members still due",
             self.request.id,
         )
-        # A continuation keeps its run's recovery count (todo 619).
-        extra = {"kwargs": {"recovery": recovery}} if recovery else {}
+        # A continuation keeps its run's recovery count (todo 619) and its
+        # scope (todo 728).
+        kwargs: dict = {}
+        if recovery:
+            kwargs["recovery"] = recovery
+        if quiet_only:
+            kwargs["quiet_only"] = True
+        extra = {"kwargs": kwargs} if kwargs else {}
         send_forum_weekly_digest.apply_async(
             countdown=DIGEST_CONTINUATION_DELAY, **extra
         )
@@ -96,8 +145,75 @@ def send_forum_weekly_digest(self, recovery: int = 0):
                 # here would log "[EMAIL] [EMAIL] ..." (todo 392).
                 # log-prefix: exempt (relayed command output, already prefixed)
                 logger.info("%s (task=%s)", line, self.request.id)
+    if recovery and DIGEST_LOCK_HELD_MARKER in out.getvalue():
+        _retry_recovery_after_the_lock(self.request.id, recovery, lock_wait)
+        return
+    if quiet_only:
+        # No recovery run for a follow-up run: a recovery run is a full,
+        # unscoped run, which mid-week would mail members the main run found
+        # with nothing new. The next hourly follow-up run is the retry.
+        return
     schedule_weekly_recovery(
         send_forum_weekly_digest, out.getvalue(), recovery, "forum weekly digest"
+    )
+
+
+def _last_main_digest_run(now):
+    """When the main weekly digest last fired at or before ``now``, read from
+    its beat entry. The follow-up runs pass it to the command, which then
+    sends only to members whose quiet window covered that run."""
+    from django.conf import settings
+
+    schedule = settings.CELERY_BEAT_SCHEDULE["forum-weekly-digest"]["schedule"]
+    candidate = now.replace(
+        hour=min(schedule.hour), minute=min(schedule.minute), second=0, microsecond=0
+    )
+    # Celery counts Sunday as 0; Python counts Monday as 0.
+    for _ in range(8):
+        if candidate <= now and (candidate.weekday() + 1) % 7 in schedule.day_of_week:
+            return candidate
+        candidate -= timedelta(days=1)
+    raise RuntimeError("the forum-weekly-digest beat entry matches no day")
+
+
+def _retry_recovery_after_the_lock(
+    task_id: str | None, recovery: int, lock_wait: int
+) -> None:
+    """Re-enqueue a recovery run that another digest run's lock turned away,
+    keeping its ``recovery`` count, so the failed members are still retried."""
+    if lock_wait >= DIGEST_LOCK_WAIT_MAX_RUNS:
+        logger.error(
+            "[EMAIL] forum weekly digest: recovery run %d still found the run "
+            "lock held after %d wait(s); the failed sends stay due for the "
+            "next scheduled run (task=%s)",
+            recovery,
+            lock_wait,
+            task_id,
+        )
+        return
+    try:
+        send_forum_weekly_digest.apply_async(
+            kwargs={"recovery": recovery, "lock_wait": lock_wait + 1},
+            countdown=DIGEST_LOCK_WAIT_DELAY,
+        )
+    except Exception as exc:
+        # The type only: a broker error can carry its URL.
+        logger.error(
+            "[EMAIL] forum weekly digest: could not re-enqueue recovery run "
+            "%d behind the run lock: %s (task=%s)",
+            recovery,
+            type(exc).__name__,
+            task_id,
+        )
+        return
+    logger.warning(
+        "[EMAIL] forum weekly digest: recovery run %d found the run lock "
+        "held; trying again in %ss (wait %d of %d, task=%s)",
+        recovery,
+        DIGEST_LOCK_WAIT_DELAY,
+        lock_wait + 1,
+        DIGEST_LOCK_WAIT_MAX_RUNS,
+        task_id,
     )
 
 
@@ -413,7 +529,10 @@ def _hold_single_push(event, user_id, data, token, handed_off) -> bool:
     # sync_blog_page_chunks and constants.NOTIFICATION_BATCH_RETRY_DELAY).
     retry_backoff=constants.NOTIFICATION_BATCH_RETRY_DELAY,
     max_retries=constants.NOTIFICATION_BATCH_MAX_RETRIES,
-    ignore_result=True,  # side-effect only; every call site is a bare .delay()
+    # Sized to one chunk of recipients (todo 727), not the global 90 s/120 s.
+    soft_time_limit=constants.NOTIFICATION_BATCH_SOFT_TIME_LIMIT,
+    time_limit=constants.NOTIFICATION_BATCH_TIME_LIMIT,
+    ignore_result=True,  # side-effect only; every call site enqueues and moves on
 )
 def send_forum_push_batch(
     event: str,
@@ -523,12 +642,15 @@ def send_forum_push_batch(
             if reason is not None:
                 suppressed.setdefault(reason, []).append(row)
         _record(delivery.mark_suppressed_by_reason, suppressed)
-    paced = pacing.pace(
-        kind, event, data, claimed, [p.user for p in profiles if wants_push(p)]
-    )
-    pacing.apply_holds(paced)
-    pacing.schedule_fold(
-        send_forum_push_batch, event, data, batch_id, paced, recipient_user_ids
+    paced = pacing.pace_claimed(
+        send_forum_push_batch,
+        kind,
+        event,
+        data,
+        batch_id,
+        claimed,
+        [p.user for p in profiles if wants_push(p)],
+        recipient_user_ids,
     )
 
     sent = 0
@@ -795,7 +917,10 @@ def _web_topic_path(topic_id: str | int | None, post_id: str | int | None) -> st
     autoretry_for=(OperationalError,),
     retry_backoff=constants.NOTIFICATION_BATCH_RETRY_DELAY,  # factor, see above
     max_retries=constants.NOTIFICATION_BATCH_MAX_RETRIES,
-    ignore_result=True,  # side-effect only; every call site is a bare .delay()
+    # Sized to one chunk of recipients (todo 727), not the global 90 s/120 s.
+    soft_time_limit=constants.NOTIFICATION_BATCH_SOFT_TIME_LIMIT,
+    time_limit=constants.NOTIFICATION_BATCH_TIME_LIMIT,
+    ignore_result=True,  # side-effect only; every call site enqueues and moves on
 )
 def send_forum_web_push_batch(
     event: str,
@@ -822,9 +947,11 @@ def send_forum_web_push_batch(
     message from before the outbox) nothing is recorded and a failed send
     is only logged, as before.
 
-    Sends stay sequential in this one task (owner decision 2026-10-11, todo
-    456): one shared session and one bulk ``last_used`` UPDATE, no chunked
-    subtasks or thread pool until a topic's fan-out proves it needs them.
+    Sends stay sequential inside a task (owner decision 2026-10-11, todo
+    456): one shared session and one bulk ``last_used`` UPDATE, no thread
+    pool. The recipients are chunked at enqueue, ``NOTIFICATION_BATCH_CHUNK_SIZE``
+    per task (owner decision 2026-11-22, todo 727, which replaces that
+    decision's "no chunked subtasks").
     """
     from apps.core import delivery
     from apps.users.models import PushSubscription
@@ -900,10 +1027,15 @@ def send_forum_web_push_batch(
     # sent to now; a fold's message covers its later replies.
     browsers = {s.user_id for s in subscriptions}
     with_browser_users = [user for user in check.eligible if user.pk in browsers]
-    paced = pacing.pace(kind, event, data, claimed, with_browser_users)
-    pacing.apply_holds(paced)
-    pacing.schedule_fold(
-        send_forum_web_push_batch, event, data, batch_id, paced, recipient_user_ids
+    paced = pacing.pace_claimed(
+        send_forum_web_push_batch,
+        kind,
+        event,
+        data,
+        batch_id,
+        claimed,
+        with_browser_users,
+        recipient_user_ids,
     )
     sends = {send.user.pk: send for send in paced.sends}
     subscriptions = [s for s in subscriptions if s.user_id in sends]
@@ -1005,6 +1137,15 @@ def send_forum_web_push_batch(
         raise time_limit_hit
 
 
+def recipient_chunks(recipient_ids) -> list[list[int]]:
+    """``recipient_ids`` in lists of at most ``NOTIFICATION_BATCH_CHUNK_SIZE``
+    (todo 727): one batch task per list, so a task's work and its time limits
+    are sized to a chunk whatever the topic's follower count."""
+    ids = list(recipient_ids)
+    size = constants.NOTIFICATION_BATCH_CHUNK_SIZE
+    return [ids[start : start + size] for start in range(0, len(ids), size)]
+
+
 def _record(mark, *args):
     """Run one outbox bookkeeping write without letting it raise into a task
     that has already sent (todo 619): an OperationalError here would trigger
@@ -1055,19 +1196,21 @@ def redrive_forum_deliveries(rows) -> None:
             folding.add(key)
         groups.setdefault((row.kind, str(row.batch_id), row.event), []).append(row)
     for (kind, batch_id, event), group in groups.items():
-        tasks[kind].delay(
-            event,
-            [row.recipient_id for row in group],
-            group[0].payload,
-            batch_id=batch_id,
-        )
+        # Chunked like the first enqueue (todo 727). Not guarded per chunk: a
+        # broker error must reach reconcile(), which logs it; every row is
+        # still pending and due again after the redrive interval.
+        for chunk in recipient_chunks([row.recipient_id for row in group]):
+            tasks[kind].delay(event, chunk, group[0].payload, batch_id=batch_id)
 
 
 @shared_task(
     autoretry_for=(OperationalError,),
     retry_backoff=constants.NOTIFICATION_BATCH_RETRY_DELAY,  # factor, see above
     max_retries=constants.NOTIFICATION_BATCH_MAX_RETRIES,
-    ignore_result=True,  # side-effect only; every call site is a bare .delay()
+    # Sized to one chunk of recipients (todo 727), not the global 90 s/120 s.
+    soft_time_limit=constants.NOTIFICATION_BATCH_SOFT_TIME_LIMIT,
+    time_limit=constants.NOTIFICATION_BATCH_TIME_LIMIT,
+    ignore_result=True,  # side-effect only; every call site enqueues and moves on
 )
 def send_forum_email_batch(
     event: str,
@@ -1245,10 +1388,15 @@ def send_forum_email_batch(
                 suppressed.setdefault(reason, []).append(row)
         _record(delivery.mark_suppressed_by_reason, suppressed)
 
-    paced = pacing.pace(kind, event, data, claimed, check.eligible)
-    pacing.apply_holds(paced)
-    pacing.schedule_fold(
-        send_forum_email_batch, event, data, batch_id, paced, recipient_user_ids
+    paced = pacing.pace_claimed(
+        send_forum_email_batch,
+        kind,
+        event,
+        data,
+        batch_id,
+        claimed,
+        check.eligible,
+        recipient_user_ids,
     )
 
     topic = post.topic
@@ -1350,6 +1498,46 @@ def send_forum_email_batch(
         pacing.finish_folds(send, bool(sent))
 
 
+def _permanent_embedding_errors() -> tuple[type[BaseException], ...]:
+    """The embedding provider's errors that a retry cannot fix (todo 732,
+    audit 2026-11-21 L12): a bad or revoked key, a missing key, no access,
+    and a request the provider rejects as malformed.
+
+    Both families are listed because ``any_llm`` raises the OpenAI SDK's own
+    classes unless its unified exceptions are switched on, and its own when
+    they are. Named one by one, never ``openai.APIStatusError``: that base
+    also covers 429 and 5xx, which stay on the retry path with timeouts and
+    connection errors. Imported here, not at module import: this module is
+    loaded by every web process, which never needs the SDK."""
+    errors: list[type[BaseException]] = []
+    try:
+        import openai
+
+        errors += [
+            openai.AuthenticationError,  # 401
+            openai.PermissionDeniedError,  # 403
+            openai.BadRequestError,  # 400
+            openai.NotFoundError,  # 404 (no such model)
+            openai.UnprocessableEntityError,  # 422
+        ]
+    except ImportError:  # pragma: no cover - the SDK is a hard dependency
+        pass
+    try:
+        from any_llm import exceptions as any_llm_errors
+
+        errors += [
+            any_llm_errors.AuthenticationError,
+            any_llm_errors.MissingApiKeyError,
+            any_llm_errors.InvalidRequestError,
+            any_llm_errors.ModelNotFoundError,
+            any_llm_errors.ContextLengthExceededError,
+            any_llm_errors.UnsupportedParameterError,
+        ]
+    except ImportError:  # pragma: no cover - the SDK is a hard dependency
+        pass
+    return tuple(errors)
+
+
 @shared_task(
     bind=True,
     autoretry_for=(Exception,),
@@ -1371,6 +1559,13 @@ def sync_blog_page_chunks(self, page_id: int) -> None:
     ``acks_late`` and ``autoretry_for=(Exception,)`` are safe: a retry after a
     provider or DB blip redoes exactly one page. A chunking failure is a
     PERMANENT error (malformed content_blocks) and is logged, not retried.
+    So is a provider error no retry can fix (todo 732): a bad or revoked key
+    or a 4xx request error (``_permanent_embedding_errors``) is logged once
+    at ERROR with the page id and the task ends, the existing chunks kept.
+    It is caught here, not listed in ``dont_autoretry_for``: that would
+    re-raise it, and Celery's own failure trace would log it a second time.
+    Timeouts, connection errors, 429, 5xx and ``SoftTimeLimitExceeded`` are
+    not in that list and are retried as before.
     Per-page work goes through the transformer and the storage provider
     DIRECTLY, not ``index.update()`` — that ends in ``post_index_update``,
     which deletes and re-registers a ``ModelSourceIndex`` row for EVERY object
@@ -1414,7 +1609,20 @@ def sync_blog_page_chunks(self, page_id: int) -> None:
             "[CELERY] blog page %s: chunking failed; existing chunks kept", page_id
         )
         return
-    embedded = index.embedding_transformer.embed_documents(documents, batch_size=100)
+    try:
+        embedded = index.embedding_transformer.embed_documents(
+            documents, batch_size=100
+        )
+    except _permanent_embedding_errors() as exc:
+        # The class name only: a provider's auth message can quote part of
+        # the key it rejected.
+        logger.error(
+            "[ERROR] blog page %s: the embedding provider refused the request "
+            "(%s); not retrying, existing chunks kept",
+            page_id,
+            type(exc).__name__,
+        )
+        return
     with transaction.atomic():
         stale.delete()
         # Re-checked here, not just above: the embed is a network round-trip

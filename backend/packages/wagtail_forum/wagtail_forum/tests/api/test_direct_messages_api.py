@@ -769,3 +769,69 @@ def test_migration_0032_backfills_last_message_at_from_the_newest_message():
     empty.refresh_from_db()
     assert with_messages.last_message_at == newest.created_at
     assert empty.last_message_at == empty.created_at
+
+
+# --- the inbox does not scan message history (todo 730, audit L18) -------------
+
+
+@pytest.mark.django_db
+def test_inbox_query_count_and_shape_do_not_grow_with_message_history():
+    """``unread_count`` was ``Count("messages", filter=...)``: a join and a
+    GROUP BY over every message of every conversation, before the cursor
+    LIMIT. It is a correlated subquery now, evaluated for the page's rows."""
+    from wagtail_forum.api.direct_messages import _inbox_queryset
+
+    cache.clear()
+    me = User.objects.create_user(username="hist-me")
+    others = [User.objects.create_user(username=f"hist-other-{i}") for i in range(3)]
+    for other in others:
+        _send(other, me, "hi")
+    client = APIClient()
+    client.force_authenticate(me)
+
+    with CaptureQueriesContext(connection) as short:
+        resp = client.get("/forum/conversations/")
+    assert [row["unread_count"] for row in resp.data["results"]] == [1, 1, 1]
+
+    # A long history in every conversation: 40 more unread from the other
+    # side, and 5 of my own (which are never unread to me).
+    for conversation in Conversation.objects.all():
+        other = next(u for u in others if u.pk in conversation.participant_ids())
+        Message.objects.bulk_create(
+            [
+                Message(conversation=conversation, sender=other, body=f"more {n}")
+                for n in range(40)
+            ]
+            + [
+                Message(conversation=conversation, sender=me, body=f"mine {n}")
+                for n in range(5)
+            ]
+        )
+    cache.clear()
+
+    with CaptureQueriesContext(connection) as long:
+        resp = client.get("/forum/conversations/")
+
+    assert [row["unread_count"] for row in resp.data["results"]] == [41, 41, 41]
+    assert len(long.captured_queries) == len(short.captured_queries)
+    # The shape, from the query itself rather than its rendered text: no
+    # GROUP BY on the conversation rows and no join to the message table,
+    # so nothing in the outer query scales with history.
+    query = _inbox_queryset(me).query
+    assert query.group_by is None
+    assert Message._meta.db_table not in {
+        join.table_name for join in query.alias_map.values()
+    }
+
+
+@pytest.mark.django_db
+def test_a_conversation_with_nothing_unread_reports_zero_not_null():
+    me = User.objects.create_user(username="zero-me")
+    other = User.objects.create_user(username="zero-other")
+    _send(me, other, "only my own message")
+    client = APIClient()
+    client.force_authenticate(me)
+
+    rows = client.get("/forum/conversations/").data["results"]
+
+    assert [row["unread_count"] for row in rows] == [0]

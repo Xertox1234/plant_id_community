@@ -14,7 +14,15 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from rest_framework.test import APIClient
-from wagtail_forum.models import ForumProfile, Post, TrustLevel
+from wagtail_forum.models import (
+    ForumGrant,
+    ForumProfile,
+    ForumRole,
+    Post,
+    Topic,
+    TrustLevel,
+)
+from wagtail_forum.services.forum_permissions import set_grant
 from wagtail_forum.tests.factories import make_forum
 
 from ..test_embeds import YOUTUBE_VIMEO_FINDERS
@@ -1753,3 +1761,70 @@ def test_655_an_unchanged_resave_of_a_split_post_stores_the_same_body(written, r
     post.refresh_from_db()
     assert _stored(post) == before
     assert CALLS == []
+
+
+# --- no fetch for a write the member may not make (todo 730, audit L14) --------
+
+BARE_LINK = [{"type": "paragraph", "value": "<p>https://example.org/page</p>"}]
+
+
+def _forum_with_role(slug, role):
+    forum = make_forum(name=slug.title(), slug=slug)
+    set_grant(forum, ForumGrant.MEMBERS, role)
+    return forum
+
+
+def _live_topic(forum, author):
+    topic = Topic.objects.create(
+        board=forum, title="Existing", slug=f"existing-{forum.slug}", author=author
+    )
+    Post.objects.create(topic=topic, author=author, is_opening_post=True, live=True)
+    return topic
+
+
+def _reply_to(client, topic, body):
+    return client.post(
+        f"/forum/topics/{topic.pk}/posts/", {"body": body}, format="json"
+    )
+
+
+@pytest.mark.django_db
+def test_a_reply_the_member_may_not_post_is_403_before_any_link_is_fetched():
+    author = _member("lp-op")
+    client = _client(_member("lp-replier"))
+    allowed = _live_topic(_forum_with_role("lp-open", ForumRole.STANDARD), author)
+    denied = _live_topic(_forum_with_role("lp-closed", ForumRole.READ_ONLY), author)
+
+    with _fetcher("fake_fetcher"):
+        # The control: where the member may reply, the bare link IS fetched,
+        # so the empty list below is the permission check, not a body that
+        # never had anything to fetch.
+        assert _reply_to(client, allowed, BARE_LINK).status_code == 201
+        assert CALLS == ["https://example.org/page"]
+        CALLS.clear()
+
+        resp = _reply_to(client, denied, BARE_LINK)
+
+    assert resp.status_code == 403, resp.content
+    assert resp.json()["code"] == "forum_reply_denied"
+    assert CALLS == []
+    assert denied.posts.count() == 1
+
+
+@pytest.mark.django_db
+def test_a_topic_the_member_may_not_post_is_403_before_any_link_is_fetched():
+    client = _client(_member("lp-poster"))
+    allowed = _forum_with_role("lp-open-t", ForumRole.STANDARD)
+    denied = _forum_with_role("lp-closed-t", ForumRole.READ_ONLY)
+
+    with _fetcher("fake_fetcher"):
+        assert _create(client, allowed, BARE_LINK).status_code == 201
+        assert CALLS == ["https://example.org/page"]
+        CALLS.clear()
+
+        resp = _create(client, denied, BARE_LINK, slug="denied-thread")
+
+    assert resp.status_code == 403, resp.content
+    assert resp.json()["code"] == "forum_post_denied"
+    assert CALLS == []
+    assert not Topic.objects.filter(board=denied).exists()

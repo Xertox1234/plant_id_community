@@ -751,6 +751,23 @@ class FirebaseProjectIdOnlyInitTestCase(TestCase):
     @override_settings(
         FIREBASE_CREDENTIALS_PATH=None, FIREBASE_PROJECT_ID="plant-community-prod"
     )
+    def test_the_project_id_only_app_carries_the_http_timeout(self):
+        """Todo 727: the FCM sender adopts whichever default app exists, so
+        this init path must bound Admin SDK HTTP calls as the shared
+        bootstrap does. Runs the real init, not the options helper alone."""
+        import apps.users.firebase_auth_views as views
+        import firebase_admin
+        from apps.core.constants import FIREBASE_HTTP_TIMEOUT_SECONDS
+
+        views._ensure_firebase_initialized()
+
+        app = firebase_admin.get_app()
+        self.assertEqual(app.options.get("httpTimeout"), FIREBASE_HTTP_TIMEOUT_SECONDS)
+        self.assertEqual(app.project_id, "plant-community-prod")
+
+    @override_settings(
+        FIREBASE_CREDENTIALS_PATH=None, FIREBASE_PROJECT_ID="plant-community-prod"
+    )
     def test_verification_does_not_require_application_default_credentials(self):
         """The bug: this raised DefaultCredentialsError instead of a token error.
 

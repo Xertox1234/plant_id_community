@@ -581,3 +581,42 @@ def test_session_unlock_still_works_without_a_token(locked):
 
     assert client.get(TOPICS_URL).status_code == 200
     assert _row(client)["is_locked"] is False
+
+
+# --- counts are hidden like the contents (todo 730, audit 2026-11-21 L19) ------
+
+
+def _category(client):
+    rows = client.get("/forum/categories/").json()["results"]
+    return next(c for c in rows if any(f["slug"] == "club" for f in c["forums"]))
+
+
+def test_a_locked_forum_hides_its_counts_and_adds_nothing_to_the_category(locked):
+    """Owner decision 2026-11-22: a password forum's topic and post counts
+    are not public. They are hidden like its contents until it is unlocked."""
+    from wagtail_forum.models import Forum
+
+    open_forum = make_forum(name="Open", slug="open")
+    Forum.objects.filter(pk=open_forum.pk).update(topic_count=2, post_count=5)
+    Forum.objects.filter(pk=locked["forum"].pk).update(topic_count=4, post_count=9)
+    client, _ = _member()
+
+    category = _category(client)
+    row = _row(client)
+    assert row["is_locked"] is True
+    assert (row["topic_count"], row["post_count"]) == (0, 0)
+    # Only the forum this reader can open is in the totals.
+    assert (category["topic_count"], category["post_count"]) == (2, 5)
+    # A guest sees the same.
+    guest = _category(APIClient())
+    assert (guest["topic_count"], guest["post_count"]) == (2, 5)
+    guest_row = next(f for f in guest["forums"] if f["slug"] == "club")
+    assert (guest_row["topic_count"], guest_row["post_count"]) == (0, 0)
+
+    assert _unlock(client).status_code == 200
+
+    category = _category(client)
+    row = _row(client)
+    assert row["is_locked"] is False
+    assert (row["topic_count"], row["post_count"]) == (4, 9)
+    assert (category["topic_count"], category["post_count"]) == (6, 14)

@@ -260,6 +260,35 @@ def claim_related(kind, event, recipient_id, topic_id, *, exclude) -> dict[int, 
     )
 
 
+def claim_related_many(
+    kind, event, recipient_ids, topic_id, *, exclude
+) -> dict[int, dict[int, str]]:
+    """``claim_related`` for a whole batch (todo 727, audit 2026-11-21 L7):
+    {recipient pk: {row pk: subject key}} for the other open rows of ``kind``
+    and ``event`` on one topic, claimed for every recipient in ONE UPDATE and
+    read back in one SELECT, whatever the recipient count. A recipient with
+    nothing to fold is absent."""
+    ids = [int(pk) for pk in recipient_ids]
+    if not ids:
+        return {}
+    now = timezone.now()
+    queryset = DeliveryIntent.objects.filter(
+        kind=kind,
+        event=str(event),
+        recipient_id__in=ids,
+        payload__topic_id=str(topic_id),
+    ).exclude(pk__in=list(exclude))
+    token = _claim(queryset, now)
+    if token is None:
+        return {}
+    folded: dict[int, dict[int, str]] = defaultdict(dict)
+    for recipient_id, pk, subject_key in DeliveryIntent.objects.filter(
+        claim_token=token
+    ).values_list("recipient_id", "pk", "subject_key"):
+        folded[recipient_id][pk] = subject_key
+    return dict(folded)
+
+
 def has_any(kind, recipient_id) -> bool:
     """Whether ``recipient_id`` has any row of ``kind``: a task that finds
     nothing to claim tells "another worker has it, or it went out" (rows

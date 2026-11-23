@@ -33,7 +33,16 @@ from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Count, Exists, F, OuterRef, Prefetch, Q, Subquery, Value
+from django.db.models import (
+    Count,
+    Exists,
+    IntegerField,
+    OuterRef,
+    Prefetch,
+    Q,
+    Subquery,
+    Value,
+)
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
@@ -245,13 +254,28 @@ def _inbox_queryset(user):
     newest = Message.objects.filter(conversation=OuterRef("pk")).order_by(
         "-created_at", "-id"
     )
-    unread_filter = ~Q(messages__sender=user) & (
-        Q(my_read_at__isnull=True) | Q(messages__created_at__gt=F("my_read_at"))
+    # The unread count is a correlated subquery, not `Count("messages",
+    # filter=...)` (todo 730, audit 2026-11-21 L18). The join form made the
+    # database join and GROUP every message of every conversation the member
+    # has before the cursor LIMIT could apply, so the inbox got slower with
+    # message history. A subquery in the select list is evaluated only for
+    # the rows of the page, each through the (conversation, created_at)
+    # index. The unread badge moved to EXISTS for the same reason.
+    unread = (
+        Message.objects.filter(conversation=OuterRef("pk"))
+        .exclude(sender=user)
+        .filter(created_at__gt=Coalesce(OuterRef("my_read_at"), Value(_EPOCH)))
     )
     if blocked_ids:
         # Group rows: a blocked member's messages neither preview nor count.
         newest = newest.exclude(sender_id__in=blocked_ids)
-        unread_filter &= ~Q(messages__sender_id__in=blocked_ids)
+        unread = unread.exclude(sender_id__in=blocked_ids)
+    unread_total = (
+        unread.order_by()
+        .values("conversation")
+        .annotate(total=Count("pk"))
+        .values("total")
+    )
     return (
         _my_conversations(user, blocked_ids)
         .select_related(
@@ -269,7 +293,9 @@ def _inbox_queryset(user):
         )
         .annotate(my_read_at=_my_read_at(user))
         .annotate(
-            unread_count=Count("messages", filter=unread_filter),
+            unread_count=Coalesce(
+                Subquery(unread_total, output_field=IntegerField()), Value(0)
+            ),
             last_message_body=Subquery(newest.values("body")[:1]),
             last_message_sender_id=Subquery(newest.values("sender_id")[:1]),
         )
