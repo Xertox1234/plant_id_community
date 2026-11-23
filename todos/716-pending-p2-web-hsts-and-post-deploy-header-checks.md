@@ -52,3 +52,33 @@ Source: `docs/audits/2026-11-10-auth-legal.md`; detail in todo 706.
 
 - Owner decision: 706 ships the code slice; the console change and the live
   checks stay here.
+
+### 2026-11-23 - Live checks with the owner at the console
+
+- **Before:** at about 20:40Z both hosts still answered
+  `strict-transport-security: max-age=0; includeSubDomains`.
+- **Owner's change:** in the Cloudflare zone (SSL/TLS, Edge Certificates, HSTS): enabled, max-age
+  12 months, include subdomains on, preload off, no-sniff on. Set in Cloudflare, not turned off:
+  `web/public/_headers` sends no HSTS, so turning the zone setting off would have left the web
+  host with none.
+- **Criterion 1, observed 2026-11-23T21:05:50Z (`curl -sI`):**
+  - `https://houseplant-md.com`: `strict-transport-security: max-age=31536000; includeSubDomains`
+  - `https://api.houseplant-md.com`: `strict-transport-security: max-age=31536000; includeSubDomains`
+- **Criterion 2, observed the same minute:** `curl -sI https://houseplant-md.com/settings` shows
+  `content-security-policy-report-only: default-src 'self'; …` and
+  `referrer-policy: strict-origin-when-cross-origin`. The CMS blog preview still renders: page 18
+  ("Variegation isn't magic, it's mutation") opened in the live `/cms/` in Chrome, and its preview
+  panel showed the post's title, image and body.
+- **Criterion 3, NOT met:** the owner threw a test error on `https://houseplant-md.com/?probe=716`
+  and no event arrived. Cause: web Sentry was never configured in production. The Sentry
+  organisation had no web project, and the deployed bundle holds no DSN (main, vendor and Sentry
+  chunks searched; only the `VITE_SENTRY_DSN not configured` branch is present). The owner created
+  the Sentry project `houseplant-md-web` and added `VITE_SENTRY_DSN` to the Worker's build
+  variables; the check is repeated after the next production build.
+- **Finding, for whoever promotes the CSP to enforcing:** the report-only policy flags
+  Cloudflare's injected analytics beacon, `https://static.cloudflareinsights.com/beacon.min.js`
+  (`script-src 'self' 'unsafe-inline'` does not allow it). Nothing is blocked while the policy is
+  report-only; enforced as written, Cloudflare Web Analytics would stop loading. Allow that host,
+  or turn the beacon off, first.
+- The boxes above are not ticked here: they are ticked by the todo engine on the owner's
+  confirmation.
