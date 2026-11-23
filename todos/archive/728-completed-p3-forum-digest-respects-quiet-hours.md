@@ -114,3 +114,25 @@ owner decided on 2026-11-21 that the digest should be held the same way.
   the extra runs send nothing new. Bounded at two per failing run.
 - **Declined: a quiet window that leaves a gap under an hour holding no :30 mark is never
   released (low).** It needs a window of more than 23 hours. Not handled.
+
+### 2026-11-23 - Review round 2: non-blocking findings
+
+These changes were made after round 2, on the owner's decision of 2026-11-23 ("Fix it, then
+merge"), and were not seen by a reviewer. `pytest packages/wagtail_forum apps/forum_host` plus the
+two Firebase test files: 2905 passed.
+
+- **Fixed: a member held by a late, continuation or recovery run was never mailed that week
+  (medium, plus a low marked a regression).** Round 1's `--held-at` filter kept only members whose
+  quiet window covered the main run's time, so a hold made later by another run was lost. Each
+  hold now leaves a cache marker for 26 hours and the follow-up runs send to members with a
+  marker; the window test at `--held-at` stays as the fallback for a lost marker. A dry run
+  writes no marker. Two new tests; writing no marker, or writing one on a dry run, fails them.
+  This replaces the "known gap" recorded under round 1.
+- **Fixed: a follow-up run with a failed send scheduled full, unscoped recovery runs (low, two
+  reviewers).** A follow-up run now schedules none; the next hourly run is its retry. The last
+  run (Tuesday 09:30) has no retry, so a send that fails there waits for next week. Corrects
+  the round-1 answer, which wrongly said every other member was already stamped. New test.
+- **Declined: a soft-limit continuation of the main run that meets a follow-up run's lock is not
+  retried (low).** Documented in the task's docstring; its remaining members wait a week.
+- **Declined: the lock-held marker is a substring of the command's output (low, two
+  reviewers).** Tests in `test_tasks.py` and `test_digest.py` pin the wording.

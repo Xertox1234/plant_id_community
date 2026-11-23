@@ -146,3 +146,13 @@ All paths are under `backend/`. Source: `docs/audits/2026-11-21-forum-backend.md
   forum (low).** The API now reports 0 for a password forum the reader has not unlocked, and
   `web/src/components/forum/ForumCard.tsx` still prints the counts. Hiding them is a visible
   layout change, so it is left for the owner.
+
+### 2026-11-23 - Review round 2: non-blocking findings
+
+Made after round 2; not seen by a reviewer.
+
+- **Fixed: the anonymous view-count dedup key held the reader's raw address (low).** The
+  resolver's answer is hashed (SHA-256, 32 hex characters) before it goes into the key. New
+  test.
+- **Fixed: a wall-clock assertion in `test_link_preview.py` could flake on a slow runner
+  (low).** Loosened from 0.01 s to 0.1 s; the call-list assertion above it is the real check.

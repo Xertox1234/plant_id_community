@@ -301,11 +301,14 @@ def _anonymous_viewer_key(request) -> str:
     if not path:
         return fallback
     try:
-        return str(import_string(path)(request) or fallback)
+        answer = str(import_string(path)(request) or fallback)
     except Exception:
         # Analytics only: a broken hook must never fail the topic read.
         logger.exception("[FORUM] VIEW_COUNT_CLIENT_RESOLVER failed")
         return fallback
+    # Hashed: the resolver's answer is the reader's real address, and the
+    # dedup key puts it next to a topic id in the cache.
+    return hashlib.sha256(answer.encode("utf-8", "replace")).hexdigest()[:32]
 
 
 def _image_block_ids(body):

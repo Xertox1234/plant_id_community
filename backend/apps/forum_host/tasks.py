@@ -148,6 +148,11 @@ def send_forum_weekly_digest(
     if recovery and DIGEST_LOCK_HELD_MARKER in out.getvalue():
         _retry_recovery_after_the_lock(self.request.id, recovery, lock_wait)
         return
+    if quiet_only:
+        # No recovery run for a follow-up run: a recovery run is a full,
+        # unscoped run, which mid-week would mail members the main run found
+        # with nothing new. The next hourly follow-up run is the retry.
+        return
     schedule_weekly_recovery(
         send_forum_weekly_digest, out.getvalue(), recovery, "forum weekly digest"
     )

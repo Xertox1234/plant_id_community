@@ -1217,7 +1217,7 @@ def test_a_host_whose_lookup_timed_out_is_not_looked_up_again_within_the_ttl():
             with pytest.raises(_LookupTimedOut):
                 normalize_public_url("https://SLOW.example/other?x=1")
             assert calls == ["slow.example"]
-            assert time.monotonic() - started < 0.01
+            assert time.monotonic() - started < 0.1
 
         # Another host is not affected.
         with patch(

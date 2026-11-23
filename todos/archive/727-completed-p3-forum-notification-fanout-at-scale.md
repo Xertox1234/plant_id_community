@@ -132,3 +132,10 @@ followers.
   account or `FIREBASE_PROJECT_ID`. Stated in `firebase_app_options`' docstring.
 - **Declined: an error on `claim_related_many`'s read-back leaves fold rows claimed (low).** They
   are released when the 15-minute lease runs out, as before this change.
+
+### 2026-11-23 - Review round 2: non-blocking findings
+
+- **Declined: with the broker down, every chunk is tried (medium).** One failed publish per 50
+  recipients per channel, inside the reply request's on-commit, where main paid one per
+  channel. Stopping at the first refusal would also stop after a single transient refusal; the
+  cost was not measured. Left as built.

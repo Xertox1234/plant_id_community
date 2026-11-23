@@ -108,3 +108,22 @@ def test_a_resolver_that_raises_falls_back_and_never_fails_the_read(
         assert _read(topic, "203.0.113.20").status_code == 200
 
     assert _views(topic) == 1  # REMOTE_ADDR again: counted, once
+
+
+@override_settings(WAGTAILFORUM_VIEW_COUNT_CLIENT_RESOLVER=f"{HERE}.forwarded_client")
+def test_the_dedup_key_holds_no_raw_client_address():
+    """Review round 2 (todo 730): the resolver's answer is the reader's real
+    address, so it is hashed before it becomes a cache key next to a topic."""
+    from django.test import RequestFactory
+    from wagtail_forum.api.views import _anonymous_viewer_key
+
+    def key(address):
+        request = RequestFactory().get(
+            "/", REMOTE_ADDR=PROXY, HTTP_X_FORWARDED_FOR=address
+        )
+        return _anonymous_viewer_key(request)
+
+    first = key("203.0.113.10")
+    assert "203.0.113.10" not in first
+    assert first == key("203.0.113.10")
+    assert first != key("203.0.113.20")

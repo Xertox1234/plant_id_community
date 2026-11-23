@@ -1302,6 +1302,26 @@ def test_the_main_digest_run_a_follow_up_run_follows(now, expected):
     assert tasks._last_main_digest_run(at).isoformat() == expected
 
 
+@pytest.mark.parametrize("quiet_only, scheduled", [(True, 0), (False, 1)])
+def test_a_follow_up_run_with_a_failed_send_schedules_no_full_recovery_run(
+    quiet_only, scheduled
+):
+    """Review round 2 (todo 728): a recovery run is a full, unscoped run.
+    After a follow-up run it would mail, mid-week, members the main run
+    found with nothing new. The next hourly follow-up run is the retry."""
+    from apps.forum_host import tasks
+
+    def fake_command(name, **options):
+        options["stdout"].write("[EMAIL] digest frequency=weekly sent=0 failed=1\n")
+
+    kwargs = {"quiet_only": True} if quiet_only else {}
+    with patch("django.core.management.call_command", side_effect=fake_command):
+        with patch("apps.core.delivery.schedule_weekly_recovery") as recovery:
+            tasks.send_forum_weekly_digest.apply(kwargs=kwargs)
+
+    assert recovery.call_count == scheduled
+
+
 def test_a_follow_up_run_cut_off_by_the_soft_limit_continues_in_the_same_scope():
     from apps.forum_host import tasks
     from celery.exceptions import SoftTimeLimitExceeded

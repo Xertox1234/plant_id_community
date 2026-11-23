@@ -1478,6 +1478,9 @@ def test_the_follow_up_run_skips_a_member_the_main_run_did_not_hold():
     main run, so that run read the member and did not hold them. A follow-up
     run told when the main run was must leave them for next week's run, and
     still send to the member it did hold."""
+    from django.core.cache import cache
+
+    cache.clear()
     sleeper, _off, tokyo, _friend, _topic_row = _quiet_scene()
 
     summary = _run_digest(
@@ -1489,6 +1492,61 @@ def test_the_follow_up_run_skips_a_member_the_main_run_did_not_hold():
     assert _digests_to(tokyo) == []
     assert len(_digests_to(sleeper)) == 1
     assert "recipients=1 due=1" in summary and "sent=1" in summary
+
+
+@pytest.mark.django_db
+@override_settings(**DIGEST_SITE)
+def test_a_member_held_by_a_later_run_is_still_sent_by_a_follow_up_run():
+    """Review round 2 (todo 728): Tokyo's window (22:00-07:00 there) opens at
+    13:00 UTC, after the 09:00 run. A recovery run that reaches them at 13:30
+    holds them; the window did not cover 09:00, so only the recorded hold
+    lets a follow-up run send once the window has ended."""
+    from django.core.cache import cache
+
+    cache.clear()
+    _sleeper, _off, tokyo, _friend, _topic_row = _quiet_scene()
+    held_at = MONDAY_RUN.isoformat()
+
+    # No 09:00 send reached them (it failed); a recovery run does at 13:30.
+    summary = _run_digest(MONDAY_RUN.replace(hour=13, minute=30))
+    assert _digests_to(tokyo) == []
+    assert "held=1" in summary
+
+    # Still inside the window: held again, nothing sent.
+    _run_digest(
+        MONDAY_RUN.replace(hour=14, minute=30), quiet_hours_only=True, held_at=held_at
+    )
+    assert _digests_to(tokyo) == []
+
+    # 22:30 UTC is 07:30 in Tokyo: the window has ended. Exactly one.
+    for hour in (22, 23):
+        _run_digest(
+            MONDAY_RUN.replace(hour=hour, minute=30),
+            quiet_hours_only=True,
+            held_at=held_at,
+        )
+    assert len(_digests_to(tokyo)) == 1
+
+
+@pytest.mark.django_db
+@override_settings(**DIGEST_SITE)
+def test_a_dry_run_records_no_hold():
+    from django.core.cache import cache
+    from wagtail_forum.management.commands.send_forum_digest import _was_held
+
+    cache.clear()
+    sleeper, _off, _tokyo, _friend, _topic_row = _quiet_scene()
+
+    # Read at the run's own time: the marker expires on the frozen clock.
+    _run_digest(MONDAY_RUN, dry_run=True)
+    with freeze_time(MONDAY_RUN):
+        assert _was_held("weekly", sleeper.pk) is False
+
+    _run_digest(MONDAY_RUN)
+    with freeze_time(MONDAY_RUN):
+        assert _was_held("weekly", sleeper.pk) is True
+    with freeze_time(MONDAY_RUN + timedelta(hours=27)):
+        assert _was_held("weekly", sleeper.pk) is False
 
 
 @pytest.mark.django_db

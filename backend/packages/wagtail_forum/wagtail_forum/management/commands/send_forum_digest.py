@@ -18,9 +18,11 @@ hour for the day after the main run; the first of those runs after the
 member's window ends sends their digest, and `last_digest_sent_at` then
 keeps every later run from sending another.
 `--held-at` gives those runs the main run's time, and they then consider only
-members whose quiet window covered it: without it, a member with quiet hours
-on whom the main run did not hold (nothing new at the time) would be mailed
-by the first hourly run after something new appeared.
+members a run held: each hold leaves a cache marker for 26 hours, and a member
+whose quiet window covered the main run's time counts as held even if the
+marker was lost. Without it, a member with quiet hours on whom no run held
+(nothing new at the time) would be mailed by the first hourly run after
+something new appeared.
 
 Overlap safety is a cache run lock held for `DIGEST_RUN_LOCK_SECONDS`, plus a
 conditional per-member claim. The claim and the send share one transaction,
@@ -51,6 +53,34 @@ from ...models import DigestFrequency, ForumProfile
 from ...quiet_hours import profile_release
 
 logger = logging.getLogger("wagtail_forum")
+
+
+# A hold outlives the day of hourly follow-up runs (the last one fires 24.5
+# hours after the main run) and is long gone before the next weekly run.
+HELD_MARKER_SECONDS = 26 * 60 * 60
+
+
+def _held_key(frequency: str, user_id: int) -> str:
+    return f"wagtail_forum:digest-held:{frequency}:{user_id}"
+
+
+def _mark_held(frequency: str, user_id: int) -> None:
+    """Remember that a run held this member's digest for quiet hours, so a
+    follow-up run sends to them whichever run it was (a late main run, a
+    continuation or a recovery run can hold a member whose window opened
+    after the main run's start). Never raises: without the marker the
+    follow-up falls back to the window test at ``--held-at``."""
+    try:
+        cache.set(_held_key(frequency, user_id), True, HELD_MARKER_SECONDS)
+    except Exception:
+        logger.warning("[EMAIL] forum digest: could not record a quiet-hours hold")
+
+
+def _was_held(frequency: str, user_id: int) -> bool:
+    try:
+        return bool(cache.get(_held_key(frequency, user_id)))
+    except Exception:
+        return False
 
 
 class Command(BaseCommand):
@@ -198,12 +228,16 @@ class Command(BaseCommand):
         if quiet_only:
             recipients = recipients.filter(quiet_hours_enabled=True)
         for profile in recipients.iterator(chunk_size=200):
-            if held_at is not None and profile_release(profile, held_at) is None:
-                # The follow-up run is for members the earlier run held. One
-                # whose quiet window did not cover it was read then (sent,
-                # or nothing new), and waits for the next scheduled run like
-                # every member without quiet hours. Judged on the settings
-                # as they are now: no hold is stored.
+            if held_at is not None and not (
+                _was_held(frequency, profile.user_id)
+                or profile_release(profile, held_at) is not None
+            ):
+                # The follow-up run is for members an earlier run held: each
+                # hold leaves a cache marker (below). A member no run held
+                # was read then (sent, or nothing new) and waits for the next
+                # scheduled run, like every member without quiet hours. The
+                # window test at ``held_at`` is the fallback for a marker
+                # the cache lost.
                 continue
             totals["recipients"] += 1
             if not is_due(profile, now, window_days):
@@ -216,6 +250,8 @@ class Command(BaseCommand):
             release = profile_release(profile, timezone.now())
             if release is not None:
                 totals["held"] += 1
+                if not dry_run:
+                    _mark_held(frequency, profile.user_id)
                 logger.debug(
                     "[EMAIL] forum digest held for quiet hours: user=%s until %s",
                     profile.user_id,
