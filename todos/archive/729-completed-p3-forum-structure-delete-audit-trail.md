@@ -88,3 +88,9 @@ are moderation-trail and member-trust gaps once the app is live.
 ### 2026-11-23 - Completed by the todo sweep (run 2026-11-22-1957)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-23 - Repaired by the todo sweep (run 2026-11-22-1957)
+
+- Review round 1 found a regression: a member who had muted the deleted forum and had no setting on the target got a mute on the target, which hid the target's own topics from their Recent list and digest. On main they kept seeing them.
+- `carry_subscriptions` (`backend/packages/wagtail_forum/wagtail_forum/services/forum_structure.py`) no longer carries a source mute at all; only tracking and watching levels are carried. This replaces the earlier judgment call "a source mute is carried only when the member has no level on the target".
+- `tests/test_admin_forum_delete.py`: the `(muted, none)` case now expects no row on the target, and the first-post and tracking levels with no target row are covered too.

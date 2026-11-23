@@ -551,9 +551,12 @@ W, F, T, M = (
 @pytest.mark.parametrize(
     "on_source, on_target, expected",
     [
-        # No level on the target: the source level is carried, a mute too.
+        # No level on the target: a watching or tracking level is carried.
         (W, None, W),
-        (M, None, M),
+        (F, None, F),
+        (T, None, T),
+        # A source mute is not: it would hide the target's own topics.
+        (M, None, None),
         # The stronger level stays.
         (W, T, W),
         (W, F, W),

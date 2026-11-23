@@ -271,10 +271,12 @@ def carry_subscriptions(source: Forum, target: Forum) -> int:
     forum that is deleted after its topics moved (todo 729):
     ``ForumSubscription.forum`` cascades, so the source rows go with it.
 
-    - no level on the target: the member gets the source level there, a mute
-      included (the topics they muted are now in the target);
+    - no level on the target: the member gets the source's watching or
+      tracking level there;
     - a mute on the target is never overridden;
-    - a source mute never replaces a level the member chose on the target;
+    - a source mute is never carried: it would hide the target's own topics
+      from the member's Recent list and digest, which they never asked for,
+      and it never replaces a level they chose on the target;
     - otherwise the stronger level stays (watching > watching first post >
       tracking).
 
@@ -301,6 +303,9 @@ def carry_subscriptions(source: Forum, target: Forum) -> int:
         created: list[ForumSubscription] = []
         raised: list[ForumSubscription] = []
         for user_id, level in source_levels.items():
+            if level not in _WATCH_STRENGTH:
+                # A mute (or an unknown level) stays behind with the source.
+                continue
             row = existing.get(user_id)
             if row is None:
                 created.append(
