@@ -89,3 +89,10 @@ owner decided on 2026-11-21 that the digest should be held the same way.
 ### 2026-11-23 - Completed by the todo sweep (run 2026-11-22-1957)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-23 - Repaired by the todo sweep (run 2026-11-22-1957)
+
+- Round-1 review (medium, regression): the hourly quiet-hours runs share the digest run lock, and a recovery run (about 30 and 90 minutes after the main run) could fire while one was mid-send. The command then exits on "another run holds the lock" with no summary line, the task read that as nothing failed, and the retry chain ended.
+- Fix in `backend/apps/forum_host/tasks.py`: a recovery run turned away by the lock re-enqueues itself with the same `recovery` count (`lock_wait` counts the waits: every 5 minutes, at most 8 times, which outlasts the 35-minute lock TTL; an ERROR log when the bound runs out). A scheduled run turned away is left alone, as before. The beat times are unchanged: a recovery run fires relative to when its run ended, so no fixed minute avoids it.
+- Tests in `backend/apps/forum_host/tests/test_tasks.py` run the real command against a held lock: the recovery run tries again with its count, stops at the bound, and a scheduled or quiet-hours run does not re-enqueue.
+- Not changed (outside the finding): a soft-limit continuation of the main run (recovery 0) that meets an hourly run's lock still exits, as any overlap did before; only recovery runs wait for the lock.

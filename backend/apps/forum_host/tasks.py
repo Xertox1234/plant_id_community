@@ -35,6 +35,15 @@ logger = logging.getLogger("forum_host.tasks")
 DIGEST_SOFT_TIME_LIMIT = 25 * 60
 DIGEST_TIME_LIMIT = 30 * 60
 DIGEST_CONTINUATION_DELAY = 60
+# A recovery run that finds the run lock held (an hourly quiet-hours run can
+# be mid-send when it fires) waits and tries again instead of ending its
+# retry chain: every DIGEST_LOCK_WAIT_DELAY seconds, at most
+# DIGEST_LOCK_WAIT_MAX_RUNS times. 8 x 5 min = 40 min, longer than the lock
+# can outlive its holder (WAGTAILFORUM_DIGEST_RUN_LOCK_SECONDS, 35 min).
+DIGEST_LOCK_WAIT_DELAY = 5 * 60
+DIGEST_LOCK_WAIT_MAX_RUNS = 8
+# The line `send_forum_digest` writes when another run holds its lock.
+DIGEST_LOCK_HELD_MARKER = "another run holds the lock"
 
 
 @shared_task(
@@ -46,7 +55,9 @@ DIGEST_CONTINUATION_DELAY = 60
     time_limit=DIGEST_TIME_LIMIT,
     ignore_result=True,
 )
-def send_forum_weekly_digest(self, recovery: int = 0, quiet_only: bool = False):
+def send_forum_weekly_digest(
+    self, recovery: int = 0, quiet_only: bool = False, lock_wait: int = 0
+):
     """Celery beat entry (settings.CELERY_BEAT_SCHEDULE) for the package's
     `send_forum_digest` command (todo 340). The package owns content and
     sending; this is only the host's scheduling wire.
@@ -74,6 +85,17 @@ def send_forum_weekly_digest(self, recovery: int = 0, quiet_only: bool = False):
     can last most of a day, and a broker message that old is redelivered by
     Redis's visibility timeout (see ``pacing``). The run lock and the
     per-member claim are the same for both runs, so no member gets two.
+
+    The shared lock must not cost a recovery run its turn: a recovery run
+    lands about 30 and 90 minutes after the main run, where an hourly
+    follow-up run can be holding the lock. The command then exits with no
+    summary line, which would read as "nothing failed" and end the retries.
+    So a recovery run turned away by the lock is re-enqueued with the same
+    ``recovery`` count (``lock_wait`` counts the waits, bounded by
+    ``DIGEST_LOCK_WAIT_MAX_RUNS``). Any other run turned away is left alone,
+    as before; that includes a soft-limit continuation of the main run that
+    meets an hourly run's lock, whose remaining members then wait for the
+    next weekly run.
     """
     from io import StringIO
 
@@ -114,8 +136,52 @@ def send_forum_weekly_digest(self, recovery: int = 0, quiet_only: bool = False):
                 # here would log "[EMAIL] [EMAIL] ..." (todo 392).
                 # log-prefix: exempt (relayed command output, already prefixed)
                 logger.info("%s (task=%s)", line, self.request.id)
+    if recovery and DIGEST_LOCK_HELD_MARKER in out.getvalue():
+        _retry_recovery_after_the_lock(self.request.id, recovery, lock_wait)
+        return
     schedule_weekly_recovery(
         send_forum_weekly_digest, out.getvalue(), recovery, "forum weekly digest"
+    )
+
+
+def _retry_recovery_after_the_lock(
+    task_id: str | None, recovery: int, lock_wait: int
+) -> None:
+    """Re-enqueue a recovery run that another digest run's lock turned away,
+    keeping its ``recovery`` count, so the failed members are still retried."""
+    if lock_wait >= DIGEST_LOCK_WAIT_MAX_RUNS:
+        logger.error(
+            "[EMAIL] forum weekly digest: recovery run %d still found the run "
+            "lock held after %d wait(s); the failed sends stay due for the "
+            "next scheduled run (task=%s)",
+            recovery,
+            lock_wait,
+            task_id,
+        )
+        return
+    try:
+        send_forum_weekly_digest.apply_async(
+            kwargs={"recovery": recovery, "lock_wait": lock_wait + 1},
+            countdown=DIGEST_LOCK_WAIT_DELAY,
+        )
+    except Exception as exc:
+        # The type only: a broker error can carry its URL.
+        logger.error(
+            "[EMAIL] forum weekly digest: could not re-enqueue recovery run "
+            "%d behind the run lock: %s (task=%s)",
+            recovery,
+            type(exc).__name__,
+            task_id,
+        )
+        return
+    logger.warning(
+        "[EMAIL] forum weekly digest: recovery run %d found the run lock "
+        "held; trying again in %ss (wait %d of %d, task=%s)",
+        recovery,
+        DIGEST_LOCK_WAIT_DELAY,
+        lock_wait + 1,
+        DIGEST_LOCK_WAIT_MAX_RUNS,
+        task_id,
     )
 
 

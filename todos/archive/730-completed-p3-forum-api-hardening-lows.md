@@ -130,3 +130,9 @@ All paths are under `backend/`. Source: `docs/audits/2026-11-21-forum-backend.md
 ### 2026-11-23 - Completed by the todo sweep (run 2026-11-22-1957)
 
 - Archived by `land.py archive`; evidence is quoted above, review is on the PR.
+
+### 2026-11-23 - Repaired by the todo sweep (run 2026-11-22-1957)
+
+- Round-1 review (medium, regression) on L2: while slow lookups held every DNS worker, a healthy host's lookup could leave the queue just before its caller gave up. It had started, so `cancel()` answered False and the host was negative-cached for 60 s in every process sharing the cache.
+- Fix in `backend/apps/forum_host/link_preview.py`: the worker stamps when the lookup starts, and a timeout is remembered only when the lookup itself ran the full limit (within `LINK_PREVIEW_DNS_START_GRACE_SECONDS`, new in `backend/apps/forum_host/constants.py`). A lookup that never started, or started late, is not remembered.
+- Tests in `backend/apps/forum_host/tests/test_link_preview.py`: new `test_a_lookup_that_started_late_is_not_remembered` (fails against the old `cancel()` check). The existing worker-wait test now fills the pool by counting lookups that really started (`_fill_the_dns_pool`): run with the whole file, a worker still finishing an earlier test's slow lookup made it fail by timing. No assertion was weakened.

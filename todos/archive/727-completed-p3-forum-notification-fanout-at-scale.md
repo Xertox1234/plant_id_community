@@ -116,3 +116,8 @@ followers.
     - The email loop guards only the send, so a limit elsewhere in an iteration delays later rows to the lease instead of releasing them now.
     - A limit partway through the web-push `finish_folds` loop leaves the remaining folds claimed until the lease.
     - `_track_email_sent`'s re-raise has no dedicated test.
+
+### 2026-11-23 - Repaired by the todo sweep (run 2026-11-22-1957)
+
+- Round-1 review had no finding against this todo; no code for it changed in the repair (the two fixes are logged in todos 728 and 730).
+- Its acceptance criteria were re-run on the repaired tree and still pass.

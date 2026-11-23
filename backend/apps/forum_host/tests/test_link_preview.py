@@ -1331,6 +1331,22 @@ def test_a_cache_outage_never_blocks_a_lookup():
         assert normalize_public_url("https://fine.example/") == "https://fine.example/"
 
 
+def _fill_the_dns_pool(started: list) -> None:
+    """Take every DNS worker with a ``stuck*`` lookup that never answers.
+
+    A worker may still be finishing an earlier test's slow lookup, and a
+    lookup queued behind it is cancelled without ever starting, so this
+    counts the lookups that really started instead of the ones it asked for.
+    """
+    deadline = time.monotonic() + 5
+    attempt = 0
+    while len(started) < constants.LINK_PREVIEW_DNS_WORKERS:
+        assert time.monotonic() < deadline
+        with pytest.raises(_LookupTimedOut):
+            normalize_public_url(f"https://stuck{attempt}.example/")
+        attempt += 1
+
+
 def test_a_lookup_that_timed_out_waiting_for_a_worker_is_not_remembered():
     """While slow lookups hold every DNS worker, a lookup for a healthy host
     times out in the queue without ever starting. That says nothing about
@@ -1357,9 +1373,7 @@ def test_a_lookup_that_timed_out_waiting_for_a_worker_is_not_remembered():
             ),
         ):
             # Every worker is taken by a lookup that never answers.
-            for n in range(constants.LINK_PREVIEW_DNS_WORKERS):
-                with pytest.raises(_LookupTimedOut):
-                    normalize_public_url(f"https://stuck{n}.example/")
+            _fill_the_dns_pool(started)
             # A healthy host now waits in the queue and times out there.
             with pytest.raises(_LookupTimedOut):
                 normalize_public_url("https://healthy.example/")
@@ -1383,7 +1397,81 @@ def test_a_lookup_that_timed_out_waiting_for_a_worker_is_not_remembered():
             assert "healthy.example" in started
             before = len(started)
             with pytest.raises(_LookupTimedOut):
-                normalize_public_url("https://stuck0.example/")
+                normalize_public_url(f"https://{started[0]}/")
             assert len(started) == before
     finally:
         release.set()
+
+
+def test_a_lookup_that_started_late_is_not_remembered():
+    """Round-1 review of todo 730: while slow lookups hold every DNS worker,
+    a healthy host's lookup can leave the queue just before its caller gives
+    up. It started, so it cannot be cancelled, but it ran for only part of
+    the limit: the time went to waiting for a worker, which says nothing
+    about the host. Remembering it would fail a healthy host for the whole
+    TTL, in every process that shares the cache."""
+    import threading
+
+    from apps.forum_host.link_preview import _dns_timed_out_recently
+
+    release_pool = threading.Event()
+    release_late = threading.Event()
+    started: list = []
+    public = [(2, 1, 6, "", ("93.184.216.34", 443))]
+
+    def getaddrinfo(host, *args, **kwargs):
+        started.append(host)
+        if host.startswith("stuck"):
+            release_pool.wait(5)
+            return []
+        if host == "late.example":
+            # Still unanswered when its caller's wait ends.
+            release_late.wait(5)
+        return public
+
+    try:
+        with patch(
+            "apps.forum_host.link_preview.socket.getaddrinfo",
+            side_effect=getaddrinfo,
+        ):
+            # Every worker is taken by a lookup that never answers.
+            with patch(
+                "apps.forum_host.constants.LINK_PREVIEW_DNS_TIMEOUT_SECONDS", 0.05
+            ):
+                _fill_the_dns_pool(started)
+            # The pool frees up half-way through the next caller's wait, so
+            # its lookup starts late and has run only half the limit when the
+            # caller gives up.
+            limit = 0.6
+            freer = threading.Timer(limit / 2, release_pool.set)
+            freer.start()
+            try:
+                with patch(
+                    "apps.forum_host.constants.LINK_PREVIEW_DNS_TIMEOUT_SECONDS",
+                    limit,
+                ):
+                    with pytest.raises(_LookupTimedOut):
+                        normalize_public_url("https://late.example/")
+            finally:
+                freer.cancel()
+            # It did start (so cancel() could not have told it apart) ...
+            assert "late.example" in started
+            # ... and is not remembered, while a host whose own lookup ran
+            # the full limit still is.
+            assert not _dns_timed_out_recently("late.example")
+            assert _dns_timed_out_recently(started[0])
+
+            release_late.set()
+            deadline = time.monotonic() + 5
+            while True:
+                try:
+                    assert normalize_public_url("https://late.example/") == (
+                        "https://late.example/"
+                    )
+                    break
+                except _LookupTimedOut:
+                    # Only while a worker is still unwinding.
+                    assert time.monotonic() < deadline
+    finally:
+        release_pool.set()
+        release_late.set()

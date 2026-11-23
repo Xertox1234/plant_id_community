@@ -1287,6 +1287,86 @@ def test_a_follow_up_run_cut_off_by_the_soft_limit_continues_in_the_same_scope()
     )
 
 
+def _digest_run_with_the_lock_held(**task_kwargs):
+    """Run the task against the REAL command while another run holds the
+    run lock, and return the patched ``apply_async``. The real command, so a
+    change to its "holds the lock" line fails these tests. A private cache:
+    the default one is the shared Redis in dev and sweep runs."""
+    from apps.forum_host import tasks
+    from django.core.cache import cache
+    from django.test import override_settings
+
+    with override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "todo-728-digest-lock-held",
+            }
+        }
+    ):
+        cache.set("wagtail_forum:digest-run:weekly", "a-quiet-hours-run", 60)
+        try:
+            with patch.object(tasks.send_forum_weekly_digest, "apply_async") as again:
+                tasks.send_forum_weekly_digest.apply(kwargs=task_kwargs)
+        finally:
+            cache.delete("wagtail_forum:digest-run:weekly")
+    return again
+
+
+@pytest.mark.django_db
+def test_a_recovery_run_turned_away_by_the_run_lock_tries_again():
+    """Round-1 review of todo 728: the hourly quiet-hours runs share the
+    digest run lock and can be mid-send when a recovery run fires. The
+    command then exits with no summary line; reading that as "nothing
+    failed" ended the retry chain. The recovery run keeps its count and
+    comes back after the lock."""
+    from apps.forum_host import tasks
+
+    again = _digest_run_with_the_lock_held(recovery=1)
+
+    again.assert_called_once_with(
+        kwargs={"recovery": 1, "lock_wait": 1},
+        countdown=tasks.DIGEST_LOCK_WAIT_DELAY,
+    )
+
+    again = _digest_run_with_the_lock_held(recovery=2, lock_wait=3)
+
+    again.assert_called_once_with(
+        kwargs={"recovery": 2, "lock_wait": 4},
+        countdown=tasks.DIGEST_LOCK_WAIT_DELAY,
+    )
+
+
+@pytest.mark.django_db
+def test_a_recovery_run_stops_waiting_for_the_run_lock_after_its_bound():
+    from apps.forum_host import tasks
+
+    with patch.object(tasks.logger, "error") as error:
+        again = _digest_run_with_the_lock_held(
+            recovery=1, lock_wait=tasks.DIGEST_LOCK_WAIT_MAX_RUNS
+        )
+
+    again.assert_not_called()
+    assert error.call_count == 1
+    assert "still found the run lock held" in error.call_args.args[0]
+    # The waits outlast the longest a dead holder's lock can stay.
+    from wagtail_forum.conf import get_setting
+
+    assert (
+        tasks.DIGEST_LOCK_WAIT_DELAY * tasks.DIGEST_LOCK_WAIT_MAX_RUNS
+        >= get_setting("DIGEST_RUN_LOCK_SECONDS")
+    )
+
+
+@pytest.mark.django_db
+def test_a_scheduled_run_turned_away_by_the_run_lock_is_left_alone():
+    """Only a recovery run waits: a beat run that finds the lock held is an
+    overlap, and the run holding the lock (or the next hourly one) is doing
+    its work."""
+    assert _digest_run_with_the_lock_held().call_count == 0
+    assert _digest_run_with_the_lock_held(quiet_only=True).call_count == 0
+
+
 # The relay loop's own format string: it marks exactly the relayed lines,
 # with no word filter that could drop one (todo 573).
 RELAY_FORMAT = "%s (task=%s)"

@@ -146,6 +146,12 @@ LINK_PREVIEW_DNS_WORKERS = 4
 # host could stall previews for every member.
 LINK_PREVIEW_DNS_NEGATIVE_CACHE_KEY_PREFIX = "forum_link_preview_dns_timeout"
 LINK_PREVIEW_DNS_NEGATIVE_CACHE_TTL_SECONDS = 60
+# A timed-out lookup is remembered only when the lookup itself ran the full
+# DNS timeout. The worker stamps its start a moment after the caller starts
+# waiting, so "full" allows this much: a lookup that started later than this
+# was waiting for a free worker and is not remembered (never more than half
+# the timeout, so a shortened timeout still tells the two apart).
+LINK_PREVIEW_DNS_START_GRACE_SECONDS = 0.1
 LINK_PREVIEW_ALLOWED_PORTS = (80, 443)
 LINK_PREVIEW_MAX_BODY_BYTES = 512 * 1024
 LINK_PREVIEW_READ_CHUNK_BYTES = 8192
