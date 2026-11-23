@@ -41,7 +41,7 @@ from wagtail.log_actions import log
 
 from ..models import Forum
 from ..services.forum_permissions import hidden_q, is_hidden_for_everyone
-from ..services.forum_structure import move_forum
+from ..services.forum_structure import move_forum, place_of
 
 # The log action of a move in the tree (registered in ``wagtail_hooks``,
 # todo 729).
@@ -162,13 +162,12 @@ class ForumMoveView(PermissionCheckedMixin, View):
         try:
             forum_id, parent_id, position = _move_fields(request)
             with transaction.atomic():
-                before = (
-                    Forum.objects.filter(pk=forum_id)
-                    .values_list("parent_id", "position")
-                    .first()
-                )
+                # Order, not stored numbers: a level's positions can have
+                # gaps, so a drop in place may renumber the row and a real
+                # reorder may leave its number as it was.
+                before = place_of(forum_id)
                 forum = move_forum(forum_id, parent_id, position)
-                if before != (forum.parent_id, forum.position):
+                if before != place_of(forum_id):
                     log(
                         instance=forum,
                         action=MOVE_LOG_ACTION,

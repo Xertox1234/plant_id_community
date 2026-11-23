@@ -114,3 +114,12 @@ are moderation-trail and member-trust gaps once the app is live.
   a row keeps its subscription rows, so the count shown is true.
 - **Declined: more arms of the type-change and move-delete logs are untested (low, two
   findings).** The delete, no-topics and no-subscribers arms are not pinned by a test.
+
+### 2026-11-23 - Review round 2: non-blocking findings
+
+- **Fixed: the move log compared stored position numbers, not order (medium, two reviewers).**
+  A level's positions can have gaps, so a drop in place was logged as a move and a real reorder
+  could log nothing. The view now compares the row's parent and its index in the level before
+  and after (`place_of`), and `from_position` is that index. Two new tests; comparing the stored
+  numbers again fails both. This change was made after round 2 and was not seen by a reviewer.
+- The other round-2 findings repeat round 1's and keep the answers given there.

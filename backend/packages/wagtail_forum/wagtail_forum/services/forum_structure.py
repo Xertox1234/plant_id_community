@@ -103,6 +103,21 @@ def _level(parent_id: int | None) -> QuerySet[Forum]:
     return rows.order_by("position", "pk")
 
 
+def place_of(forum_id: int) -> tuple[int | None, int] | None:
+    """Where row ``forum_id`` sits: its parent id and its index in that
+    level's display order, or None when the row is gone. The index, not the
+    stored ``position``: positions can have gaps (a delete or a type change
+    leaves one) or repeat, so two rows' numbers say nothing reliable about a
+    move, and :func:`move_forum` renumbers them anyway."""
+    row = Forum.objects.filter(pk=forum_id).values_list("parent_id").first()
+    if row is None:
+        return None
+    level = list(_level(row[0]).values_list("pk", flat=True))
+    # A row outside its level's listing (a non-category at the top level)
+    # has no index there.
+    return row[0], level.index(forum_id) if forum_id in level else -1
+
+
 def move_forum(forum_id: int, parent_id: int | None, position: int) -> Forum:
     """Put row ``forum_id`` at index ``position`` under ``parent_id`` (None:
     the category level) and renumber both the level it left and the level it

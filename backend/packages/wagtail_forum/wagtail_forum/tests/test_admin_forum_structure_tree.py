@@ -548,6 +548,42 @@ def test_a_drop_in_place_writes_no_log_entry(admin_client, structure):
     assert not ModelLogEntry.objects.filter(content_type__model="forum").exists()
 
 
+def test_a_drop_in_place_on_a_gapped_level_writes_no_log_entry(admin_client, structure):
+    """Review round 2 (todo 729): Cacti is stored at position 5 and shown
+    second. Dropped back at index 1 it is renumbered to 1, which is not a
+    move."""
+    from wagtail.models import ModelLogEntry
+
+    resp = _move(admin_client, structure["cacti"], structure["indoor"], 1, **XHR)
+
+    assert resp.status_code == 200, resp.content
+    structure["cacti"].refresh_from_db()
+    assert structure["cacti"].position == 1
+    assert not ModelLogEntry.objects.filter(content_type__model="forum").exists()
+
+
+def test_a_reorder_that_keeps_the_stored_number_is_logged(admin_client, structure):
+    """Review round 2 (todo 729): Cacti (stored 5) and Palms (stored 9) sit
+    at indexes 1 and 2. With Ferns gone they are stored 1 and 2 after any
+    renumber; here Cacti is first given the number its new place will have,
+    so the move leaves its number alone and only the order shows it."""
+    from wagtail.models import ModelLogEntry
+
+    Forum.objects.filter(pk=structure["cacti"].pk).update(position=2)
+    Forum.objects.filter(pk=structure["palms"].pk).update(position=3)
+
+    resp = _move(admin_client, structure["cacti"], structure["indoor"], 2, **XHR)
+
+    assert resp.status_code == 200, resp.content
+    structure["cacti"].refresh_from_db()
+    assert structure["cacti"].position == 2
+    entry = ModelLogEntry.objects.get(
+        content_type__model="forum", object_id=str(structure["cacti"].pk)
+    )
+    assert entry.action == "wagtail_forum.forum.move"
+    assert (entry.data["from_position"], entry.data["to_position"]) == (1, 2)
+
+
 def test_a_refused_move_writes_no_log_entry(admin_client, structure):
     from wagtail.models import ModelLogEntry
 
