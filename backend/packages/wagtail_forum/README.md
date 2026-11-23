@@ -339,6 +339,13 @@ at-least-once), and `--dry-run` reports recipient/due/empty
 counts without sending or writing. Links use `EMAIL_SITE_URL` (or the
 host's `SITE_URL`) and the manage link points at `DIGEST_SETTINGS_PATH`.
 
+The digest respects quiet hours: a due member whose quiet window covers the
+run is skipped and stays due (the summary line counts them as `held=N`).
+The host must run the command again after the main run so they get it once
+their window ends: `--quiet-hours-only` limits a run to members with quiet
+hours on, and running it hourly for the 24 hours after the main run covers
+every window. `last_digest_sent_at` keeps those runs from sending twice.
+
 ### Direct messages: the inbox contract
 
 `GET conversations/` is an inbox: most recent activity first
@@ -620,6 +627,7 @@ Things worth knowing before changing this:
 | `WAGTAILFORUM_DIGEST_UNSUBSCRIBE` | `None` | Dotted path to a host callable `(user) -> {"url": str, "headers": dict} \| None`. `url` is an absolute, signed unsubscribe page shown in the digest; `headers` (e.g. `List-Unsubscribe`, `List-Unsubscribe-Post`) are added to the message. The package never mints tokens itself. |
 | `WAGTAILFORUM_DIGEST_RECIPIENT_FILTER` | `None` | Dotted path to a host callable `() -> Q` over the user model. Set, a member gets a digest only while their account matches it, checked when the run selects recipients and again when it claims each member, so an account switched off mid-run is not mailed. Use it for an account-wide email policy the package cannot know, such as a master "no optional email" switch. |
 | `WAGTAILFORUM_AUTHOR_AVATAR_FALLBACK` | `None` | Dotted path to a host callable `(user) -> str \| None`: the URL (absolute or site-relative) of the account's own photo. Asked only for an author whose forum profile has no avatar, so every author object (topics, posts, messages, experts) shows that photo instead of `null`. It runs once per author per row, so it must read fields already loaded on the user and never query. A hook that raises is logged and treated as no photo. |
+| `WAGTAILFORUM_VIEW_COUNT_CLIENT_RESOLVER` | `None` | Dotted path to a host callable `(request) -> str` naming an anonymous reader for the topic view-count dedup. `None` keys on `REMOTE_ADDR`, which behind a reverse proxy is the proxy's address, so anonymous views undercount; a host behind one names its trusted client-address resolver here. A hook that raises falls back to `REMOTE_ADDR`. |
 | `WAGTAILFORUM_DM_GROUP_MAX_PARTICIPANTS` | `8` | Members per group conversation INCLUDING the creator (todo 350). Creation and `participants/` adds reject beyond it. |
 | `WAGTAILFORUM_NOTIFICATION_DEFAULTS` | reply push+email on; mention/quote/solution push on | Per-event `{push, email?}` matrix a member gets until they change a cell (todo 343). Only cells with a delivery path exist (email for replies only; the tray-silent moderation push is not a preference). In-app is always on. Stored overrides on `me/profile/` (`notification_preferences`, partial PATCH) win; a cell the host omits falls back to the package default. |
 | `WAGTAILFORUM_EMAIL_SITE_URL` | `None` | Absolute origin for links in package emails; `None` falls back to the host's `SITE_URL`. |

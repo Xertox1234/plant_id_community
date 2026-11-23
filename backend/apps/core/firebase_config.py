@@ -15,12 +15,22 @@ from typing import Optional
 
 from django.conf import settings
 
+from .constants import FIREBASE_HTTP_TIMEOUT_SECONDS
+
 logger = logging.getLogger(__name__)
 
 # Lazy-loaded Firebase instances
 _firebase_app = None
 _firestore_client = None
 _fcm_client = None
+
+
+def firebase_app_options(**extra) -> dict:
+    """The options every ``firebase_admin.initialize_app`` call passes (todo
+    727): ``httpTimeout`` bounds each Admin SDK HTTP call (an FCM send, a
+    token-service call) below the batch tasks' soft time limit; the SDK's
+    default is 120 s. ``extra`` adds the caller's own options."""
+    return {"httpTimeout": FIREBASE_HTTP_TIMEOUT_SECONDS, **extra}
 
 
 def get_firebase_credentials_path() -> Optional[str]:
@@ -67,7 +77,9 @@ def initialize_firebase() -> bool:
         # Initialize Firebase app
         cred = credentials.Certificate(credentials_path)
         try:
-            _firebase_app = firebase_admin.initialize_app(cred)
+            _firebase_app = firebase_admin.initialize_app(
+                cred, options=firebase_app_options()
+            )
         except ValueError:
             # Lost a concurrent first-touch race (threaded runserver: two
             # first requests can both miss get_app() above) — adopt the

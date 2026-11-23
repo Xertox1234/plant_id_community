@@ -408,3 +408,118 @@ def test_anonymous_readers_see_the_solved_badge_but_no_affordance():
 
     assert resp.data["is_solved"] is True
     assert resp.data["can_mark_solution"] is False
+
+
+# --- the write is conditional on the answer still being live (todo 730, L17) ---
+
+
+def _unpublish_after_the_check(reply):
+    """Patch ``_resolve_answer`` so the answer is unpublished right after the
+    view's liveness check passed and before it writes the pointer: the race
+    audit 2026-11-21 L17 describes. The unpublish does what the real one
+    does, in its order: the post stops being live, then the clearing rule
+    runs (and finds no pointer to clear yet)."""
+    from unittest.mock import patch
+
+    from wagtail_forum.api.solutions import TopicSolutionView
+    from wagtail_forum.signals import _clear_solution_for_post
+
+    original = TopicSolutionView._resolve_answer
+
+    def resolve_then_unpublish(topic, post_id):
+        post = original(topic, post_id)
+        Post.objects.filter(pk=reply.pk).update(live=False)
+        _clear_solution_for_post(reply.pk)
+        return post
+
+    return patch.object(
+        TopicSolutionView, "_resolve_answer", staticmethod(resolve_then_unpublish)
+    )
+
+
+@pytest.mark.django_db
+def test_an_answer_unpublished_between_the_check_and_the_write_is_not_accepted():
+    topic, reply, asker, _ = _thread("race")
+    client = APIClient()
+    client.force_authenticate(asker)
+
+    with _unpublish_after_the_check(reply):
+        resp = _mark(client, topic, reply)
+
+    assert resp.status_code == 422, resp.content
+    topic.refresh_from_db()
+    assert topic.solved_post_id is None
+    assert topic.solved_at is None
+    detail = client.get(f"/forum/topics/{topic.id}/").json()
+    assert detail["is_solved"] is False
+
+
+@pytest.mark.django_db
+def test_a_refused_race_does_not_leave_the_idempotency_key_in_flight():
+    topic, reply, asker, _ = _thread("race-key")
+    client = APIClient()
+    client.force_authenticate(asker)
+    headers = {"HTTP_IDEMPOTENCY_KEY": "accept-once"}
+    url = f"/forum/topics/{topic.id}/solution/"
+
+    with _unpublish_after_the_check(reply):
+        refused = client.post(url, {"post_id": reply.id}, format="json", **headers)
+    assert refused.status_code == 422
+
+    # The answer is live again and the member retries with the same key: it
+    # is judged on its merits, not answered 409 "being processed".
+    Post.objects.filter(pk=reply.pk).update(live=True)
+    retried = client.post(url, {"post_id": reply.id}, format="json", **headers)
+
+    assert retried.status_code == 200, retried.content
+    assert retried.json()["solved_post_id"] == reply.id
+
+
+@pytest.mark.django_db
+def test_accepting_bumps_updated_at_and_a_re_mark_keeps_the_first_solved_at():
+    """The write is a queryset update now, which skips ``auto_now``: sync
+    clients page on ``updated_at``, so it is set by hand."""
+    topic, reply, asker, _ = _thread("stamp")
+    before = Topic.objects.get(pk=topic.pk).updated_at
+    client = APIClient()
+    client.force_authenticate(asker)
+
+    first = _mark(client, topic, reply)
+    assert first.status_code == 200
+    accepted = Topic.objects.get(pk=topic.pk)
+    assert accepted.solved_post_id == reply.pk
+    assert accepted.updated_at > before
+    assert first.json()["solved_at"] is not None
+
+    again = _mark(client, topic, reply)
+    assert again.status_code == 200
+    assert Topic.objects.get(pk=topic.pk).solved_at == accepted.solved_at
+
+
+@pytest.mark.django_db
+def test_accepting_locks_the_answers_row_before_it_writes_the_pointer():
+    """The lock is what makes a concurrent unpublish wait for this write
+    (or be seen by it): its statement must come before the topic UPDATE."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    topic, reply, asker, _ = _thread("lock")
+    client = APIClient()
+    client.force_authenticate(asker)
+
+    with CaptureQueriesContext(connection) as ctx:
+        assert _mark(client, topic, reply).status_code == 200
+
+    statements = [query["sql"] for query in ctx.captured_queries]
+    locks = [
+        n
+        for n, sql in enumerate(statements)
+        if "FOR UPDATE" in sql and Post._meta.db_table in sql
+    ]
+    writes = [
+        n
+        for n, sql in enumerate(statements)
+        if sql.startswith("UPDATE") and "solved_post_id" in sql
+    ]
+    assert len(locks) == 1 and len(writes) == 1
+    assert locks[0] < writes[0]

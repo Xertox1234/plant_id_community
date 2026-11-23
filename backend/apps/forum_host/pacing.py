@@ -33,6 +33,15 @@ delivery waits is honoured when it is released.
 
 A delivery with no outbox row (a message from before the outbox) is sent
 as before, unpaced: there is nothing durable to hold it in.
+
+The weekly digest (todo 728, owner decision 2026-11-21) follows the same
+quiet-hours rule without this module or the outbox: it has no outbox row to
+hold. ``send_forum_digest`` skips a due member whose quiet window covers the
+run (``wagtail_forum.quiet_hours.profile_release``) and leaves them due; the
+hourly ``forum-weekly-digest-quiet-release-*`` beat entries re-run it for
+members with quiet hours on for the next 24 hours, so the digest goes out
+within the hour after the window ends. ``last_digest_sent_at`` is still the
+at-most-once-per-period claim.
 """
 
 from __future__ import annotations
@@ -43,6 +52,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
+from django.db import OperationalError
 from django.utils import timezone
 
 from . import constants
@@ -151,24 +161,88 @@ def pace(kind, event, data, claimed, users, *, now=None) -> Paced:
             .values_list("recipient_id", "updated_at")
         ):
             last_sent[pk] = max(at, last_sent.get(pk, at))
+    sending = []
     for user in mine:
         row = claimed[user.pk]
         release = quiet.get(user.pk)
         if release is not None:
             paced.held[(release, delivery.HOLD_QUIET_HOURS)].append(row)
             continue
-        if coalesce:
-            if user.pk in last_sent:
-                window_end = last_sent[user.pk] + window
-                paced.held[(window_end, delivery.HOLD_COALESCING)].append(row)
-                continue
-            folded = delivery.claim_related(
-                kind, event, user.pk, topic_id, exclude=[row]
-            )
-            paced.sends.append(Send(user, row, folded))
+        if coalesce and user.pk in last_sent:
+            window_end = last_sent[user.pk] + window
+            paced.held[(window_end, delivery.HOLD_COALESCING)].append(row)
             continue
-        paced.sends.append(Send(user, row))
-    _count_folds(paced.sends, data.get("post_id"))
+        sending.append(user)
+    # The rows each send folds, claimed for the whole batch at once (todo
+    # 727, audit L7): one UPDATE and one SELECT, not two queries a recipient.
+    folds: dict = {}
+    if coalesce and sending:
+        folds = delivery.claim_related_many(
+            kind,
+            event,
+            [user.pk for user in sending],
+            topic_id,
+            exclude=[claimed[user.pk] for user in sending],
+        )
+    paced.sends = [
+        Send(user, claimed[user.pk], folds.get(user.pk, {})) for user in sending
+    ]
+    try:
+        _count_folds(paced.sends, data.get("post_id"))
+    except OperationalError:
+        # The fold rows carry their own claim, which only this call knows:
+        # hand them back before the caller releases its own rows (L11).
+        _release_quietly([pk for send in paced.sends for pk in send.folded])
+        raise
+    return paced
+
+
+def _release_quietly(rows) -> None:
+    """``delivery.release`` that never raises: it runs while an
+    OperationalError is already on its way out, and a row it cannot release
+    is re-driven after its lease."""
+    from apps.core import delivery
+
+    if not rows:
+        return
+    try:
+        delivery.release(rows)
+    except OperationalError as exc:
+        logger.error(
+            "[DELIVERY] could not release a claim after a pacing error: %s",
+            type(exc).__name__,
+        )
+
+
+def pace_claimed(task, kind, event, data, batch_id, claimed, users, recipient_ids):
+    """``pace``, ``apply_holds`` and ``schedule_fold`` for a batch task that
+    has just claimed its rows (todo 727, audit 2026-11-21 L11).
+
+    These reads run AFTER the claim, so an OperationalError in them used to
+    reach the task's autoretry with the rows still claimed: the retry found
+    its own claim in the way, did nothing, and delivery waited out the
+    15-minute lease. Now the rows this run still owns go back to pending
+    (their attempt returned) before the error is re-raised, and the retry
+    claims them again. Rows already finished (suppressed) or already held
+    are left as they are."""
+    try:
+        paced = pace(kind, event, data, claimed, users)
+    except OperationalError:
+        if claimed:
+            wanted = {user.pk for user in users}
+            _release_quietly([row for pk, row in claimed.items() if pk in wanted])
+        raise
+    apply_holds(paced)
+    try:
+        schedule_fold(task, event, data, batch_id, paced, recipient_ids)
+    except OperationalError:
+        # The holds are written (pending, due at their release); only the
+        # sends and the rows they fold are still claimed.
+        _release_quietly(
+            [send.row for send in paced.sends if send.row is not None]
+            + [pk for send in paced.sends for pk in send.folded]
+        )
+        raise
     return paced
 
 
@@ -255,7 +329,6 @@ def apply_holds(paced: Paced) -> None:
     """Write this run's holds to the outbox. Never raises into a task that
     may already have sent: a row left claimed is re-driven after its lease."""
     from apps.core import delivery
-    from django.db import OperationalError
 
     for (release, reason), rows in paced.held.items():
         try:
@@ -336,7 +409,6 @@ def finish_folds(send: Send, delivered: bool) -> None:
     """A fold's rows share its outcome: covered by the message that went
     out, or handed back for their own attempt when it did not."""
     from apps.core import delivery
-    from django.db import OperationalError
 
     if not send.folded:
         return

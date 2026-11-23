@@ -131,11 +131,51 @@ def _get_dns_executor() -> ThreadPoolExecutor:
     return _dns_executor
 
 
+def _dns_timeout_key(host: str) -> str:
+    digest = hashlib.sha256(host.encode("utf-8")).hexdigest()
+    return f"{constants.LINK_PREVIEW_DNS_NEGATIVE_CACHE_KEY_PREFIX}:{digest}"
+
+
+def _dns_timed_out_recently(host: str) -> bool:
+    try:
+        return bool(cache.get(_dns_timeout_key(host)))
+    except Exception:
+        # No cache, no shortcut: the lookup runs as it always did.
+        logger.warning("[CACHE] link preview DNS negative-cache read failed")
+        return False
+
+
+def _remember_dns_timeout(host: str) -> None:
+    try:
+        cache.set(
+            _dns_timeout_key(host),
+            True,
+            constants.LINK_PREVIEW_DNS_NEGATIVE_CACHE_TTL_SECONDS,
+        )
+    except Exception:
+        logger.warning("[CACHE] link preview DNS negative-cache write failed")
+
+
 def _resolve_addresses(
     host: str, port: int, timeout: float | None = None
 ) -> list[tuple]:
+    """``getaddrinfo`` for ``host`` on the small DNS pool, within ``timeout``.
+
+    A host whose lookup ran out the FULL ``LINK_PREVIEW_DNS_TIMEOUT_SECONDS``
+    is not looked up again for ``LINK_PREVIEW_DNS_NEGATIVE_CACHE_TTL_SECONDS``
+    (todo 730, audit 2026-11-21 L2): the timed-out lookup keeps its worker
+    until the resolver gives up, so repeats for one slow host could fill the
+    pool and stop previews for every member. The repeat fails at once with the
+    same ``_LookupTimedOut``. A lookup cut short by a caller's smaller budget,
+    or one that timed out still waiting for a free worker, says nothing about
+    the host and is not remembered. Negative cache only:
+    a per-user cap on concurrent fetches was not shipped (owner decision
+    2026-11-22)."""
     limit = constants.LINK_PREVIEW_DNS_TIMEOUT_SECONDS
+    full_budget = timeout is None or timeout >= limit
     timeout = limit if timeout is None else min(timeout, limit)
+    if _dns_timed_out_recently(host):
+        raise _LookupTimedOut
     future = _get_dns_executor().submit(
         socket.getaddrinfo,
         host,
@@ -145,7 +185,13 @@ def _resolve_addresses(
     try:
         return future.result(timeout=timeout)
     except FutureTimeoutError as exc:
-        future.cancel()
+        # cancel() answers True only for a lookup that never started: it was
+        # still queued behind busy workers, which says nothing about THIS
+        # host. Remembering it would lock out every healthy host that was
+        # waiting while a slow one held the pool.
+        never_started = future.cancel()
+        if full_budget and not never_started:
+            _remember_dns_timeout(host)
         raise _LookupTimedOut from exc
     except OSError as exc:
         raise InvalidPreviewURL from exc

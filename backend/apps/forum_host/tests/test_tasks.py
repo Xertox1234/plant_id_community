@@ -1231,6 +1231,62 @@ def test_weekly_digest_task_re_enqueues_itself_after_a_soft_time_limit():
     again.assert_called_once_with(countdown=tasks.DIGEST_CONTINUATION_DELAY)
 
 
+def test_the_quiet_hours_follow_up_runs_cover_the_day_after_the_weekly_digest():
+    """Todo 728: a member whose quiet window covered the 09:00 run is still
+    due. Hourly follow-up runs, limited to members with quiet hours on, send
+    once the window has ended. A window is shorter than a day, so the 24
+    hours after the main run cover every member."""
+    from apps.forum_host import tasks
+    from django.conf import settings
+
+    monday = settings.CELERY_BEAT_SCHEDULE["forum-weekly-digest-quiet-release-monday"]
+    tuesday = settings.CELERY_BEAT_SCHEDULE["forum-weekly-digest-quiet-release-tuesday"]
+    for entry in (monday, tuesday):
+        assert entry["task"] == tasks.send_forum_weekly_digest.name
+        assert entry["kwargs"] == {"quiet_only": True}
+        assert entry["schedule"].minute == {30}
+    assert monday["schedule"].day_of_week == {1}
+    assert monday["schedule"].hour == set(range(9, 24))
+    assert tuesday["schedule"].day_of_week == {2}
+    assert tuesday["schedule"].hour == set(range(0, 10))
+    # 25 runs, an hour apart, from 09:30 Monday to 09:30 Tuesday: the last
+    # one is after the latest moment a window open at 09:00 Monday can end.
+    assert len(monday["schedule"].hour) + len(tuesday["schedule"].hour) == 25
+
+
+def test_the_follow_up_run_passes_the_quiet_hours_scope_to_the_command():
+    from apps.forum_host import tasks
+
+    seen: list = []
+
+    def fake_command(name, **options):
+        seen.append((name, {k: v for k, v in options.items() if k != "stdout"}))
+
+    with patch("django.core.management.call_command", side_effect=fake_command):
+        tasks.send_forum_weekly_digest.apply(kwargs={"quiet_only": True})
+        tasks.send_forum_weekly_digest.apply()
+
+    assert seen == [
+        ("send_forum_digest", {"frequency": "weekly", "quiet_hours_only": True}),
+        ("send_forum_digest", {"frequency": "weekly"}),
+    ]
+
+
+def test_a_follow_up_run_cut_off_by_the_soft_limit_continues_in_the_same_scope():
+    from apps.forum_host import tasks
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    with patch(
+        "django.core.management.call_command", side_effect=SoftTimeLimitExceeded()
+    ):
+        with patch.object(tasks.send_forum_weekly_digest, "apply_async") as again:
+            tasks.send_forum_weekly_digest.apply(kwargs={"quiet_only": True})
+
+    again.assert_called_once_with(
+        countdown=tasks.DIGEST_CONTINUATION_DELAY, kwargs={"quiet_only": True}
+    )
+
+
 # The relay loop's own format string: it marks exactly the relayed lines,
 # with no word filter that could drop one (todo 573).
 RELAY_FORMAT = "%s (task=%s)"

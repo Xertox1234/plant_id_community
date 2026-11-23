@@ -10,6 +10,14 @@ the window a no-op, and a member with nothing new gets no email.
 without sending or writing anything — run it against production data before
 the first real send.
 
+Quiet hours (todo 728, owner decision 2026-11-21): a due member whose
+quiet window covers the run is skipped and stays due, exactly like the other
+optional forum email. Nothing is written for them, so the claim below is
+untouched. The host runs the command again with `--quiet-hours-only` every
+hour for the day after the main run; the first of those runs after the
+member's window ends sends their digest, and `last_digest_sent_at` then
+keeps every later run from sending another.
+
 Overlap safety is a cache run lock held for `DIGEST_RUN_LOCK_SECONDS`, plus a
 conditional per-member claim. The claim and the send share one transaction,
 so the claim is durable only once the email has been handed over (todo 548,
@@ -35,6 +43,7 @@ from ...digest import (
     since_for,
 )
 from ...models import DigestFrequency, ForumProfile
+from ...quiet_hours import profile_release
 
 logger = logging.getLogger("wagtail_forum")
 
@@ -60,9 +69,19 @@ class Command(BaseCommand):
             help="Activity window (default: WAGTAILFORUM_DIGEST_WINDOW_DAYS).",
         )
 
+        parser.add_argument(
+            "--quiet-hours-only",
+            action="store_true",
+            help=(
+                "Consider only members with quiet hours on: the follow-up run "
+                "for those an earlier run held."
+            ),
+        )
+
     def handle(self, *args, **options):
         frequency = options["frequency"]
         dry_run = options["dry_run"]
+        quiet_only = options.get("quiet_hours_only", False)
         window_days = options["window_days"] or get_setting("DIGEST_WINDOW_DAYS")
         if window_days < 2:
             raise CommandError("--window-days must be at least 2")
@@ -102,7 +121,7 @@ class Command(BaseCommand):
                     frequency,
                 )
         try:
-            totals = self._run(frequency, dry_run, window_days, now)
+            totals = self._run(frequency, dry_run, window_days, now, quiet_only)
         finally:
             # Release only a lock this run took. After an outage (add
             # answered None) the cache may recover mid-run and another fire
@@ -132,11 +151,11 @@ class Command(BaseCommand):
             f"[EMAIL] digest frequency={frequency} window_days={window_days} "
             f"recipients={totals['recipients']} due={totals['due']} "
             f"empty={totals['empty']} {label}={totals['sent']} failed={totals['failed']} "
-            f"suppressed={totals['suppressed']}"
+            f"suppressed={totals['suppressed']} held={totals['held']}"
             + (" (dry run — nothing sent, nothing written)" if dry_run else "")
         )
 
-    def _run(self, frequency, dry_run, window_days, now):
+    def _run(self, frequency, dry_run, window_days, now, quiet_only=False):
         totals = {
             "recipients": 0,
             "due": 0,
@@ -144,12 +163,29 @@ class Command(BaseCommand):
             "sent": 0,
             "failed": 0,
             "suppressed": 0,
+            "held": 0,
         }
-        for profile in digest_recipients(frequency).iterator(chunk_size=200):
+        recipients = digest_recipients(frequency)
+        if quiet_only:
+            recipients = recipients.filter(quiet_hours_enabled=True)
+        for profile in recipients.iterator(chunk_size=200):
             totals["recipients"] += 1
             if not is_due(profile, now, window_days):
                 continue
             totals["due"] += 1
+            # Quiet hours (todo 728): checked on the row already loaded and
+            # against the clock as it is now, not the run's start (a run can
+            # last minutes). Held, not failed: the member stays due, nothing
+            # is written, and a later run sends once their window has ended.
+            release = profile_release(profile, timezone.now())
+            if release is not None:
+                totals["held"] += 1
+                logger.debug(
+                    "[EMAIL] forum digest held for quiet hours: user=%s until %s",
+                    profile.user_id,
+                    release.isoformat(),
+                )
+                continue
             try:
                 digest = build_digest(
                     profile.user, since_for(profile, now, window_days), profile

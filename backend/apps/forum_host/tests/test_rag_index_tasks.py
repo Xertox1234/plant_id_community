@@ -308,3 +308,163 @@ def test_broker_failure_is_logged_not_raised(django_capture_on_commit_callbacks)
     assert page.live is True
     mock_logger.exception.assert_called_once()
     assert "[CELERY]" in mock_logger.exception.call_args.args[0]
+
+
+# --------------------------------------------------------------------------- #
+# Permanent provider errors are not retried (todo 732, audit 2026-11-21 L12)   #
+# --------------------------------------------------------------------------- #
+
+_FAKE_REJECTED_KEY = "sk-fake-rejected-0000"  # pragma: allowlist secret
+
+
+def _openai_status_error(name, status):
+    """An OpenAI SDK status error as the client raises it: built from a real
+    httpx response, with the provider's message quoting the key."""
+    import httpx
+    import openai
+
+    request = httpx.Request("POST", "https://api.openai.com/v1/embeddings")
+    response = httpx.Response(status, request=request)
+    message = f"Incorrect API key provided: {_FAKE_REJECTED_KEY}"
+    return getattr(openai, name)(message, response=response, body=None)
+
+
+def _openai_connection_error(name):
+    import httpx
+    import openai
+
+    request = httpx.Request("POST", "https://api.openai.com/v1/embeddings")
+    return getattr(openai, name)(request=request)
+
+
+def _any_llm_error(name):
+    from any_llm import exceptions
+
+    return getattr(exceptions, name)(f"refused: {_FAKE_REJECTED_KEY}")
+
+
+def _any_llm_missing_key():
+    from any_llm import exceptions
+
+    return exceptions.MissingApiKeyError("openai", "OPENAI_API_KEY")
+
+
+PERMANENT = {
+    "openai-401": lambda: _openai_status_error("AuthenticationError", 401),
+    "openai-403": lambda: _openai_status_error("PermissionDeniedError", 403),
+    "openai-400": lambda: _openai_status_error("BadRequestError", 400),
+    "any-llm-auth": lambda: _any_llm_error("AuthenticationError"),
+    "any-llm-missing-key": _any_llm_missing_key,
+    "any-llm-invalid-request": lambda: _any_llm_error("InvalidRequestError"),
+}
+TRANSIENT = {
+    "openai-429": lambda: _openai_status_error("RateLimitError", 429),
+    "openai-500": lambda: _openai_status_error("InternalServerError", 500),
+    "openai-timeout": lambda: _openai_connection_error("APITimeoutError"),
+    "openai-connection": lambda: _openai_connection_error("APIConnectionError"),
+    "any-llm-rate-limit": lambda: _any_llm_error("RateLimitError"),
+    "any-llm-provider": lambda: _any_llm_error("ProviderError"),
+}
+
+
+def _run_with_embed_error(slug, error):
+    """Run the task once with the embed raising ``error``; returns
+    (page, the retry mock, the logger mock, what the run raised or None)."""
+    from celery.exceptions import Retry
+    from django_ai_core.contrib.index.embedding_cache import CachedEmbeddingTransformer
+
+    with patch(TASK):
+        page = _post("Pothos care", BLOCKS, slug=slug)
+    _seed(vi.BlogChunks, f"blog.BlogPostPage:{page.pk}:0", "old but valid chunk")
+    raised = None
+    with patch.object(
+        CachedEmbeddingTransformer, "embed_documents", side_effect=error
+    ), patch("apps.forum_host.tasks.logger") as mock_logger, patch.object(
+        sync_blog_page_chunks, "retry", side_effect=Retry("retried")
+    ) as mock_retry:
+        try:
+            sync_blog_page_chunks.run(page.pk)
+        except Exception as exc:  # the test asserts on what it was
+            raised = exc
+    return page, mock_retry, mock_logger, raised
+
+
+@override_settings(**ENABLED, OPENAI_API_KEY=_FAKE_OPENAI_KEY)
+@pytest.mark.django_db
+@pytest.mark.parametrize("case", sorted(PERMANENT))
+def test_a_permanent_provider_error_is_not_retried_and_is_logged_once(case):
+    error = PERMANENT[case]()
+
+    page, mock_retry, mock_logger, raised = _run_with_embed_error(
+        f"pothos-permanent-{case}", error
+    )
+
+    # Not retried, and not raised either: Celery's own failure trace would
+    # be a second log line for the same error.
+    assert raised is None
+    mock_retry.assert_not_called()
+    # Logged once, at ERROR, with the page id and the error's class.
+    mock_logger.error.assert_called_once()
+    mock_logger.exception.assert_not_called()
+    template, *args = mock_logger.error.call_args.args
+    assert template.startswith("[ERROR]")
+    assert args == [page.pk, type(error).__name__]
+    # Never the provider's message: it can quote the key it rejected.
+    assert _FAKE_REJECTED_KEY not in (template % tuple(args))
+    # The page's existing chunks are kept: stale content beats none.
+    assert _page_keys(page.pk) == {f"blog.BlogPostPage:{page.pk}:0"}
+
+
+@override_settings(**ENABLED, OPENAI_API_KEY=_FAKE_OPENAI_KEY)
+@pytest.mark.django_db
+@pytest.mark.parametrize("case", sorted(TRANSIENT))
+def test_a_transient_provider_error_is_still_retried(case):
+    from celery.exceptions import Retry
+
+    error = TRANSIENT[case]()
+
+    page, mock_retry, mock_logger, raised = _run_with_embed_error(
+        f"pothos-transient-{case}", error
+    )
+
+    assert isinstance(raised, Retry)
+    mock_retry.assert_called_once()
+    assert mock_retry.call_args.kwargs["exc"] is error
+    mock_logger.error.assert_not_called()
+    assert _page_keys(page.pk) == {f"blog.BlogPostPage:{page.pk}:0"}
+
+
+@override_settings(**ENABLED, OPENAI_API_KEY=_FAKE_OPENAI_KEY)
+@pytest.mark.django_db
+def test_a_soft_time_limit_during_the_embed_is_still_retried():
+    """Audit L12 declined this half on purpose: a soft-limit timeout on one
+    page's embed is usually provider slowness, and retrying it is right."""
+    from celery.exceptions import Retry, SoftTimeLimitExceeded
+
+    error = SoftTimeLimitExceeded()
+
+    page, mock_retry, mock_logger, raised = _run_with_embed_error(
+        "pothos-soft-limit", error
+    )
+
+    assert isinstance(raised, Retry)
+    mock_retry.assert_called_once()
+    assert mock_retry.call_args.kwargs["exc"] is error
+    mock_logger.error.assert_not_called()
+
+
+def test_the_permanent_list_never_covers_a_transient_provider_error():
+    """Each class is named on its own: ``openai.APIStatusError`` (or any
+    other shared base) would also swallow 429 and 5xx."""
+    from apps.forum_host.tasks import _permanent_embedding_errors
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    permanent = _permanent_embedding_errors()
+
+    assert len(permanent) == 11
+    for make in TRANSIENT.values():
+        assert not isinstance(make(), permanent)
+    assert not isinstance(SoftTimeLimitExceeded(), permanent)
+    assert not isinstance(RuntimeError("down"), permanent)
+    for make in PERMANENT.values():
+        assert isinstance(make(), permanent)

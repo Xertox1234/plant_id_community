@@ -243,6 +243,15 @@ DEFAULTS: dict[str, Any] = {
     # author per row: it must read fields already loaded on the user and
     # never query. The package never names host user fields.
     "AUTHOR_AVATAR_FALLBACK": None,
+    # Dotted path to a host callable(request) -> str naming an ANONYMOUS
+    # reader for the topic view-count dedup (todo 730, audit 2026-11-21
+    # L15). None keys on REMOTE_ADDR, which is right with no proxy in front;
+    # behind a reverse proxy REMOTE_ADDR is the proxy's address, every
+    # anonymous reader shares one key and views undercount, so the host
+    # names its own trusted client-address resolver. The package never
+    # reads forwarding headers itself: which of them can be trusted is the
+    # host's deployment knowledge.
+    "VIEW_COUNT_CLIENT_RESOLVER": None,
     "EMAIL_SITE_URL": None,  # absolute origin for email links; None = settings.SITE_URL
     # Per-channel notification preferences (todo 343): the matrix a member
     # gets when they have not chosen otherwise. In-app is always on and is

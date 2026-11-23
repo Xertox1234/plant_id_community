@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "727"
 tags: [forum, celery, notifications, performance, launch-readiness]
@@ -42,16 +42,69 @@ followers.
 
 ## Acceptance Criteria
 
-- [ ] A 120-follower reply enqueues ⌈120/chunk⌉ batches per channel, each with its own declared time limits (a test).
-- [ ] The Firebase app is initialized with an `httpTimeout` below the soft limit (a test reads the option).
-- [ ] `pace` issues a constant number of queries whatever the recipient count (a query-count test at 3 and at 30 recipients).
-- [ ] An `OperationalError` in `pace` after the claim leaves the run's rows pending and unclaimed (a test).
+- [x] A 120-follower reply enqueues ⌈120/chunk⌉ batches per channel, each with its own declared time limits (a test).
+- [x] The Firebase app is initialized with an `httpTimeout` below the soft limit (a test reads the option).
+- [x] `pace` issues a constant number of queries whatever the recipient count (a query-count test at 3 and at 30 recipients).
+- [x] An `OperationalError` in `pace` after the claim leaves the run's rows pending and unclaimed (a test).
 
 ## Work Log
 
 ### 2026-11-21 - Filed from the forum backend audit
 
 - Deferred from `docs/audits/2026-11-21-forum-backend.md` M3 (the remainder after the clean-stop fix), L7 and L11. Owner decisions 2026-11-21: at triage, "per-task time limit + re-raise, chunking deferred"; then, offered a push-only split, they chose to fix all three channels now (done in the audit PR). The approved per-task time limit did not ship (it has to be sized to a chunk), so it is in this todo.
+
+### 2026-11-23 - Implemented by the todo sweep (run 2026-11-22-1957)
+
+- Chunking (owner decision 2026-11-22: 50 per task): every batch enqueue in `backend/apps/forum_host/notifications.py` and the re-drive in `backend/apps/forum_host/tasks.py` now sends one task per `NOTIFICATION_BATCH_CHUNK_SIZE` recipients, all under the one outbox batch id. Each chunk's enqueue is guarded on its own. The three batch tasks declare `soft_time_limit` 240 s and `time_limit` 300 s (`backend/apps/forum_host/constants.py`), under the 15-minute claim lease. This replaces the 2026-10-11 "no chunked subtasks" decision for browser push.
+- Firebase (owner decision: about 30 s): `firebase_app_options()` in `backend/apps/core/firebase_config.py` sets `httpTimeout` to `FIREBASE_HTTP_TIMEOUT_SECONDS` (30). The projectId-only init in `backend/apps/users/firebase_auth_views.py` passes it too, because the FCM sender adopts whichever default app exists. The users Firebase tests still pass. One existing assertion in `backend/apps/core/tests/test_firebase_config.py` now expects the `options` argument.
+- L7: `delivery.claim_related_many` claims every recipient's fold rows in one UPDATE and reads them in one SELECT; `pacing.pace` calls it once for the recipients it will send to now.
+- L11: `pacing.pace_claimed` wraps `pace` and `schedule_fold`. On an `OperationalError` it releases the rows this run still owns and re-raises. Rows already suppressed or held are left alone, and fold rows claimed inside `pace` are handed back there.
+
+### 2026-11-23 - Verified by the todo sweep (run 2026-11-22-1957)
+
+- AC 1: `python3 scripts/todos/slot_env.py --main-root . 4 -- backend/venv/bin/python -m pytest --rootdir backend -c backend/pytest.ini backend/apps/forum_host/tests/test_notification_chunking.py --create-db -v -p no:cacheprovider` — evidence `.sweep-evidence/g11/727-ac0.txt` (not committed), last lines:
+
+  ```text
+
+  -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  ======================== 5 passed, 2 warnings in 21.53s ========================
+
+  exit code: 0
+  ```
+
+- AC 2: `python3 scripts/todos/slot_env.py --main-root . 4 -- backend/venv/bin/python -m pytest --rootdir backend -c backend/pytest.ini backend/apps/core/tests/test_firebase_config.py --create-db -v -p no:cacheprovider` — evidence `.sweep-evidence/g11/727-ac1.txt` (not committed), last lines:
+
+  ```text
+
+  -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  ======================== 6 passed, 2 warnings in 0.30s =========================
+
+  exit code: 0
+  ```
+
+- AC 3: `python3 scripts/todos/slot_env.py --main-root . 4 -- backend/venv/bin/python -m pytest --rootdir backend -c backend/pytest.ini backend/apps/forum_host/tests/test_pacing.py::test_pace_issues_the_same_number_of_queries_at_3_and_at_30_recipients --create-db -v -p no:cacheprovider` — evidence `.sweep-evidence/g11/727-ac2.txt` (not committed), last lines:
+
+  ```text
+
+  -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  ======================== 1 passed, 2 warnings in 20.73s ========================
+
+  exit code: 0
+  ```
+
+- AC 4: `python3 scripts/todos/slot_env.py --main-root . 4 -- backend/venv/bin/python -m pytest --rootdir backend -c backend/pytest.ini backend/apps/forum_host/tests/test_pacing.py::test_an_operational_error_in_pace_after_the_claim_leaves_the_rows_pending backend/apps/forum_host/tests/test_pacing.py::test_an_error_while_counting_folds_also_hands_back_the_fold_rows backend/apps/forum_host/tests/test_pacing.py::test_a_row_already_suppressed_is_not_reopened_by_the_release --create-db -v -p no:cacheprovider` — evidence `.sweep-evidence/g11/727-ac3.txt` (not committed), last lines:
+
+  ```text
+
+  -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+  ======================== 5 passed, 2 warnings in 20.74s ========================
+
+  exit code: 0
+  ```
+
+### 2026-11-23 - Completed by the todo sweep (run 2026-11-22-1957)
+
+- Archived by `land.py archive`; evidence is quoted above, review is on the PR.
 
 ## Notes
 

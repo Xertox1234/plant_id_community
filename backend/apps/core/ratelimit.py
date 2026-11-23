@@ -237,3 +237,10 @@ def client_ip_key(group: Optional[str], request: HttpRequest) -> str:
     """
     ip = get_trusted_client_ip(request)
     return _mask_ip(ip) if ip else "unknown"
+
+
+def request_client_id(request: HttpRequest) -> str:
+    """``client_ip_key`` for a caller that is not a rate limiter: the same
+    trusted, masked client address, as a one-argument hook (the forum's
+    ``WAGTAILFORUM_VIEW_COUNT_CLIENT_RESOLVER``, todo 730)."""
+    return client_ip_key(None, request)

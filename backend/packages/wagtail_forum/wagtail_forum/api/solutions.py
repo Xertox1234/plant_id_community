@@ -5,6 +5,7 @@ Its own module rather than another class in `views.py` for the same reason
 serializer and one permission rule, and `views.py` is already 1700 lines.
 """
 
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -98,15 +99,48 @@ class TopicSolutionView(UnversionedForumAPIMixin, APIView):
         # verb, post), but the FCM push has no such backstop, so a client
         # double-tap would otherwise tray-popup twice. Decide before writing.
         already_accepted = topic.solved_post_id == post.pk
-        topic.solved_post = post
+        now = timezone.now()
         # Left untouched on a re-mark so `solved_at` means "when this answer was
         # accepted", not "when someone last tapped the button".
-        if not already_accepted:
-            topic.solved_at = timezone.now()
-        # `.save(update_fields=...)` on a DraftStateMixin/RevisionMixin snippet
-        # writes ONLY these columns — no revision, no workflow, no republish.
-        # Accepting an answer is topic metadata, not a content edit.
-        topic.save(update_fields=["solved_post", "solved_at", "updated_at"])
+        solved_at = topic.solved_at if already_accepted else now
+        # The pointer is written only while the post is STILL a live reply
+        # on this topic (todo 730, audit 2026-11-21 L17). `_resolve_answer`
+        # checked that a moment ago without a lock, and an unpublish landing
+        # in between clears the pointer first (`_clear_solution_for_post`
+        # finds none yet); a plain save would then write it back over a post
+        # readers cannot see. Two guards:
+        #
+        # - the answer's row is locked for this transaction. An unpublish
+        #   has to update that row, so it either committed before the lock
+        #   was granted or waits until this write commits, and its clear
+        #   then finds the pointer;
+        # - the UPDATE is conditional on the post being a live reply on
+        #   this topic, read after the lock: an unpublish that committed
+        #   first is seen here, and nothing is written.
+        #
+        # A queryset `.update()` writes ONLY these columns — no revision, no
+        # workflow, no republish (accepting an answer is topic metadata, not
+        # a content edit) — and skips `auto_now`, so `updated_at` is set by
+        # hand: /sync/ clients page on it.
+        with transaction.atomic():
+            # Evaluated for its row lock only; liveness is the UPDATE's.
+            list(
+                Post.objects.select_for_update()
+                .filter(pk=post.pk)
+                .values_list("pk", flat=True)
+            )
+            written = Topic.objects.filter(
+                pk=topic.pk, posts__pk=post.pk, posts__live=True
+            ).update(solved_post=post, solved_at=solved_at, updated_at=now)
+        if not written:
+            # Not a stuck key: free the in-flight marker `reserve` set, so
+            # the member's retry is answered on its merits, not with a 409.
+            if cache_key:
+                cache.delete(cache_key)
+            raise UnprocessableEntity(_("That post is not a live reply on this topic."))
+        topic.solved_post = post
+        topic.solved_at = solved_at
+        topic.updated_at = now
 
         if not already_accepted:
             # on_commit so a rolled-back mark can never deliver a push for a

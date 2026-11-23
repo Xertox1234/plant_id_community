@@ -1157,6 +1157,10 @@ WAGTAILFORUM_DIGEST_RECIPIENT_FILTER = (
 # account photo (User.avatar, the one the mobile and web profile screens set)
 # instead of an initial.
 WAGTAILFORUM_AUTHOR_AVATAR_FALLBACK = "apps.forum_host.avatars.account_avatar_url"
+# An anonymous reader's topic view is deduplicated on the real client address
+# (the rate limiter's resolver), not REMOTE_ADDR, which behind Cloudflare and
+# Railway is the proxy's (todo 730, audit 2026-11-21 L15).
+WAGTAILFORUM_VIEW_COUNT_CLIENT_RESOLVER = "apps.core.ratelimit.request_client_id"
 # This API's own public origin (e.g. https://api.houseplant-md.com). SITE_URL
 # is the WEB app's. Set, every list email carries an RFC 8058 one-click
 # List-Unsubscribe URL on this origin plus List-Unsubscribe-Post; unset, the
@@ -1535,6 +1539,23 @@ CELERY_BEAT_SCHEDULE = {
     "forum-weekly-digest": {
         "task": "apps.forum_host.tasks.send_forum_weekly_digest",
         "schedule": crontab(hour=9, minute=0, day_of_week="monday"),
+    },
+    # Todo 728: the digest respects quiet hours. A member whose quiet window
+    # covered the 09:00 run was skipped and is still due; these hourly runs
+    # look only at members with quiet hours on and send once the window has
+    # ended. A window is shorter than a day, so the 24 hours after the main
+    # run cover every member: Monday 09:30-23:30, then Tuesday 00:30-09:30.
+    # On the half hour, so they never start with the 09:00 digest or the
+    # 10:00 newsletter.
+    "forum-weekly-digest-quiet-release-monday": {
+        "task": "apps.forum_host.tasks.send_forum_weekly_digest",
+        "schedule": crontab(hour="9-23", minute=30, day_of_week="monday"),
+        "kwargs": {"quiet_only": True},
+    },
+    "forum-weekly-digest-quiet-release-tuesday": {
+        "task": "apps.forum_host.tasks.send_forum_weekly_digest",
+        "schedule": crontab(hour="0-9", minute=30, day_of_week="tuesday"),
+        "kwargs": {"quiet_only": True},
     },
     # Todo 409: the blog newsletter, to confirmed subscribers only. An hour
     # after the forum digest so the two runs don't share the worker.

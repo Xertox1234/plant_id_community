@@ -211,7 +211,7 @@ def _ensure_firebase_initialized() -> None:
     except ValueError:
         pass
 
-    from apps.core.firebase_config import initialize_firebase
+    from apps.core.firebase_config import firebase_app_options, initialize_firebase
     from django.conf import settings
 
     try:
@@ -236,9 +236,13 @@ def _ensure_firebase_initialized() -> None:
         # Tier 3: projectId-only — auth-emulator dev loop / ADC envs. FCM
         # sending stays disabled (it needs FIREBASE_CREDENTIALS_PATH).
         project_id = getattr(settings, "FIREBASE_PROJECT_ID", None)
+        # httpTimeout as in the shared bootstrap (todo 727): the FCM sender
+        # adopts whichever default app exists.
         firebase_admin.initialize_app(
             _VerifyOnlyCredential(),
-            options={"projectId": project_id} if project_id else None,
+            options=firebase_app_options(
+                **({"projectId": project_id} if project_id else {})
+            ),
         )
         logger.info(
             "[FIREBASE] Firebase Admin SDK initialized (projectId-only — "

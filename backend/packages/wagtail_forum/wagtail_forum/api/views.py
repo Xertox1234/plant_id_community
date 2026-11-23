@@ -34,6 +34,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.html import strip_tags
+from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
 from rest_framework import generics
 from rest_framework import status as http_status
@@ -288,6 +289,23 @@ def _enforce_forum_write(request, board, *flags):
     for flag in flags:
         if not user_can(user, board, flag):
             raise _FLAG_DENIED[flag]()
+
+
+def _anonymous_viewer_key(request) -> str:
+    """Who an anonymous reader is for the view-count dedup: the host's
+    ``VIEW_COUNT_CLIENT_RESOLVER`` answer, else ``REMOTE_ADDR`` (todo 730, audit
+    2026-11-21 L15). Behind a proxy ``REMOTE_ADDR`` is the proxy's address,
+    so every anonymous reader would share one key and count as one view."""
+    fallback = str(request.META.get("REMOTE_ADDR") or "anon")
+    path = get_setting("VIEW_COUNT_CLIENT_RESOLVER")
+    if not path:
+        return fallback
+    try:
+        return str(import_string(path)(request) or fallback)
+    except Exception:
+        # Analytics only: a broken hook must never fail the topic read.
+        logger.exception("[FORUM] VIEW_COUNT_CLIENT_RESOLVER failed")
+        return fallback
 
 
 def _image_block_ids(body):
@@ -733,7 +751,10 @@ def _board_last_post_subquery():
         "List the forum's categories in `position` order, each with its "
         "visible forums nested under `forums` (same row shape as "
         "`/forum/boards/`). A category's `topic_count`, `post_count` and "
-        "`last_post_at` are summed from its visible forums at read time; a "
+        "`last_post_at` are summed from its visible forums at read time. A "
+        "password forum the reader has not unlocked (`is_locked`) reports "
+        "`topic_count` and `post_count` 0 and adds nothing to its category's "
+        "totals. A "
         "category with no visible forum or link is omitted. Each forum row and "
         "each category carries `has_unread` (always false when anonymous); "
         "link rows are under `links`, with `click_count` when tracked. Flat "
@@ -799,6 +820,12 @@ class CategoryListView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
             ]
             for row in visible:
                 if row.is_locked:
+                    # Owner decision 2026-11-22 (todo 730, audit L19): a
+                    # locked forum's topic and post counts are not public.
+                    # They are zeroed here and left out of the category's
+                    # totals below; unlocking shows the real numbers.
+                    row.topic_count = 0
+                    row.post_count = 0
                     row.last_post_at = None
                     row.has_unread = False
                     row.unread_count = None
@@ -826,6 +853,8 @@ class CategoryListView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                     "icon": category.icon,
                     "colour": category.colour,
                     "position": category.position,
+                    # Locked rows were zeroed above, so the totals count
+                    # only the forums this reader can open.
                     "topic_count": sum(f.topic_count for f in visible),
                     "post_count": sum(f.post_count for f in visible),
                     "last_post_at": max(stamps) if stamps else None,
@@ -996,11 +1025,17 @@ class TopicListView(
         if replayed is not None:
             return replayed
 
+        # The forum and the right to post in it come BEFORE the body is
+        # validated (todo 730, audit 2026-11-21 L14): validating sanitises
+        # the body, which fetches its link previews, and a member who may
+        # not post here must not be able to make the server fetch. The
+        # flags that depend on the body (poll, attach) are checked after.
+        board = _get_board(slug, request)
+        _enforce_forum_write(request, board, POST)
         serializer = TopicCreateSerializer(
             data=request.data, context={"request": request}
         )
         serializer.is_valid(raise_exception=True)
-        board = _get_board(slug, request)
         validated = serializer.validated_data
         flags = [POST]
         if validated.get("poll"):
@@ -1236,7 +1271,8 @@ class TopicDetailView(
         #
         # The cache key is scoped per (topic, viewer) — authenticated users key on
         # their pk; anonymous requests key on the client IP so a single browser
-        # session doesn't multi-count. The TTL is host-configurable via
+        # session doesn't multi-count (the host's VIEW_COUNT_CLIENT_RESOLVER
+        # resolver when set, else REMOTE_ADDR: todo 730, audit L15). The TTL is host-configurable via
         # WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS (default 15 min).
         from ..conf import get_setting
 
@@ -1244,7 +1280,7 @@ class TopicDetailView(
         viewer = (
             request.user.pk
             if request.user.is_authenticated
-            else request.META.get("REMOTE_ADDR", "anon")
+            else _anonymous_viewer_key(request)
         )
         dedup_key = f"forum:vc:{topic_id}:{viewer}"
         ttl = get_setting("VIEW_COUNT_DEDUP_SECONDS")
@@ -1405,6 +1441,10 @@ class PostListView(
         )
         if topic.is_closed or topic.locked:
             raise Conflict(_("Topic is closed to replies."))
+        # Before the body is validated, as in topic create (todo 730, audit
+        # L14): no link-preview fetch for a member who may not reply here.
+        # `attach` depends on the body and is checked after.
+        _enforce_forum_write(request, topic.board, REPLY)
         serializer = ReplyCreateSerializer(
             data=request.data, context={"request": request}
         )
