@@ -537,6 +537,17 @@ def test_a_move_writes_a_log_entry_naming_the_acting_user(admin_client, structur
     }
 
 
+def test_a_drop_in_place_writes_no_log_entry(admin_client, structure):
+    """Review round 1 (todo 729): a row dropped where it already is did not
+    move, so the audit log must not say it did."""
+    from wagtail.models import ModelLogEntry
+
+    resp = _move(admin_client, structure["ferns"], structure["indoor"], 0, **XHR)
+
+    assert resp.status_code == 200, resp.content
+    assert not ModelLogEntry.objects.filter(content_type__model="forum").exists()
+
+
 def test_a_refused_move_writes_no_log_entry(admin_client, structure):
     from wagtail.models import ModelLogEntry
 

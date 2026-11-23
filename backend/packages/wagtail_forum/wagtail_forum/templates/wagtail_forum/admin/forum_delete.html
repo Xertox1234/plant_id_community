@@ -15,9 +15,9 @@
     {% if form.subscriber_count %}
         <p>
             {% blocktrans trimmed count counter=form.subscriber_count %}
-                {{ counter }} member has a watch setting on this forum. It is carried over to the forum the topics move to; without a move it is erased.
+                {{ counter }} member has a watch setting on this forum. A watching or tracking setting is carried over to the forum the topics move to; a mute is not. Without a move it is erased.
             {% plural %}
-                {{ counter }} members have a watch setting on this forum. They are carried over to the forum the topics move to; without a move they are erased.
+                {{ counter }} members have a watch setting on this forum. Watching and tracking settings are carried over to the forum the topics move to; a mute is not. Without a move they are erased.
             {% endblocktrans %}
         </p>
     {% endif %}

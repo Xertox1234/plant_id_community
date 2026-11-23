@@ -94,3 +94,23 @@ are moderation-trail and member-trust gaps once the app is live.
 - Review round 1 found a regression: a member who had muted the deleted forum and had no setting on the target got a mute on the target, which hid the target's own topics from their Recent list and digest. On main they kept seeing them.
 - `carry_subscriptions` (`backend/packages/wagtail_forum/wagtail_forum/services/forum_structure.py`) no longer carries a source mute at all; only tracking and watching levels are carried. This replaces the earlier judgment call "a source mute is carried only when the member has no level on the target".
 - `tests/test_admin_forum_delete.py`: the `(muted, none)` case now expects no row on the target, and the first-post and tracking levels with no target row are covered too.
+
+### 2026-11-23 - Review round 1: non-blocking findings
+
+- **Fixed: the move log's no-op guard had no test (medium).** A new test drops a row where it
+  already is and expects no log entry; logging every move fails it.
+- **Fixed: the confirm page said every watch setting is carried over (low).** After the round-1
+  repair a mute is not carried, so the notice now says watching and tracking settings are
+  carried and a mute is not.
+- **Declined: the type-change log takes its topic count from the form (low, two reviewers).** A
+  topic posted between the form and the write makes the entry's count off by that topic. Staff
+  only, and the delete log already uses the real count.
+- **Declined: the move log reads the old position before `move_forum` takes its lock (low).** Two
+  staff moving the same row at the same moment can log a stale "from". The move itself is safe.
+- **Declined: the "refused writes no log entry" tests would pass without the atomic wrappers
+  (low).** They fail before `log()` runs; the wrappers guard a later failure these tests do not
+  reach.
+- **Declined: the subscriber notice shows for a row retyped to a category or link (low).** Such
+  a row keeps its subscription rows, so the count shown is true.
+- **Declined: more arms of the type-change and move-delete logs are untested (low, two
+  findings).** The delete, no-topics and no-subscribers arms are not pinned by a test.
