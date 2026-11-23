@@ -96,3 +96,21 @@ owner decided on 2026-11-21 that the digest should be held the same way.
 - Fix in `backend/apps/forum_host/tasks.py`: a recovery run turned away by the lock re-enqueues itself with the same `recovery` count (`lock_wait` counts the waits: every 5 minutes, at most 8 times, which outlasts the 35-minute lock TTL; an ERROR log when the bound runs out). A scheduled run turned away is left alone, as before. The beat times are unchanged: a recovery run fires relative to when its run ended, so no fixed minute avoids it.
 - Tests in `backend/apps/forum_host/tests/test_tasks.py` run the real command against a held lock: the recovery run tries again with its count, stops at the bound, and a scheduled or quiet-hours run does not re-enqueue.
 - Not changed (outside the finding): a soft-limit continuation of the main run (recovery 0) that meets an hourly run's lock still exits, as any overlap did before; only recovery runs wait for the lock.
+
+### 2026-11-23 - Review round 1: non-blocking findings
+
+- **Fixed: the follow-up run mailed members the main run never held (medium, two reviewers).**
+  `--quiet-hours-only` took every due member with quiet hours on, so one outside their window
+  with nothing new at 09:00 got a "weekly" digest from the first hourly run after an item
+  appeared. The task now passes `--held-at` (the main run's time, read from its beat entry) and
+  the command considers only members whose quiet window covered it. New tests; removing the
+  filter fails `test_the_follow_up_run_skips_a_member_the_main_run_did_not_hold`. Known gap,
+  accepted: no hold is stored, so a member whose window opened in the minutes between 09:00 and
+  the run reaching them is judged "not held" and waits for next week.
+- **Declined: a member who turns quiet hours off while held gets no digest that week (low).**
+  The same root as above (no stored hold). The next weekly run sends as usual.
+- **Declined: a quiet-only run with failures schedules full-scope recovery runs (low).** A full
+  run reads only members still due; every member without quiet hours was stamped at 09:00, so
+  the extra runs send nothing new. Bounded at two per failing run.
+- **Declined: a quiet window that leaves a gap under an hour holding no :30 mark is never
+  released (low).** It needs a window of more than 23 hours. Not handled.

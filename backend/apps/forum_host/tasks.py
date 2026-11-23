@@ -9,12 +9,14 @@ Fired by forum_host/notifications.py dispatch() via .delay() so that:
 """
 
 import logging
+from datetime import timedelta
 
 from apps.core import fcm as core_fcm
 from apps.core.notification_ops import report_push_unconfigured
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from django.db import OperationalError
+from django.utils import timezone
 from wagtail_forum.preferences import wants_channel
 
 from . import constants, pacing
@@ -108,7 +110,14 @@ def send_forum_weekly_digest(
     try:
         # The option is passed only on the follow-up run, so the main run's
         # call is exactly what it was before todo 728.
-        scope = {"quiet_hours_only": True} if quiet_only else {}
+        scope = (
+            {
+                "quiet_hours_only": True,
+                "held_at": _last_main_digest_run(timezone.now()).isoformat(),
+            }
+            if quiet_only
+            else {}
+        )
         call_command("send_forum_digest", frequency="weekly", stdout=out, **scope)
     except SoftTimeLimitExceeded:
         logger.warning(
@@ -142,6 +151,24 @@ def send_forum_weekly_digest(
     schedule_weekly_recovery(
         send_forum_weekly_digest, out.getvalue(), recovery, "forum weekly digest"
     )
+
+
+def _last_main_digest_run(now):
+    """When the main weekly digest last fired at or before ``now``, read from
+    its beat entry. The follow-up runs pass it to the command, which then
+    sends only to members whose quiet window covered that run."""
+    from django.conf import settings
+
+    schedule = settings.CELERY_BEAT_SCHEDULE["forum-weekly-digest"]["schedule"]
+    candidate = now.replace(
+        hour=min(schedule.hour), minute=min(schedule.minute), second=0, microsecond=0
+    )
+    # Celery counts Sunday as 0; Python counts Monday as 0.
+    for _ in range(8):
+        if candidate <= now and (candidate.weekday() + 1) % 7 in schedule.day_of_week:
+            return candidate
+        candidate -= timedelta(days=1)
+    raise RuntimeError("the forum-weekly-digest beat entry matches no day")
 
 
 def _retry_recovery_after_the_lock(

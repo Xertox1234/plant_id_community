@@ -29,7 +29,12 @@ def firebase_app_options(**extra) -> dict:
     """The options every ``firebase_admin.initialize_app`` call passes (todo
     727): ``httpTimeout`` bounds each Admin SDK HTTP call (an FCM send, a
     token-service call) below the batch tasks' soft time limit; the SDK's
-    default is 120 s. ``extra`` adds the caller's own options."""
+    default is 120 s. ``extra`` adds the caller's own options.
+
+    Passing ``options`` at all stops the SDK reading the ``FIREBASE_CONFIG``
+    environment variable (it loads that only when no options are given). This
+    project never sets it: the project id comes from the service account, or
+    from ``FIREBASE_PROJECT_ID`` in the projectId-only tier."""
     return {"httpTimeout": FIREBASE_HTTP_TIMEOUT_SECONDS, **extra}
 
 

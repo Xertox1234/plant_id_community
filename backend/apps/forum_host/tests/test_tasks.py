@@ -1262,14 +1262,44 @@ def test_the_follow_up_run_passes_the_quiet_hours_scope_to_the_command():
     def fake_command(name, **options):
         seen.append((name, {k: v for k, v in options.items() if k != "stdout"}))
 
-    with patch("django.core.management.call_command", side_effect=fake_command):
-        tasks.send_forum_weekly_digest.apply(kwargs={"quiet_only": True})
-        tasks.send_forum_weekly_digest.apply()
+    from freezegun import freeze_time
+
+    # Tuesday 09:30 UTC, the last follow-up run: the main run it follows is
+    # Monday 09:00, read from the beat entry.
+    with freeze_time("2026-06-02 09:30:00"):
+        with patch("django.core.management.call_command", side_effect=fake_command):
+            tasks.send_forum_weekly_digest.apply(kwargs={"quiet_only": True})
+            tasks.send_forum_weekly_digest.apply()
 
     assert seen == [
-        ("send_forum_digest", {"frequency": "weekly", "quiet_hours_only": True}),
+        (
+            "send_forum_digest",
+            {
+                "frequency": "weekly",
+                "quiet_hours_only": True,
+                "held_at": "2026-06-01T09:00:00+00:00",
+            },
+        ),
         ("send_forum_digest", {"frequency": "weekly"}),
     ]
+
+
+@pytest.mark.parametrize(
+    "now, expected",
+    [
+        ("2026-06-01 09:00:00", "2026-06-01T09:00:00+00:00"),
+        ("2026-06-01 09:30:00", "2026-06-01T09:00:00+00:00"),
+        ("2026-06-01 08:59:00", "2026-05-25T09:00:00+00:00"),
+        ("2026-06-07 23:00:00", "2026-06-01T09:00:00+00:00"),
+    ],
+)
+def test_the_main_digest_run_a_follow_up_run_follows(now, expected):
+    from datetime import datetime, timezone
+
+    from apps.forum_host import tasks
+
+    at = datetime.fromisoformat(now).replace(tzinfo=timezone.utc)
+    assert tasks._last_main_digest_run(at).isoformat() == expected
 
 
 def test_a_follow_up_run_cut_off_by_the_soft_limit_continues_in_the_same_scope():

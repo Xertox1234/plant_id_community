@@ -121,3 +121,14 @@ followers.
 
 - Round-1 review had no finding against this todo; no code for it changed in the repair (the two fixes are logged in todos 728 and 730).
 - Its acceptance criteria were re-run on the repaired tree and still pass.
+
+### 2026-11-23 - Review round 1: non-blocking findings
+
+- **Fixed: the verify-only timeout test never ran the real init (medium).** A new test in
+  `apps/users/tests/test_firebase_auth.py` calls `_ensure_firebase_initialized` and reads
+  `httpTimeout` off the app. Dropping the options wrap there fails it.
+- **Recorded: passing `options=` stops the SDK reading `FIREBASE_CONFIG` (low, marked a
+  regression).** The repo never sets that variable; the project id comes from the service
+  account or `FIREBASE_PROJECT_ID`. Stated in `firebase_app_options`' docstring.
+- **Declined: an error on `claim_related_many`'s read-back leaves fold rows claimed (low).** They
+  are released when the 15-minute lease runs out, as before this change.

@@ -17,6 +17,10 @@ untouched. The host runs the command again with `--quiet-hours-only` every
 hour for the day after the main run; the first of those runs after the
 member's window ends sends their digest, and `last_digest_sent_at` then
 keeps every later run from sending another.
+`--held-at` gives those runs the main run's time, and they then consider only
+members whose quiet window covered it: without it, a member with quiet hours
+on whom the main run did not hold (nothing new at the time) would be mailed
+by the first hourly run after something new appeared.
 
 Overlap safety is a cache run lock held for `DIGEST_RUN_LOCK_SECONDS`, plus a
 conditional per-member claim. The claim and the send share one transaction,
@@ -25,6 +29,7 @@ mirroring send_blog_newsletter after todo 534).
 """
 
 import logging
+from datetime import datetime
 from uuid import uuid4
 
 from django.core.cache import cache
@@ -78,10 +83,30 @@ class Command(BaseCommand):
             ),
         )
 
+        parser.add_argument(
+            "--held-at",
+            help=(
+                "With --quiet-hours-only: the earlier run's time (ISO 8601, "
+                "with an offset). Only members whose quiet window covered "
+                "that moment are considered, so a member that run did not "
+                "hold is never mailed off the schedule."
+            ),
+        )
+
     def handle(self, *args, **options):
         frequency = options["frequency"]
         dry_run = options["dry_run"]
         quiet_only = options.get("quiet_hours_only", False)
+        held_at = None
+        if options.get("held_at"):
+            if not quiet_only:
+                raise CommandError("--held-at needs --quiet-hours-only")
+            try:
+                held_at = datetime.fromisoformat(options["held_at"])
+            except ValueError as exc:
+                raise CommandError("--held-at must be an ISO 8601 time") from exc
+            if held_at.tzinfo is None:
+                raise CommandError("--held-at must carry a UTC offset")
         window_days = options["window_days"] or get_setting("DIGEST_WINDOW_DAYS")
         if window_days < 2:
             raise CommandError("--window-days must be at least 2")
@@ -121,7 +146,9 @@ class Command(BaseCommand):
                     frequency,
                 )
         try:
-            totals = self._run(frequency, dry_run, window_days, now, quiet_only)
+            totals = self._run(
+                frequency, dry_run, window_days, now, quiet_only, held_at
+            )
         finally:
             # Release only a lock this run took. After an outage (add
             # answered None) the cache may recover mid-run and another fire
@@ -155,7 +182,9 @@ class Command(BaseCommand):
             + (" (dry run — nothing sent, nothing written)" if dry_run else "")
         )
 
-    def _run(self, frequency, dry_run, window_days, now, quiet_only=False):
+    def _run(
+        self, frequency, dry_run, window_days, now, quiet_only=False, held_at=None
+    ):
         totals = {
             "recipients": 0,
             "due": 0,
@@ -169,6 +198,13 @@ class Command(BaseCommand):
         if quiet_only:
             recipients = recipients.filter(quiet_hours_enabled=True)
         for profile in recipients.iterator(chunk_size=200):
+            if held_at is not None and profile_release(profile, held_at) is None:
+                # The follow-up run is for members the earlier run held. One
+                # whose quiet window did not cover it was read then (sent,
+                # or nothing new), and waits for the next scheduled run like
+                # every member without quiet hours. Judged on the settings
+                # as they are now: no hold is stored.
+                continue
             totals["recipients"] += 1
             if not is_due(profile, now, window_days):
                 continue

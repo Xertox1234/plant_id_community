@@ -1473,6 +1473,42 @@ def test_no_member_gets_two_digests_in_one_period_across_the_follow_up_runs():
 
 @pytest.mark.django_db
 @override_settings(**DIGEST_SITE)
+def test_the_follow_up_run_skips_a_member_the_main_run_did_not_hold():
+    """Review round 1 (todo 728): quiet hours on, but 18:00 in Tokyo at the
+    main run, so that run read the member and did not hold them. A follow-up
+    run told when the main run was must leave them for next week's run, and
+    still send to the member it did hold."""
+    sleeper, _off, tokyo, _friend, _topic_row = _quiet_scene()
+
+    summary = _run_digest(
+        DENVER_DAWN.replace(minute=30),
+        quiet_hours_only=True,
+        held_at=MONDAY_RUN.isoformat(),
+    )
+
+    assert _digests_to(tokyo) == []
+    assert len(_digests_to(sleeper)) == 1
+    assert "recipients=1 due=1" in summary and "sent=1" in summary
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"held_at": "2026-06-01T09:00:00+00:00"},
+        {"quiet_hours_only": True, "held_at": "monday"},
+        {"quiet_hours_only": True, "held_at": "2026-06-01T09:00:00"},
+    ],
+)
+def test_a_held_at_the_command_cannot_use_is_refused(options):
+    from django.core.management.base import CommandError
+
+    with pytest.raises(CommandError):
+        _run_digest(MONDAY_RUN, **options)
+
+
+@pytest.mark.django_db
+@override_settings(**DIGEST_SITE)
 def test_the_follow_up_run_looks_only_at_members_with_quiet_hours_on():
     _sleeper, _off, _tokyo, _friend, _topic_row = _quiet_scene()
 
