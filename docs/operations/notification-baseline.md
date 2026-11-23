@@ -44,10 +44,14 @@ delivery outcomes through a webhook signed with Svix.
   newsletter, lockout and other account mail) has no `EmailNotification` row; for
   that mail, only address-level suppression applies. **Not working in
   production:** the 2026-11-21 read found no event linked to its row (see
-  "Delivery outcomes (2026-11-21)"; fix in todo 726).
-- **Stored data.** Event type, times, Resend's email id and the bounce type and
-  subtype. Never an address, a subject or the bounce message text, which can quote
-  the address.
+  "Delivery outcomes (2026-11-21)"; todo 726 stores what Resend sends back,
+  and the fix follows the prod read in todo 733).
+- **Stored data.** Event type, times, Resend's email id, the event's
+  `data.message_id` as reported (since todo 726, on every recorded event,
+  `email.sent` included; `redacted:recipient` in its place when it quotes a
+  recipient address verbatim) and the bounce
+  type and subtype. Never an address, a subject or the bounce message text, which
+  can quote the address.
 
 Events acted on: `email.delivered`, `email.bounced`, `email.complained`,
 `email.suppressed`. Every other event is recorded and ignored.
@@ -233,7 +237,7 @@ What the numbers can't show:
   figure (`email.sent` → `email.delivered`) is now recorded below under
   "Delivery outcomes (2026-11-21)". `delivered_at − sent_at` on
   `EmailNotification` still cannot be computed, because no provider event links
-  to its row, so `delivered_at` is never set: [todo 726](../../todos/726-pending-p3-resend-event-notification-linkage.md).
+  to its row, so `delivered_at` is never set: [todo 733](../../todos/733-pending-p3-observe-resend-event-linkage-in-prod.md).
 - **Reminder lateness.** A care task stores only `notification_sent`, not when
   it was sent. The beat sweep runs every 15 minutes, which bounds the lateness;
   nothing records it.
@@ -279,18 +283,19 @@ What the numbers can't show:
   minutes of its send, yet did not link to its row (its `email.sent` event is
   never matched by design, and the other 3 emails have no `EmailNotification`
   row). The evidence is that one event: n = 1.
-  Hypothesis, not verified (the event's `data.message_id` is not stored, so what
-  Resend sent back is unknown): Resend over SMTP does not echo our client-set
+  Hypothesis, not verified (the event's `data.message_id` was not stored at read
+  time, so what Resend sent back is unknown; it is stored from todo 726 on,
+  `EmailProviderEvent.message_id`): Resend over SMTP does not echo our client-set
   Message-ID. Until that is fixed, outcomes are recorded per event and
   address-level suppression works, but no `EmailNotification` gets a
-  delivered, bounced or complained status. The fix is
-  [todo 726](../../todos/726-pending-p3-resend-event-notification-linkage.md).
+  delivered, bounced or complained status. The fix follows the prod read in
+  [todo 733](../../todos/733-pending-p3-observe-resend-event-linkage-in-prod.md).
 - **Rates.** Four emails is far too few for a bounce or complaint rate; these
   are counts, not rates to set thresholds on.
 - **`suppression.added`.** Prod recorded one, but the code acts only on
   `email.suppressed`, so this event is stored and ignored. The 1 suppressed
   address came from the Permanent bounce. Whether Resend ever sends
-  `email.suppressed` is checked in todo 726.
+  `email.suppressed` is checked in todo 733.
 - **Latency.** n = 3 and Resend-side only: it measures Resend accepting the
   message to the receiving server accepting it, not our send call to delivery.
 
@@ -309,7 +314,7 @@ These need the owner. None of them can be settled from the repository.
    `EmailNotification` (hypothesis, not verified:
    Resend over SMTP does not echo our client-set Message-ID). Address-level
    suppression works either way. Per-email outcomes and `delivered_at − sent_at`
-   wait on [todo 726](../../todos/726-pending-p3-resend-event-notification-linkage.md).
+   wait on [todo 733](../../todos/733-pending-p3-observe-resend-event-linkage-in-prod.md).
 4. The initial baseline (todo 638) and the delivery outcomes (todo 692) are
    recorded above.
 5. **Sentry alert rules** (todo 623). The code sends Cron Monitor check-ins for

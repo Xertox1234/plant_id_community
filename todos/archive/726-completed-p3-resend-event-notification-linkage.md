@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "726"
 tags: [notifications, email, observability, backend]
@@ -84,9 +84,9 @@ suppression is not affected. Re-homed from todo 692 on 2026-11-21.
 
 ## Acceptance Criteria
 
-- [ ] A forum email's Resend events link to its `EmailNotification` and set its
+- [ ] A forum email's Resend events link to its `EmailNotification` and set its → todo 733 (re-pointed 2026-11-22)
   `delivered_at` / `bounced_at` (observed in production, dated)
-- [ ] A baseline re-read records `delivered_at − sent_at` p50/p90 over a stated
+- [ ] A baseline re-read records `delivered_at − sent_at` p50/p90 over a stated → todo 733 (re-pointed 2026-11-22)
   window in `docs/operations/notification-baseline.md`
 
 ## Work Log
@@ -95,3 +95,58 @@ suppression is not affected. Re-homed from todo 692 on 2026-11-21.
 
 - Created by the todo sweep (run 2026-11-20-2202) from the owner-confirmed
   linkage gap in todo 692's 2026-11-21 prod read.
+
+### 2026-11-22 - Implemented by the todo sweep (run 2026-11-22-1957)
+
+- Step 1 of the Recommended Action (owner decision 2026-11-22): new
+  `EmailProviderEvent.message_id` (migration
+  `backend/apps/core/migrations/0010_emailproviderevent_message_id.py`,
+  `db_default=""` for a rolling deploy) stores each event's `data.message_id`
+  as reported, on every recorded event, `email.sent` included.
+- A reported id that quotes a recipient address is stored blank
+  (`_storable_message_id` in `backend/apps/core/email_feedback.py`), so the
+  ledger still holds no address. Matching is unchanged.
+- Tests in `backend/apps/core/tests/test_email_feedback.py`; the baseline's
+  "Stored data" bullet and the linkage hypothesis in
+  `docs/operations/notification-baseline.md` now say the id is stored.
+- Both acceptance criteria stay open: they need a real forum email and an
+  owner-approved prod read (steps 2 and 3).
+
+### 2026-11-23 - Completed by the todo sweep (run 2026-11-22-1957)
+
+- Archived by `land.py archive`; review is on the PR.
+
+### 2026-11-23 - Review round 1: non-blocking findings
+
+- **Fixed: the baseline doc still pointed at 726 for open work (medium).** Five places in
+  `docs/operations/notification-baseline.md` now point at todo 733, and 733 gained a "Carried
+  over from todo 726" section with the fix-matching step and the `email.suppressed` check.
+- **Fixed: blank meant both "Resend sent none" and "dropped" (low, two reviewers).** A dropped
+  id is stored as `redacted:recipient` (`MESSAGE_ID_REDACTED`). Test updated.
+- **Fixed: a recipient `parseaddr` cannot read was skipped (low).** The check falls back to the
+  raw string, as `address_hash` does. New test; removing the fallback fails it.
+- **Fixed: a NUL in the id would fail the insert and 500 the webhook (low).** NUL is removed.
+  New test; removing the strip fails it.
+- **Fixed: no nearest-neighbour test (low).** A new test keeps an id that names another
+  address; a filter that blanks every id fails it.
+- **Declined, wording changed: encoded, cc/bcc and cut-off addresses are not recognised (low,
+  three phrasings).** The guard checks the verbatim recipient only. The docstring, the model
+  comment and the baseline now say "verbatim" instead of "no address is ever stored" for this
+  field. The webhook is signed, and Resend's ids have not been seen to carry an address.
+- **Declined: our Message-ID carries the notification's uuid and outlives a deleted
+  notification (low).** It is pseudonymous, nothing else keeps the uuid, and the event row is
+  deleted after `EMAIL_FEEDBACK_RETENTION_DAYS`.
+
+### 2026-11-23 - Review round 2: non-blocking findings
+
+- **Fixed: a lone surrogate or a NUL in `data.message_id` made the webhook answer 500 (low; one
+  reviewer marked it a regression for `email.sent`).** Round 1's NUL strip covered only the stored
+  value, not the lookup on handled events, and not characters UTF-8 cannot encode. The id is now
+  cleaned once in `parse_event` (`_db_safe`), so the lookup and the insert both get it. One
+  parametrized test covers NUL and a lone surrogate on `email.sent` and `email.delivered`;
+  without the cleaning all four cases fail. `data.email_id` has the same gap on main and is
+  left as it is.
+- **Declined: an address that straddles the 255-character cut is not matched (low).** Reachable
+  only if Resend sends a very long id; the guard is documented as verbatim-only.
+- **No change: the flagged test edits (low).** The reviewer confirmed no existing test was
+  weakened: 60 lines added against main, none removed.
