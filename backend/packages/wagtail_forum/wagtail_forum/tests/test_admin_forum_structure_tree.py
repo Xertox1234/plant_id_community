@@ -94,6 +94,29 @@ def _snapshot():
 # --- the tree is the landing screen ---
 
 
+def test_the_tree_scripts_wait_for_the_tree(admin_client, structure):
+    """Todo 683: Wagtail's admin skeleton renders ``extra_js`` before the
+    page content, so a script tag that runs at once runs before
+    ``#wf-structure`` exists. ``forum-structure.js`` then returns at its
+    first guard and no drag is ever set up, with no error (found on the live
+    site 2026-11-23: no handle responded). ``defer`` runs both scripts, in
+    order, once the document is parsed."""
+    import re
+
+    html = admin_client.get(_url("index")).content.decode()
+    root_at = html.index('id="wf-structure"')
+    tags = [
+        match
+        for match in re.finditer(r"<script\b[^>]*>", html)
+        if "wagtail_forum/js/" in match.group(0)
+    ]
+
+    assert len(tags) == 2
+    for tag in tags:
+        waits = re.search(r"\sdefer(\s|>|=)", tag.group(0)) is not None
+        assert tag.start() > root_at or waits, tag.group(0)
+
+
 def test_the_index_is_the_structure_tree(admin_client, structure):
     resp = admin_client.get(_url("index"))
 

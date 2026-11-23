@@ -7,6 +7,9 @@
  * copy is not a public API). Every move is one POST of
  * {forum_id, parent_id, position} to data-move-url; the server checks the
  * rules and renumbers, and a refused move snaps back with its message.
+ *
+ * Load it with `defer` (todo 683): the admin's script block comes before the
+ * page content, and this script looks #wf-structure up as soon as it runs.
  */
 (function () {
   "use strict";
