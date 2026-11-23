@@ -536,8 +536,14 @@ class TestEventsAndCorrelation:
             == email_feedback.MESSAGE_ID_REDACTED
         )
 
-    def test_a_nul_in_the_message_id_is_removed(self):
-        _post(_event("email.sent", message_id="<a\x00b@resend.dev>"))
+    @pytest.mark.parametrize("event_type", ["email.sent", EVENT_DELIVERED])
+    @pytest.mark.parametrize("bad", ["\x00", "\ud800"])
+    def test_a_message_id_postgres_would_refuse_is_cleaned(self, event_type, bad):
+        """NUL and a lone surrogate both pass ``json.loads``. Uncleaned, the
+        lookup (handled types) or the insert (every type) fails and the
+        webhook answers 500."""
+        response = _post(_event(event_type, message_id=f"<a{bad}b@resend.dev>"))
+        assert response.status_code == 200
         assert EmailProviderEvent.objects.get().message_id == "<ab@resend.dev>"
 
     def test_no_address_is_stored(self):

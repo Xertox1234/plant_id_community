@@ -136,3 +136,17 @@ suppression is not affected. Re-homed from todo 692 on 2026-11-21.
 - **Declined: our Message-ID carries the notification's uuid and outlives a deleted
   notification (low).** It is pseudonymous, nothing else keeps the uuid, and the event row is
   deleted after `EMAIL_FEEDBACK_RETENTION_DAYS`.
+
+### 2026-11-23 - Review round 2: non-blocking findings
+
+- **Fixed: a lone surrogate or a NUL in `data.message_id` made the webhook answer 500 (low; one
+  reviewer marked it a regression for `email.sent`).** Round 1's NUL strip covered only the stored
+  value, not the lookup on handled events, and not characters UTF-8 cannot encode. The id is now
+  cleaned once in `parse_event` (`_db_safe`), so the lookup and the insert both get it. One
+  parametrized test covers NUL and a lone surrogate on `email.sent` and `email.delivered`;
+  without the cleaning all four cases fail. `data.email_id` has the same gap on main and is
+  left as it is.
+- **Declined: an address that straddles the 255-character cut is not matched (low).** Reachable
+  only if Resend sends a very long id; the guard is documented as verbatim-only.
+- **No change: the flagged test edits (low).** The reviewer confirmed no existing test was
+  weakened: 60 lines added against main, none removed.

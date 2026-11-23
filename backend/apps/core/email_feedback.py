@@ -345,6 +345,14 @@ def _text(value, field: str, *, required: bool = False, limit: int = 255) -> str
     return value[:limit]
 
 
+def _db_safe(value: str) -> str:
+    """``value`` without what Postgres refuses in text: NUL, and characters
+    UTF-8 cannot encode (a lone surrogate passes ``json.loads``). Either one
+    would fail the lookup or the insert and 500 the webhook, so Svix would
+    retry an event that can never be recorded."""
+    return value.replace("\x00", "").encode("utf-8", "ignore").decode("utf-8")
+
+
 def parse_event(payload) -> ParsedEvent:
     """Validate a decoded webhook body. Raises ``MalformedEvent``."""
     if not isinstance(payload, dict):
@@ -376,7 +384,7 @@ def parse_event(payload) -> ParsedEvent:
         event_type=event_type,
         occurred_at=occurred,
         email_id=_text(data.get("email_id"), "data.email_id", limit=64),
-        message_id=_text(data.get("message_id"), "data.message_id").strip(),
+        message_id=_db_safe(_text(data.get("message_id"), "data.message_id")).strip(),
         recipients=tuple(recipients),
         bounce_type=_text(bounce.get("type"), "data.bounce.type", limit=32),
         bounce_subtype=_text(bounce.get("subType"), "data.bounce.subType", limit=32),
@@ -479,9 +487,8 @@ def _storable_message_id(event: ParsedEvent) -> str:
     stored: ``MESSAGE_ID_REDACTED`` goes in its place, so a prod read can
     tell "dropped" from "Resend sent none" (blank). The check is on the
     verbatim address only; an encoded form is not recognised. Our own
-    Message-ID names only the sender domain. NUL is removed: Postgres
-    refuses it in text, and a failed insert would 500 the webhook."""
-    value = event.message_id.replace("\x00", "")
+    Message-ID names only the sender domain."""
+    value = event.message_id
     lowered = value.lower()
     for recipient in event.recipients:
         address = (parseaddr(recipient)[1] or recipient).strip().lower()
