@@ -31,7 +31,7 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 from wagtail.models import Revision
 
-from ..models import Forum, Topic
+from ..models import Forum, ForumSubscription, ForumWatchLevel, Topic
 from ..signals import _refresh_board_counters, topics_moved
 from .forum_permissions import keep_out_whoever_the_category_kept_out
 
@@ -41,6 +41,14 @@ DELETE: TopicsAction = "delete"
 
 # Rows per UPDATE when rewriting stored revisions.
 _REVISION_BATCH_SIZE = 500
+
+# Watch levels from weakest to strongest. A mute is not on the scale: it is
+# never overridden and never overrides (owner decision 2026-11-22, todo 729).
+_WATCH_STRENGTH = {
+    ForumWatchLevel.TRACKING.value: 1,
+    ForumWatchLevel.WATCHING_FIRST_POST.value: 2,
+    ForumWatchLevel.WATCHING.value: 3,
+}
 
 
 def validate_topic_target(source: Forum, target: Forum | None) -> Forum:
@@ -256,6 +264,57 @@ def move_topics(source: Forum, target: Forum) -> int:
         _refresh_board_counters(target.pk)
         topics_moved.send(sender=Forum, source=source, target=target, moves=moves)
     return len(rows)
+
+
+def carry_subscriptions(source: Forum, target: Forum) -> int:
+    """Copy each member's watch level on ``source`` to ``target``, for a
+    forum that is deleted after its topics moved (todo 729):
+    ``ForumSubscription.forum`` cascades, so the source rows go with it.
+
+    - no level on the target: the member gets the source level there, a mute
+      included (the topics they muted are now in the target);
+    - a mute on the target is never overridden;
+    - a source mute never replaces a level the member chose on the target;
+    - otherwise the stronger level stays (watching > watching first post >
+      tracking).
+
+    ``ForumRead`` marks are not carried: a "mark forum read" on the source
+    would mark the target's own topics read. Whether a member may read the
+    target is not checked here; the new-topic fan-out and the API check the
+    forum's grants on every read. Returns the count of rows created or raised.
+    """
+    with transaction.atomic():
+        source_levels = dict(
+            ForumSubscription.objects.filter(forum=source).values_list(
+                "user_id", "level"
+            )
+        )
+        if not source_levels:
+            return 0
+        existing = {
+            row.user_id: row
+            for row in ForumSubscription.objects.select_for_update().filter(
+                forum=target, user_id__in=source_levels
+            )
+        }
+        now = timezone.now()
+        created: list[ForumSubscription] = []
+        raised: list[ForumSubscription] = []
+        for user_id, level in source_levels.items():
+            row = existing.get(user_id)
+            if row is None:
+                created.append(
+                    ForumSubscription(user_id=user_id, forum=target, level=level)
+                )
+            elif _WATCH_STRENGTH.get(level, 0) > _WATCH_STRENGTH.get(row.level, 99):
+                # 99: a mute (or an unknown level) on the target always wins.
+                row.level = level
+                # bulk_update skips auto_now.
+                row.updated_at = now
+                raised.append(row)
+        ForumSubscription.objects.bulk_create(created)
+        ForumSubscription.objects.bulk_update(raised, ["level", "updated_at"])
+    return len(created) + len(raised)
 
 
 def delete_topics(source: Forum) -> int:

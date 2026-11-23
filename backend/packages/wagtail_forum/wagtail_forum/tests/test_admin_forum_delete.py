@@ -7,9 +7,11 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.urls import reverse
-from wagtail.models import Revision
+from wagtail.models import ModelLogEntry, Revision
 from wagtail_forum.models import (
     Forum,
+    ForumSubscription,
+    ForumWatchLevel,
     Post,
     Reaction,
     Topic,
@@ -409,3 +411,195 @@ def test_deleting_topics_needs_the_topic_delete_permission(client):
     assert resp.status_code == 200
     assert "topics_action" in resp.context["form"].errors
     assert Topic.objects.filter(pk=topic.pk, board=forum).exists()
+
+
+# --- todo 729: the audit trail and the members' watch levels ---
+
+
+def _delete_entry(forum_pk):
+    """The one log entry of a forum delete (exactly one, never a second
+    bare ``wagtail.delete`` from the registry action)."""
+    return ModelLogEntry.objects.get(
+        content_type=ContentType.objects.get_for_model(Forum),
+        object_id=str(forum_pk),
+    )
+
+
+@pytest.mark.parametrize("choice", [forum_structure.MOVE, forum_structure.DELETE])
+def test_deleting_a_forum_logs_who_did_it_and_what_became_of_the_topics(
+    admin_client, choice
+):
+    author = User.objects.create_user(username="ada")
+    source = make_forum(name="Ferns", slug="ferns")
+    target = make_forum(name="Pests", slug="pests")
+    _topic(source, "a", author)
+    _topic(source, "b", author)
+    source_pk = source.pk
+
+    resp = admin_client.post(
+        _url("delete", source_pk), {"topics_action": choice, "target": target.pk}
+    )
+
+    assert resp.status_code == 302, resp.content.decode()[:2000]
+    entry = _delete_entry(source_pk)
+    assert entry.action == "wagtail.delete"
+    assert entry.deleted is True
+    assert entry.user == User.objects.get(username="root")
+    assert entry.label == "Ferns"
+    assert entry.data["topic_count"] == 2
+    assert entry.data["topics_action"] == choice
+    assert entry.data["topics_moved_to"] == (
+        {"id": target.pk, "name": "Pests"} if choice == forum_structure.MOVE else None
+    )
+
+
+def test_deleting_a_category_logs_where_its_forums_went(admin_client):
+    category = make_category(name="Old", slug="old")
+    other = make_category(name="New", slug="new")
+    make_forum(name="Ferns", slug="ferns", category=category)
+    category_pk = category.pk
+
+    resp = admin_client.post(_url("delete", category_pk), {"target_category": other.pk})
+
+    assert resp.status_code == 302, resp.content.decode()[:2000]
+    entry = _delete_entry(category_pk)
+    assert entry.user == User.objects.get(username="root")
+    assert entry.data["forums_moved"] == 1
+    assert entry.data["forums_moved_to"] == {"id": other.pk, "name": "New"}
+
+
+def test_a_refused_delete_writes_no_log_entry(admin_client):
+    author = User.objects.create_user(username="ada")
+    source = make_forum(name="Ferns", slug="ferns")
+    _topic(source, "a", author)
+
+    resp = admin_client.post(
+        _url("delete", source.pk), {"topics_action": forum_structure.MOVE}
+    )
+
+    assert resp.status_code == 200
+    assert Forum.objects.filter(pk=source.pk).exists()
+    assert not ModelLogEntry.objects.filter(content_type__model="forum").exists()
+
+
+def test_the_confirm_page_shows_the_subscriber_count(admin_client):
+    forum = make_forum(name="Ferns", slug="ferns")
+    quiet = make_forum(name="Pests", slug="pests")
+    for name, level in [
+        ("ada", ForumWatchLevel.WATCHING),
+        ("bob", ForumWatchLevel.TRACKING),
+        ("cy", ForumWatchLevel.MUTED),
+    ]:
+        ForumSubscription.objects.create(
+            user=User.objects.create_user(username=name), forum=forum, level=level
+        )
+
+    html = admin_client.get(_url("delete", forum.pk)).content.decode()
+    quiet_html = admin_client.get(_url("delete", quiet.pk)).content.decode()
+
+    assert "3 members have a watch setting on this forum." in html
+    assert "watch setting" not in quiet_html
+
+
+def _level(user, forum):
+    return (
+        ForumSubscription.objects.filter(user=user, forum=forum)
+        .values_list("level", flat=True)
+        .first()
+    )
+
+
+def test_moving_topics_on_delete_leaves_each_watcher_watching_the_target(
+    admin_client,
+):
+    author = User.objects.create_user(username="ada")
+    source = make_forum(name="Ferns", slug="ferns")
+    target = make_forum(name="Pests", slug="pests")
+    _topic(source, "a", author)
+    watchers = {
+        ForumWatchLevel.WATCHING: User.objects.create_user(username="w"),
+        ForumWatchLevel.WATCHING_FIRST_POST: User.objects.create_user(username="f"),
+        ForumWatchLevel.TRACKING: User.objects.create_user(username="t"),
+    }
+    for level, user in watchers.items():
+        ForumSubscription.objects.create(user=user, forum=source, level=level)
+    source_pk = source.pk
+
+    resp = admin_client.post(
+        _url("delete", source_pk),
+        {"topics_action": forum_structure.MOVE, "target": target.pk},
+    )
+
+    assert resp.status_code == 302, resp.content.decode()[:2000]
+    assert not Forum.objects.filter(pk=source_pk).exists()
+    for level, user in watchers.items():
+        assert _level(user, target) == level
+    assert ForumSubscription.objects.count() == 3
+    entry = _delete_entry(source_pk)
+    assert entry.data["subscriber_count"] == 3
+    assert entry.data["subscriptions_carried"] == 3
+
+
+W, F, T, M = (
+    ForumWatchLevel.WATCHING,
+    ForumWatchLevel.WATCHING_FIRST_POST,
+    ForumWatchLevel.TRACKING,
+    ForumWatchLevel.MUTED,
+)
+
+
+@pytest.mark.parametrize(
+    "on_source, on_target, expected",
+    [
+        # No level on the target: the source level is carried, a mute too.
+        (W, None, W),
+        (M, None, M),
+        # The stronger level stays.
+        (W, T, W),
+        (W, F, W),
+        (F, T, F),
+        (T, W, W),
+        (T, F, F),
+        (F, W, W),
+        (T, T, T),
+        # A mute on the target is never overridden (owner 2026-11-22).
+        (W, M, M),
+        (F, M, M),
+        (T, M, M),
+        # A source mute never replaces a level chosen on the target.
+        (M, W, W),
+        (M, T, T),
+        (M, M, M),
+    ],
+)
+def test_carrying_a_watch_level_keeps_a_mute_and_else_the_stronger_level(
+    on_source, on_target, expected
+):
+    user = User.objects.create_user(username="ada")
+    source = make_forum(name="Ferns", slug="ferns")
+    target = make_forum(name="Pests", slug="pests")
+    ForumSubscription.objects.create(user=user, forum=source, level=on_source)
+    if on_target is not None:
+        ForumSubscription.objects.create(user=user, forum=target, level=on_target)
+
+    forum_structure.carry_subscriptions(source, target)
+
+    assert _level(user, target) == expected
+    # The source rows are left for the forum's delete to cascade.
+    assert _level(user, source) == on_source
+
+
+def test_deleting_the_topics_carries_no_watch_level(admin_client):
+    author = User.objects.create_user(username="ada")
+    source = make_forum(name="Ferns", slug="ferns")
+    target = make_forum(name="Pests", slug="pests")
+    _topic(source, "a", author)
+    ForumSubscription.objects.create(user=author, forum=source, level=W)
+
+    resp = admin_client.post(
+        _url("delete", source.pk),
+        {"topics_action": forum_structure.DELETE, "target": target.pk},
+    )
+
+    assert resp.status_code == 302, resp.content.decode()[:2000]
+    assert not ForumSubscription.objects.exists()

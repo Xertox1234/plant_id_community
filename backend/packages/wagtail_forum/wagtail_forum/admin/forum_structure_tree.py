@@ -26,6 +26,7 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import BooleanField, ExpressionWrapper
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.urls import reverse
@@ -36,10 +37,15 @@ from django.views.generic import TemplateView
 from wagtail.admin.views.generic.base import WagtailAdminTemplateMixin
 from wagtail.admin.views.generic.permissions import PermissionCheckedMixin
 from wagtail.admin.widgets.button import HeaderButton
+from wagtail.log_actions import log
 
 from ..models import Forum
 from ..services.forum_permissions import hidden_q, is_hidden_for_everyone
 from ..services.forum_structure import move_forum
+
+# The log action of a move in the tree (registered in ``wagtail_hooks``,
+# todo 729).
+MOVE_LOG_ACTION = "wagtail_forum.forum.move"
 
 # A position past any level's end: move_forum clamps it to "last".
 END = 2**31 - 1
@@ -155,7 +161,25 @@ class ForumMoveView(PermissionCheckedMixin, View):
         wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest"
         try:
             forum_id, parent_id, position = _move_fields(request)
-            forum = move_forum(forum_id, parent_id, position)
+            with transaction.atomic():
+                before = (
+                    Forum.objects.filter(pk=forum_id)
+                    .values_list("parent_id", "position")
+                    .first()
+                )
+                forum = move_forum(forum_id, parent_id, position)
+                if before != (forum.parent_id, forum.position):
+                    log(
+                        instance=forum,
+                        action=MOVE_LOG_ACTION,
+                        user=request.user,
+                        data={
+                            "from_parent_id": before[0] if before else None,
+                            "from_position": before[1] if before else None,
+                            "to_parent_id": forum.parent_id,
+                            "to_position": forum.position,
+                        },
+                    )
         except Forum.DoesNotExist:
             return self._refused(
                 request, wants_json, _("That row no longer exists."), 404

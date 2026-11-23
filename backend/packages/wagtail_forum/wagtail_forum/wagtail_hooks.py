@@ -366,6 +366,17 @@ class ForumViewSetGroup(SnippetViewSetGroup):
 register_snippet(ForumViewSetGroup)
 
 
+@hooks.register("register_log_actions")
+def register_forum_structure_log_actions(actions):
+    """The structure screen's own log actions (todo 729). A forum delete
+    logs Wagtail's ``wagtail.delete`` with the topics choice in its data."""
+    from .admin.forum_delete import CHANGE_TYPE_LOG_ACTION
+    from .admin.forum_structure_tree import MOVE_LOG_ACTION
+
+    actions.register_action(CHANGE_TYPE_LOG_ACTION, _("Change type"), _("Type changed"))
+    actions.register_action(MOVE_LOG_ACTION, _("Move"), _("Moved"))
+
+
 def _pending_moderation_count(user=None):
     """Posts waiting for a moderator: exactly the rows of the pending-content
     page (``admin_views.pending_posts``) the summary item links to, so the

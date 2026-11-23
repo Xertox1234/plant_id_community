@@ -513,3 +513,34 @@ def test_moving_needs_a_csrf_token(structure):
 
 def test_moving_is_post_only(admin_client, structure):
     assert admin_client.get(_url("move"), **XHR).status_code == 405
+
+
+# --- todo 729: a move is logged ---
+
+
+def test_a_move_writes_a_log_entry_naming_the_acting_user(admin_client, structure):
+    from wagtail.models import ModelLogEntry
+
+    resp = _move(admin_client, structure["ferns"], structure["outdoor"], 0, **XHR)
+
+    assert resp.status_code == 200, resp.content
+    entry = ModelLogEntry.objects.get(
+        content_type__model="forum", object_id=str(structure["ferns"].pk)
+    )
+    assert entry.action == "wagtail_forum.forum.move"
+    assert entry.user.is_superuser
+    assert entry.data == {
+        "from_parent_id": structure["indoor"].pk,
+        "from_position": 0,
+        "to_parent_id": structure["outdoor"].pk,
+        "to_position": 0,
+    }
+
+
+def test_a_refused_move_writes_no_log_entry(admin_client, structure):
+    from wagtail.models import ModelLogEntry
+
+    resp = _move(admin_client, structure["ferns"], structure["ferns"], 0, **XHR)
+
+    assert resp.status_code == 400
+    assert not ModelLogEntry.objects.filter(content_type__model="forum").exists()

@@ -34,10 +34,14 @@ from wagtail.admin.utils import get_valid_next_url_from_request
 from wagtail.admin.views import generic
 from wagtail.admin.views.generic.base import BaseObjectMixin, WagtailAdminTemplateMixin
 from wagtail.admin.views.generic.permissions import PermissionCheckedMixin
+from wagtail.log_actions import log
 
-from ..models import Forum, Topic
+from ..models import Forum, ForumSubscription, Topic
 from ..models.boards import LINK_URL_SCHEMES
 from ..services import forum_structure
+
+# The log action of a type change (registered in ``wagtail_hooks``, todo 729).
+CHANGE_TYPE_LOG_ACTION = "wagtail_forum.forum.change_type"
 
 TOPICS_ACTION_CHOICES = [
     (forum_structure.MOVE, _("Move the topics to another forum")),
@@ -56,6 +60,8 @@ class _ForumRowForm(forms.Form):
         self.forum = forum
         self.topic_count = Topic.objects.filter(board=forum).count()
         self.child_count = Forum.objects.filter(parent=forum).count()
+        # Members with a watch level here; the rows cascade with the forum.
+        self.subscriber_count = ForumSubscription.objects.filter(forum=forum).count()
         if forum.forum_type == Forum.FORUM and self.topic_count:
             self.fields["topics_action"] = forms.ChoiceField(
                 label=_("Topics"),
@@ -180,6 +186,13 @@ def _can_delete_topics(view: PermissionCheckedMixin) -> bool:
     )
 
 
+def _row_ref(forum: Forum | None) -> dict[str, Any] | None:
+    """A forum row as log data: enough to name it after it is deleted."""
+    if forum is None:
+        return None
+    return {"id": forum.pk, "name": forum.name}
+
+
 def _add_service_error(form: forms.Form, error: ValidationError) -> None:
     for message in error.messages:
         form.add_error(None, message)
@@ -218,19 +231,61 @@ class ForumDeleteView(generic.DeleteView):
             "name": self.object.name
         }
 
+    # What the delete did to the rows under it, for the log entry.
+    log_data: dict[str, Any]
+
+    def delete_action(self) -> None:
+        # One entry per forum delete, with the count and the move-or-delete
+        # choice, instead of the registry action's bare ``wagtail.delete``
+        # (todo 729). Logged first, while the row still exists; permission
+        # is already checked by PermissionCheckedMixin.
+        log(
+            instance=self.object,
+            action="wagtail.delete",
+            user=self.request.user,
+            deleted=True,
+            data=self.log_data,
+        )
+        self.action_class(
+            self.object, user=self.request.user, log_action=False
+        ).execute(skip_permission_checks=True)
+
+    def _empty(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Move or delete what the row holds; returns the log data."""
+        forum = self.object
+        if forum.forum_type == Forum.CATEGORY:
+            target = data.get("target_category")
+            moved = forum_structure.empty_category(forum, target)
+            return {
+                "forum_type": forum.forum_type,
+                "forums_moved": moved,
+                "forums_moved_to": _row_ref(target) if moved else None,
+            }
+        action = data.get("topics_action")
+        target = data.get("target")
+        count = forum_structure.empty_forum(forum, action, target)
+        moved_topics = bool(count) and action == forum_structure.MOVE
+        subscribers = ForumSubscription.objects.filter(forum=forum).count()
+        carried = (
+            forum_structure.carry_subscriptions(forum, target)
+            if moved_topics and target is not None
+            else 0
+        )
+        return {
+            "forum_type": forum.forum_type,
+            "topic_count": count,
+            "topics_action": action if count else None,
+            "topics_moved_to": _row_ref(target) if moved_topics else None,
+            "subscriber_count": subscribers,
+            "subscriptions_carried": carried,
+        }
+
     def form_valid(self, form: forms.Form) -> HttpResponse:
         success_url = self.get_success_url()
         data = form.cleaned_data
         try:
             with transaction.atomic():
-                if self.object.forum_type == Forum.CATEGORY:
-                    forum_structure.empty_category(
-                        self.object, data.get("target_category")
-                    )
-                else:
-                    forum_structure.empty_forum(
-                        self.object, data.get("topics_action"), data.get("target")
-                    )
+                self.log_data = self._empty(data)
                 self.delete_action()
         except ValidationError as error:
             _add_service_error(form, error)
@@ -288,16 +343,36 @@ class ForumChangeTypeView(
 
     def form_valid(self, form: ForumChangeTypeForm) -> HttpResponse:
         data = form.cleaned_data
+        old_type = self.object.forum_type
+        had_topics = bool(form.topic_count) and old_type == Forum.FORUM
         try:
-            forum_structure.change_type(
-                self.object,
-                form.new_type,
-                action=data.get("topics_action"),
-                target=data.get("target"),
-                category=data.get("target_category"),
-                link_url=data.get("link_url") or "",
-                track_clicks=bool(data.get("track_clicks")),
-            )
+            with transaction.atomic():
+                changed = forum_structure.change_type(
+                    self.object,
+                    form.new_type,
+                    action=data.get("topics_action"),
+                    target=data.get("target"),
+                    category=data.get("target_category"),
+                    link_url=data.get("link_url") or "",
+                    track_clicks=bool(data.get("track_clicks")),
+                )
+                moved = had_topics and data.get("topics_action") == forum_structure.MOVE
+                log(
+                    instance=changed,
+                    action=CHANGE_TYPE_LOG_ACTION,
+                    user=self.request.user,
+                    data={
+                        "from_type": old_type,
+                        "to_type": form.new_type,
+                        "topic_count": form.topic_count if had_topics else 0,
+                        "topics_action": (
+                            data.get("topics_action") if had_topics else None
+                        ),
+                        "topics_moved_to": (
+                            _row_ref(data.get("target")) if moved else None
+                        ),
+                    },
+                )
         except ValidationError as error:
             _add_service_error(form, error)
             return self.form_invalid(form)
