@@ -513,3 +513,81 @@ def test_moving_needs_a_csrf_token(structure):
 
 def test_moving_is_post_only(admin_client, structure):
     assert admin_client.get(_url("move"), **XHR).status_code == 405
+
+
+# --- todo 729: a move is logged ---
+
+
+def test_a_move_writes_a_log_entry_naming_the_acting_user(admin_client, structure):
+    from wagtail.models import ModelLogEntry
+
+    resp = _move(admin_client, structure["ferns"], structure["outdoor"], 0, **XHR)
+
+    assert resp.status_code == 200, resp.content
+    entry = ModelLogEntry.objects.get(
+        content_type__model="forum", object_id=str(structure["ferns"].pk)
+    )
+    assert entry.action == "wagtail_forum.forum.move"
+    assert entry.user.is_superuser
+    assert entry.data == {
+        "from_parent_id": structure["indoor"].pk,
+        "from_position": 0,
+        "to_parent_id": structure["outdoor"].pk,
+        "to_position": 0,
+    }
+
+
+def test_a_drop_in_place_writes_no_log_entry(admin_client, structure):
+    """Review round 1 (todo 729): a row dropped where it already is did not
+    move, so the audit log must not say it did."""
+    from wagtail.models import ModelLogEntry
+
+    resp = _move(admin_client, structure["ferns"], structure["indoor"], 0, **XHR)
+
+    assert resp.status_code == 200, resp.content
+    assert not ModelLogEntry.objects.filter(content_type__model="forum").exists()
+
+
+def test_a_drop_in_place_on_a_gapped_level_writes_no_log_entry(admin_client, structure):
+    """Review round 2 (todo 729): Cacti is stored at position 5 and shown
+    second. Dropped back at index 1 it is renumbered to 1, which is not a
+    move."""
+    from wagtail.models import ModelLogEntry
+
+    resp = _move(admin_client, structure["cacti"], structure["indoor"], 1, **XHR)
+
+    assert resp.status_code == 200, resp.content
+    structure["cacti"].refresh_from_db()
+    assert structure["cacti"].position == 1
+    assert not ModelLogEntry.objects.filter(content_type__model="forum").exists()
+
+
+def test_a_reorder_that_keeps_the_stored_number_is_logged(admin_client, structure):
+    """Review round 2 (todo 729): Cacti (stored 5) and Palms (stored 9) sit
+    at indexes 1 and 2. With Ferns gone they are stored 1 and 2 after any
+    renumber; here Cacti is first given the number its new place will have,
+    so the move leaves its number alone and only the order shows it."""
+    from wagtail.models import ModelLogEntry
+
+    Forum.objects.filter(pk=structure["cacti"].pk).update(position=2)
+    Forum.objects.filter(pk=structure["palms"].pk).update(position=3)
+
+    resp = _move(admin_client, structure["cacti"], structure["indoor"], 2, **XHR)
+
+    assert resp.status_code == 200, resp.content
+    structure["cacti"].refresh_from_db()
+    assert structure["cacti"].position == 2
+    entry = ModelLogEntry.objects.get(
+        content_type__model="forum", object_id=str(structure["cacti"].pk)
+    )
+    assert entry.action == "wagtail_forum.forum.move"
+    assert (entry.data["from_position"], entry.data["to_position"]) == (1, 2)
+
+
+def test_a_refused_move_writes_no_log_entry(admin_client, structure):
+    from wagtail.models import ModelLogEntry
+
+    resp = _move(admin_client, structure["ferns"], structure["ferns"], 0, **XHR)
+
+    assert resp.status_code == 400
+    assert not ModelLogEntry.objects.filter(content_type__model="forum").exists()
