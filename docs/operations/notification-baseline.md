@@ -45,9 +45,11 @@ delivery outcomes through a webhook signed with Svix.
   that mail, only address-level suppression applies. **Not working in
   production:** the 2026-11-21 read found no event linked to its row (see
   "Delivery outcomes (2026-11-21)"; fix in todo 726).
-- **Stored data.** Event type, times, Resend's email id and the bounce type and
-  subtype. Never an address, a subject or the bounce message text, which can quote
-  the address.
+- **Stored data.** Event type, times, Resend's email id, the event's
+  `data.message_id` as reported (since todo 726, on every recorded event,
+  `email.sent` included; blank when it quotes a recipient address) and the bounce
+  type and subtype. Never an address, a subject or the bounce message text, which
+  can quote the address.
 
 Events acted on: `email.delivered`, `email.bounced`, `email.complained`,
 `email.suppressed`. Every other event is recorded and ignored.
@@ -279,8 +281,9 @@ What the numbers can't show:
   minutes of its send, yet did not link to its row (its `email.sent` event is
   never matched by design, and the other 3 emails have no `EmailNotification`
   row). The evidence is that one event: n = 1.
-  Hypothesis, not verified (the event's `data.message_id` is not stored, so what
-  Resend sent back is unknown): Resend over SMTP does not echo our client-set
+  Hypothesis, not verified (the event's `data.message_id` was not stored at read
+  time, so what Resend sent back is unknown; it is stored from todo 726 on,
+  `EmailProviderEvent.message_id`): Resend over SMTP does not echo our client-set
   Message-ID. Until that is fixed, outcomes are recorded per event and
   address-level suppression works, but no `EmailNotification` gets a
   delivered, bounced or complained status. The fix is

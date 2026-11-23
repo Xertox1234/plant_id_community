@@ -381,7 +381,8 @@ class EmailProviderEvent(models.Model):
 
     ``svix_id`` is unique: the same event delivered twice (Svix retries until
     it gets a 2xx) is recorded once and applied once. No address, subject or
-    bounce message text is stored; the bounce ``message`` can quote the
+    bounce message text is stored (a ``message_id`` that quotes a recipient
+    is dropped); the bounce ``message`` can quote the
     address. Deleted after ``EMAIL_FEEDBACK_RETENTION_DAYS``.
     """
 
@@ -398,6 +399,12 @@ class EmailProviderEvent(models.Model):
         related_name="provider_events",
     )
     provider_email_id = models.CharField(max_length=64, blank=True, default="")
+    # The event's ``data.message_id`` exactly as reported (trimmed), on every
+    # recorded event, so a prod read can see what Resend sends back for our
+    # client-set Message-ID (todo 726). Blank when the event has none, or
+    # when it quotes a recipient address (never stored). ``db_default``: a
+    # previous-release worker inserts rows without it during a rollout.
+    message_id = models.CharField(max_length=255, blank=True, default="", db_default="")
     bounce_type = models.CharField(max_length=32, blank=True, default="")
     bounce_subtype = models.CharField(max_length=32, blank=True, default="")
 

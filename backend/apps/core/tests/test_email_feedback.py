@@ -480,6 +480,29 @@ class TestEventsAndCorrelation:
         _post(_event(email_feedback.EVENT_SUPPRESSED))
         assert _suppression("reader@example.com").reason == Reason.HARD_BOUNCE
 
+    def test_the_reported_message_id_is_stored_on_every_event(self):
+        """Todo 726: what Resend reports as ``data.message_id`` is kept as
+        sent, on events the app ignores too (``email.sent`` comes first), so
+        a prod read can see what form it takes."""
+        row, message_id = self._send()
+        _post(_event("email.sent", message_id=message_id), svix_id="s1")
+        _post(
+            _event(EVENT_DELIVERED, message_id="  <Other.Id@Resend.dev> "), svix_id="d1"
+        )
+        _post(_event(EVENT_DELIVERED), svix_id="d2")
+        stored = dict(EmailProviderEvent.objects.values_list("svix_id", "message_id"))
+        assert stored == {"s1": message_id, "d1": "<Other.Id@Resend.dev>", "d2": ""}
+
+    def test_a_message_id_quoting_the_recipient_is_not_stored(self):
+        _post(
+            _event(
+                EVENT_DELIVERED,
+                "Reader@Example.com",
+                message_id="<x.reader@example.com@relay.example.net>",
+            )
+        )
+        assert EmailProviderEvent.objects.get().message_id == ""
+
     def test_no_address_is_stored(self):
         _hard_bounce("Reader@Example.com")
         stored = json.dumps(

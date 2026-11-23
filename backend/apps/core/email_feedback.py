@@ -27,7 +27,10 @@ tracked email itself (``<hpmd.{uuid}@{sender domain}>``) and stores it on the
 row; Resend reports it as ``data.message_id``. Its own ``data.email_id`` is
 stored from the first matching event, so a later event carrying only that id
 still finds the row. That Resend keeps a client-set Message-ID over SMTP is
-documented for its API, not yet observed for this sender (todo 638).
+documented for its API, not yet observed for this sender (todo 638); the
+2026-11-21 prod read found no event linked to its row. Each recorded event
+keeps the ``data.message_id`` it carried, so the next read shows what form
+Resend sends back (todo 726).
 Address-level suppression works whether or not an event matches a row.
 
 Click attribution (owner decision 2026-10-12): first-party signed click
@@ -466,6 +469,19 @@ def _apply_to_notification(row, event: ParsedEvent) -> None:
         row.save(update_fields=fields)
 
 
+def _storable_message_id(event: ParsedEvent) -> str:
+    """The event's ``data.message_id`` as reported, for the ledger (todo 726),
+    or blank when it quotes a recipient's address: no address is ever
+    stored. Our own Message-ID names only the sender domain."""
+    value = event.message_id
+    lowered = value.lower()
+    for recipient in event.recipients:
+        address = parseaddr(recipient)[1].strip().lower()
+        if address and address in lowered:
+            return ""
+    return value
+
+
 def ingest(svix_id: str, event: ParsedEvent) -> str:
     """Record and apply one verified event. Returns ``duplicate`` when this
     svix id was already recorded (nothing is applied twice), ``ignored`` for
@@ -487,6 +503,7 @@ def ingest(svix_id: str, event: ParsedEvent) -> str:
                     event_type=event.event_type,
                     occurred_at=event.occurred_at,
                     provider_email_id=event.email_id,
+                    message_id=_storable_message_id(event),
                     bounce_type=event.bounce_type,
                     bounce_subtype=event.bounce_subtype,
                 )

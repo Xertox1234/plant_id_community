@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "726"
 tags: [notifications, email, observability, backend]
@@ -84,9 +84,9 @@ suppression is not affected. Re-homed from todo 692 on 2026-11-21.
 
 ## Acceptance Criteria
 
-- [ ] A forum email's Resend events link to its `EmailNotification` and set its
+- [ ] A forum email's Resend events link to its `EmailNotification` and set its → todo 733 (re-pointed 2026-11-22)
   `delivered_at` / `bounced_at` (observed in production, dated)
-- [ ] A baseline re-read records `delivered_at − sent_at` p50/p90 over a stated
+- [ ] A baseline re-read records `delivered_at − sent_at` p50/p90 over a stated → todo 733 (re-pointed 2026-11-22)
   window in `docs/operations/notification-baseline.md`
 
 ## Work Log
@@ -95,3 +95,23 @@ suppression is not affected. Re-homed from todo 692 on 2026-11-21.
 
 - Created by the todo sweep (run 2026-11-20-2202) from the owner-confirmed
   linkage gap in todo 692's 2026-11-21 prod read.
+
+### 2026-11-22 - Implemented by the todo sweep (run 2026-11-22-1957)
+
+- Step 1 of the Recommended Action (owner decision 2026-11-22): new
+  `EmailProviderEvent.message_id` (migration
+  `backend/apps/core/migrations/0010_emailproviderevent_message_id.py`,
+  `db_default=""` for a rolling deploy) stores each event's `data.message_id`
+  as reported, on every recorded event, `email.sent` included.
+- A reported id that quotes a recipient address is stored blank
+  (`_storable_message_id` in `backend/apps/core/email_feedback.py`), so the
+  ledger still holds no address. Matching is unchanged.
+- Tests in `backend/apps/core/tests/test_email_feedback.py`; the baseline's
+  "Stored data" bullet and the linkage hypothesis in
+  `docs/operations/notification-baseline.md` now say the id is stored.
+- Both acceptance criteria stay open: they need a real forum email and an
+  owner-approved prod read (steps 2 and 3).
+
+### 2026-11-23 - Completed by the todo sweep (run 2026-11-22-1957)
+
+- Archived by `land.py archive`; review is on the PR.
