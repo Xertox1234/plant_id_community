@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "683"
 tags: [forum, forum-categories, wagtail, admin, owner-check]
@@ -27,7 +27,7 @@ Open `/cms/forum/forums/` as staff. Drag a category, then a forum (including acr
 
 ## Acceptance Criteria
 
-- [ ] Manual browser check recorded with date: drag, reload, order kept; keyboard alternative works.
+- [x] Manual browser check recorded with date: drag, reload, order kept; keyboard alternative works.
 
 ## Work Log
 
@@ -62,3 +62,23 @@ Open `/cms/forum/forums/` as staff. Drag a category, then a forum (including acr
 - **Fix:** `defer` on both script tags in `forum_structure.html`. New test
   `test_the_tree_scripts_wait_for_the_tree` failed before the change and passes after it.
 - **Still open:** the owner's drag, reload and order check, on the live site once this deploys.
+
+### 2026-11-23 - Implemented by the todo sweep (run 2026-11-22-1957)
+
+- No code change: the only criterion is a manual browser check, which no command in the
+  repo can prove, so the sweep ran nothing for it.
+- The owner confirmed the drag half on 2026-11-23, at the live `/cms/forum/forums/` after
+  PR #1417 (the `defer` fix above) deployed: "drag and drop works now, order held after
+  reload".
+- The keyboard half passed on 2026-11-22 (entry above), so both halves of the criterion now
+  have a dated result.
+- Recorded in `.sweep-evidence/g13/ac.json` as owner-confirmed, with no command and no
+  evidence file.
+
+### 2026-11-23 - Confirmed by the owner, ticked by the todo sweep (run 2026-11-22-1957)
+
+- AC 1: confirmed by the owner on 2026-11-23: "Owner at the live /cms/forum/forums/ on 2026-11-23, after PR #1417 deployed: "drag and drop works now, order held after reload". Keyboard alternative passed 2026-11-22 (Work Log)." (`state.py confirm`; no command or evidence)
+
+### 2026-11-23 - Completed by the todo sweep (run 2026-11-22-1957)
+
+- Archived by `land.py archive`; review is on the PR.

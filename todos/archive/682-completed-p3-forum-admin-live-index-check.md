@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "682"
 tags: [forum, forum-categories, owner, prod-check]
@@ -27,7 +27,7 @@ After 666 is merged and deployed, create a test forum under a category in `/cms/
 
 ## Acceptance Criteria
 
-- [ ] Created forums appear on the web index without a deploy (owner's manual check on the live site, dated, with the observed result quoted in the Work Log).
+- [x] Created forums appear on the web index without a deploy (owner's manual check on the live site, dated, with the observed result quoted in the Work Log).
 
 ## Work Log
 
@@ -42,3 +42,21 @@ After 666 is merged and deployed, create a test forum under a category in `/cms/
 - Cleanup: owner chose delete; the empty test forum was deleted in `/cms/` ("Forum 'Test
   forum 682 (admin check)' deleted."). The tree is back to its five forums.
 - The criterion is met; the next triage can archive this todo after verifying it.
+
+### 2026-11-23 - Implemented by the todo sweep (run 2026-11-22-1957)
+
+- No code change: the only criterion is a manual check on the live site, which no command
+  in the repo can prove, so the sweep ran nothing for it.
+- The owner confirmed the criterion on 2026-11-23 ("Confirmed, archive both"), accepting the
+  2026-11-22 live check above: forum created in `/cms/` at 20:24:59Z, on the web index by
+  20:25:30Z, no deploy.
+- Recorded in `.sweep-evidence/g13/ac.json` as owner-confirmed, with no command and no
+  evidence file.
+
+### 2026-11-23 - Confirmed by the owner, ticked by the todo sweep (run 2026-11-22-1957)
+
+- AC 1: confirmed by the owner on 2026-11-23: "Owner 2026-11-23: "Confirmed, archive both", accepting the 2026-11-22 live check in the Work Log (forum created in /cms/ at 20:24:59Z, on the web index by 20:25:30Z, no deploy)." (`state.py confirm`; no command or evidence)
+
+### 2026-11-23 - Completed by the todo sweep (run 2026-11-22-1957)
+
+- Archived by `land.py archive`; review is on the PR.

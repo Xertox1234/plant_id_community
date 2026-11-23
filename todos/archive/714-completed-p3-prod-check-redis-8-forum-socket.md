@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p3
 issue_id: "714"
 tags: [backend, dependencies, redis, websockets, prod-check, owner]
@@ -42,7 +42,7 @@ After the 710 PR deploys to Railway:
 
 ## Acceptance Criteria
 
-- [ ] After the redis 8 bump (todo 710) deploys: production boots, and one live forum reply arrives over a socket that sat idle for more than 5 s (date and observation recorded in the Work Log).
+- [x] After the redis 8 bump (todo 710) deploys: production boots, and one live forum reply arrives over a socket that sat idle for more than 5 s (date and observation recorded in the Work Log).
 
 ## Work Log
 
@@ -72,3 +72,21 @@ After the 710 PR deploys to Railway:
   "Load 1 new reply" by 20:28:05Z. Clicking it rendered the reply.
 - The socket was idle about 61 s, well over 5 s. Production booted and served throughout. The
   criterion is met; the next triage can archive this todo after verifying it.
+
+### 2026-11-23 - Implemented by the todo sweep (run 2026-11-22-1957)
+
+- No code change: the only criterion is a production check, which no command in the repo
+  can prove, so the sweep ran nothing for it.
+- The owner confirmed the criterion on 2026-11-23 ("Confirmed, archive both"), accepting the
+  2026-11-22 live check above: a reply posted at 20:27:50Z reached a socket idle about 61 s,
+  and the banner showed by 20:28:05Z.
+- Recorded in `.sweep-evidence/g13/ac.json` as owner-confirmed, with no command and no
+  evidence file.
+
+### 2026-11-23 - Confirmed by the owner, ticked by the todo sweep (run 2026-11-22-1957)
+
+- AC 1: confirmed by the owner on 2026-11-23: "Owner 2026-11-23: "Confirmed, archive both", accepting the 2026-11-22 live check in the Work Log (reply at 20:27:50Z reached a socket idle about 61 s, banner by 20:28:05Z)." (`state.py confirm`; no command or evidence)
+
+### 2026-11-23 - Completed by the todo sweep (run 2026-11-22-1957)
+
+- Archived by `land.py archive`; review is on the PR.
