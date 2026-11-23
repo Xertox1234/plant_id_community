@@ -16,7 +16,7 @@ amqp==5.4.2
     # via kombu
 annotated-types==0.8.0
     # via pydantic
-anthropic==2.6.0
+anthropic==2.9.0
     # via
     #   -r requirements.in
     #   any-llm-sdk
@@ -49,9 +49,9 @@ billiard==4.3.2
     # via celery
 bleach==6.4.0
     # via -r requirements.in
-boto3==1.43.126
+boto3==1.44.4
     # via -r requirements.in
-botocore==1.43.126
+botocore==1.44.10
     # via
     #   boto3
     #   s3transfer
@@ -101,6 +101,7 @@ condense-json==1.1
     # via llm
 cryptography==50.0.2
     # via
+    #   firebase-admin
     #   google-auth
     #   http-ece
     #   py-vapid
@@ -145,7 +146,7 @@ django-ai-core==0.1.7
     # via
     #   -r requirements.in
     #   wagtail-ai
-django-allauth==65.21.1
+django-allauth==65.22.1
     # via -r requirements.in
 django-appconf==1.2.0
     # via django-imagekit
@@ -211,7 +212,7 @@ et-xmlfile==2.0.0
     # via openpyxl
 filetype==1.2.0
     # via willow
-firebase-admin==7.7.0
+firebase-admin==7.8.0
     # via -r requirements.in
 frozenlist==1.8.0
     # via
@@ -219,7 +220,7 @@ frozenlist==1.8.0
     #   aiosignal
 fuzzywuzzy==0.18.0
     # via -r requirements.in
-google-api-core==2.44.0
+google-api-core[grpc]==2.44.0
     # via
     #   firebase-admin
     #   google-cloud-core
@@ -275,7 +276,7 @@ httpcore2==2.16.0
     # via httpx2
 httptools==0.9.0
     # via uvicorn
-httpx==0.28.1
+httpx[http2]==0.28.1
     # via
     #   any-llm-sdk
     #   firebase-admin
@@ -404,7 +405,7 @@ pydantic-core==2.50.4
     # via pydantic
 pygments==2.21.0
     # via rich
-pyjwt==2.15.1
+pyjwt[crypto]==2.15.1
     # via
     #   -r requirements.in
     #   djangorestframework-simplejwt
@@ -465,7 +466,7 @@ rpds-py==2026.9.1
     #   referencing
 s3transfer==0.19.3
     # via boto3
-sentry-sdk==2.74.0
+sentry-sdk==2.75.0
     # via -r requirements.in
 six==1.17.0
     # via python-dateutil
@@ -520,7 +521,7 @@ urllib3==2.8.0
     #   botocore
     #   requests
     #   sentry-sdk
-uvicorn==0.54.0
+uvicorn[standard]==0.54.0
     # via -r requirements.in
 uvloop==0.23.0
     # via uvicorn
@@ -547,9 +548,9 @@ webencodings==0.6.1
     # via bleach
 websockets==17.4
     # via uvicorn
-whitenoise==6.12.0
+whitenoise[brotli]==6.12.0
     # via -r requirements.in
-willow==1.12.0
+willow[heif]==1.12.0
     # via
     #   wagtail
     #   willow
