@@ -47,3 +47,18 @@ Open `/cms/forum/forums/` as staff. Drag a category, then a forum (including acr
   24 px-tall button, so no arrow shows. The screen-reader label is still there.
   `forum-structure.css` sizes only `.wf-structure__handle .icon`. Fix: give
   `.wf-structure__move .icon` a 1rem width and height.
+
+### 2026-11-23 - Owner's drag check FAILED; root cause found and fixed
+
+- **Owner's check (live `/cms/forum/forums/`, 2026-11-23):** "I tried every little block of 6
+  dots that I could see. No response at all from any of them."
+- **Root cause (verified on the live page in Chrome):** Wagtail's admin skeleton renders the
+  `extra_js` block before the page content, so `forum-structure.js` ran before `#wf-structure`
+  existed, returned at its first guard, and never created a Sortable instance. No console
+  error. Observed: SortableJS 1.15.6 loaded, 7 handles, both script tags ahead of the tree in
+  the document, 0 of 3 lists with an instance; loading the same script again after the page
+  had loaded gave 3 of 3. The keyboard Move buttons passed on 2026-11-22 because they are
+  plain forms that post without JavaScript.
+- **Fix:** `defer` on both script tags in `forum_structure.html`. New test
+  `test_the_tree_scripts_wait_for_the_tree` failed before the change and passes after it.
+- **Still open:** the owner's drag, reload and order check, on the live site once this deploys.

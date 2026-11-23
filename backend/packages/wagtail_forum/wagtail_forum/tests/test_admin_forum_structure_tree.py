@@ -94,6 +94,41 @@ def _snapshot():
 # --- the tree is the landing screen ---
 
 
+def test_the_tree_scripts_wait_for_the_tree(admin_client, structure):
+    """Todo 683: Wagtail's admin skeleton renders ``extra_js`` before the
+    page content, so a script tag that runs at once runs before
+    ``#wf-structure`` exists. ``forum-structure.js`` then returns at its
+    first guard and no drag is ever set up, with no error (found on the live
+    site 2026-11-23: no handle responded). ``defer`` runs both scripts, in
+    order, once the document is parsed."""
+    from html.parser import HTMLParser
+
+    class TreeScripts(HTMLParser):
+        """Each of the tree's script tags: did the tree come first, and is
+        the tag deferred?"""
+
+        def __init__(self):
+            super().__init__()
+            self.tree_seen = False
+            self.scripts: list[tuple[str, bool, bool]] = []
+
+        def handle_starttag(self, tag, attrs):
+            values = dict(attrs)
+            if values.get("id") == "wf-structure":
+                self.tree_seen = True
+            src = values.get("src") or ""
+            if tag == "script" and "wagtail_forum/js/" in src:
+                self.scripts.append((src, self.tree_seen, "defer" in values))
+
+    page = TreeScripts()
+    page.feed(admin_client.get(_url("index")).content.decode())
+
+    assert page.tree_seen
+    assert len(page.scripts) == 2
+    for src, after_the_tree, deferred in page.scripts:
+        assert after_the_tree or deferred, src
+
+
 def test_the_index_is_the_structure_tree(admin_client, structure):
     resp = admin_client.get(_url("index"))
 
