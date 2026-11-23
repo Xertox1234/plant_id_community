@@ -80,7 +80,7 @@ updates:
       # @types/node follows the Node version in .nvmrc (24), not npm's latest.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-      # TypeScript 7 cannot install: typescript-eslint (8.72.2, and its
+      # TypeScript 7 cannot install: typescript-eslint (8.74.0, and its
       # canary) requires typescript <6.1.0, so #1330 failed `npm ci`. Remove
       # this entry when typescript-eslint accepts 7 (todo 722).
       - dependency-name: "typescript"
