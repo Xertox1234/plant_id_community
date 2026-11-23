@@ -75,3 +75,12 @@ When typescript-eslint supports TS 7, bump `typescript` and run the web checks. 
 ### 2026-11-23 - Completed by the todo sweep (run 2026-11-22-1957)
 
 - Archived by `land.py archive`; review is on the PR.
+
+### 2026-11-23 - Review round 1: non-blocking findings
+
+- **Fixed: the Dependabot ignore comment pointed at this todo, which is now archived (low, two
+  reviewers).** The comment no longer relies on an open todo: it says the entry was declined
+  here and names the re-check that removes it.
+- **Fixed: the comment read as if #1330 failed against typescript-eslint 8.74.0 (low, two
+  reviewers).** #1330 failed on 2026-11-16; 8.74.0 is the version re-checked on 2026-11-23. The
+  comment now gives both dates.
