@@ -41,3 +41,13 @@ When typescript-eslint supports TS 7, bump `typescript` and run the web checks. 
 
 - Filed from sweep run 2026-11-20-2202 on the owner's decision of 2026-11-21: these criteria were
   re-pointed here because they can only be checked after the parent's PR merges, or need the owner.
+
+### 2026-11-23 - Sentry criterion tried with the owner: no event, web Sentry was never configured
+
+- The owner threw a test error on the deployed site (2026-11-23, about 21:15Z). Nothing reached
+  Sentry: the organisation had no web project and the deployed bundle holds no DSN, so
+  `initSentry()` returned at its `VITE_SENTRY_DSN` check. Sentry 11 itself was never exercised in
+  production.
+- The owner created the project `houseplant-md-web` and added `VITE_SENTRY_DSN` to the Cloudflare
+  Worker's build variables. The test is repeated after the next production build; the event id
+  goes here.
