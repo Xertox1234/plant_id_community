@@ -101,20 +101,32 @@ def test_the_tree_scripts_wait_for_the_tree(admin_client, structure):
     first guard and no drag is ever set up, with no error (found on the live
     site 2026-11-23: no handle responded). ``defer`` runs both scripts, in
     order, once the document is parsed."""
-    import re
+    from html.parser import HTMLParser
 
-    html = admin_client.get(_url("index")).content.decode()
-    root_at = html.index('id="wf-structure"')
-    tags = [
-        match
-        for match in re.finditer(r"<script\b[^>]*>", html)
-        if "wagtail_forum/js/" in match.group(0)
-    ]
+    class TreeScripts(HTMLParser):
+        """Each of the tree's script tags: did the tree come first, and is
+        the tag deferred?"""
 
-    assert len(tags) == 2
-    for tag in tags:
-        waits = re.search(r"\sdefer(\s|>|=)", tag.group(0)) is not None
-        assert tag.start() > root_at or waits, tag.group(0)
+        def __init__(self):
+            super().__init__()
+            self.tree_seen = False
+            self.scripts: list[tuple[str, bool, bool]] = []
+
+        def handle_starttag(self, tag, attrs):
+            values = dict(attrs)
+            if values.get("id") == "wf-structure":
+                self.tree_seen = True
+            src = values.get("src") or ""
+            if tag == "script" and "wagtail_forum/js/" in src:
+                self.scripts.append((src, self.tree_seen, "defer" in values))
+
+    page = TreeScripts()
+    page.feed(admin_client.get(_url("index")).content.decode())
+
+    assert page.tree_seen
+    assert len(page.scripts) == 2
+    for src, after_the_tree, deferred in page.scripts:
+        assert after_the_tree or deferred, src
 
 
 def test_the_index_is_the_structure_tree(admin_client, structure):
