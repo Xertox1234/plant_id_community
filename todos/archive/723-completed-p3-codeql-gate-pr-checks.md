@@ -102,3 +102,15 @@ Open a throwaway PR with a known critical alert and confirm it cannot merge; cit
   evidence files from 0, so `723-ac1.txt` is the second criterion's file. The quoted output is the
   right one (PRs #1390 and #1405), and the file is not committed. Renaming a recorded evidence
   path after the fact would falsify the record, so it stays as run.
+
+### 2026-11-23 - Review round 2: non-blocking findings
+
+- **Recorded, not fixed: the AC 3 canary does not exercise the renamed setting (low).** PR #1412
+  logs `request.META["REMOTE_ADDR"]` through `log_safe_ip`. It never reads the renamed
+  `RATELIMIT_CLIENT_IP_HEADER` flow that raised the original false positive, and that query sits
+  below the gate's critical threshold, so #1412 would have passed without todo 718's rename. What
+  the canary does show is the criterion as written: a `log_safe_ip` PR is not blocked. Read on
+  2026-11-23 through the code-scanning API: `main` has 0 open CodeQL alerts; on
+  `backend/apps/core/ratelimit.py` the two `py/clear-text-logging-sensitive-data` alerts are #106
+  (fixed 2026-09-06) and #126 (dismissed 2026-09-06). Neither changed after #1396, so the rename's
+  own effect on that query was not observed here.
