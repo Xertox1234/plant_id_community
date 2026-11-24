@@ -408,6 +408,14 @@ class FakeForumApi implements ForumApi {
   ApiException? failReportPostWith;
   final List<String> blockCalls = [];
   final List<String> unblockCalls = [];
+  final List<String> muteCalls = [];
+  final List<String> unmuteCalls = [];
+
+  /// When set, [muteUser] and [unmuteUser] throw this.
+  Object? failMuteWith;
+
+  /// When set, [muteUser] waits for it.
+  Completer<void>? muteGate;
   ApiException? failBlockWith;
 
   /// Thread-experience fixtures (todo 341 wave 2). [solutionResult] is
@@ -1091,6 +1099,23 @@ class FakeForumApi implements ForumApi {
   }
 
   @override
+  Future<bool> muteUser(String username) async {
+    muteCalls.add(username);
+    await muteGate?.future;
+    final fail = failMuteWith;
+    if (fail != null) throw fail;
+    return true;
+  }
+
+  @override
+  Future<bool> unmuteUser(String username) async {
+    unmuteCalls.add(username);
+    final fail = failMuteWith;
+    if (fail != null) throw fail;
+    return false;
+  }
+
+  @override
   Future<ForumSolutionResult> markSolution({
     required int topicId,
     required int postId,
@@ -1726,6 +1751,8 @@ ForumPost post({
   bool canReport = false,
   bool isBlocked = false,
   bool canBlock = false,
+  bool isMuted = false,
+  bool canMute = false,
   DateTime? editedAt,
 }) {
   return ForumPost(
@@ -1744,6 +1771,8 @@ ForumPost post({
     canReport: canReport,
     isBlocked: isBlocked,
     canBlock: canBlock,
+    isMuted: isMuted,
+    canMute: canMute,
   );
 }
 
@@ -1916,6 +1945,8 @@ ForumProfile profile({
   List<Map<String, dynamic>> recentPosts = const [],
   bool isBlocked = false,
   bool canBlock = false,
+  bool isMuted = false,
+  bool canMute = false,
   List<Map<String, dynamic>> badges = const [],
 }) {
   return ForumProfile.fromJson({
@@ -1932,6 +1963,8 @@ ForumProfile profile({
     'recent_posts': recentPosts,
     'is_blocked': isBlocked,
     'can_block': canBlock,
+    'is_muted': isMuted,
+    'can_mute': canMute,
     'badges': badges,
   });
 }

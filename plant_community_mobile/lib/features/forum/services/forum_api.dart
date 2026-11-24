@@ -290,6 +290,12 @@ abstract class ForumApi {
   Future<bool> blockUser(String username);
   Future<bool> unblockUser(String username);
 
+  /// Mute / unmute a member (todo 347): hides their content for the caller
+  /// only; messages still arrive. Both idempotent and key-less; return the
+  /// resulting `muted` state. 400 on self-mute.
+  Future<bool> muteUser(String username);
+  Future<bool> unmuteUser(String username);
+
   // --- Thread experience (todo 341 wave 2) ---------------------------------
 
   /// Accept [postId] as [topicId]'s answer (`POST /forum/topics/{id}/
@@ -908,6 +914,18 @@ class HttpForumApi implements ForumApi {
   Future<bool> unblockUser(String username) async {
     final resp = await _api.delete('/forum/users/$username/block/');
     return (resp.data as Map<String, dynamic>)['blocked'] as bool? ?? false;
+  }
+
+  @override
+  Future<bool> muteUser(String username) async {
+    final resp = await _api.post('/forum/users/$username/mute/');
+    return (resp.data as Map<String, dynamic>)['muted'] as bool? ?? true;
+  }
+
+  @override
+  Future<bool> unmuteUser(String username) async {
+    final resp = await _api.delete('/forum/users/$username/mute/');
+    return (resp.data as Map<String, dynamic>)['muted'] as bool? ?? false;
   }
 
   @override

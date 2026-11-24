@@ -43,7 +43,7 @@ Future<(ProviderContainer, FakeForumApi)> _open(WidgetTester tester) async {
     ),
   );
   await tester.pumpAndSettle();
-  expect(find.text('Secret thread'), findsOneWidget);
+  expect(find.text('Secret thread'), findsNWidgets(2)); // bar + heading
   expect(find.text('Only for members'), findsOneWidget);
   return (container, api);
 }

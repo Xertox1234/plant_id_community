@@ -16,6 +16,7 @@ import '../providers/forum_providers.dart';
 import '../services/forum_api.dart';
 import '../services/forum_composer_controller.dart';
 import '../services/forum_image_picker.dart';
+import '../services/forum_photo_downscale.dart';
 import '../utils/forum_embed_url.dart';
 import '../widgets/forum_my_images_grid.dart';
 import '../widgets/forum_mention_suggestions.dart';
@@ -395,7 +396,12 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
         setState(() => _uploadingImage = false);
         return;
       }
-      final image = await _controller.uploadImage(filePath: path);
+      final ForumImageBlock image;
+      try {
+        image = await _controller.uploadImage(filePath: path);
+      } finally {
+        unawaited(discardForumPhotoCopy(path));
+      }
       if (!mounted) return;
       setState(() {
         _attachedImage = image;
@@ -622,174 +628,222 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
 
   Widget _form(BuildContext context) {
     final locked = _topicLocked();
-    return ListView(
-      children: [
-        if (widget.args.boardTitle != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: Text(
-              'in ${widget.args.boardTitle}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+    // Not a lazy list: an error has to be built to be announced and scrolled
+    // to, wherever the form is scrolled when it arrives (audit F115).
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (widget.args.boardTitle != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Text(
+                'in ${widget.args.boardTitle}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
-          ),
-        if (_isEdit && widget.args.hasNonTextContent)
-          const Padding(
-            padding: EdgeInsets.only(bottom: AppSpacing.sm),
-            child: ForumNoticeBanner(
-              message:
-                  "This post has formatting or an image the app can't show "
-                  'here yet — saving will replace it with plain text.',
-              icon: LucideIcons.triangleAlert,
+          if (_isEdit && widget.args.hasNonTextContent)
+            const Padding(
+              padding: EdgeInsets.only(bottom: AppSpacing.sm),
+              child: ForumNoticeBanner(
+                message:
+                    "This post has formatting or an image the app can't show "
+                    'here yet — saving will replace it with plain text.',
+                icon: LucideIcons.triangleAlert,
+              ),
             ),
-          ),
-        if (_error != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: ForumNoticeBanner(
-              message: _error!,
-              icon: LucideIcons.circleAlert,
+          if (locked && !_lockedByServer)
+            const Padding(
+              padding: EdgeInsets.only(bottom: AppSpacing.sm),
+              child: ForumNoticeBanner(
+                message: _lockedNotice,
+                icon: LucideIcons.lock,
+              ),
             ),
-          ),
-        if (locked)
-          const Padding(
-            padding: EdgeInsets.only(bottom: AppSpacing.sm),
-            child: ForumNoticeBanner(
-              message: _lockedNotice,
-              icon: LucideIcons.lock,
+          if (_isTopic) ...[
+            TextField(
+              controller: _titleController,
+              decoration: const InputDecoration(
+                labelText: 'Title',
+                border: OutlineInputBorder(),
+              ),
+              textInputAction: TextInputAction.next,
+              maxLength: 255,
+              // No onChanged — the `_titleController` listener registered in
+              // initState rebuilds on every change, like the body field below.
             ),
-          ),
-        if (_imageError != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: ForumNoticeBanner(
-              message: _imageError!,
-              icon: LucideIcons.circleAlert,
+            const SizedBox(height: AppSpacing.sm),
+          ],
+          if (_quote != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: _QuoteDraft(
+                quote: _quote!,
+                onRemove: () => setState(() => _quote = null),
+              ),
             ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ForumRichTextToolbar(controller: _bodyController),
           ),
-        if (_isTopic) ...[
+          // Above the field, not below it: a strip under a five-line field
+          // would sit beneath the keyboard (todo 341 wave 4).
+          ForumMentionSuggestions(controller: _bodyController),
           TextField(
-            controller: _titleController,
-            decoration: const InputDecoration(
-              labelText: 'Title',
-              border: OutlineInputBorder(),
+            controller: _bodyController,
+            decoration: InputDecoration(
+              labelText: _isTopic
+                  ? 'Body'
+                  : (_isEdit ? 'Edit your post' : 'Your reply'),
+              alignLabelWithHint: true,
+              border: const OutlineInputBorder(),
             ),
-            textInputAction: TextInputAction.next,
-            maxLength: 255,
-            // No onChanged — the `_titleController` listener registered in
-            // initState rebuilds on every change, like the body field below.
+            minLines: 5,
+            maxLines: 12,
+            // No onChanged here — the `_bodyController` listener registered in
+            // initState covers both user-driven edits AND the rich-text
+            // toolbar's programmatic `.value =` assignments (todo 314).
           ),
-          const SizedBox(height: AppSpacing.sm),
-        ],
-        if (_quote != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: _QuoteDraft(
-              quote: _quote!,
-              onRemove: () => setState(() => _quote = null),
-            ),
-          ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: ForumRichTextToolbar(controller: _bodyController),
-        ),
-        // Above the field, not below it: a strip under a five-line field
-        // would sit beneath the keyboard (todo 341 wave 4).
-        ForumMentionSuggestions(controller: _bodyController),
-        TextField(
-          controller: _bodyController,
-          decoration: InputDecoration(
-            labelText: _isTopic
-                ? 'Body'
-                : (_isEdit ? 'Edit your post' : 'Your reply'),
-            alignLabelWithHint: true,
-            border: const OutlineInputBorder(),
-          ),
-          minLines: 5,
-          maxLines: 12,
-          // No onChanged here — the `_bodyController` listener registered in
-          // initState covers both user-driven edits AND the rich-text
-          // toolbar's programmatic `.value =` assignments (todo 314).
-        ),
-        ..._linkPreview(),
-        if (_supportsImage) ...[
-          const SizedBox(height: AppSpacing.sm),
-          if (_attachedImage != null)
-            _AttachedImagePreview(
-              image: _attachedImage!,
-              onRemove: _removePhoto,
-            )
-          else
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: _uploadingImage ? null : _addPhoto,
-                  icon: _uploadingImage
-                      ? const SizedBox(
-                          height: 16,
-                          width: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(LucideIcons.imagePlus),
-                  label: Text(_uploadingImage ? 'Uploading…' : 'Add photo'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _uploadingImage ? null : _chooseExistingPhoto,
-                  icon: const Icon(LucideIcons.images),
-                  label: const Text('Choose from your photos'),
-                ),
-              ],
-            ),
-        ],
-        if (_supportsPoll) ...[
-          const SizedBox(height: AppSpacing.sm),
-          if (_poll == null)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: () => setState(() => _poll = const ForumPollDraft()),
-                icon: const Icon(LucideIcons.chartColumn),
-                label: const Text('Add poll'),
-              ),
-            )
-          else ...[
-            PollDraftForm(
-              initial: _poll!,
-              pickCloseTime: widget.pickPollCloseTime,
-              onChanged: (poll) => setState(() => _poll = poll),
-              onRemove: () => setState(() => _poll = null),
-            ),
-            if (!_poll!.isValid)
-              Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.xs),
-                child: Text(
-                  _poll!.hasDuplicateOptions
-                      ? 'Each option must be different.'
-                      : 'A poll needs a question and two options.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ..._linkPreview(),
+          if (_supportsImage) ...[
+            const SizedBox(height: AppSpacing.sm),
+            if (_attachedImage != null)
+              _AttachedImagePreview(
+                image: _attachedImage!,
+                onRemove: _removePhoto,
+              )
+            else
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _uploadingImage ? null : _addPhoto,
+                    icon: _uploadingImage
+                        ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(LucideIcons.imagePlus),
+                    label: Text(_uploadingImage ? 'Uploading…' : 'Add photo'),
                   ),
-                ),
+                  OutlinedButton.icon(
+                    onPressed: _uploadingImage ? null : _chooseExistingPhoto,
+                    icon: const Icon(LucideIcons.images),
+                    label: const Text('Choose from your photos'),
+                  ),
+                ],
               ),
           ],
+          if (_imageError != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _ComposerError(message: _imageError!),
+          ],
+          if (_supportsPoll) ...[
+            const SizedBox(height: AppSpacing.sm),
+            if (_poll == null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: () =>
+                      setState(() => _poll = const ForumPollDraft()),
+                  icon: const Icon(LucideIcons.chartColumn),
+                  label: const Text('Add poll'),
+                ),
+              )
+            else ...[
+              PollDraftForm(
+                initial: _poll!,
+                pickCloseTime: widget.pickPollCloseTime,
+                onChanged: (poll) => setState(() => _poll = poll),
+                onRemove: () => setState(() => _poll = null),
+              ),
+              if (!_poll!.isValid)
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.xs),
+                  child: Text(
+                    _poll!.hasDuplicateOptions
+                        ? 'Each option must be different.'
+                        : 'A poll needs a question and two options.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+            ],
+          ],
+          const SizedBox(height: AppSpacing.md),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: _ComposerError(message: _error!),
+            ),
+          if (_lockedByServer)
+            const Padding(
+              padding: EdgeInsets.only(bottom: AppSpacing.sm),
+              child: _ComposerError(
+                message: _lockedNotice,
+                icon: LucideIcons.lock,
+              ),
+            ),
+          FilledButton(
+            onPressed: _canSubmit && !_submitting && !locked ? _submit : null,
+            child: _submitting
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Text(_isEdit ? 'Save' : 'Post'),
+          ),
         ],
-        const SizedBox(height: AppSpacing.md),
-        FilledButton(
-          onPressed: _canSubmit && !_submitting && !locked ? _submit : null,
-          child: _submitting
-              ? const SizedBox(
-                  height: 18,
-                  width: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Text(_isEdit ? 'Save' : 'Post'),
-        ),
-      ],
+      ),
     );
   }
+}
+
+/// An error shown beside the control it answers (audit 2026-11-24 F115): it
+/// scrolls itself into view when it appears or changes, and the notice is a
+/// live region, so it is announced too.
+class _ComposerError extends StatefulWidget {
+  const _ComposerError({
+    required this.message,
+    this.icon = LucideIcons.circleAlert,
+  });
+
+  final String message;
+  final IconData icon;
+
+  @override
+  State<_ComposerError> createState() => _ComposerErrorState();
+}
+
+class _ComposerErrorState extends State<_ComposerError> {
+  @override
+  void initState() {
+    super.initState();
+    _reveal();
+  }
+
+  @override
+  void didUpdateWidget(_ComposerError oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.message != widget.message) _reveal();
+  }
+
+  void _reveal() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Centred, so the control below it (Post) stays on screen with it.
+      if (mounted) Scrollable.ensureVisible(context, alignment: 0.5);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      ForumNoticeBanner(message: widget.message, icon: widget.icon);
 }
 
 /// The pre-filled quote, read-only, in the same left-rule styling the body

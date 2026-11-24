@@ -76,6 +76,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(_locked), findsOneWidget);
+    // Beside the Post that was just refused, not at the top (audit F115).
+    expect(
+      tester.getTopLeft(find.text(_locked)).dy,
+      greaterThan(tester.getBottomLeft(find.byType(TextField).last).dy),
+    );
     expect(find.textContaining('Still processing'), findsNothing);
     expect(find.text('Too late'), findsOneWidget);
     expect(_postButton(tester).onPressed, isNull);

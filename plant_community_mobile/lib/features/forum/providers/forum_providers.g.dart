@@ -810,17 +810,17 @@ abstract class _$TopicDetail extends $AsyncNotifier<ForumTopicDetail> {
 }
 
 /// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
-/// plus the viewer's block/unblock of that member (todo 341).
+/// plus the viewer's block/unblock of that member (todo 341) and mute/unmute.
 
 @ProviderFor(ForumUserProfile)
 final forumUserProfileProvider = ForumUserProfileFamily._();
 
 /// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
-/// plus the viewer's block/unblock of that member (todo 341).
+/// plus the viewer's block/unblock of that member (todo 341) and mute/unmute.
 final class ForumUserProfileProvider
     extends $AsyncNotifierProvider<ForumUserProfile, ForumProfile> {
   /// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
-  /// plus the viewer's block/unblock of that member (todo 341).
+  /// plus the viewer's block/unblock of that member (todo 341) and mute/unmute.
   ForumUserProfileProvider._({
     required ForumUserProfileFamily super.from,
     required String super.argument,
@@ -857,10 +857,10 @@ final class ForumUserProfileProvider
   }
 }
 
-String _$forumUserProfileHash() => r'c233b82c86ec4604ae18852faaac33203e9fcb07';
+String _$forumUserProfileHash() => r'f65c6faa3309bb3c71d096b986cac701c6cfad78';
 
 /// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
-/// plus the viewer's block/unblock of that member (todo 341).
+/// plus the viewer's block/unblock of that member (todo 341) and mute/unmute.
 
 final class ForumUserProfileFamily extends $Family
     with
@@ -881,7 +881,7 @@ final class ForumUserProfileFamily extends $Family
       );
 
   /// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
-  /// plus the viewer's block/unblock of that member (todo 341).
+  /// plus the viewer's block/unblock of that member (todo 341) and mute/unmute.
 
   ForumUserProfileProvider call(String username) =>
       ForumUserProfileProvider._(argument: username, from: this);
@@ -891,7 +891,7 @@ final class ForumUserProfileFamily extends $Family
 }
 
 /// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
-/// plus the viewer's block/unblock of that member (todo 341).
+/// plus the viewer's block/unblock of that member (todo 341) and mute/unmute.
 
 abstract class _$ForumUserProfile extends $AsyncNotifier<ForumProfile> {
   late final _$args = ref.$arg as String;
@@ -911,6 +911,76 @@ abstract class _$ForumUserProfile extends $AsyncNotifier<ForumProfile> {
               Object?
             >;
     return element.handleCreate(ref, () => build(_$args));
+  }
+}
+
+/// The most recent mute/unmute the viewer performed, from a thread or a
+/// profile. Every mounted thread and profile splices it locally, for the
+/// reasons [AuthorBlockChanges] gives. Its own provider, so a block and a
+/// mute made on one profile both reach a paused thread underneath.
+
+@ProviderFor(AuthorMuteChanges)
+final authorMuteChangesProvider = AuthorMuteChangesProvider._();
+
+/// The most recent mute/unmute the viewer performed, from a thread or a
+/// profile. Every mounted thread and profile splices it locally, for the
+/// reasons [AuthorBlockChanges] gives. Its own provider, so a block and a
+/// mute made on one profile both reach a paused thread underneath.
+final class AuthorMuteChangesProvider
+    extends $NotifierProvider<AuthorMuteChanges, AuthorMuteChange?> {
+  /// The most recent mute/unmute the viewer performed, from a thread or a
+  /// profile. Every mounted thread and profile splices it locally, for the
+  /// reasons [AuthorBlockChanges] gives. Its own provider, so a block and a
+  /// mute made on one profile both reach a paused thread underneath.
+  AuthorMuteChangesProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'authorMuteChangesProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$authorMuteChangesHash();
+
+  @$internal
+  @override
+  AuthorMuteChanges create() => AuthorMuteChanges();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(AuthorMuteChange? value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<AuthorMuteChange?>(value),
+    );
+  }
+}
+
+String _$authorMuteChangesHash() => r'f8df4e5873fec438a38c8128ddc8fb79db1e35dd';
+
+/// The most recent mute/unmute the viewer performed, from a thread or a
+/// profile. Every mounted thread and profile splices it locally, for the
+/// reasons [AuthorBlockChanges] gives. Its own provider, so a block and a
+/// mute made on one profile both reach a paused thread underneath.
+
+abstract class _$AuthorMuteChanges extends $Notifier<AuthorMuteChange?> {
+  AuthorMuteChange? build();
+  @$mustCallSuper
+  @override
+  WhenComplete runBuild() {
+    final ref = this.ref as $Ref<AuthorMuteChange?, AuthorMuteChange?>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<AuthorMuteChange?, AuthorMuteChange?>,
+              AuthorMuteChange?,
+              Object?,
+              Object?
+            >;
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -1049,7 +1119,7 @@ final class TopicPostsProvider
   }
 }
 
-String _$topicPostsHash() => r'0babe008c3405b186761fc2ff7af2e6e06a2f0b5';
+String _$topicPostsHash() => r'698934e3dc5f71a2c5e05a98f62e57a4962dfe38';
 
 /// Posts in a topic (oldest-first), cursor-paginated with [loadMore], plus a
 /// reaction toggle that updates the affected post in place.

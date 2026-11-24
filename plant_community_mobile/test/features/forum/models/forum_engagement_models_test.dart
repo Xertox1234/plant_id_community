@@ -277,6 +277,83 @@ void main() {
       expect(draft.text.length, forumQuoteMaxChars + 1);
     });
 
+    // Audit 2026-11-24 F3: the server refuses a quote whose text is not a
+    // contiguous part of the quoted post's plain text.
+    String normalized(String text) =>
+        text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    String withoutMark(String text) => text.endsWith('…')
+        ? normalized(text.substring(0, text.length - 1))
+        : normalized(text);
+
+    test('every block boundary is whitespace, nested lists included', () {
+      const html =
+          '<p>Use:</p><ul><li>loam<ul><li>peat</li></ul></li>'
+          '<li>sand &amp; grit</li></ul>Then<ol><li>wa<b>ter</b></li></ol>'
+          'done<br/>end';
+      final draft = forumQuoteDraft(post(body: const [ParagraphBlock(html)]))!;
+      expect(
+        normalized(draft.text),
+        'Use: loam peat sand & grit Then water done end',
+      );
+    });
+
+    test('never joins text across a skipped text-bearing block', () {
+      for (final between in const <ForumBodyBlock>[
+        QuoteBlock('someone else'),
+        PostQuoteBlock(text: 'someone else', postId: 5, available: true),
+        EmbedBlock(url: 'https://youtu.be/x'),
+        LinkPreviewBlock(
+          url: 'https://example.com',
+          title: 'someone else',
+          description: '',
+          siteName: '',
+          domain: 'example.com',
+          imageUrl: '',
+        ),
+        UnknownBlock('mystery'),
+      ]) {
+        final draft = forumQuoteDraft(
+          post(
+            body: [
+              between,
+              const HeadingBlock('First'),
+              const ParagraphBlock('<p>part</p>'),
+              between,
+              const ParagraphBlock('<p>second part</p>'),
+            ],
+          ),
+        )!;
+        expect(draft.text, 'First\n\npart…', reason: '${between.runtimeType}');
+      }
+    });
+
+    test('an image between paragraphs does not end the excerpt', () {
+      final draft = forumQuoteDraft(
+        post(
+          body: const [
+            ParagraphBlock('one'),
+            ForumImageBlock(id: 1, url: 'u', alt: 'a'),
+            ParagraphBlock('two'),
+          ],
+        ),
+      )!;
+      expect(draft.text, 'one\n\ntwo');
+    });
+
+    test('a cut never splits a surrogate pair', () {
+      final source = '${'x' * (forumQuoteMaxChars - 1)}🌱 tail';
+      final draft = forumQuoteDraft(post(body: [ParagraphBlock(source)]))!;
+      expect(draft.text, '${'x' * (forumQuoteMaxChars - 1)}…');
+      expect(source, contains(withoutMark(draft.text)));
+    });
+
+    test('keeps literal marker characters and escaped markup as typed', () {
+      final draft = forumQuoteDraft(
+        post(body: const [ParagraphBlock('2 * 3 * 4 _x_ &lt;p&gt;')]),
+      )!;
+      expect(draft.text, '2 * 3 * 4 _x_ <p>');
+    });
+
     test('is null for a post with nothing quotable', () {
       expect(
         forumQuoteDraft(

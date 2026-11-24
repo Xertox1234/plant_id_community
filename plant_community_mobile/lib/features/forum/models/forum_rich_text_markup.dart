@@ -48,8 +48,36 @@ const _sentinelHyphen = '';
 
 final _codeRe = RegExp('`([^`]+)`');
 final _boldRe = RegExp(r'\*\*(.+?)\*\*');
-final _italicRe = RegExp(r'_(.+?)_');
-final _linkRe = RegExp(r'\[(.+?)\]\((.+?)\)');
+
+// An italic delimiter never sits inside a word (audit F126): filenames, bare
+// URLs and @mentions keep their underscores.
+final _italicRe = RegExp(
+  r'(?<![\p{L}\p{N}_])_(?!_)(.+?)(?<!_)_(?![\p{L}\p{N}_])',
+  unicode: true,
+);
+
+// The URL may hold one level of balanced parentheses (Wikipedia-style); any
+// other shape ends at its first `)`.
+final _linkRe = RegExp(r'\[(.+?)\]\(((?:[^()]|\([^()]*\))+|.+?)\)');
+final _balancedHrefRe = RegExp(r'^(?:[^()]|\([^()]*\))+$');
+
+final _wordEndRe = RegExp(r'[\p{L}\p{N}]$', unicode: true);
+final _wordStartRe = RegExp(r'^[\p{L}\p{N}]', unicode: true);
+
+/// Whether the siblings of [em] leave its `_…_` delimiters off a word (and
+/// off another italic run), so [_italicRe] matches them again. A literal `_`
+/// in a neighbouring text node is escaped, so it does not count.
+bool _italicIsRepresentable(dom.Element em) {
+  bool isEm(dom.Node? node) => node is dom.Element && node.localName == 'em';
+  final siblings = em.parentNode?.nodes ?? <dom.Node>[em];
+  final index = siblings.indexOf(em);
+  final before = index > 0 ? siblings[index - 1] : null;
+  final after = index + 1 < siblings.length ? siblings[index + 1] : null;
+  if (isEm(before) || isEm(after)) return false;
+  if (before is dom.Text && _wordEndRe.hasMatch(before.data)) return false;
+  if (after is dom.Text && _wordStartRe.hasMatch(after.data)) return false;
+  return true;
+}
 
 /// Backslash-escapes the marker-grammar's delimiter characters (`\`, `*`,
 /// `_`, `` ` ``, `[`) wherever they appear, plus a `-` that is the first
@@ -247,7 +275,9 @@ String? _renderLineMarkup(List<dom.Node> nodes) {
         buffer.write('**${escapeMarkerChars(text)}**');
       case 'em':
         final text = _plainTextOnly(node);
-        if (text == null || text.isEmpty) return null;
+        if (text == null || text.isEmpty || !_italicIsRepresentable(node)) {
+          return null;
+        }
         buffer.write('_${escapeMarkerChars(text)}_');
       case 'code':
         final text = _plainTextOnly(node);
@@ -257,9 +287,9 @@ String? _renderLineMarkup(List<dom.Node> nodes) {
         final text = _plainTextOnly(node);
         if (text == null || text.isEmpty) return null;
         final href = node.attributes['href'];
-        // A literal ')' in the href is unrepresentable in the
-        // `[text](url)` grammar — the generator's non-greedy link regex
-        // would close at the first ')' it finds, truncating the href
+        // An unbalanced ')' in the href is unrepresentable in the
+        // `[text](url)` grammar — the generator's link regex would close
+        // at the first ')' it finds, truncating the href
         // (todo 314 final review; mirrors the literal-backtick-in-`<code>`
         // rejection above). Declining to round-trip is the safe choice: an
         // old stored post with this problem falls back to the existing
@@ -267,7 +297,7 @@ String? _renderLineMarkup(List<dom.Node> nodes) {
         // corrupted.
         if (href == null ||
             !isAllowedForumLinkHref(href) ||
-            href.contains(')')) {
+            (href.contains(')') && !_balancedHrefRe.hasMatch(href))) {
           return null;
         }
         buffer.write('[${escapeMarkerChars(text)}]($href)');

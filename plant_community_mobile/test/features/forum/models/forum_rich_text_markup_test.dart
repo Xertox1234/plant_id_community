@@ -237,14 +237,14 @@ void main() {
       expect(parseForumRichHtmlToMarkup('<code>a`b</code>'), isNull);
     });
 
-    test('an <a href> containing a literal ) is unrepresentable in the '
-        '[text](url) grammar (the generator\'s non-greedy link regex would '
+    test('an <a href> containing an unbalanced ) is unrepresentable in the '
+        '[text](url) grammar (the generator\'s link regex would '
         'truncate at it) and is rejected rather than silently corrupted — '
         'mirrors the literal-backtick-in-<code> rejection above (todo 314 '
         'final review)', () {
       expect(
         parseForumRichHtmlToMarkup(
-          '<a href="https://en.wikipedia.org/wiki/Ficus_(Moraceae)">Ficus</a>',
+          '<a href="https://en.wikipedia.org/wiki/Ficus_Moraceae)">Ficus</a>',
         ),
         isNull,
       );
@@ -340,6 +340,43 @@ void main() {
     });
   });
 
+  group('intra-word underscores are literal (F126)', () {
+    for (final text in [
+      'IMG_1234_final.jpg',
+      'my_plant and a_b',
+      'https://example.com/a_b_c',
+      '@jo_the_gardener hi',
+      'é_è_é',
+      '__init__',
+    ]) {
+      test(text, () {
+        final html = generateForumRichHtml(text);
+        expect(html, text);
+        // Editing and saving again keeps it literal.
+        final markup = parseForumRichHtmlToMarkup(html);
+        expect(generateForumRichHtml(markup!), html);
+      });
+    }
+
+    test('an underscore inside an italic run stays inside it', () {
+      expect(
+        generateForumRichHtml('see _snake_case name_ now'),
+        'see <em>snake_case name</em> now',
+      );
+    });
+
+    test('web italics the marker grammar cannot hold are not rewritten', () {
+      for (final html in [
+        'foo<em>bar</em>',
+        '<em>bar</em>baz',
+        '<em>a</em><em>b</em>',
+        '<ul><li>x<em>y</em></li></ul>',
+      ]) {
+        expect(parseForumRichHtmlToMarkup(html), isNull, reason: html);
+      }
+    });
+  });
+
   group('required invariant — '
       'parseForumRichHtmlToMarkup(generateForumRichHtml(markerText)) == '
       'markerText, byte-identical, for representative marker text', () {
@@ -350,6 +387,13 @@ void main() {
 
     test('bold', () => checkRoundTrip('a **bold** word'));
     test('italic', () => checkRoundTrip('a _italic_ word'));
+    test('italic beside punctuation and other marks (F126)', () {
+      checkRoundTrip('(_one_), _two_! **b**_three_`c`_four_');
+      checkRoundTrip(r'_a\_b_ and x\__y_');
+    });
+    test('a link whose URL has balanced parentheses (F126)', () {
+      checkRoundTrip('[Ficus](https://en.wikipedia.org/wiki/Ficus_(plant)) x');
+    });
     test('code', () => checkRoundTrip('a `code` word'));
     test('link', () => checkRoundTrip('a [text](https://example.com) word'));
     test('list', () => checkRoundTrip('- one\n- two'));

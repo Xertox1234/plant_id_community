@@ -208,7 +208,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Monstera help'), findsOneWidget);
+    // The app bar and the full heading above the first post (F303).
+    expect(find.text('Monstera help'), findsNWidgets(2));
     expect(find.textContaining('Leaves turning yellow'), findsOneWidget);
   });
 

@@ -193,6 +193,85 @@ void main() {
     );
   });
 
+  group('PostCard muted author (F47)', () {
+    ForumPost mutedPost({bool isMuted = true, bool isBlocked = false}) => post(
+      id: 2,
+      authorOverride: author(username: 'alice'),
+      isMuted: isMuted,
+      isBlocked: isBlocked,
+      canMute: true,
+      body: const [ParagraphBlock('hidden words')],
+    );
+
+    testWidgets('collapses until "Show anyway"', (tester) async {
+      await pump(tester, PostCard(post: mutedPost()));
+      expect(find.text("You've muted alice."), findsOneWidget);
+      expect(find.textContaining('hidden words'), findsNothing);
+      expect(find.text('Unmute'), findsNothing); // no handler wired
+
+      await tester.tap(find.text('Show anyway'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('hidden words'), findsOneWidget);
+    });
+
+    testWidgets('a block outranks a mute', (tester) async {
+      await pump(tester, PostCard(post: mutedPost(isBlocked: true)));
+      expect(find.text("You've blocked alice."), findsOneWidget);
+      expect(find.text("You've muted alice."), findsNothing);
+    });
+
+    testWidgets('revealing a block does not reveal the mute, and a new mute '
+        'collapses again', (tester) async {
+      await pump(tester, PostCard(post: mutedPost(isBlocked: true)));
+      await tester.tap(find.text('Show anyway'));
+      await pump(tester, PostCard(post: mutedPost()));
+      expect(find.text("You've muted alice."), findsOneWidget);
+
+      await tester.tap(find.text('Show anyway'));
+      await pump(tester, PostCard(post: mutedPost(isMuted: false)));
+      expect(find.textContaining('hidden words'), findsOneWidget);
+      await pump(tester, PostCard(post: mutedPost()));
+      expect(find.textContaining('hidden words'), findsNothing);
+    });
+
+    testWidgets('the placeholder unmutes, and fits a narrow phone at 200%', (
+      tester,
+    ) async {
+      var toggled = 0;
+      await tester.binding.setSurfaceSize(const Size(320, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await pump(
+        tester,
+        MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+          child: PostCard(post: mutedPost(), onToggleMute: () => toggled++),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.text('Unmute'));
+      expect(toggled, 1);
+    });
+
+    testWidgets('the menu mutes, gated on can_mute', (tester) async {
+      var toggled = 0;
+      await pump(
+        tester,
+        PostCard(
+          post: mutedPost(isMuted: false),
+          onToggleMute: () => toggled++,
+        ),
+      );
+      await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mute member'));
+      await tester.pumpAndSettle();
+      expect(toggled, 1);
+
+      await pump(tester, PostCard(post: post(id: 2), onToggleMute: () {}));
+      expect(find.byIcon(LucideIcons.ellipsisVertical), findsNothing);
+    });
+  });
+
   group('PostCard accepted answer + edit history (todo 341 wave 2)', () {
     testWidgets(
       'the accepted answer renders the chip and offers "Unmark answer"',

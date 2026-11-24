@@ -109,6 +109,7 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
     // The open peeks live as long as this screen (spec §6.4).
     ref.watch(forumHomeScopeProvider);
     ref.listen(authorBlockChangesProvider, (_, _) => _resetForViewer());
+    ref.listen(authorMuteChangesProvider, (_, _) => _resetForViewer());
     // The signed-in member, by uid: a token refresh is not a new viewer, and
     // a Firebase user still waiting on its JWT is not signed in yet.
     ref.listen(
