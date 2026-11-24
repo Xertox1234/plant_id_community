@@ -561,3 +561,7 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   re-check must reload the user by pk and require `is_active` (close 4401), and
   pass the reloaded user to the visibility check, or a banned or deactivated
   account keeps its open socket (`forum_host/consumers.py`, audit 2026-11-21 L1).
+- **A search or vector index's stored text is a copy, never a source.** Re-read the
+  live row before showing it or sending it to a model, and purge every copy
+  (index, embedding cache, stored sources) on edit, takedown and account erasure
+  (`apps/forum_host/topic_copies.py`, audit 2026-11-24, F64).

@@ -88,6 +88,10 @@ correctly. Focus on genuinely new issues, not style preferences.
    can re-rank.
 5. Write all verified findings to the manifest with status `open` and the
    reporting agent.
+6. A scope with a user interface also needs the **running app**, signed in, at
+   phone width (320–390 px) and desktop. On 2026-11-24 the live run found layout
+   bugs that no reviewer saw and overturned a claim several agreed on. Check on
+   the screen that you are signed in: a saved session expires silently.
 
 ## Phase 2.5: Research
 

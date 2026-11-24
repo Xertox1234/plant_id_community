@@ -494,3 +494,16 @@ links to the full audit manifest with detailed findings and resolutions.
   `apps/forum_host` passed 1002. `mypy` is clean on 865 files and every
   pre-commit hook passes.
 - **Commit(s):** branch `audit/forum-backend-2026-11-21`.
+
+## 2026-11-24: Forum, complete (backend, web, mobile, CMS)
+
+- **Fixed:** the 4 Highs, 23 Mediums and one owner-decided rule (a quote must match
+  the post it quotes), in three PRs: #1424 (backend, first), #1425 (web), #1426 (mobile).
+- **Not selected:** the Lows. The manifest stays local while they are open.
+- **Process notes:**
+  - Kimi was skipped on every commit (owner decision: the diffs are security-class).
+    Claude security reviews per stack replaced it.
+  - Live runs overturned a claim that several reviewers made, and found layout bugs
+    no reviewer saw.
+- **Verification:** backend 7395 passed, 8 skipped (`--create-db`, run alone); web
+  2298; mobile 2235 passed, 11 skipped. Not run on a physical phone.

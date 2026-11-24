@@ -287,3 +287,5 @@ Compact checklist auto-injected before edits. Long-form:
   passes: the allowance counts rows.
 - Every password `serializers.CharField` sets `trim_whitespace=False`: DRF trims
   by default, and login compares the password as sent (audit 2026-11-10, H6).
+- An optional `CharField` a form can leave empty sets `allow_blank=True`: DRF's
+  `required=False, default=""` still refuses a sent `""` (audit 2026-11-24, F142).

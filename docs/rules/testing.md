@@ -712,3 +712,6 @@ Compact checklist auto-injected before edits.
   the columns in `connection.queries`, the rows written, the step order. Five PRs
   in run 2026-10-11-2219 drew this finding (#1050, #1055, #1056, #1059, #1063).
 - **Before unit-testing a library callback, read the library to confirm it calls that callback for the case under test.** Calling the hook yourself proves your function, not that the library ever invokes it. `@sentry/replay` passes only custom events to `beforeAddRecordingEvent`, so a green test "scrubbed" a URL that production still sent (audit 2026-11-10, M7).
+- **Test an endpoint with the exact payload each client sends, blanks included.**
+  A test that omits an optional field says nothing about `""`, which a form sends
+  (audit 2026-11-24, F142: web reports always answered 400).
