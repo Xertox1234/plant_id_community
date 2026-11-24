@@ -22,6 +22,9 @@
 - ``prune_unreachable_conversations``: DM threads every member of which has
   been deleted (the deletion's own ``django`` step removes the ones it
   creates; this catches older ones and those a queued report held).
+- ``erase_removed_messages``: the text of a private message a moderator
+  removed, kept as evidence until then, once it has been removed for
+  ``REMOVED_MESSAGE_DAYS``.
 
 Every part takes ``dry_run``: it then counts what it would do and changes and
 queues nothing. Every part is idempotent, so an overlapping or retried run
@@ -54,6 +57,7 @@ from .constants import (
     ORPHAN_FIREBASE_USER_DAYS,
     PRIVACY_PRUNE_BATCH,
     PRIVACY_RETENTION_DAYS,
+    REMOVED_MESSAGE_DAYS,
     THINNED_DELETION_REASONS,
 )
 from .deletion import (
@@ -94,6 +98,7 @@ def run_privacy_prune(dry_run: bool = False) -> dict[str, Any]:
         ("retention", lambda: prune_retention(now, dry_run=dry_run)),
         ("sessions", lambda: prune_expired_sessions(now, dry_run=dry_run)),
         ("conversations", lambda: prune_unreachable_conversations(dry_run=dry_run)),
+        ("removed_messages", lambda: erase_removed_messages(now, dry_run=dry_run)),
         ("deleted_accounts", lambda: thin_deleted_accounts(now, dry_run=dry_run)),
     )
     counts: dict[str, Any] = {}
@@ -172,6 +177,26 @@ def prune_unreachable_conversations(dry_run: bool = False) -> int:
     if deleted:
         logger.info("[PRIVACY PRUNE] deleted %s unreachable conversations", deleted)
     return deleted
+
+
+# --- removed private messages -------------------------------------------------
+
+
+def erase_removed_messages(now: datetime | None = None, dry_run: bool = False) -> int:
+    """Blank the text of every private message a moderator removed at least
+    ``REMOVED_MESSAGE_DAYS`` ago (owner decision: kept as evidence, not
+    forever). The row stays, with its reports. Returns how many were blanked;
+    in a dry run, how many would be. Idempotent."""
+    from wagtail_forum.models import Message
+
+    cutoff = (now or timezone.now()) - timedelta(days=REMOVED_MESSAGE_DAYS)
+    due = Message.objects.filter(removed_at__lte=cutoff).exclude(body="")
+    if dry_run:
+        return int(due.count())
+    erased = int(due.update(body=""))
+    if erased:
+        logger.info("[PRIVACY PRUNE] erased %s removed private messages", erased)
+    return erased
 
 
 # --- retention ---------------------------------------------------------------

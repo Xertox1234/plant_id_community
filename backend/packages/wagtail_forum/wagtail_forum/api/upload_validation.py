@@ -126,7 +126,7 @@ def normalize_image_upload(image_file):
                     or image
                 )
             except (ImageCms.PyCMSError, OSError, ValueError, TypeError):
-                logger.info("Forum image ICC profile not applied; stored as is")
+                logger.info("[IMAGE] Forum image ICC profile not applied; stored as is")
         output = io.BytesIO()
         # Rebuilt from pixels alone, so no EXIF (GPS) or XMP is written back.
         image = image.convert("RGB")

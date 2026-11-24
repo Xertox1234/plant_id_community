@@ -129,6 +129,9 @@ THINNED_DELETION_REASONS = (
 # report still in the moderation queue keeps its content this long, so a
 # moderator can still review it; the scheduled erase then removes it.
 FORUM_HELD_POST_DAYS = 30
+# A private message a moderator removed keeps its text, for moderators only,
+# this long (nightly prune).
+REMOVED_MESSAGE_DAYS = 90
 # What an erased account's topics are titled. The same sentinel the forum
 # shows for a deleted author.
 DELETED_TOPIC_TITLE = "[deleted]"

@@ -761,7 +761,46 @@ def test_task_summary_log_includes_sessions_and_conversations():
     rendered = fmt % tuple(values)
     assert "sessions=0" in rendered
     assert "conversations=0" in rendered
+    assert "removed_messages=0" in rendered
     assert "deleted_accounts=0" in rendered
+
+
+# --- removed private messages --------------------------------------------------
+
+
+def test_a_removed_messages_text_is_erased_after_its_retention(member, reporter):
+    from wagtail_forum.models import Conversation, Message
+
+    now = timezone.now()
+    thread = Conversation.between(member, reporter)
+
+    def message(body, removed_at):
+        return Message.objects.create(
+            conversation=thread, sender=member, body=body, removed_at=removed_at
+        )
+
+    due = message("old evidence", now - 90 * DAY)
+    recent = message("recent evidence", now - 89 * DAY)
+    kept = message("never removed", None)
+    report = Report.objects.create(message=due, reporter=reporter, reason="spam")
+
+    assert retention.erase_removed_messages(now, dry_run=True) == 1
+    due.refresh_from_db()
+    assert due.body == "old evidence"
+
+    assert retention.erase_removed_messages(now) == 1
+    assert retention.erase_removed_messages(now) == 0
+    for row in (due, recent, kept):
+        row.refresh_from_db()
+    assert [due.body, recent.body, kept.body] == [
+        "",
+        "recent evidence",
+        "never removed",
+    ]
+    assert due.visible_body == "[removed by a moderator]"
+    report.refresh_from_db()
+    assert report.message_text == "(text erased)"
+    assert "(text erased)" in report.message_summary
 
 
 # --- thinning old deletion records ---------------------------------------------

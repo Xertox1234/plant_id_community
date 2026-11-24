@@ -3,6 +3,7 @@ from django.contrib import admin
 from django.db import IntegrityError, models, transaction
 from django.db.models import F, Q
 from django.utils import timezone
+from django.utils.translation import gettext
 from django.utils.translation import gettext_lazy as _
 from wagtail.actions.unpublish import UnpublishAction
 
@@ -125,7 +126,7 @@ class Report(models.Model):
         instance — this is deliberately not `self.message` itself."""
         if self.message is None:
             return ""
-        body = self.message.body
+        body = self.message_text
         excerpt = body if len(body) <= 60 else body[:57] + "..."
         sender = self.message.sender if self.message.sender_id else "[deleted]"
         return f"{sender}: {excerpt}"
@@ -147,7 +148,10 @@ class Report(models.Model):
     def message_text(self):
         """The whole reported message, as it was sent: for the inspect page
         of a moderator with Report permission only."""
-        return self.message.body if self.message else ""
+        if self.message is None:
+            return ""
+        # The host erases a removed message's text after a while.
+        return self.message.body or gettext("(text erased)")
 
     @property
     @admin.display(description=_("Message removed at"))

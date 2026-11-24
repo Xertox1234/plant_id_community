@@ -28,7 +28,7 @@ pytestmark = pytest.mark.django_db
 
 User = get_user_model()
 
-SECRET = "zqphone5550199"  # pragma: allowlist secret
+MARKER = "zqphone5550199"
 
 
 @pytest.fixture(autouse=True)
@@ -59,7 +59,7 @@ def _opening(topic):
     return Post.objects.get(topic=topic, is_opening_post=True)
 
 
-def _cached(text=SECRET):
+def _cached(text=MARKER):
     return EmbeddingCache.objects.filter(content__contains=text)
 
 
@@ -166,7 +166,7 @@ def _delete_topic(topic):
     ],
 )
 def test_a_change_drops_the_topics_rows_and_cached_text(change):
-    topic = _topic("Tomato blight", f"call {SECRET}", suffix="chg")
+    topic = _topic("Tomato blight", f"call {MARKER}", suffix="chg")
     other = _topic("Rose care", "prune a rose", suffix="oth")
     _build()
     assert _rows(topic).exists() and _cached().exists()
@@ -216,9 +216,9 @@ def _answer(topic, asker):
                 "kind": "topic",
                 "title": topic.title,
                 "date": "2026-01-01",
-                "snippet": f"{topic.title} call {SECRET}",
+                "snippet": f"{topic.title} call {MARKER}",
                 "topic_id": topic.pk,
-                "topic_slug": f"slug-{SECRET}",
+                "topic_slug": f"slug-{MARKER}",
                 "board_id": topic.board_id,
                 "board_slug": "general",
             },
@@ -229,7 +229,7 @@ def _answer(topic, asker):
 
 
 def test_erasure_purges_every_stored_copy():
-    topic = _topic(f"Tomato {SECRET}", f"call {SECRET}", suffix="era")
+    topic = _topic(f"Tomato {MARKER}", f"call {MARKER}", suffix="era")
     other = _topic("Rose care", "prune a rose", suffix="ot2")
     asker = User.objects.create_user(username="asker", email="asker@example.org")
     _build()
@@ -244,7 +244,7 @@ def test_erasure_purges_every_stored_copy():
     assert _cached("prune a rose").exists()
     answer.refresh_from_db()
     topic_source, blog_source = answer.sources
-    assert SECRET not in str(answer.sources)
+    assert MARKER not in str(answer.sources)
     assert topic_source["title"] == DELETED_TOPIC_TITLE
     assert topic_source["snippet"] == ""
     assert topic_source["topic_id"] == topic.pk
@@ -256,7 +256,7 @@ def test_erasure_purges_every_stored_copy():
 def test_erasure_purges_cached_text_of_earlier_versions():
     """The vector row holds one version; the cache keeps one per version ever
     embedded. The post's revisions are the exact-match key to the rest."""
-    topic = _topic("Tomato blight", f"call {SECRET}", suffix="ver")
+    topic = _topic("Tomato blight", f"call {MARKER}", suffix="ver")
     post = _opening(topic)
     post.save_revision()
     _build()
@@ -280,7 +280,7 @@ def test_erasure_purges_cached_text_of_earlier_versions():
 def test_a_held_opening_post_loses_its_copies_again_when_released():
     from apps.users.retention import release_held_posts
 
-    topic = _topic("Tomato blight", f"call {SECRET}", suffix="hld")
+    topic = _topic("Tomato blight", f"call {MARKER}", suffix="hld")
     reporter = User.objects.create_user(username="rep", email="rep@example.org")
     report = Report.objects.create(
         post=_opening(topic), reporter=reporter, reason=Report.ABUSE
@@ -300,4 +300,4 @@ def test_a_held_opening_post_loses_its_copies_again_when_released():
     assert not _rows(topic).exists()
     assert not _cached().exists()
     answer.refresh_from_db()
-    assert SECRET not in str(answer.sources)
+    assert MARKER not in str(answer.sources)

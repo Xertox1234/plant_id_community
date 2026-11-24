@@ -338,8 +338,9 @@ class EmailService:
             and not self._address_verified(user)
         ):
             logger.info(
-                f"[EMAIL] Email {email_type} to {log_safe_email(recipient_email)} "
-                "not sent: the account never verified this address"
+                "[EMAIL] Email %s to user %s not sent: address not verified",
+                email_type,
+                user.pk,
             )
             self.last_outcome = EmailOutcome.SUPPRESSED
             self.last_suppression_reason = SUPPRESSED_UNVERIFIED

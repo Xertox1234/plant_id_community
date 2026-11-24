@@ -4,7 +4,7 @@
 {% block main_content %}
     <p>
         {% blocktrans trimmed with sender=report.message_sender %}
-            Remove this private message from {{ sender }}? Everyone in the conversation will see a note that a moderator removed it, and the open reports on it will be closed. There is no button to put it back.
+            Remove this private message from {{ sender }}? Everyone in the conversation will see a note that a moderator removed it, and the open reports on it will be closed. There is no button to put it back. Moderators can still read its text on the report for a limited time.
         {% endblocktrans %}
     </p>
     <blockquote>{{ report.message_text|linebreaksbr }}</blockquote>
