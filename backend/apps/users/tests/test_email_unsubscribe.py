@@ -15,6 +15,7 @@ from datetime import timedelta
 from unittest import mock
 from urllib.parse import parse_qs, urlencode, urlsplit
 
+import pytest
 from apps.core.services.email_service import EmailService, EmailType
 from apps.core.services.notification_service import NotificationService
 from apps.users.constants import RATE_LIMIT_EMAIL_UNSUBSCRIBE
@@ -36,6 +37,9 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 from wagtail_forum.models import ForumProfile
 from wagtail_forum.preferences import wants_channel
+
+# Forum email goes only to a verified address (audit 2026-11-24 F211).
+pytestmark = pytest.mark.usefixtures("verified_accounts")
 
 User = get_user_model()
 

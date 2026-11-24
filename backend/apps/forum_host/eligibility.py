@@ -16,7 +16,7 @@ Which checks run
 ----------------
 Recipient state always: the account exists and is active, ``forum_notifications``
 is on, the per-event preference for the channel is on, and for email the
-master ``email_notifications`` toggle is on and an address is on file.
+master ``email_notifications`` toggle is on and a verified address is on file.
 
 Content, block/mute, subscription and read-before-send checks (todo 624:
 the member already read the post in the app) run when the payload carries
@@ -43,6 +43,8 @@ REASON_MISSING = "recipient_missing"
 REASON_INACTIVE = "recipient_inactive"
 REASON_PREFERENCE = "preference_off"
 REASON_NO_DESTINATION = "no_destination"
+# The account never verified its current address (audit 2026-11-24 F211).
+REASON_UNVERIFIED = "email_unverified"
 REASON_CONTENT = "content_unavailable"
 REASON_BLOCKED = "blocked_or_muted"
 REASON_UNSUBSCRIBED = "unsubscribed"
@@ -289,6 +291,12 @@ def recheck(
         if not content_gone and post is not None:
             read = already_read_ids(event, post, by_pk)
 
+    verified: set[int] = set()
+    if channel == "email":
+        from apps.users.email_verification import verified_user_ids
+
+        verified = verified_user_ids(users)
+
     for pk in ids:
         user = by_pk.get(pk)
         reason = None
@@ -304,6 +312,8 @@ def recheck(
             reason = REASON_PREFERENCE
         elif channel == "email" and not user.email:
             reason = REASON_NO_DESTINATION
+        elif channel == "email" and pk not in verified:
+            reason = REASON_UNVERIFIED
         elif content_gone or pk in unreadable:
             reason = REASON_CONTENT
         elif pk in blocked:

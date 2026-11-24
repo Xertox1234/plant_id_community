@@ -164,8 +164,9 @@ def _refresh_profile(author_id):
     """Recount the author's visible posts and re-derive trust — BOTH directions.
 
     Demotion matters: autopublish trust earned from posts later removed as spam
-    must be revoked, or the moderation gate is permanently defeated. A level the
-    old post_count could not have earned was granted manually (admin) — those
+    must be revoked, or the moderation gate is permanently defeated. A level
+    staff set (``trust_level_override``) never moves. Otherwise a level the old
+    post_count could not have earned was granted manually (admin) — those
     are only ever promoted, never clawed back. (Stored post_count is maintained
     by these same handlers, so it reflects the pre-change state here.)
     """
@@ -200,7 +201,9 @@ def _refresh_profile(author_id):
             author_id=author_id, live=True, topic__live=True
         ).count()
         new_earned = _earned_level(new_count, thresholds)
-        if locked.trust_level <= old_earned:
+        if locked.trust_level_override is not None:
+            locked.trust_level = locked.trust_level_override
+        elif locked.trust_level <= old_earned:
             locked.trust_level = new_earned
         else:
             locked.trust_level = max(locked.trust_level, new_earned)

@@ -35,6 +35,9 @@ from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+# Forum email goes only to a verified address (audit 2026-11-24 F211).
+pytestmark = pytest.mark.usefixtures("verified_accounts")
+
 User = get_user_model()
 Reason = EmailSuppression.Reason
 SITE = "https://web.example"

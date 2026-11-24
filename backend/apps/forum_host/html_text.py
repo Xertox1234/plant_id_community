@@ -18,9 +18,8 @@ from django.utils.html import strip_tags
 # "ab" — every word fused across a block boundary (verified; the todo 275
 # review's one high finding). That is the normal case for any multi-paragraph
 # rich-text value, and for a citation-anchored index it would also produce
-# fused, mis-anchored chunks. The package's own ``plain_text_excerpt`` avoids it
-# only ACROSS StreamField blocks (it joins block parts with a space); inside a
-# single rich-text block the boundary has to be reconstructed here.
+# fused, mis-anchored chunks. The package's own ``plain_text_excerpt`` rebuilds
+# the boundary as a space (one line); here it stays a newline.
 BLOCK_BOUNDARY_RE = re.compile(
     r"(?i)</(?:p|div|li|ul|ol|h[1-6]|blockquote|pre)\s*>|<br\s*/?>"
 )

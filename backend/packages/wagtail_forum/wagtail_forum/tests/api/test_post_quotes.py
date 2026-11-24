@@ -165,11 +165,13 @@ def test_quote_caps_and_shape_are_enforced():
     client.force_authenticate(quoter)
 
     too_many = _reply(
-        client, topic, [_quote(p1.id, "a"), _quote(p2.id, "b"), _quote(p3.id, "c")]
+        client, topic, [_quote(p1.id, "Original"), _quote(p2.id), _quote(p3.id)]
     )
     assert too_many.status_code == 400 and "at most 2" in str(too_many.data)
     same_twice = _reply(
-        client, topic, [_quote(p1.id, "a"), _quote(p1.id, "b"), _quote(p2.id, "c")]
+        client,
+        topic,
+        [_quote(p1.id, "Original"), _quote(p1.id, "wisdom."), _quote(p2.id)],
     )
     assert same_twice.status_code == 201  # distinct posts count, not blocks
     too_long = _reply(client, topic, [_quote(p1.id, "x" * 21)])
@@ -191,10 +193,12 @@ def test_quote_text_is_plain_text_by_contract_never_sanitized_or_rendered():
     board = _board()
     author = _member("q-xss-author")
     quoter = _member("q-xss-quoter")
-    topic, quoted = _topic_with_post(board, author)
+    hostile = "<script>alert(1)</script>quoted"
+    topic, quoted = _topic_with_post(
+        board, author, body="<p>&lt;script&gt;alert(1)&lt;/script&gt;quoted</p>"
+    )
     client = APIClient()
     client.force_authenticate(quoter)
-    hostile = "<script>alert(1)</script>quoted"
 
     resp = _reply(client, topic, [_quote(quoted.id, hostile)])
 
@@ -464,3 +468,165 @@ def test_plain_text_excerpt_includes_a_quotes_text():
         topic=topic, author=author, live=True, body=[_quote(quoted.id, "Quoted words")]
     )
     assert plain_text_excerpt(post.body, 200) == "Quoted words"
+
+
+# --- The text must match the quoted post (audit 2026-11-24 F3) --------------
+
+
+def _source(body):
+    """A quotable post with ``body`` blocks, a thread to reply in, a client."""
+    board = _board()
+    author = _member("q-match-author")
+    topic, quoted = _topic_with_post(board, author, title="Match source")
+    quoted.body = body
+    quoted.save()
+    client = APIClient()
+    client.force_authenticate(_member("q-match-quoter"))
+    return client, topic, quoted
+
+
+@pytest.mark.django_db
+def test_invented_words_are_refused_with_a_clear_message():
+    client, topic, quoted = _source(
+        [{"type": "paragraph", "value": "<p>Water it weekly.</p>"}]
+    )
+
+    resp = _reply(client, topic, [_quote(quoted.id, "Send me your password")])
+
+    assert resp.status_code == 400
+    assert "does not match" in str(resp.data)
+    assert Post.objects.filter(topic=topic).count() == 1
+
+
+RICH_SOURCE = [
+    {"type": "heading", "value": "Care & <b>feeding</b> &amp; more"},
+    {
+        "type": "paragraph",
+        "value": "<p>One <b>two</b><br/>three</p><p>fo<i>ur</i> &amp; five&nbsp;six"
+        "</p><ul><li>Alpha</li><li>Beta</li></ul><p>Done…</p>",
+    },
+    {"type": "code", "value": {"language": "python", "code": "a = 1\n  b < 2"}},
+    {"type": "quote", "value": "an old saying"},
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "text",
+    [
+        "One two three four & five six Alpha Beta Done…",
+        "One two\nthree\n\nfour",
+        "  four\u2003&\u00a0five\ufeffsix ",
+        "Care & <b>feeding</b> &amp; more One two",
+        "five six Al…",
+        "Done……",
+        "a = 1 b < 2 an old saying",
+        "Alpha\nBeta",
+    ],
+)
+def test_an_excerpt_of_the_post_is_accepted(text):
+    client, topic, quoted = _source(RICH_SOURCE)
+
+    resp = _reply(client, topic, [_quote(quoted.id, text)])
+
+    assert resp.status_code == 201, resp.data
+    # Stored as sent: the comparison never rewrites the text.
+    stored = Post.objects.get(pk=resp.data["id"]).body.raw_data[0]["value"]
+    assert stored["text"] == text
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "text",
+    [
+        "…",
+        " \ufeff ",
+        "One five",  # not contiguous
+        "One… three",  # an ellipsis counts only at the end
+        "…two",
+        "twothree",  # <br> is whitespace
+        "AlphaBeta",
+        "one two",  # case is kept
+        "<b>two</b>",
+        "One **two**",
+        "four &amp; five",  # the paragraph's entity is decoded
+    ],
+)
+def test_text_that_is_not_one_piece_of_the_post_is_refused(text):
+    client, topic, quoted = _source(RICH_SOURCE)
+
+    resp = _reply(client, topic, [_quote(quoted.id, text)])
+
+    assert resp.status_code == 400, resp.data
+
+
+@pytest.mark.django_db
+def test_a_nested_quote_is_neither_quotable_as_its_quoter_nor_skipped_over():
+    client, topic, quoted = _source(
+        [
+            {"type": "paragraph", "value": "<p>Before</p>"},
+            {"type": "post_quote", "value": {"post": 1, "text": "their words"}},
+            {"type": "paragraph", "value": "<p>After</p>"},
+        ]
+    )
+
+    for text in ("their words", "Before After", "Before their words"):
+        assert _reply(client, topic, [_quote(quoted.id, text)]).status_code == 400
+    assert _reply(client, topic, [_quote(quoted.id, "Before…")]).status_code == 201
+
+
+@pytest.mark.django_db
+def test_an_image_between_two_paragraphs_does_not_break_an_excerpt():
+    client, topic, quoted = _source(
+        [
+            {"type": "paragraph", "value": "<p>Before</p>"},
+            {"type": "image", "value": {"image": 1, "alt_text": "x"}},
+            {"type": "paragraph", "value": "<p>After</p>"},
+        ]
+    )
+
+    assert _reply(
+        client, topic, [_quote(quoted.id, "Before\n\nAfter")]
+    ).status_code == (201)
+
+
+@pytest.mark.django_db
+def test_a_post_the_writer_cannot_read_never_answers_whether_the_text_matches():
+    client, topic, quoted = _source(
+        [{"type": "paragraph", "value": "<p>Hidden words</p>"}]
+    )
+    Post.objects.filter(pk=quoted.pk).update(live=False)
+
+    for text in ("Hidden words", "other words"):
+        resp = _reply(client, topic, [_quote(quoted.id, text)])
+        assert resp.status_code == 400
+        assert "not available" in str(resp.data)
+
+
+@pytest.mark.django_db
+def test_an_edit_keeps_its_stored_quote_after_the_source_changed_but_not_new_text():
+    client, topic, quoted = _source(
+        [{"type": "paragraph", "value": "<p>First wording, kept.</p>"}]
+    )
+    created = _reply(client, topic, [_quote(quoted.id, "First wording,\nkept.")])
+    assert created.status_code == 201, created.data
+    url = f"/forum/posts/{created.data['id']}/"
+    quoted.body = [{"type": "paragraph", "value": "<p>Second wording.</p>"}]
+    quoted.save()
+
+    def patch(text, post=quoted):
+        body = [_quote(post.id, text), {"type": "paragraph", "value": "<p>X</p>"}]
+        return client.patch(url, {"body": body}, format="json")
+
+    kept = patch("First wording,\nkept.")
+    assert kept.status_code == 200, kept.data
+    # The same words of ANOTHER post are a new quote.
+    _, other = _topic_with_post(topic.board, quoted.author, title="Other")
+    assert patch("First wording, kept.", other).status_code == 400
+    # Changed words of the same post are a new quote, checked like one.
+    changed = patch("First wording, invented.")
+    assert changed.status_code == 400 and "does not match" in str(changed.data)
+    Post.objects.filter(pk=quoted.pk).update(live=False)
+    hidden = patch("Second wording.")
+    assert hidden.status_code == 400 and "not available" in str(hidden.data)
+    assert patch("First wording, kept.").status_code == 200

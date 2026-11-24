@@ -6,8 +6,10 @@ logic is copied in rather than imported because the package must not depend on
 the host's `apps.*` namespace (`tests/test_reusability.py`).
 """
 
+import io
 import logging
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
@@ -62,7 +64,10 @@ def validate_image_upload(image_file):
                     _("Image dimensions too large. Maximum %(width)sx%(height)s.")
                     % {"width": max_width, "height": max_height}
                 )
-            if (img.format or "").lower() not in ("jpeg", "png", "gif", "webp"):
+            # MPO is how Pillow reports a phone JPEG that carries extra frames
+            # (a depth map, a gain map): `normalize_image_upload` stores it as
+            # an ordinary JPEG.
+            if (img.format or "").lower() not in ("jpeg", "mpo", "png", "gif", "webp"):
                 raise ValidationError(
                     _('Invalid image format "%(format)s".') % {"format": img.format}
                 )
@@ -85,3 +90,63 @@ def validate_image_upload(image_file):
             exc,
         )
         raise ValidationError(_("Invalid image file.")) from exc
+
+
+def normalize_image_upload(image_file):
+    """*image_file* as it should be stored; it has passed ``validate_image_upload``.
+
+    An MPO (a multi-frame phone JPEG) becomes an ordinary JPEG of its first
+    frame, upright, in sRGB and without metadata, the host's avatar rule
+    (``apps/users/avatars.py``). Every other file is returned unchanged.
+    """
+    from PIL import Image as PILImage
+    from PIL import ImageCms, ImageOps
+
+    max_size = get_setting("IMAGE_MAX_SIZE_BYTES")
+    try:
+        image_file.seek(0)
+        with PILImage.open(image_file) as source:
+            if source.format != "MPO":
+                image_file.seek(0)
+                return image_file
+            source.load()
+            image = ImageOps.exif_transpose(source)
+        icc = image.info.get("icc_profile")
+        if icc:
+            # A wide-gamut photo (Display P3) keeps its colours once untagged.
+            # A profile Pillow cannot apply is ignored.
+            try:
+                image = (
+                    ImageCms.profileToProfile(
+                        image,
+                        ImageCms.ImageCmsProfile(io.BytesIO(icc)),
+                        ImageCms.createProfile("sRGB"),
+                        outputMode="RGB",
+                    )
+                    or image
+                )
+            except (ImageCms.PyCMSError, OSError, ValueError, TypeError):
+                logger.info("Forum image ICC profile not applied; stored as is")
+        output = io.BytesIO()
+        # Rebuilt from pixels alone, so no EXIF (GPS) or XMP is written back.
+        image = image.convert("RGB")
+        clean = PILImage.frombytes("RGB", image.size, image.tobytes())
+        clean.save(output, "JPEG", quality=90)
+    except Exception as exc:  # noqa: BLE001
+        # verify() reads only the structure; the pixels may still not decode,
+        # and crafted EXIF makes Pillow raise almost anything (struct.error,
+        # TypeError, AttributeError). Any of it is a bad file, not a 500.
+        logger.warning(
+            "[SECURITY] Forum image rejected (undecodable): name=%s error=%s",
+            image_file.name,
+            exc,
+        )
+        raise ValidationError(_("Invalid image file.")) from exc
+    if output.tell() > max_size:
+        raise ValidationError(
+            _("File too large. Maximum %(max_mb)sMB.")
+            % {"max_mb": max_size // (1024 * 1024)}
+        )
+    return SimpleUploadedFile(
+        image_file.name, output.getvalue(), content_type="image/jpeg"
+    )

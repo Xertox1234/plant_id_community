@@ -1032,7 +1032,7 @@ beat embedded in the co-located worker.
 `api/sanitize.py` validates it (`quotes.resolve_quotable_posts`: live post on
 a live visible board, author not block-paired with the writer, ≤
 `QUOTES_MAX_PER_POST` distinct posts, text ≤ `QUOTE_MAX_CHARS`) and rejects
-with one generic message. `serialize_forum_body` renders it through
+with one generic message, then requires the text to match (below). `serialize_forum_body` renders it through
 `build_forum_quote_map` (one query per page) as
 `{text, post_id, available, topic_id, author}`. The host's fan-out
 (`_quoted_authors_for` in `apps/forum_host/notifications.py`) turns each
@@ -1044,7 +1044,7 @@ Three review-caught rules (todo 342):
 
 - **An edit resends the whole body**, so write-time reference checks must
   exempt what the stored body already carries: the edit call site passes
-  `existing_quote_ids` (the image path's `existing_author_id` precedent,
+  `existing_quotes`, post id + text pairs (the image path's `existing_author_id` precedent,
   audit L21). Otherwise a quoted post that was later unpublished — or whose
   author later blocked the editor — locks the author out of saving ANY
   other change. Newly added quotes still resolve; caps and shape apply to all.
@@ -1052,9 +1052,15 @@ Three review-caught rules (todo 342):
   `is_blocked` / `is_muted` for the viewer (two bounded queries per page,
   only for filtered viewers), mirroring `PostSerializer`; clients collapse,
   never hide, because `available` must stay truthful.
-- **`text` is the QUOTER's excerpt**, not verified content: renderers show
-  it as "quoted by the post's author", attributed to the quoted member, and
-  must never present it as that member's verbatim words. Fan-out fires only
+- **`text` must be the quoted post's own words** (owner decision, audit
+  2026-11-24 F3; `quotes.quote_matches`). With all Unicode whitespace
+  collapsed to single spaces and one trailing `…` ignored, it must be a
+  contiguous piece of the quoted post's plain text (heading, paragraph, legacy
+  quote and code text; block boundaries, `<br>` and `<li>` count as
+  whitespace; a nested `post_quote`, embed or link card ends the run). Only
+  new quotes are checked: one already stored (same post id, same text) stays
+  valid after its source is edited, so a stored quote can be older than its
+  source. Fan-out fires only
   at create time (reply_added / topic_created): a quote or mention added by
   a later edit notifies nobody — the same pre-existing limit mentions have.
 

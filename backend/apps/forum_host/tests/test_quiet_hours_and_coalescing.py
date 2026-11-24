@@ -34,6 +34,9 @@ from wagtail_forum.models import ForumProfile, Post, Topic, TopicRead, TopicSubs
 from wagtail_forum.preferences import merge_preferences
 from wagtail_forum.tests.factories import make_forum
 
+# Forum email goes only to a verified address (audit 2026-11-24 F211).
+pytestmark = pytest.mark.usefixtures("verified_accounts")
+
 User = get_user_model()
 Kind = DeliveryIntent.Kind
 Status = DeliveryIntent.Status

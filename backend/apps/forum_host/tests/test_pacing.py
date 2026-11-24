@@ -29,6 +29,9 @@ from .test_quiet_hours_and_coalescing import (
     _topic,
 )
 
+# Forum email goes only to a verified address (audit 2026-11-24 F211).
+pytestmark = pytest.mark.usefixtures("verified_accounts")
+
 Kind = DeliveryIntent.Kind
 Status = DeliveryIntent.Status
 EVENT = "reply_added"

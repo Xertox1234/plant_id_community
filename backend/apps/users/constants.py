@@ -132,6 +132,11 @@ FORUM_HELD_POST_DAYS = 30
 # What an erased account's topics are titled. The same sentinel the forum
 # shows for a deleted author.
 DELETED_TOPIC_TITLE = "[deleted]"
+# The rest of an erased topic: its slug (the topic pk follows), its poll's
+# question, and its poll's options (the 1-based position fills {n}).
+DELETED_TOPIC_SLUG_PREFIX = "deleted-topic"
+DELETED_POLL_QUESTION = "[deleted]"
+DELETED_POLL_OPTION = "Option {n}"
 # What replaces a deleted child's words where another person's post quotes
 # them (an under-13 deletion only).
 DELETED_QUOTE_TEXT = "[deleted]"

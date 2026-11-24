@@ -232,3 +232,33 @@ def test_report_hard_deleted_between_create_and_lock_is_404_not_500(monkeypatch)
     # No orphaned report row survives the cascade — confirms the DB is left
     # consistent, not just that the response happens to be 404.
     assert not Report.objects.filter(post_id=opening.id).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("body", "expected_status", "stored"),
+    [
+        ({}, 200, ""),
+        ({"detail": ""}, 200, ""),  # what the web client sends
+        ({"detail": "x" * 280}, 200, "x" * 280),
+        ({"detail": "x" * 281}, 400, None),
+        ({"detail": None}, 400, None),
+    ],
+)
+def test_report_detail_is_optional_and_may_be_blank(body, expected_status, stored):
+    """F142/F206: JSON on purpose. A multipart blank reads as "not sent", so
+    it never reached the serializer's blank check."""
+    ensure_default_workflow()
+    _, opening = _live_topic()
+    client = APIClient()
+    client.force_authenticate(User.objects.create_user(username="r"))
+
+    resp = client.post(
+        f"/forum/posts/{opening.id}/reports/",
+        {"reason": "spam", **body},
+        format="json",
+    )
+
+    assert resp.status_code == expected_status
+    details = list(Report.objects.values_list("detail", flat=True))
+    assert details == ([] if stored is None else [stored])

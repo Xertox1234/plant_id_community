@@ -4,7 +4,8 @@ A `post_quote` block carries the quoted post's id and its text. Three rules:
 
 1. **Validated on write** (`api/sanitize.py` → `resolve_quotable_posts`): the
    quoted post must be live on a live, visible board, and its author must
-   not be block-paired with the writer; the count per body is capped. A
+   not be block-paired with the writer; the count per body is capped; the
+   text must be one piece of the quoted post's own text (`quote_matches`). A
    quote that fails is a 400, never silently stripped — the writer chose it.
 2. **Resolved on read in ONE query per page** (`api/serializers.py` →
    `build_forum_quote_map`): the envelope carries the text plus a safe
@@ -16,6 +17,8 @@ A `post_quote` block carries the quoted post's id and its text. Three rules:
 """
 
 from __future__ import annotations
+
+import re
 
 from django.contrib.auth.models import AbstractBaseUser
 from django.db.models import Q
@@ -37,6 +40,65 @@ def quoted_post_ids(raw_data) -> list[int]:
         if isinstance(pid, int) and not isinstance(pid, bool) and pid not in seen:
             seen.append(pid)
     return seen
+
+
+# Python's ``\s`` plus U+FEFF, which JavaScript and Dart count as whitespace.
+_WHITESPACE_RE = re.compile(r"[\s\ufeff]+")
+
+
+def _collapse(text: str) -> str:
+    return _WHITESPACE_RE.sub(" ", text).strip()
+
+
+def normalise_quote(text: str) -> str:
+    """A quote's text as it is compared (the rule the clients share): every
+    run of whitespace is one space, and one trailing "…", the truncation
+    mark, is dropped."""
+    return _collapse(_collapse(text).removesuffix("…"))
+
+
+def quotable_runs(raw_data) -> list[str]:
+    """A body's quotable plain text, whitespace collapsed, one entry per
+    unbroken run of blocks. Only a paragraph is HTML; heading, legacy quote
+    and code text is plain by contract. An image has no text. Any other block
+    (a nested ``post_quote``: someone else's words; an embed; a link card)
+    ends the run, so an excerpt neither quotes it nor skips over it."""
+    from .api.views import _rich_text_to_plain  # local import — avoids a cycle
+
+    runs: list[list[str]] = [[]]
+    for block in raw_data:
+        kind, value = block.get("type"), block.get("value")
+        if kind == "paragraph" and isinstance(value, str):
+            runs[-1].append(_rich_text_to_plain(value))
+        elif kind in ("heading", "quote") and isinstance(value, str):
+            runs[-1].append(value)
+        elif kind == "code" and isinstance(value, dict):
+            runs[-1].append(str(value.get("code") or ""))
+        elif kind != "image":
+            runs.append([])
+    return [text for run in runs if (text := _collapse(" ".join(run)))]
+
+
+def quote_matches(text: str, runs: list[str]) -> bool:
+    """Whether ``text`` is one contiguous piece of a post whose
+    ``quotable_runs`` are ``runs`` (owner decision, audit 2026-11-24 F3). Text
+    that is empty once normalised ("…") matches nothing."""
+    wanted = normalise_quote(text)
+    return bool(wanted) and any(wanted in run for run in runs)
+
+
+def stored_quotes(raw_data) -> set[tuple[int, str]]:
+    """``(post id, normalised text)`` of every post_quote a stored body
+    carries: an edit that resends one keeps it, whatever became of its
+    source."""
+    return {
+        (block["value"]["post"], normalise_quote(block["value"].get("text") or ""))
+        for block in raw_data
+        if isinstance(block, dict)
+        and block.get("type") == "post_quote"
+        and isinstance(block.get("value"), dict)
+        and "post" in block["value"]
+    }
 
 
 def visible_quoted_posts(ids, reader=None, *, request=None) -> dict[int, Post]:

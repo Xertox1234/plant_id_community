@@ -30,7 +30,8 @@ reach (diagnostics: todo 621).
 ## Effective opt-in for every live event
 
 "On" means the member gets it. Every row also needs an active account; email
-needs an address on file.
+needs an address on file, and forum email (the digest included) an address the
+account has verified.
 
 | Event | Channel | Sent when | Code |
 |-------|---------|-----------|------|

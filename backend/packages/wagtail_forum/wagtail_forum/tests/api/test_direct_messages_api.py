@@ -368,6 +368,40 @@ def test_report_message_reuses_report_model():
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("body", "expected_status", "stored"),
+    [
+        ({}, 200, ""),
+        ({"detail": ""}, 200, ""),  # what the web client sends
+        ({"detail": "x" * 280}, 200, "x" * 280),
+        ({"detail": "x" * 281}, 400, None),
+    ],
+)
+def test_message_report_detail_is_optional_and_may_be_blank(
+    body, expected_status, stored
+):
+    """F142/F206: JSON on purpose. A multipart blank reads as "not sent"."""
+    sender = User.objects.create_user(username="sender-blank")
+    recipient = User.objects.create_user(username="recipient-blank")
+    conversation = Conversation.between(sender, recipient)
+    message = Message.objects.create(
+        conversation=conversation, sender=sender, body="spam-ish"
+    )
+    client = APIClient()
+    client.force_authenticate(recipient)
+
+    resp = client.post(
+        f"/forum/messages/{message.pk}/report/",
+        {"reason": Report.SPAM, **body},
+        format="json",
+    )
+
+    assert resp.status_code == expected_status
+    details = list(Report.objects.values_list("detail", flat=True))
+    assert details == ([] if stored is None else [stored])
+
+
+@pytest.mark.django_db
 def test_cannot_report_own_message():
     sender = User.objects.create_user(username="sender-selfreport")
     recipient = User.objects.create_user(username="recipient-selfreport")
@@ -835,3 +869,40 @@ def test_a_conversation_with_nothing_unread_reports_zero_not_null():
     rows = client.get("/forum/conversations/").data["results"]
 
     assert [row["unread_count"] for row in rows] == [0]
+
+
+@pytest.mark.django_db
+def test_members_see_a_placeholder_for_a_message_a_moderator_removed():
+    from django.utils import timezone
+
+    sender = User.objects.create_user(username="rm-sender")
+    reader = User.objects.create_user(username="rm-reader")
+    conversation = Conversation.between(sender, reader)
+    kept = Message.objects.create(
+        conversation=conversation, sender=sender, body="kept words"
+    )
+    removed = Message.objects.create(
+        conversation=conversation,
+        sender=sender,
+        body="vile words",
+        removed_at=timezone.now(),
+    )
+    Conversation.objects.filter(pk=conversation.pk).update(
+        last_message_at=removed.created_at
+    )
+
+    for user in (sender, reader):
+        client = APIClient()
+        client.force_authenticate(user)
+        rows = client.get(f"/forum/conversations/{conversation.pk}/messages/")
+        bodies = {m["id"]: m["body"] for m in rows.data["results"]}
+        assert bodies == {kept.pk: "kept words", removed.pk: "[removed by a moderator]"}
+        inbox = client.get("/forum/conversations/")
+        last = inbox.data["results"][0]["last_message"]
+        assert last["body"] == "[removed by a moderator]"
+        lookup = client.get(
+            "/forum/conversations/with/"
+            f"{(reader if user == sender else sender).username}/"
+        )
+        for response in (rows, inbox, lookup):
+            assert b"vile" not in response.content

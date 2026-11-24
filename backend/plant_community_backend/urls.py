@@ -88,8 +88,10 @@ api_router.register_endpoint("pages", PagesAPIViewSet)
 api_router.register_endpoint("images", ImagesAPIViewSet)
 api_router.register_endpoint("documents", DocumentsAPIViewSet)
 # Headless redirect lookup: GET /api/v2/redirects/find/?html_path=<old path>
-# 302s to the matching row (or 404s). Rows come from the Wagtail admin and
-# from forum topic slug/board changes (apps/forum_host/redirects.py).
+# answers with the matching row, or 404s when there is none or the caller
+# cannot see the forum or topic it leads to. Only find is mounted. Rows come
+# from the Wagtail admin and from forum topic slug/board changes
+# (apps/forum_host/redirects.py).
 api_router.register_endpoint("redirects", RedirectsAPIViewSet)
 
 # Blog-specific endpoints

@@ -325,7 +325,7 @@ MIDDLEWARE = [
     "allauth.account.middleware.AccountMiddleware",  # OAuth middleware
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "wagtail.contrib.redirects.middleware.RedirectMiddleware",
+    "apps.forum_host.redirects.ForumRedirectMiddleware",
     "apps.blog.middleware.BlogViewTrackingMiddleware",  # Blog analytics (Phase 6.2)
 ]
 

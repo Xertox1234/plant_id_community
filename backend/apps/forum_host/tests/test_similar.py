@@ -366,3 +366,15 @@ def test_board_filter_narrows_results_to_that_board():
     ids = {t.id for t in results}
     assert ta.id in ids
     assert all(t.board_id == board_a.id for t in results)
+
+
+@pytest.mark.django_db
+def test_the_embedded_text_is_decoded_and_keeps_word_breaks():
+    """F139: the index embeds the words as written, not "&amp;" or a pair of
+    lines fused into one word."""
+    from apps.forum_host.vector_indexes import TopicSource
+
+    topic = _topic("Ferns", "Sun &amp; shade<br/>Water weekly", suffix="dec")
+
+    source = TopicSource(queryset=Topic.objects.all())
+    assert source.get_content(topic) == "Ferns\nSun & shade Water weekly"

@@ -414,7 +414,7 @@ The reference implementation is the host's `apps/forum_host/forum_settings.py`
 | `WAGTAILFORUM_SPAM_BACKEND` | `"wagtail_forum.spam.heuristic.HeuristicSpamBackend"` | Dotted path to the spam backend (see [Spam backends](#spam-backends)). |
 | `WAGTAILFORUM_TRUST_AUTOPUBLISH_LEVEL` | `2` (`TrustLevel.MEMBER`) | Minimum author trust level that publishes without moderation. |
 | `WAGTAILFORUM_MODERATION_BYPASS_PERMISSION` | `"wagtail_forum.publish_post"` | Authors who publish without moderation at any trust level: active superusers, plus any author holding this permission (grant it to your forum moderator group). Checked on the **author** at request time, never stored as `trust_level`, and applied to create, edit and DM screening alike. `None` = superusers only. Plain `is_staff` is not enough (todo 423). |
-| `WAGTAILFORUM_TRUST_THRESHOLDS` | `{1: 1, 2: 5, 3: 50, 4: 200}` | `trust_level -> minimum visible post_count`. Trust is re-derived in **both** directions, so trust funded by posts later removed as spam is revoked. Keys may be strings (JSON/env-friendly). |
+| `WAGTAILFORUM_TRUST_THRESHOLDS` | `{1: 1, 2: 5, 3: 50, 4: 200}` | `trust_level -> minimum visible post_count`. Trust is re-derived in **both** directions, so trust funded by posts later removed as spam is revoked. Keys may be strings (JSON/env-friendly). A level staff set on the profile in the admin (`trust_level_override`) stays in force until it is cleared. |
 | `WAGTAILFORUM_SPAM_MAX_LINKS` | `5` | Heuristic backend: max `http(s)://` occurrences before rejection. |
 | `WAGTAILFORUM_SPAM_BANNED_WORDS` | `[]` | Heuristic backend: case-insensitive substring blocklist. |
 | `WAGTAILFORUM_REPORT_AUTO_HIDE_THRESHOLD` | `3` | Distinct open reports on one post before it is auto-unpublished pending review. |
@@ -504,7 +504,13 @@ as `forum_host/bootstrap.py`'s "Forum Moderators" group does. The queue is a
 listing only: every row links to the `Report` snippet inspect view, where
 actioning/dismissing already lives. Note the read scope: message (DM)
 reports show the sender and a body excerpt to anyone who can open the
-queue, exactly as the Report snippet listing already does.
+queue, exactly as the Report snippet listing already does. The inspect view
+shows the whole reported message, that one only, to a holder of `view_report`
+or `change_report`, and logs each read; a holder of `change_report` can also
+remove it there (a confirm page, logged). A removed message keeps its row: the
+API answers `[removed by a moderator]` as its `body` to every member, and the
+open reports on it become `actioned`. A report's message cannot be changed in
+the admin.
 
 ### Inline image uploads
 
@@ -632,7 +638,7 @@ Things worth knowing before changing this:
 | `WAGTAILFORUM_NOTIFICATION_DEFAULTS` | reply push+email on; mention/quote/solution push on | Per-event `{push, email?}` matrix a member gets until they change a cell (todo 343). Only cells with a delivery path exist (email for replies only; the tray-silent moderation push is not a preference). In-app is always on. Stored overrides on `me/profile/` (`notification_preferences`, partial PATCH) win; a cell the host omits falls back to the package default. |
 | `WAGTAILFORUM_EMAIL_SITE_URL` | `None` | Absolute origin for links in package emails; `None` falls back to the host's `SITE_URL`. |
 | `WAGTAILFORUM_QUOTES_MAX_PER_POST` | `3` | Distinct posts one body may quote with the structured `post_quote` block (todo 342). |
-| `WAGTAILFORUM_QUOTE_MAX_CHARS` | `1000` | Max characters of a `post_quote` block's text; longer is a 400, never silently truncated. |
+| `WAGTAILFORUM_QUOTE_MAX_CHARS` | `1000` | Max characters of a `post_quote` block's text; longer is a 400, never silently truncated. The text must also be one piece of the quoted post's own text (`quotes.quote_matches`), else 400. |
 | `WAGTAILFORUM_MAX_EMBED_URLS_PER_BODY` | `5` | Distinct embed URLs one body may carry (they resolve concurrently, so this bounds pool pressure per write and iframes per post, not wall time). |
 | `WAGTAILFORUM_LINK_PREVIEW_FETCHER` | `None` | Dotted path to the host callable that fetches a linked page's metadata for a `link_preview` card (see [Link previews](#link-previews)). `None` = no cards; links stay links. |
 | `WAGTAILFORUM_LINK_PREVIEW_FETCH_TIMEOUT_SECONDS` | `5` | One window for ALL of a body's page fetches at write time (they run concurrently). A fetch still running when it closes leaves that link a link. |

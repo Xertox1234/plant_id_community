@@ -1,0 +1,16 @@
+{% extends "wagtailadmin/generic/base.html" %}
+{% load i18n %}
+
+{% block main_content %}
+    <p>
+        {% blocktrans trimmed with sender=report.message_sender %}
+            Remove this private message from {{ sender }}? Everyone in the conversation will see a note that a moderator removed it, and the open reports on it will be closed. There is no button to put it back.
+        {% endblocktrans %}
+    </p>
+    <blockquote>{{ report.message_text|linebreaksbr }}</blockquote>
+    <form action="{{ remove_url }}" method="POST">
+        {% csrf_token %}
+        <button type="submit" class="button serious">{% trans "Yes, remove the message" %}</button>
+        <a href="{{ cancel_url }}" class="button button-secondary">{% trans "No, go back" %}</a>
+    </form>
+{% endblock %}

@@ -15,7 +15,7 @@ from django.db.models import F
 from django.test.utils import CaptureQueriesContext
 from wagtail.contrib.redirects.models import Redirect
 from wagtail_forum.models import Forum, Topic
-from wagtail_forum.tests.factories import make_forum
+from wagtail_forum.tests.factories import hide_forum, make_forum
 
 pytestmark = pytest.mark.django_db
 
@@ -162,6 +162,119 @@ def test_the_redirects_api_resolves_the_old_path_for_a_headless_client(client):
 
     assert resp.status_code == 200
     assert resp.json()["location"] == topic.get_absolute_url()
+
+
+# --- the redirects API hides what the caller cannot see (audit 2026-11-24 F65) ---
+
+REDIRECTS_API = "/api/v2/redirects/"
+
+
+def _find(client, html_path, **extra):
+    return client.get(REDIRECTS_API + "find/", {"html_path": html_path, **extra})
+
+
+def _renamed_topic(board):
+    topic = _topic(board, "old-name")
+    old_path = topic.get_absolute_url()
+    topic.slug = "new-name"
+    topic.save()
+    return topic, old_path
+
+
+def test_the_redirects_api_lists_and_shows_nothing_but_find(client):
+    general, _ = _boards()
+    _, old_path = _renamed_topic(general)
+    row = Redirect.objects.get(old_path=old_path)
+
+    assert client.get(REDIRECTS_API).status_code == 404
+    assert client.get(f"{REDIRECTS_API}{row.pk}/").status_code == 404
+    assert client.get(REDIRECTS_API + "find/", {"id": row.pk}).status_code == 404
+    assert client.get(REDIRECTS_API + "find/").status_code == 404
+
+
+def test_find_answers_at_once_with_the_location(client):
+    general, _ = _boards()
+    topic, old_path = _renamed_topic(general)
+
+    resp = _find(client, old_path)
+
+    assert resp.status_code == 200
+    assert resp.json()["old_path"] == old_path
+    assert resp.json()["location"] == topic.get_absolute_url()
+    # Visibility is per caller, so no shared cache may hold the answer.
+    assert "no-store" in resp["Cache-Control"]
+
+
+def test_find_is_404_for_a_topic_moved_to_a_forum_the_caller_cannot_read(client):
+    from django.contrib.auth import get_user_model
+
+    general, staff_room = _boards()
+    topic = _topic(general, "old-name")
+    old_path = topic.get_absolute_url()
+    topic.board = staff_room
+    topic.save()
+    hide_forum(staff_room)
+
+    assert _find(client, old_path).status_code == 404
+
+    client.force_login(
+        get_user_model().objects.create_superuser("boss", "boss@example.org", "x" * 16)
+    )
+    resp = _find(client, old_path)
+    assert resp.status_code == 200
+    assert resp.json()["location"] == topic.get_absolute_url()
+
+
+def test_find_is_404_for_an_unpublished_or_deleted_topic(client):
+    general, _ = _boards()
+    topic, old_path = _renamed_topic(general)
+    Topic.objects.filter(pk=topic.pk).update(live=False)
+    assert _find(client, old_path).status_code == 404
+
+    topic.delete()
+    assert _find(client, old_path).status_code == 404
+
+
+def test_find_is_404_when_a_manual_row_names_a_hidden_forum(client):
+    _, staff_room = _boards()
+    hide_forum(staff_room)
+    path = f"/forum/{staff_room.pk}-{staff_room.slug}"
+    Redirect.add_redirect("/team", path)
+    Redirect.add_redirect("/team-full", f"https://houseplant.example{path}/?a=1")
+
+    assert _find(client, "/team").status_code == 404
+    assert _find(client, "/team-full").status_code == 404
+
+
+def test_the_middleware_does_not_answer_with_a_path_the_caller_cannot_see(client):
+    from django.contrib.auth import get_user_model
+
+    general, staff_room = _boards()
+    topic = _topic(general, "old-name")
+    old_path = topic.get_absolute_url()
+    topic.board = staff_room
+    topic.save()
+    hide_forum(staff_room)
+
+    # With the slash: without it APPEND_SLASH answers first, with the same path.
+    resp = client.get(old_path + "/")
+    assert resp.status_code == 404
+    assert "Location" not in resp
+
+    client.force_login(
+        get_user_model().objects.create_superuser("boss", "boss@example.org", "x" * 16)
+    )
+    resp = client.get(old_path + "/")
+    assert (resp.status_code, resp["Location"]) == (301, topic.get_absolute_url())
+
+
+def test_find_still_serves_rows_that_are_not_about_the_forum_tree(client):
+    general, _ = _boards()
+    Redirect.add_redirect("/old-about", "/about")
+    Redirect.add_redirect("/old-forum", f"/forum/{general.pk}-{general.slug}")
+
+    assert _find(client, "/old-about").json()["location"] == "/about"
+    assert _find(client, "/old-forum").status_code == 200
 
 
 # --- review round 1 (code-review, 2026-09-04) ---------------------------------

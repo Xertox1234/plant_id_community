@@ -33,7 +33,12 @@ from ..collections import get_forum_image_collection
 from ..conf import get_setting
 from ..embeds import is_supported_url, warm_embeds
 from ..link_previews import fetch_snapshots, get_fetcher, is_card_url
-from ..quotes import resolve_quotable_posts
+from ..quotes import (
+    normalise_quote,
+    quotable_runs,
+    quote_matches,
+    resolve_quotable_posts,
+)
 
 # Allowlist scoped to ForumBodyBlock's RichTextBlock features (bold, italic, link,
 # ol, ul, code) plus the structural tags Wagtail emits. nh3 drops everything else,
@@ -923,7 +928,7 @@ def validate_forum_body(
     value,
     allowed_uploader_ids,
     user=None,
-    existing_quote_ids=(),
+    existing_quotes=(),
     existing_link_previews=None,
     request=None,
 ):
@@ -944,12 +949,14 @@ def validate_forum_body(
     account deletion in the same operation, so a deleted author's pre-existing
     uploads carry ``uploaded_by_user_id=None`` right alongside the post.
 
-    ``existing_quote_ids`` (edit only) lists the posts the stored body ALREADY
-    quotes: they are exempt from the availability re-check, because an edit
-    resends the whole body and a quoted post that has since been unpublished
-    (or whose author has since blocked the editor) must not lock the author
-    — or a moderator — out of saving any other change. Shape and caps still
-    apply to every block; only NEWLY added quotes must resolve (todo 342).
+    ``existing_quotes`` (edit only) lists the quotes the stored body ALREADY
+    carries (``quotes.stored_quotes``: post id and text): they are exempt from
+    the availability and match re-checks, because an edit resends the whole
+    body and a quoted post that has since changed or been unpublished (or
+    whose author has since blocked the editor) must not lock the author — or
+    a moderator — out of saving any other change. Shape and caps still apply
+    to every block; only NEWLY added quotes, new words for an already quoted
+    post included, must resolve and match (todo 342, audit 2026-11-24 F3).
 
     ``existing_link_previews`` (edit only) maps each URL the stored body
     already shows as a card to its stored value (``link_preview_snapshots``):
@@ -1094,9 +1101,10 @@ def validate_forum_body(
 
     # Structured post quotes (todo 342): a dict {post, text}; the quoted post
     # must exist, be visible and not be authored by someone block-paired
-    # with the writer — a failure is a 400, never a silent strip. Distinct
-    # quoted posts are capped, and the text is bounded (plain text by the
-    # same contract as `quote`: consumers escape it at render time).
+    # with the writer, and the text must be in that post — a failure is a
+    # 400, never a silent strip. Distinct quoted posts are capped, and the
+    # text is bounded (plain text by the same contract as `quote`: consumers
+    # escape it at render time).
     quote_blocks = [
         block
         for block in value
@@ -1106,6 +1114,7 @@ def validate_forum_body(
         max_quotes = get_setting("QUOTES_MAX_PER_POST")
         max_chars = get_setting("QUOTE_MAX_CHARS")
         ids = []
+        new_quotes = []
         for block in quote_blocks:
             qv = block.get("value")
             pid = qv.get("post") if isinstance(qv, dict) else None
@@ -1124,11 +1133,13 @@ def validate_forum_body(
                 )
             if pid not in ids:
                 ids.append(pid)
+            if (pid, normalise_quote(text)) not in existing_quotes:
+                new_quotes.append((pid, text))
         if len(ids) > max_quotes:
             raise serializers.ValidationError(
                 _("A post may quote at most %(n)d other posts.") % {"n": max_quotes}
             )
-        new_ids = [pid for pid in ids if pid not in set(existing_quote_ids)]
+        new_ids = [pid for pid, _text in new_quotes]
         quotable = (
             resolve_quotable_posts(new_ids, user, request=request) if new_ids else {}
         )
@@ -1137,6 +1148,18 @@ def validate_forum_body(
             # the endpoint must not be an oracle for what exists.
             raise serializers.ValidationError(
                 _("One of the quoted posts is not available.")
+            )
+        # After the availability check, for every quote: a refusal must not
+        # tell the writer what a post they cannot read says.
+        # Each post's text is worked out once: a body may hold many quote
+        # blocks of one long post.
+        runs = {pid: quotable_runs(quotable[pid].body.raw_data) for pid in quotable}
+        if any(not quote_matches(text, runs[pid]) for pid, text in new_quotes):
+            raise serializers.ValidationError(
+                _(
+                    "A quote does not match the post it quotes. Quote that "
+                    "post's own words."
+                )
             )
 
     # Non-image chooser blocks stay rejected outright: there is no upload/

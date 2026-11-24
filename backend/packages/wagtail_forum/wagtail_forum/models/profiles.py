@@ -56,6 +56,18 @@ class ForumProfile(models.Model):
     trust_level = models.PositiveSmallIntegerField(
         choices=TrustLevel.choices, default=TrustLevel.NEW
     )
+    # The level staff pinned in the admin, or None for automatic. While set,
+    # `trust_level` equals it and the recount never moves it, up or down.
+    trust_level_override = models.PositiveSmallIntegerField(
+        _("trust level set by staff"),
+        choices=TrustLevel.choices,
+        null=True,
+        blank=True,
+        help_text=_(
+            "Keeps the member at this trust level whatever they post. Leave "
+            "empty for the level their posts earn."
+        ),
+    )
     post_count = models.PositiveIntegerField(default=0)
     flags_received = models.PositiveIntegerField(default=0)
     joined_at = models.DateTimeField(auto_now_add=True)

@@ -38,14 +38,21 @@ a host may not install, and the package must not assume it.
 """
 
 import logging
+import re
+from urllib.parse import unquote, urlsplit
 
 from django.db import transaction
 from django.db.models import Case, F, Q, Value, When
 from django.db.models.functions import Replace
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
+from django.http import Http404
+from django.urls import path
+from rest_framework.response import Response
 from wagtail.contrib.redirects import api as redirects_api
+from wagtail.contrib.redirects.middleware import RedirectMiddleware
 from wagtail.contrib.redirects.models import Redirect
+from wagtail_forum.api.views import _visible_rows, visible_topics
 from wagtail_forum.models import Forum, Topic
 from wagtail_forum.signals import topics_moved
 
@@ -175,6 +182,18 @@ def redirect_topic_path(old_path, new_path, *, keep_manual=False):
             is_permanent=True,
             automatically_created=True,
         )
+
+
+def delete_topic_redirects(topic_id):
+    """Delete every row from or to one of topic ``topic_id``'s paths, hand-made
+    ones included: an erased topic's old slugs are its author's words (audit
+    2026-11-24 F82). Matched by the id in the path, so a slug or forum the
+    topic had long ago is covered too. The web app resolves the topic by that
+    id, so an old link still opens it without a row."""
+    own_path = rf"/forum/[0-9]+-[^/]*/{int(topic_id)}-"
+    Redirect.objects.filter(
+        Q(old_path__regex=own_path) | Q(redirect_link__regex=own_path)
+    ).delete()
 
 
 # --- board slug renames (todo 334) -------------------------------------------
@@ -403,13 +422,92 @@ def redirect_moved_topics(sender, source, target, moves, **kwargs):
         _write_bulk_rows(pairs, hidden_old_paths, "the forum move")
 
 
+# The web app's forum and topic routes (web/src/utils/forumUrls.ts); the ids
+# are what it resolves by, so they are what decides visibility here.
+_FORUM_LINK_RE = re.compile(r"^/forum/(\d+)(?:-[^/]*)?(?:/(\d+)(?:-[^/]*)?)?/?$")
+
+
+def _link_visible(link, request):
+    """Whether the caller may be told about ``link``. A link to a forum or a
+    topic counts only when they can see that row (a locked password forum is
+    listed, so its own page is); a deleted row is not visible either. Any
+    other link, or none, is not the forum's to hide."""
+    if not link:
+        return True
+    match = _FORUM_LINK_RE.match(unquote(urlsplit(link).path))
+    if match is None:
+        return True
+    forum_id, topic_id = (int(part) if part else None for part in match.groups())
+    if topic_id is not None:
+        # The topic's own forum is in the rule; the one the link spells out
+        # (stale after a move) must be visible too, or its slug would leak.
+        topic = visible_topics(request=request).filter(pk=topic_id).first()
+        if topic is None:
+            return False
+        if topic.board_id == forum_id:
+            return True
+    return bool(
+        _visible_rows(
+            *(kind for kind, _ in Forum.FORUM_TYPE_CHOICES),
+            request=request,
+            include_locked=True,
+        )
+        .filter(pk=forum_id)
+        .exists()
+    )
+
+
+class ForumRedirectMiddleware(RedirectMiddleware):
+    """Wagtail's 404-to-redirect middleware, with the same rule as the lookup
+    below (audit 2026-11-24 F65): a row that leads to a forum or topic the
+    caller cannot see leaves the 404 as it was."""
+
+    def process_response(self, request, response):
+        answer = super().process_response(request, response)
+        if answer is response or _link_visible(answer.headers["Location"], request):
+            return answer
+        return response
+
+
 class RedirectsAPIViewSet(redirects_api.RedirectsAPIViewSet):
     """Wagtail's headless redirect lookup, mounted at ``/api/v2/redirects/``
-    (project ``urls.py``). ``versioning_class = None`` for the same reason
-    every project-owned Wagtail API viewset sets it (apps/blog/api/endpoints.py):
-    DRF's NamespaceVersioning otherwise 404s the router's ``wagtailapi``
-    namespace as an unknown version. Serves every redirect row, not only the
-    forum's — it lives here because the forum is what writes rows
-    automatically."""
+    (project ``urls.py``), cut down to ``find/?html_path=`` (audit 2026-11-24
+    F65). The stock listing and detail routes, and ``find/?id=``, let anyone
+    enumerate the paths of hidden, members-only and unpublished topics.
+
+    ``find`` answers with the row itself (the stock one redirects to the
+    detail route, which is gone), and 404s when the row leads to a forum or
+    topic the caller cannot see: the same answer as no row at all.
+
+    ``versioning_class = None`` for the same reason every project-owned
+    Wagtail API viewset sets it (apps/blog/api/endpoints.py): DRF's
+    NamespaceVersioning otherwise 404s the router's ``wagtailapi`` namespace
+    as an unknown version. Serves every redirect row, not only the forum's;
+    it lives here because the forum is what writes rows automatically."""
 
     versioning_class = None
+
+    @classmethod
+    def get_urlpatterns(cls):
+        return [path("find/", cls.as_view({"get": "find_view"}), name="find")]
+
+    def find_view(self, request):
+        row = None
+        html_path = request.GET.get("html_path")
+        if html_path:
+            try:
+                row = self.find_object(self.get_queryset(), request)
+            except Redirect.DoesNotExist:
+                row = None
+        if row is None or not _link_visible(row.link, request):
+            raise Http404("not found")
+        return Response(
+            {
+                "id": row.pk,
+                "meta": {"type": row._meta.label},
+                "old_path": row.old_path,
+                "location": row.link,
+            },
+            # The answer depends on who asks.
+            headers={"Cache-Control": "private, no-store"},
+        )

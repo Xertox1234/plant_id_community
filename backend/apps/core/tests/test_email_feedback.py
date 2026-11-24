@@ -47,6 +47,9 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+# Forum email goes only to a verified address (audit 2026-11-24 F211).
+pytestmark = pytest.mark.usefixtures("verified_accounts")
+
 User = get_user_model()
 
 # An obviously fake signing secret: 24 "x" bytes, base64.
@@ -676,6 +679,7 @@ class TestAccountSecurityUnchanged:
     def test_verification_for_a_bounced_address_is_terminal_and_changes_nothing_else(
         self, django_capture_on_commit_callbacks
     ):
+        from allauth.account.models import EmailAddress
         from apps.users import tasks
         from apps.users.email_verification import is_email_verified
 
@@ -684,6 +688,7 @@ class TestAccountSecurityUnchanged:
             email="ada@example.com",
             password="x-Pass-123!",  # pragma: allowlist secret
         )
+        EmailAddress.objects.filter(user=user).update(verified=False)
         _suppress("ada@example.com", Reason.HARD_BOUNCE)
         client = APIClient()
         client.force_authenticate(user=user)
