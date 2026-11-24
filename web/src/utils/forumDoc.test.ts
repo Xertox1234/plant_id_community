@@ -14,11 +14,8 @@ import { isBlankDoc, postQuoteNode, postQuoteText, QUOTE_TEXT_MAX_CHARS } from '
 const collapse = (s: string) => s.replace(/\s+/g, ' ').trim();
 
 function plainText(body: StreamFieldBlock[]): string {
-  const decode = (html: string) => {
-    const el = document.createElement('textarea');
-    el.innerHTML = html;
-    return el.value;
-  };
+  const textOf = (html: string) =>
+    new DOMParser().parseFromString(html, 'text/html').body.textContent ?? '';
   const parts = body.map((block) => {
     const value = (block as { value: unknown }).value;
     if (block.type === 'paragraph') {
@@ -26,7 +23,7 @@ function plainText(body: StreamFieldBlock[]): string {
         /<\/?(?:p|div|li|ul|ol|h[1-6]|blockquote|pre|br|hr)\b[^>]*>/gi,
         ' '
       );
-      return decode(spaced.replace(/<[^>]*>/g, ''));
+      return textOf(spaced);
     }
     if (typeof value === 'string') return value;
     const record = (value ?? {}) as Record<string, unknown>;
