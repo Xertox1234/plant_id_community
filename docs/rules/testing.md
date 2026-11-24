@@ -715,3 +715,6 @@ Compact checklist auto-injected before edits.
 - **Test an endpoint with the exact payload each client sends, blanks included.**
   A test that omits an optional field says nothing about `""`, which a form sends
   (audit 2026-11-24, F142: web reports always answered 400).
+- **Run one backend suite at a time.** Runs at once disturb each other's cached
+  counters (inferred: one Redis) and fail rate-limit, lockout and query-count tests
+  at random; re-run alone before judging (2026-11-24).

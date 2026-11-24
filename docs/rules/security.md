@@ -565,3 +565,6 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
   live row before showing it or sending it to a model, and purge every copy
   (index, embedding cache, stored sources) on edit, takedown and account erasure
   (`apps/forum_host/topic_copies.py`, audit 2026-11-24, F64).
+- **`strip_tags` can raise (`SuspiciousOperation`) on member text.** In code that
+  reads stored posts use `wagtail_forum.plain_text.safe_strip_tags`: one post must
+  not fail a listing or stop an erasure (audit 2026-11-24).
