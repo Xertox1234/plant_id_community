@@ -153,6 +153,22 @@ void main() {
       expect(api.latestRepliesCalls(1), 2);
     });
 
+    testWidgets('a mute refetches the home (F47)', (tester) async {
+      final api = _api();
+      final container = await _pump(
+        tester,
+        api,
+        auth: const AuthState(jwtToken: 'jwt'),
+      );
+      final before = _counts(api);
+      container
+          .read(authorMuteChangesProvider.notifier)
+          .emit(username: 'fern', muted: true);
+      await tester.pumpAndSettle();
+      expect(_counts(api).topics, before.topics + 1);
+      expect(_counts(api).experts, before.experts + 1);
+    });
+
     testWidgets('a sign-in refetches the home and shows the season', (
       tester,
     ) async {

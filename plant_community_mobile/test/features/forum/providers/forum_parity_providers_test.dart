@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/providers/forum_providers.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
+import 'package:plant_community_mobile/services/auth_service.dart';
 
 import '../support/forum_test_support.dart';
 
@@ -13,7 +16,10 @@ import '../support/forum_test_support.dart';
 /// (docs/patterns/riverpod.md → Unit-testing an @riverpod notifier).
 ProviderContainer _container(FakeForumApi api) {
   final container = ProviderContainer(
-    overrides: [forumApiProvider.overrideWithValue(api)],
+    overrides: [
+      forumApiProvider.overrideWithValue(api),
+      authServiceProvider.overrideWith(() => FakeAuthService(loggedIn: true)),
+    ],
   );
   addTearDown(container.dispose);
   return container;
@@ -295,6 +301,88 @@ void main() {
       expect(items.map((p) => p.isBlocked), [false, false, false]);
 
       expect(api.fetchPostsCalls, [null, page1.next]); // no refetch
+    });
+
+    test('muting from a thread splices loaded posts and an open profile, and '
+        'unmuting refetches the profile lists (F47)', () async {
+      final api = FakeForumApi()
+        ..profile = profile(
+          username: 'alice',
+          canMute: true,
+          recentTopics: [profileTopicRefJson(id: 1, title: 'Monstera care')],
+        )
+        ..posts = CursorPage(
+          items: [
+            post(id: 1, authorOverride: author(username: 'alice')),
+            post(id: 2, authorOverride: author(username: 'bob')),
+          ],
+        );
+      final container = _container(api);
+      container.listen(forumUserProfileProvider('alice'), (_, _) {});
+      container.listen(topicPostsProvider(10, null), (_, _) {});
+      await container.read(forumUserProfileProvider('alice').future);
+      await container.read(topicPostsProvider(10, null).future);
+      final posts = container.read(topicPostsProvider(10, null).notifier);
+      List<bool> muted() => container
+          .read(topicPostsProvider(10, null))
+          .asData!
+          .value
+          .items
+          .map((p) => p.isMuted)
+          .toList();
+      ForumProfile open() =>
+          container.read(forumUserProfileProvider('alice')).asData!.value;
+
+      await posts.setAuthorMuted('alice', muted: true);
+      expect(api.muteCalls, ['alice']);
+      expect(muted(), [true, false]);
+      expect(open().isMuted, isTrue);
+      expect(open().recentTopics, isEmpty);
+
+      await posts.setAuthorMuted('alice', muted: false);
+      await Future<void>.delayed(Duration.zero);
+      expect(api.unmuteCalls, ['alice']);
+      expect(muted(), [false, false]);
+      expect(open().isMuted, isFalse);
+      expect(open().recentTopics.single.title, 'Monstera care');
+    });
+
+    test(
+      'a mute that resolves after signing out is not broadcast (F47)',
+      () async {
+        final gate = Completer<void>();
+        final api = FakeForumApi()..muteGate = gate;
+        final container = _container(api);
+        container.listen(authServiceProvider, (_, _) {});
+        container.listen(authorMuteChangesProvider, (_, _) {});
+        final pending = container
+            .read(authorMuteChangesProvider.notifier)
+            .set('alice', muted: true);
+        (container.read(authServiceProvider.notifier) as FakeAuthService)
+            .setAuth(const AuthState());
+        gate.complete();
+        await pending;
+
+        expect(api.muteCalls, ['alice']);
+        expect(container.read(authorMuteChangesProvider), isNull);
+      },
+    );
+
+    test('a failed mute changes nothing and rethrows (F47)', () async {
+      final api = FakeForumApi()
+        ..profile = profile(username: 'alice', canMute: true)
+        ..failMuteWith = ApiException('slow down', statusCode: 429);
+      final container = _container(api);
+      container.listen(forumUserProfileProvider('alice'), (_, _) {});
+      await container.read(forumUserProfileProvider('alice').future);
+      await expectLater(
+        container.read(forumUserProfileProvider('alice').notifier).toggleMute(),
+        throwsA(isA<ApiException>()),
+      );
+      expect(
+        container.read(forumUserProfileProvider('alice')).asData!.value.isMuted,
+        isFalse,
+      );
     });
 
     test('ForumUserProfile.toggleBlock blocks optimistically, writes back the '

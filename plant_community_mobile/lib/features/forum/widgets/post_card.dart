@@ -13,8 +13,8 @@ import 'reaction_pills.dart';
 /// A single forum post: author identity, moderation/edited markers, the
 /// rendered StreamField body, and reactions.
 ///
-/// Stateful only for the blocked-author reveal (todo 341): a post whose
-/// author the viewer has blocked renders COLLAPSED (never hidden — removing
+/// Stateful only for the blocked/muted-author reveal (todo 341): a post whose
+/// author the viewer has blocked or muted renders COLLAPSED (never hidden — removing
 /// a reply mid-thread would break reply continuity) until "Show anyway" is
 /// tapped, a local, no-refetch reveal that mirrors the web's PostCard.
 class PostCard extends StatefulWidget {
@@ -31,6 +31,7 @@ class PostCard extends StatefulWidget {
     this.onToggleSolution,
     this.onShowHistory,
     this.onQuote,
+    this.onToggleMute,
     this.currentTopicId,
   });
 
@@ -85,6 +86,10 @@ class PostCard extends StatefulWidget {
   /// entry, so a post with no other capability still offers it.
   final VoidCallback? onQuote;
 
+  /// Called when Mute or Unmute is chosen, in the menu or on the muted
+  /// placeholder. Shown only when `post.canMute` AND a handler is wired.
+  final VoidCallback? onToggleMute;
+
   @override
   State<PostCard> createState() => _PostCardState();
 }
@@ -93,10 +98,22 @@ class _PostCardState extends State<PostCard> {
   bool _revealed = false;
 
   @override
+  void didUpdateWidget(covariant PostCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A reveal answers one block or mute; a new one collapses again.
+    if (oldWidget.post.isBlocked != widget.post.isBlocked ||
+        oldWidget.post.isMuted != widget.post.isMuted) {
+      _revealed = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final post = widget.post;
-    if (post.isBlocked && !_revealed) {
-      return _BlockedPlaceholder(
+    if ((post.isBlocked || post.isMuted) && !_revealed) {
+      return _CollapsedPlaceholder(
+        blocked: post.isBlocked,
+        onUnmute: post.canMute ? widget.onToggleMute : null,
         author: post.author,
         onReveal: () => setState(() => _revealed = true),
       );
@@ -164,6 +181,7 @@ class _PostCardState extends State<PostCard> {
                 onEdit: widget.onEdit,
                 onDelete: widget.onDelete,
                 onReport: widget.onReport,
+                onToggleMute: widget.onToggleMute,
                 isSolution: widget.isSolution,
                 onToggleSolution: widget.onToggleSolution,
               ),
@@ -219,6 +237,7 @@ class _PostMenu extends StatelessWidget {
     this.onEdit,
     this.onDelete,
     this.onReport,
+    this.onToggleMute,
     required this.isSolution,
     this.onToggleSolution,
   });
@@ -227,6 +246,7 @@ class _PostMenu extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final VoidCallback? onReport;
+  final VoidCallback? onToggleMute;
   final bool isSolution;
   final VoidCallback? onToggleSolution;
 
@@ -236,7 +256,8 @@ class _PostMenu extends StatelessWidget {
     final showDelete = onDelete != null && post.canDelete;
     final showReport = onReport != null && post.canReport;
     final showSolution = onToggleSolution != null;
-    if (!showEdit && !showDelete && !showReport && !showSolution) {
+    final showMute = onToggleMute != null && post.canMute;
+    if (!showEdit && !showDelete && !showReport && !showSolution && !showMute) {
       return const SizedBox.shrink();
     }
     return PopupMenuButton<String>(
@@ -250,6 +271,8 @@ class _PostMenu extends StatelessWidget {
             onDelete?.call();
           case 'report':
             onReport?.call();
+          case 'mute':
+            onToggleMute?.call();
           case 'solution':
             onToggleSolution?.call();
         }
@@ -263,6 +286,11 @@ class _PostMenu extends StatelessWidget {
         if (showEdit) const PopupMenuItem(value: 'edit', child: Text('Edit')),
         if (showDelete)
           const PopupMenuItem(value: 'delete', child: Text('Delete')),
+        if (showMute)
+          PopupMenuItem(
+            value: 'mute',
+            child: Text(post.isMuted ? 'Unmute member' : 'Mute member'),
+          ),
         if (showReport)
           const PopupMenuItem(value: 'report', child: Text('Report')),
       ],
@@ -270,42 +298,85 @@ class _PostMenu extends StatelessWidget {
   }
 }
 
-/// Collapsed placeholder for a blocked author's post (todo 284/M9 on the
-/// web; todo 341 here). The real content is already in the post (the
+/// Collapsed placeholder for a blocked or muted author's post (todo 284/M9
+/// on the web; todo 341 here). Blocked wins when both are set. The real content is already in the post (the
 /// server doesn't redact) — "Show anyway" reveals it locally.
-class _BlockedPlaceholder extends StatelessWidget {
-  const _BlockedPlaceholder({required this.author, required this.onReveal});
+class _CollapsedPlaceholder extends StatelessWidget {
+  const _CollapsedPlaceholder({
+    required this.blocked,
+    required this.author,
+    required this.onReveal,
+    this.onUnmute,
+  });
+
+  final bool blocked;
 
   final ForumAuthor author;
   final VoidCallback onReveal;
 
+  /// Offered on the muted placeholder only.
+  final VoidCallback? onUnmute;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final unmute = blocked ? null : onUnmute;
+    final reveal = TextButton(
+      onPressed: onReveal,
+      child: const Text('Show anyway'),
+    );
+    final notice = Row(
+      children: [
+        Icon(
+          blocked ? LucideIcons.ban : LucideIcons.volumeX,
+          size: 16,
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            blocked
+                ? "You've blocked ${author.name}."
+                : "You've muted ${author.name}.",
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        if (unmute == null) reveal,
+      ],
+    );
     return CanopyCard(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.md,
         vertical: AppSpacing.sm,
       ),
-      child: Row(
-        children: [
-          Icon(
-            LucideIcons.ban,
-            size: 16,
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Text(
-              "You've blocked ${author.name}.",
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+      child: unmute == null
+          ? notice
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.xs),
+                  child: notice,
+                ),
+                // Two actions under the text: beside it they leave the name
+                // no room at large text sizes.
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: unmute,
+                        child: const Text('Unmute'),
+                      ),
+                      reveal,
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ),
-          TextButton(onPressed: onReveal, child: const Text('Show anyway')),
-        ],
-      ),
     );
   }
 }

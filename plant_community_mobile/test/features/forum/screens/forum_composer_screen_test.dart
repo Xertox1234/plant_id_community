@@ -9,12 +9,14 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plant_community_mobile/features/forum/forum_format.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/models/forum_rich_text_markup.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_composer_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_image_picker.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_body_renderer.dart';
+import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -97,6 +99,7 @@ Future<TextSpan> _pumpRenderedBody(
 
 void main() {
   _backGuardTests();
+  _errorPlacementTests();
   group('rich text composer round-trip (todo 314) — compose -> submit -> '
       'render, one test per mark', () {
     testWidgets('bold', (tester) async {
@@ -438,6 +441,109 @@ Future<void> _pumpComposerBehindHome(
   );
   await tester.tap(find.text('open composer'));
   await tester.pumpAndSettle();
+}
+
+/// Audit 2026-11-24 F115: an error must be on screen where the member acted,
+/// and announced, not at the top of a form scrolled away from it.
+void _errorPlacementTests() {
+  group('composer errors (F115)', () {
+    Future<void> smallScreen(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+    }
+
+    /// Steps the form itself: a drag would land on the body field.
+    Future<void> scrollTo(WidgetTester tester, Finder target) async {
+      final form = tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position;
+      form.jumpTo(0);
+      await tester.pump();
+      while (target.hitTestable().evaluate().isEmpty &&
+          form.pixels < form.maxScrollExtent) {
+        form.jumpTo((form.pixels + 50).clamp(0, form.maxScrollExtent));
+        await tester.pump();
+      }
+    }
+
+    void expectVisibleAndAnnounced(WidgetTester tester, String message) {
+      final text = find.text(message);
+      expect(text.hitTestable(), findsOneWidget);
+      final rect = tester.getRect(text);
+      expect(rect.top, greaterThanOrEqualTo(kToolbarHeight));
+      expect(rect.bottom, lessThanOrEqualTo(480));
+      expect(
+        tester
+            .getSemantics(text)
+            .getSemanticsData()
+            .flagsCollection
+            .isLiveRegion,
+        isTrue,
+      );
+    }
+
+    testWidgets('a refused post shows its error beside Post', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await smallScreen(tester);
+      const message = 'The quote does not match the quoted post.';
+      final api = FakeForumApi()
+        ..failCreateReplyWith = ApiException(message, statusCode: 400);
+      await _pumpComposerBehindHome(
+        tester,
+        api,
+        args: const ForumComposeArgs.reply(
+          topicId: 10,
+          quote: ForumQuoteDraft(
+            postId: 2,
+            text: 'Water it less.',
+            authorName: 'Bob',
+          ),
+        ),
+      );
+      await tester.enterText(find.byType(TextField), 'line\n' * 12);
+      await tester.pumpAndSettle();
+      final postButton = find.widgetWithText(FilledButton, 'Post');
+      await scrollTo(tester, postButton);
+      await tester.tap(postButton);
+      await tester.pumpAndSettle();
+
+      expectVisibleAndAnnounced(tester, message);
+      expect(postButton.hitTestable(), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('a refused photo shows its error on screen', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await smallScreen(tester);
+      const message = 'That photo is over 10 MB. Pick a smaller one.';
+      await _pumpComposerBehindHome(
+        tester,
+        FakeForumApi(),
+        args: const ForumComposeArgs.topic(
+          boardSlug: 'help',
+          boardTitle: 'Help',
+          canPoll: true,
+        ),
+        imagePicker: FakeForumImagePicker(
+          throwOnPick: ApiException(message, statusCode: 413),
+        ),
+      );
+      await tester.enterText(find.byType(TextField).last, 'line\n' * 12);
+      await tester.pumpAndSettle();
+      final addPoll = find.widgetWithText(OutlinedButton, 'Add poll');
+      await scrollTo(tester, addPoll);
+      await tester.tap(addPoll);
+      await tester.pumpAndSettle();
+      final addPhoto = find.widgetWithText(OutlinedButton, 'Add photo');
+      await scrollTo(tester, addPhoto);
+      await tester.tap(addPhoto);
+      await tester.pumpAndSettle();
+
+      expectVisibleAndAnnounced(tester, message);
+      semantics.dispose();
+    });
+  });
 }
 
 void _backGuardTests() {

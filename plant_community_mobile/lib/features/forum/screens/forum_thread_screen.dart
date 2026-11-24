@@ -65,7 +65,8 @@ class ForumThreadScreen extends ConsumerWidget {
 
     final live = ref.watch(topicLiveProvider(topicId));
     final topic = detail.asData?.value;
-    final title = topic?.title ?? initialTitle ?? 'Topic';
+    final heading = topic?.title ?? initialTitle;
+    final title = heading ?? 'Topic';
     final isLocked = topic?.isLocked ?? false;
     final isSubscribed = topic?.isSubscribed ?? false;
     final isBookmarked = topic?.isBookmarked ?? false;
@@ -128,6 +129,7 @@ class ForumThreadScreen extends ConsumerWidget {
                   ),
                   data: (paged) => _ThreadBody(
                     topicId: topicId,
+                    title: heading,
                     paged: paged,
                     canReact: isAuthenticated,
                     onReact: isAuthenticated
@@ -145,6 +147,9 @@ class ForumThreadScreen extends ConsumerWidget {
                     onDelete: (post) => _confirmDelete(context, ref, post),
                     onReport: isAuthenticated
                         ? (post) => _reportPost(context, ref, post)
+                        : null,
+                    onToggleMute: isAuthenticated
+                        ? (post) => _toggleMute(context, ref, post)
                         : null,
                     onShowHistory: isAuthenticated
                         ? (post) => showForumEditHistorySheet(
@@ -436,6 +441,33 @@ class ForumThreadScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _toggleMute(
+    BuildContext context,
+    WidgetRef ref,
+    ForumPost post,
+  ) async {
+    try {
+      await ref
+          .read(_postsOf(ref).notifier)
+          .setAuthorMuted(post.author.username, muted: !post.isMuted);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            forumErrorMessage(
+              e,
+              fallback: post.isMuted
+                  ? 'Could not unmute this member.'
+                  : 'Could not mute this member.',
+              forbidden: "You can't mute this member.",
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
   /// Open the composer in edit mode (todo 292). Unlike [_openReply], a
   /// successful publish pops the updated [ForumPost] itself (not a bare
   /// `true`) — [TopicPosts.applyEditedPost] splices it into the already-
@@ -540,6 +572,7 @@ const _maxJumpSteps = 60;
 class _ThreadBody extends StatefulWidget {
   const _ThreadBody({
     required this.topicId,
+    this.title,
     required this.paged,
     required this.canReact,
     required this.onReact,
@@ -548,6 +581,7 @@ class _ThreadBody extends StatefulWidget {
     required this.onEdit,
     required this.onDelete,
     this.onReport,
+    this.onToggleMute,
     this.onShowHistory,
     this.solvedPostId,
     this.onToggleSolution,
@@ -567,6 +601,10 @@ class _ThreadBody extends StatefulWidget {
   });
 
   final int topicId;
+
+  /// The topic's title, shown whole above the first post (audit F303): the
+  /// app bar keeps it on one line. `null` until it is known.
+  final String? title;
   final PagedList<ForumPost> paged;
   final bool canReact;
   final void Function(int postId, String type)? onReact;
@@ -575,6 +613,7 @@ class _ThreadBody extends StatefulWidget {
   final void Function(ForumPost post) onEdit;
   final void Function(ForumPost post) onDelete;
   final void Function(ForumPost post)? onReport;
+  final void Function(ForumPost post)? onToggleMute;
   final void Function(ForumPost post)? onShowHistory;
 
   /// The accepted answer's post id (todo 341) — drives the card ring and
@@ -840,13 +879,19 @@ class _ThreadBodyState extends State<_ThreadBody> {
       if (mounted) _reportAtBottom();
     });
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final title = widget.title;
     if (widget.paged.items.isEmpty) {
       return _refreshable(
         ListView(
           controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
-          children: const [
-            SizedBox(height: 200, child: Center(child: Text('No posts yet.'))),
+          padding: const EdgeInsets.all(AppSpacing.md),
+          children: [
+            if (title != null) _ThreadTitle(title),
+            const SizedBox(
+              height: 200,
+              child: Center(child: Text('No posts yet.')),
+            ),
           ],
         ),
       );
@@ -884,6 +929,9 @@ class _ThreadBodyState extends State<_ThreadBody> {
           onReport: widget.onReport == null
               ? null
               : () => widget.onReport!(post),
+          onToggleMute: widget.onToggleMute == null
+              ? null
+              : () => widget.onToggleMute!(post),
           onShowHistory: widget.onShowHistory == null
               ? null
               : () => widget.onShowHistory!(post),
@@ -952,8 +1000,8 @@ class _ThreadBodyState extends State<_ThreadBody> {
 }
 
 extension on _ThreadBodyState {
-  /// [card] plus the identification snapshot and poll cards (todo 341 wave
-  /// 3), or just [card] when the topic carries neither.
+  /// The topic title, then [card] plus the identification snapshot and poll
+  /// cards (todo 341 wave 3).
   Widget _withHeaderCards(Widget card, {required bool leading}) {
     final identification = widget.identification;
     final poll = widget.poll;
@@ -967,15 +1015,40 @@ extension on _ThreadBodyState {
       if (poll != null)
         PollCard(poll: poll, canVote: widget.canVote, onVote: widget.onVote),
     ];
-    if (cards.isEmpty) return card;
-    final ordered = leading ? [...cards, card] : [card, ...cards];
+    final title = widget.title;
+    final ordered = [
+      if (title != null) _ThreadTitle(title),
+      if (leading) ...[...cards, card] else ...[card, ...cards],
+    ];
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (var i = 0; i < ordered.length; i++) ...[
           if (i > 0) const SizedBox(height: AppSpacing.sm),
           ordered[i],
         ],
       ],
+    );
+  }
+}
+
+/// The whole topic title, however many lines it takes.
+class _ThreadTitle extends StatelessWidget {
+  const _ThreadTitle(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    // Its own node, or the list item merges it with the post's text.
+    return Semantics(
+      container: true,
+      header: true,
+      child: Text(
+        title,
+        key: const ValueKey('thread-title'),
+        style: Theme.of(context).textTheme.titleLarge,
+      ),
     );
   }
 }

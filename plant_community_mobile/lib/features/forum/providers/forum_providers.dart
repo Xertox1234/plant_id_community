@@ -529,12 +529,36 @@ class TopicDetail extends _$TopicDetail {
 }
 
 /// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
-/// plus the viewer's block/unblock of that member (todo 341).
+/// plus the viewer's block/unblock of that member (todo 341) and mute/unmute.
 @riverpod
 class ForumUserProfile extends _$ForumUserProfile {
   @override
   Future<ForumProfile> build(String username) {
+    ref.listen(authorMuteChangesProvider, (_, change) {
+      if (change != null && change.username == username) {
+        _applyMuted(change.muted);
+      }
+    });
     return ref.watch(forumApiProvider).fetchProfile(username);
+  }
+
+  /// Mute if not muted, else unmute. Rethrows; the state changes through
+  /// [AuthorMuteChanges], as it does for a mute made from a post.
+  Future<void> toggleMute() async {
+    final current = state.asData?.value;
+    if (current == null) return;
+    await ref
+        .read(authorMuteChangesProvider.notifier)
+        .set(username, muted: !current.isMuted);
+  }
+
+  /// A mute clears the activity lists; an unmute refetches them, because the
+  /// server sent none while the mute stood.
+  void _applyMuted(bool muted) {
+    final current = state.asData?.value;
+    if (current == null || current.isMuted == muted) return;
+    state = AsyncData(current.withMuted(muted));
+    if (!muted) ref.invalidateSelf();
   }
 
   /// Block if not blocked, else unblock. Optimistic with revert (a block is
@@ -577,6 +601,48 @@ class ForumUserProfile extends _$ForumUserProfile {
     ref
         .read(authorBlockChangesProvider.notifier)
         .emit(username: username, blocked: blocked);
+  }
+}
+
+/// One mute/unmute the viewer just performed, for [AuthorMuteChanges].
+class AuthorMuteChange {
+  const AuthorMuteChange({required this.username, required this.muted});
+  final String username;
+  final bool muted;
+}
+
+/// The most recent mute/unmute the viewer performed, from a thread or a
+/// profile. Every mounted thread and profile splices it locally, for the
+/// reasons [AuthorBlockChanges] gives. Its own provider, so a block and a
+/// mute made on one profile both reach a paused thread underneath.
+@Riverpod(keepAlive: true)
+class AuthorMuteChanges extends _$AuthorMuteChanges {
+  @override
+  AuthorMuteChange? build() => null;
+
+  /// Send the mute or unmute, then broadcast the state the server returned.
+  /// Not optimistic: nothing changes unless the server agrees.
+  Future<void> set(String username, {required bool muted}) async {
+    if (!_inFlight.add(username)) return; // Never two opposite writes.
+    try {
+      final viewer = ref.read(forumViewerProvider);
+      final api = ref.read(forumApiProvider);
+      final result = muted
+          ? await api.muteUser(username)
+          : await api.unmuteUser(username);
+      // Signed out or another account meanwhile: not that viewer's mute.
+      if (ref.mounted && ref.read(forumViewerProvider) == viewer) {
+        emit(username: username, muted: result);
+      }
+    } finally {
+      _inFlight.remove(username);
+    }
+  }
+
+  final _inFlight = <String>{};
+
+  void emit({required String username, required bool muted}) {
+    state = AuthorMuteChange(username: username, muted: muted);
   }
 }
 
@@ -632,6 +698,11 @@ class TopicPosts extends _$TopicPosts {
         applyAuthorBlocked(change.username, blocked: change.blocked);
       }
     });
+    ref.listen(authorMuteChangesProvider, (_, change) {
+      if (change != null) {
+        _spliceAuthor(change.username, (p) => p.withMuted(change.muted));
+      }
+    });
     final api = ref.watch(forumApiProvider);
     await _awaitUnlocks(ref, viewer);
     final page = await api.fetchPosts(topicId: topicId);
@@ -640,7 +711,15 @@ class TopicPosts extends _$TopicPosts {
 
   /// Rewrite `isBlocked` on every loaded post by [username] — a local
   /// splice, same discipline as [applyEditedPost].
-  void applyAuthorBlocked(String username, {required bool blocked}) {
+  void applyAuthorBlocked(String username, {required bool blocked}) =>
+      _spliceAuthor(username, (p) => p.withBlocked(blocked));
+
+  /// Mute or unmute a post's author; every loaded post by them follows.
+  /// Rethrows so the caller can surface the error.
+  Future<void> setAuthorMuted(String username, {required bool muted}) =>
+      ref.read(authorMuteChangesProvider.notifier).set(username, muted: muted);
+
+  void _spliceAuthor(String username, ForumPost Function(ForumPost) splice) {
     final current = state.asData?.value;
     if (current == null) return;
     if (!current.items.any((p) => p.author.username == username)) return;
@@ -648,7 +727,7 @@ class TopicPosts extends _$TopicPosts {
       PagedList(
         items: [
           for (final p in current.items)
-            if (p.author.username == username) p.withBlocked(blocked) else p,
+            if (p.author.username == username) splice(p) else p,
         ],
         nextUrl: current.nextUrl,
         isLoadingMore: current.isLoadingMore,

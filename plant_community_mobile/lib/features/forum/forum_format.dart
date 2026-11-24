@@ -24,16 +24,22 @@ class ForumQuoteDraft {
   final String authorName;
 }
 
-/// The quote draft the "Quote" action pre-fills for [post]: its
-/// reader-visible text capped at [forumQuoteMaxChars], keyed to the post's
+/// The quote draft the "Quote" action pre-fills for [post]: its first
+/// unbroken stretch of text ([forumBodyQuotableText]) capped at [forumQuoteMaxChars], keyed to the post's
 /// id. Returns `null` when the post has no quotable text (image-only,
 /// deleted image, an embed).
 ForumQuoteDraft? forumQuoteDraft(ForumPost post) {
-  var text = forumBodyPlainText(post.body);
+  var (:text, :truncated) = forumBodyQuotableText(post.body);
   if (text.isEmpty) return null;
   if (text.length > forumQuoteMaxChars) {
-    text = '${text.substring(0, forumQuoteMaxChars).trimRight()}…';
+    var end = forumQuoteMaxChars;
+    // Never cut between the two halves of a surrogate pair: the half left
+    // behind is in no text the server can match.
+    if (text.codeUnitAt(end - 1) & 0xFC00 == 0xD800) end--;
+    text = text.substring(0, end).trimRight();
+    truncated = true;
   }
+  if (truncated) text = '$text…';
   return ForumQuoteDraft(
     postId: post.id,
     text: text,

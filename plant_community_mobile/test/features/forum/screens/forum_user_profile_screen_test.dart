@@ -314,6 +314,59 @@ void main() {
       expect(find.text('Unblock'), findsOneWidget);
     });
 
+    testWidgets('a muted member shows the muted notice, not empty lists, and '
+        'Unmute brings the activity back (F47)', (tester) async {
+      final api = FakeForumApi()
+        ..profile = profile(username: 'alice', isMuted: true, canMute: true);
+      await tester.pumpWidget(_wrap(api, me: 'me'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining("You've muted alice"), findsOneWidget);
+      expect(find.text('No topics yet.'), findsNothing);
+      expect(find.text('No replies yet.'), findsNothing);
+      expect(_messageButton(), findsOneWidget); // a mute leaves DMs alone
+
+      api.profile = profile(
+        username: 'alice',
+        canMute: true,
+        recentTopics: [profileTopicRefJson(id: 1, title: 'Monstera care')],
+      );
+      await tester.tap(menu());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Unmute'));
+      await tester.pumpAndSettle();
+      expect(api.unmuteCalls, ['alice']);
+      expect(find.textContaining("You've muted"), findsNothing);
+      expect(find.text('Monstera care'), findsOneWidget);
+
+      await tester.tap(menu());
+      await tester.pumpAndSettle();
+      expect(find.text('Block'), findsNothing); // can_block is false
+      await tester.tap(find.text('Mute'));
+      await tester.pumpAndSettle();
+      expect(api.muteCalls, ['alice']);
+      expect(find.textContaining("You've muted alice"), findsOneWidget);
+    });
+
+    testWidgets('a failed mute says why and is hidden when signed out (F47)', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..profile = profile(username: 'alice', canMute: true)
+        ..failMuteWith = ApiException('slow down', statusCode: 429);
+      await tester.pumpWidget(_wrap(api, me: 'me'));
+      await tester.pumpAndSettle();
+      await tester.tap(menu());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mute'));
+      await tester.pumpAndSettle();
+      expect(find.text('Too fast — try again in a minute'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+      expect(menu(), findsNothing);
+    });
+
     testWidgets('cancelling the confirmation sends nothing', (tester) async {
       final api = FakeForumApi()
         ..profile = profile(username: 'alice', canBlock: true);

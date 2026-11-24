@@ -82,6 +82,8 @@ class ForumProfile {
     required this.recentPosts,
     this.isBlocked = false,
     this.canBlock = false,
+    this.isMuted = false,
+    this.canMute = false,
     this.badges = const [],
   });
 
@@ -103,6 +105,13 @@ class ForumProfile {
   /// viewer and on your own profile — server authority (`UserBlock.can_block`).
   final bool canBlock;
 
+  /// Whether the VIEWER has muted this member (todo 347). As with a block,
+  /// the server sends empty [recentTopics]/[recentPosts] when `true`.
+  final bool isMuted;
+
+  /// Whether the viewer may mute this member — server authority.
+  final bool canMute;
+
   /// Earned badges in display order (todo 348). Public identity — the
   /// server sends them even to a viewer who blocked this member (a block
   /// hides their CONTENT, not who they are), so [withBlocked] keeps them.
@@ -112,17 +121,27 @@ class ForumProfile {
   /// A freshly-blocked member's activity lists are cleared to match what
   /// the server will send on the next fetch; an unblock leaves the (already
   /// empty) lists alone — they refill on the next open.
-  ForumProfile withBlocked(bool isBlocked) {
+  ForumProfile withBlocked(bool isBlocked) =>
+      _withRelation(isBlocked: isBlocked, isMuted: isMuted);
+
+  /// [withBlocked]'s twin for the mute toggle.
+  ForumProfile withMuted(bool isMuted) =>
+      _withRelation(isBlocked: isBlocked, isMuted: isMuted);
+
+  ForumProfile _withRelation({required bool isBlocked, required bool isMuted}) {
+    final hidden = isBlocked || isMuted;
     return ForumProfile(
       author: author,
       bio: bio,
       signature: signature,
       postCount: postCount,
       joinedAt: joinedAt,
-      recentTopics: isBlocked ? const [] : recentTopics,
-      recentPosts: isBlocked ? const [] : recentPosts,
+      recentTopics: hidden ? const [] : recentTopics,
+      recentPosts: hidden ? const [] : recentPosts,
       isBlocked: isBlocked,
       canBlock: canBlock,
+      isMuted: isMuted,
+      canMute: canMute,
       badges: badges,
     );
   }
@@ -144,6 +163,8 @@ class ForumProfile {
           .toList(growable: false),
       isBlocked: json['is_blocked'] as bool? ?? false,
       canBlock: json['can_block'] as bool? ?? false,
+      isMuted: json['is_muted'] as bool? ?? false,
+      canMute: json['can_mute'] as bool? ?? false,
       badges: parseForumBadges(json['badges']),
     );
   }

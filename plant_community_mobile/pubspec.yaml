@@ -49,6 +49,7 @@ dependencies:
   go_router: ^18.1.4
 
   # Image Handling
+  image: ^4.13.1  # JPEG encoder for downscaling oversized forum photos (audit 2026-11-24 F207)
   image_picker: ^1.2.4
   cached_network_image: ^4.0.7
   flutter_cache_manager: ^3.5.0  # Private scan-photo cache, emptied on sign-out (scan-2 audit M7)

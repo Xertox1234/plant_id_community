@@ -38,6 +38,7 @@
 /// than crashing the whole body.
 library;
 
+import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
 
 import 'forum_author.dart';
@@ -412,33 +413,90 @@ Map<String, dynamic> buildPostQuoteBlockBody(int postId, String text) {
 /// not nest its own quotation — the same convention Discourse applies),
 /// images, embeds, link cards, deleted images and unknown blocks (nothing a
 /// reader could re-read).
-String forumBodyPlainText(List<ForumBodyBlock> blocks) {
-  final parts = <String>[];
+String forumBodyPlainText(List<ForumBodyBlock> blocks) =>
+    _joinBlockText(blocks);
+
+/// The part of a body a quote may carry as ONE excerpt. The server refuses a
+/// quote whose text is not a contiguous part of the quoted post's text
+/// (whitespace aside), so the excerpt stops at the first skipped block that
+/// may carry text of its own (a nested quote, an embed, a link card); joining
+/// the text on both sides of it would not be contiguous. Images carry none.
+/// `truncated` says quotable text was left out after the excerpt.
+({String text, bool truncated}) forumBodyQuotableText(
+  List<ForumBodyBlock> blocks,
+) {
+  final run = <ForumBodyBlock>[];
+  var ended = false;
+  var truncated = false;
   for (final block in blocks) {
-    final text = switch (block) {
-      HeadingBlock(:final text) => text,
-      ParagraphBlock(:final html) => _paragraphHtmlToText(html),
-      CodeBlock(:final code) => code,
-      QuoteBlock() ||
-      PostQuoteBlock() ||
-      ForumImageBlock() ||
-      DeletedImageBlock() ||
-      EmbedBlock() ||
-      LinkPreviewBlock() ||
-      UnknownBlock() => '',
-    }.trim();
-    if (text.isNotEmpty) parts.add(text);
+    switch (block) {
+      case HeadingBlock() || ParagraphBlock() || CodeBlock():
+        if (_blockText(block).isEmpty) continue;
+        if (ended) {
+          truncated = true;
+        } else {
+          run.add(block);
+        }
+      case ForumImageBlock() || DeletedImageBlock():
+        continue;
+      case QuoteBlock() ||
+          PostQuoteBlock() ||
+          EmbedBlock() ||
+          LinkPreviewBlock() ||
+          UnknownBlock():
+        if (run.isNotEmpty) ended = true;
+    }
   }
-  return parts.join('\n\n');
+  return (text: _joinBlockText(run), truncated: truncated);
 }
 
+String _joinBlockText(List<ForumBodyBlock> blocks) =>
+    blocks.map(_blockText).where((text) => text.isNotEmpty).join('\n\n');
+
+String _blockText(ForumBodyBlock block) => switch (block) {
+  HeadingBlock(:final text) => text,
+  ParagraphBlock(:final html) => _paragraphHtmlToText(html),
+  CodeBlock(:final code) => code,
+  QuoteBlock() ||
+  PostQuoteBlock() ||
+  ForumImageBlock() ||
+  DeletedImageBlock() ||
+  EmbedBlock() ||
+  LinkPreviewBlock() ||
+  UnknownBlock() => '',
+}.trim();
+
+const _paragraphBlockTags = {
+  'p', 'div', 'ul', 'ol', 'li', 'blockquote', 'pre', 'hr', //
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+};
+
 String _paragraphHtmlToText(String html) {
-  final withBreaks = html
-      .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
-      .replaceAll(RegExp(r'</(p|li)>', caseSensitive: false), '\n');
-  final text = html_parser.parseFragment(withBreaks).text ?? '';
+  final buffer = StringBuffer();
+  var atLineStart = true;
+  void write(String text) {
+    if (text.isEmpty) return;
+    buffer.write(text);
+    atLineStart = text.endsWith('\n');
+  }
+
+  void visit(dom.Node node) {
+    if (node is dom.Text) {
+      write(node.data);
+    } else if (node is dom.Element && node.localName == 'br') {
+      write('\n');
+    } else {
+      final isBlock =
+          node is dom.Element && _paragraphBlockTags.contains(node.localName);
+      if (isBlock && !atLineStart) write('\n');
+      node.nodes.forEach(visit);
+      if (isBlock && !atLineStart) write('\n');
+    }
+  }
+
+  visit(html_parser.parseFragment(html));
   // Collapse the runs of blank lines the separators above can produce.
-  return text.replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+  return buffer.toString().replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
 }
 
 /// Write-shape `image` block, referencing an already-uploaded image's id.

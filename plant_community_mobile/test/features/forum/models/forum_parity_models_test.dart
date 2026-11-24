@@ -21,6 +21,23 @@ void main() {
       expect(bare.canBlock, isFalse);
     });
 
+    test('parses is_muted / can_mute and defaults them to false (F47)', () {
+      final muted = ForumPost.fromJson(const {
+        'id': 1,
+        'is_muted': true,
+        'can_mute': true,
+      });
+      expect(muted.isMuted, isTrue);
+      expect(muted.canMute, isTrue);
+      expect(muted.withBlocked(true).isMuted, isTrue);
+      expect(muted.withMuted(false).isMuted, isFalse);
+      expect(muted.withMuted(false).canMute, isTrue);
+
+      final bare = ForumPost.fromJson(const {'id': 1});
+      expect(bare.isMuted, isFalse);
+      expect(bare.canMute, isFalse);
+    });
+
     test('withBlocked flips only the block flag', () {
       final original = post(id: 1, reactionCounts: const {'like': 2});
       final blocked = original.withBlocked(true);
@@ -102,6 +119,14 @@ void main() {
   });
 
   group('ForumProfile block flags (todo 341)', () {
+    test('parses is_muted / can_mute, kept by withBlocked (F47)', () {
+      final p = profile(username: 'alice', isMuted: true, canMute: true);
+      expect(p.isMuted, isTrue);
+      expect(p.canMute, isTrue);
+      expect(p.withBlocked(true).isMuted, isTrue);
+      expect(p.withBlocked(true).canMute, isTrue);
+    });
+
     test('parses is_blocked / can_block', () {
       final p = profile(username: 'alice', isBlocked: true, canBlock: true);
       expect(p.isBlocked, isTrue);

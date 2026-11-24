@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:image_picker/image_picker.dart';
 
 import '../../../services/api_service.dart';
+import 'forum_photo_downscale.dart';
 
 /// Picks an image file path from the device gallery for the forum composer.
 ///
@@ -19,9 +22,20 @@ abstract class ForumImagePicker {
 }
 
 class DeviceForumImagePicker implements ForumImagePicker {
-  const DeviceForumImagePicker({ImagePicker? picker}) : _picker = picker;
+  const DeviceForumImagePicker({
+    ImagePicker? picker,
+    this.maxEdgePx = serverMaxEdgePx,
+  }) : _picker = picker;
 
   final ImagePicker? _picker;
+
+  /// Longest side a JPEG or WebP pick keeps. A larger one is downscaled after
+  /// the pick; see [downscaleForumPhoto].
+  final int maxEdgePx;
+
+  /// Mirrors the backend cap (`wagtail_forum/conf.py` IMAGE_MAX_WIDTH and
+  /// IMAGE_MAX_HEIGHT, 5000 each): a 24 MP phone photo is over it.
+  static const int serverMaxEdgePx = 5000;
 
   /// Mirrors the backend cap (`wagtail_forum/conf.py` IMAGE_MAX_SIZE_BYTES).
   /// A full-resolution phone photo is routinely larger, and without this
@@ -31,7 +45,9 @@ class DeviceForumImagePicker implements ForumImagePicker {
   /// bytes under a `.png` name and an animated GIF is flattened to its first
   /// frame (image_picker_android ImageResizer), while iOS preserves both.
   /// GIF is in the forum's upload allowlist, so the pick stays byte-exact
-  /// and only the size is guarded client-side (code review, PR #629).
+  /// and only the size is guarded client-side (code review, PR #629). The one
+  /// exception is a JPEG or opaque still WebP over [maxEdgePx], which the
+  /// server would refuse anyway (audit 2026-11-24 F207).
   static const int maxUploadBytes = 10 * 1024 * 1024;
 
   @override
@@ -40,13 +56,19 @@ class DeviceForumImagePicker implements ForumImagePicker {
       source: ImageSource.gallery,
     );
     if (file == null) return null;
-    final size = await file.length();
+    final path = await downscaleForumPhoto(
+      file.path,
+      maxEdgePx: maxEdgePx,
+      maxBytes: maxUploadBytes,
+    );
+    final size = await File(path).length();
     if (size > maxUploadBytes) {
+      await discardForumPhotoCopy(path);
       throw ApiException(
         'That photo is over 10 MB. Pick a smaller one.',
         statusCode: 413,
       );
     }
-    return file.path;
+    return path;
   }
 }
