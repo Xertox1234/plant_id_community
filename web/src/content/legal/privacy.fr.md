@@ -207,6 +207,9 @@ services situés hors du Canada. Pour toute question à leur sujet, écrivez à
 - **Consultation du blogue :** 90 jours.
 - **Adresses IP de limitation du débit :** brièvement, en mémoire seulement.
 - **Journal d'audit :** 90 jours.
+- **Message privé retiré par un modérateur :** masqué aussitôt pour toutes les
+  personnes de la conversation. Les modérateurs peuvent encore lire son texte
+  pendant 90 jours; notre nettoyage régulier l'efface ensuite.
 
 ### Quand vous supprimez votre compte
 
