@@ -11,9 +11,9 @@ client sent.
 import re
 
 from django.contrib.auth import get_user_model
-from django.utils.html import strip_tags
 
 from .conf import get_setting
+from .plain_text import safe_strip_tags
 
 # Deliberately narrower than Django's UnicodeUsernameValidator (which also
 # allows ./+/-/@): a bare \w+ stops at sentence punctuation, so "thanks
@@ -53,7 +53,7 @@ def _mention_scan_text(post) -> str:
     for raw in post.body.raw_data:
         value = raw.get("value")
         if isinstance(value, str):
-            text = strip_tags(value).strip()
+            text = safe_strip_tags(value).strip()
             if text:
                 parts.append(text)
         # Anything else (code block dict, image chooser int PK) is skipped:

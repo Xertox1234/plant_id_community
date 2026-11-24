@@ -482,6 +482,136 @@ def test_topic_title_becomes_deleted_and_replies_remain(target, other, board):
     assert reply.author_id == other.pk
 
 
+# --- topic extras: poll, tags, identification, slug (audit 2026-11-24 F82) ---
+
+# Distinctive, so the all-tables walk cannot hit it by accident.
+NEEDLE = "zqelmstreet12"
+
+
+def _loaded_topic(board, author):
+    """A topic whose every author-written part spells ``NEEDLE``."""
+    from wagtail.contrib.redirects.models import Redirect
+    from wagtail_forum.models import ForumIdentificationAttachment, Poll, PollOption
+
+    topic = _topic(board, author, title=f"Fern at {NEEDLE}", slug=f"older-{NEEDLE}")
+    topic.slug = f"fern-{NEEDLE}"
+    topic.save()  # leaves an automatic redirect from the older slug
+    Redirect.add_redirect("/vanity", topic.get_absolute_url())
+    topic.tags.add(f"tag-{NEEDLE}")
+    ForumIdentificationAttachment.objects.create(
+        topic=topic,
+        provider=f"p-{NEEDLE}",
+        candidates=[{"name": NEEDLE, "scientific_name": "", "confidence": 0.5}],
+        identification_result_id=f"r-{NEEDLE}",
+    )
+    poll = Poll.objects.create(topic=topic, question=f"Who lives at {NEEDLE}?")
+    for order in (0, 1):
+        PollOption.objects.create(poll=poll, text=f"{NEEDLE} {order}", order=order)
+    return topic
+
+
+def _assert_topic_neutral(topic):
+    from wagtail.contrib.redirects.models import Redirect
+
+    topic = Topic.objects.get(pk=topic.pk)
+    assert topic.title == DELETED_TOPIC_TITLE
+    assert NEEDLE not in topic.slug
+    assert topic.tags.count() == 0
+    assert topic.identification.candidates == []
+    assert topic.identification.provider == ""
+    assert topic.identification.identification_result_id == ""
+    assert NEEDLE not in topic.poll.question
+    assert all(NEEDLE not in option.text for option in topic.poll.options.all())
+    assert not Redirect.objects.filter(old_path__contains=NEEDLE).exists()
+    assert not Redirect.objects.filter(redirect_link__contains=NEEDLE).exists()
+    assert not Redirect.objects.filter(redirect_link=topic.get_absolute_url()).exists()
+
+
+def _titles_kept_by_taggit(hits):
+    """Minus the shared tag vocabulary: a tag is not the topic's own row."""
+    return [hit for hit in hits if hit[0] != "taggit.Tag"]
+
+
+def test_topic_extras_are_neutralised_and_votes_are_kept(target, other, board):
+    from wagtail_forum.models import PollVote
+
+    topic = _loaded_topic(board, target)
+    _post(topic, target, [("quote", "my question")], opening=True)
+    first = topic.poll.options.first()
+    PollVote.objects.create(poll=topic.poll, option=first, user=other)
+    another = _topic(board, other, title="Cacti", slug="cacti")
+    another.tags.add("succulent")
+
+    erase_django_data(_record(target))
+
+    _assert_topic_neutral(topic)
+    results = Topic.objects.get(pk=topic.pk).poll.results()
+    assert results["total_votes"] == 1
+    assert [o["vote_count"] for o in results["options"]] == [1, 0]
+    assert _titles_kept_by_taggit(_rows_naming(NEEDLE)) == []
+    another.refresh_from_db()
+    assert another.slug == "cacti"
+    assert [t.name for t in another.tags.all()] == ["succulent"]
+
+
+def test_the_neutral_slug_never_collides(target, other, board):
+    topic = _topic(board, target)
+    taken = _topic(board, other, title="x", slug=f"deleted-topic-{topic.pk}")
+
+    erase_django_data(_record(target))
+
+    topic.refresh_from_db()
+    assert topic.slug not in ("fern-trouble", taken.slug)
+
+
+def test_a_held_opening_post_keeps_the_topic_extras_until_it_is_erased(
+    target, other, board
+):
+    from apps.users.retention import release_held_posts
+
+    topic = _loaded_topic(board, target)
+    held = _post(topic, target, [("quote", "rude words")], opening=True)
+    report = Report.objects.create(post=held, reporter=other, reason=Report.ABUSE)
+
+    erase_django_data(_record(target))
+
+    topic = Topic.objects.get(pk=topic.pk)
+    assert topic.slug == f"fern-{NEEDLE}"
+    assert topic.tags.count() == 1
+    assert NEEDLE in topic.poll.question
+    assert topic.identification.candidates != []
+
+    report.status = Report.DISMISSED
+    report.save()
+    assert release_held_posts() == 1
+
+    _assert_topic_neutral(topic)
+    assert _titles_kept_by_taggit(_rows_naming(NEEDLE)) == []
+
+
+def test_under_13_holds_no_topic_extras(target, other, board):
+    topic = _loaded_topic(board, target)
+    held = _post(topic, target, [("quote", "rude words")], opening=True)
+    Report.objects.create(post=held, reporter=other, reason=Report.ABUSE)
+
+    _erase_child(target)
+
+    _assert_topic_neutral(topic)
+
+
+def test_erasing_an_opening_post_leaves_another_members_topic_alone(
+    target, other, board
+):
+    topic = _loaded_topic(board, other)
+    _post(topic, target, [("quote", "odd data")], opening=True)
+
+    erase_django_data(_record(target))
+
+    topic.refresh_from_db()
+    assert topic.slug == f"fern-{NEEDLE}"
+    assert NEEDLE in topic.poll.question
+
+
 def test_steps_are_idempotent(target, board):
     topic = _topic(board, target)
     _post(topic, target, [("quote", "hello")], opening=True)
@@ -884,3 +1014,22 @@ def test_a_request_upgraded_to_under_13_gets_the_wider_erase(target, other):
     erase_django_data(stale_copy)
 
     assert not Message.objects.filter(pk=sent.pk).exists()
+
+
+def test_text_strip_tags_refuses_does_not_stop_the_erasure(target, other, board):
+    """Django's strip_tags raises on this; a member can type it in a quote."""
+    topic = _topic(board, target)
+    post = _post(
+        topic,
+        target,
+        [{"type": "quote", "value": "<a" * 60 + "x" * 1000}],
+        opening=True,
+    )
+    post.save_revision()
+
+    erase_django_data(_record(target))
+
+    post.refresh_from_db()
+    topic.refresh_from_db()
+    assert not post.body.raw_data and topic.title == DELETED_TOPIC_TITLE
+    assert not get_user_model().objects.filter(pk=target.pk).exists()

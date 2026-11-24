@@ -294,3 +294,5 @@ Compact checklist auto-injected before edits. Long-form:
   never delete their outputs: the capture session owns shots until
   `finish()`, then the consumer owns them; whoever owns it deletes it, and a
   replacement keeps paths the new value reuses (scan-2 audit L9).
+- Commit staged Flutter tests with `PRE_COMMIT_NO_CONCURRENCY=1`: pre-commit splits
+  them into parallel `flutter test` runs that race on native assets (2026-11-24).

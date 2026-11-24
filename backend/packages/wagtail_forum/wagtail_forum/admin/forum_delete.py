@@ -32,13 +32,14 @@ from django.utils.translation import gettext_lazy as _
 from django.views.generic import FormView
 from wagtail.admin.utils import get_valid_next_url_from_request
 from wagtail.admin.views import generic
-from wagtail.admin.views.generic.base import BaseObjectMixin, WagtailAdminTemplateMixin
+from wagtail.admin.views.generic.base import BaseObjectMixin
 from wagtail.admin.views.generic.permissions import PermissionCheckedMixin
 from wagtail.log_actions import log
 
 from ..models import Forum, ForumSubscription, Topic
 from ..models.boards import LINK_URL_SCHEMES
 from ..services import forum_structure
+from .forum_row_page import ForumRowPageMixin
 
 # The log action of a type change (registered in ``wagtail_hooks``, todo 729).
 CHANGE_TYPE_LOG_ACTION = "wagtail_forum.forum.change_type"
@@ -303,7 +304,7 @@ class ForumDeleteView(generic.DeleteView):
 
 
 class ForumChangeTypeView(
-    PermissionCheckedMixin, WagtailAdminTemplateMixin, BaseObjectMixin, FormView
+    PermissionCheckedMixin, ForumRowPageMixin, BaseObjectMixin, FormView
 ):
     """Category, forum and link conversions, behind the ``change``
     permission. Deleting the topics on the way also needs the forum and topic
@@ -315,7 +316,6 @@ class ForumChangeTypeView(
     template_name = "wagtail_forum/admin/forum_change_type.html"
     page_title = _("Change type")
     header_icon = "list-ul"
-    edit_url_name: str | None = None
     change_type_url_name: str | None = None
 
     def get_page_subtitle(self) -> str:

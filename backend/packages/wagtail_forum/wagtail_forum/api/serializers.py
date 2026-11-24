@@ -1288,7 +1288,7 @@ class _ForumBodyContract(serializers.Serializer):
             user=request.user if request else None,
             # Edit only: quotes the stored body already carries (set by the
             # edit call site, like `existing_author_id`).
-            existing_quote_ids=self.context.get("existing_quote_ids", ()),
+            existing_quotes=self.context.get("existing_quotes", ()),
             # Edit only: the stored body's link cards, reused without a fetch.
             existing_link_previews=self.context.get("existing_link_previews"),
             # A quote of a post in a password forum this session unlocked.
@@ -1556,7 +1556,10 @@ class ReactionSerializer(serializers.Serializer):
 
 class ReportSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(choices=Report.REASON_CHOICES)
-    detail = serializers.CharField(max_length=280, required=False, default="")
+    # Blank is "no detail", which the web client sends as "" (F142).
+    detail = serializers.CharField(
+        max_length=280, required=False, allow_blank=True, default=""
+    )
 
 
 class ConversationSerializer(serializers.Serializer):
@@ -1669,7 +1672,8 @@ class MessageSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     conversation_id = serializers.IntegerField()
     sender = serializers.SerializerMethodField()
-    body = serializers.CharField()
+    # Never `body`: a placeholder once a moderator removed the message.
+    body = serializers.CharField(source="visible_body")
     created_at = serializers.DateTimeField()
 
     @extend_schema_field(AUTHOR_SCHEMA)

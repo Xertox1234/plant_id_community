@@ -445,8 +445,9 @@ def test_caps_at_max_passages_and_max_context_chars():
     with patch(CORE, side_effect=_core_returning(topic_docs=docs)):
         with patch.object(constants, "RAG_MAX_PASSAGES", 2):
             assert len(_retrieve()) == 2
-        # Each fake doc's content is ~35 chars; a 40-char context budget fits one.
-        with patch.object(constants, "RAG_MAX_CONTEXT_CHARS", 40):
+        # Each current text ("Tomato 0\ntomato") is 15 chars; a 20-char context
+        # budget fits one.
+        with patch.object(constants, "RAG_MAX_CONTEXT_CHARS", 20):
             assert len(_retrieve()) == 1
 
 

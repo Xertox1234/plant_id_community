@@ -245,6 +245,9 @@ consultados conforme a las leyes de los países mencionados.
 - **Visitas al blog:** 90 días naturales.
 - **Direcciones IP para limitar solicitudes:** brevemente, solo en memoria.
 - **Registro de auditoría:** 90 días naturales.
+- **Mensaje privado retirado por un moderador:** se oculta de inmediato a todas
+  las personas de la conversación. Los moderadores pueden leer su texto durante
+  90 días naturales; después, nuestra limpieza periódica lo borra.
 
 ### Cuando elimina su cuenta
 

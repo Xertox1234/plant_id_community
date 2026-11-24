@@ -23,6 +23,9 @@ from django.utils import timezone
 from wagtail_forum.models import ForumProfile, Post, Topic, TopicSubscription
 from wagtail_forum.tests.factories import make_forum
 
+# Forum email goes only to a verified address (audit 2026-11-24 F211).
+pytestmark = pytest.mark.usefixtures("verified_accounts")
+
 User = get_user_model()
 Status = DeliveryIntent.Status
 Kind = DeliveryIntent.Kind

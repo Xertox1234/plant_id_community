@@ -1,6 +1,8 @@
 """The forum *Permissions* screen (todo 675): a principal × role grid and
 "copy permissions from", behind the Forum ``change`` permission."""
 
+import re
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
@@ -106,3 +108,45 @@ def test_copy_permissions_asks_first_then_overwrites_exactly(client):
         == _rows(source)
         == {(ForumGrant.MEMBERS, None, ForumRole.LIMITED)}
     )
+
+
+def _header(resp):
+    """The page's breadcrumb rows and its visible heading."""
+    body = resp.content.decode()
+    nav = body[body.index('aria-label="Breadcrumb"') :]
+    heading = re.search(r'<h2[^>]*id="header-title"[^>]*>(.*?)</h2>', body, re.S)
+    return nav[: nav.index("</nav>")], heading
+
+
+@pytest.mark.parametrize(
+    ("page", "title"),
+    [("permissions", "Permissions"), ("change_type", "Change type")],
+)
+def test_a_forum_row_page_shows_its_heading_and_breadcrumb(client, page, title):
+    """F307: the slim header hides the h1 and the breadcrumb was only Home."""
+    forum = make_forum(name="Ferns & Palms", slug="ferns")
+    client.force_login(_staff("editor", "change_forum"))
+
+    resp = client.get(reverse(f"wagtail_forum_forums:{page}", args=(forum.pk,)))
+
+    nav, heading = _header(resp)
+    assert heading is not None, "no visible heading"
+    assert f"{title}: Ferns &amp; Palms" in heading.group(1)
+    assert f'href="{reverse("wagtail_forum_forums:index")}"' in nav
+    assert f'href="{reverse("wagtail_forum_forums:edit", args=(forum.pk,))}"' in nav
+    assert "Categories &amp; forums" in nav
+    assert title in nav
+
+
+def test_the_copy_confirmation_shows_the_same_heading_and_breadcrumb(client):
+    forum = make_forum(name="Ferns", slug="ferns")
+    source = make_forum(name="Palms", slug="palms")
+    client.force_login(_staff("editor", "change_forum"))
+
+    resp = client.post(_url(forum), {"action": "copy", "source": source.pk})
+
+    nav, heading = _header(resp)
+    assert heading is not None
+    assert "Permissions: Ferns" in heading.group(1)
+    assert f'href="{_url(forum)}"' not in nav  # the last item is this page
+    assert "Permissions" in nav

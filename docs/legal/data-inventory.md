@@ -34,6 +34,8 @@ then the three policy texts. Taken on 2026-11-06.
 - **Garden data** (beds, plants, care tasks, harvests), and Firestore saved
   plants (`users/{uid}/identified_plants`).
 - **Forum.** Posts, topics, private messages, reports, blocks and mutes.
+  A private message a moderator removed keeps its text, for moderators only,
+  for 90 days (nightly prune).
 - **Newsletter.** The subscription.
 - **Push tokens.** FCM/APNs on mobile and web push.
 - **Email.** Delivery and bounce records (90 days), click records (90 days),

@@ -1,5 +1,7 @@
 import hashlib
+import html
 import logging
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -33,7 +35,6 @@ from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-from django.utils.html import strip_tags
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
 from rest_framework import generics
@@ -116,7 +117,8 @@ from ..models import (
 )
 from ..models.posts import BLOCK_FORBIDDEN
 from ..models.subscriptions import COUNTED_LEVELS
-from ..quotes import quoted_post_ids
+from ..plain_text import safe_strip_tags
+from ..quotes import stored_quotes
 from ..services.forum_permissions import (
     ATTACH,
     POLL,
@@ -167,7 +169,7 @@ from .serializers import (
     serialize_forum_body,
     serialize_image_for_api,
 )
-from .upload_validation import validate_image_upload
+from .upload_validation import normalize_image_upload, validate_image_upload
 from .versioning import UnversionedForumAPIMixin
 
 logger = logging.getLogger("wagtail_forum")
@@ -1628,8 +1630,9 @@ class PostWriteView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIVie
                 "request": request,
                 "existing_author_id": post.author_id,
                 # Quotes the stored body already carries stay editable even
-                # if their target has since gone away (django review, 342).
-                "existing_quote_ids": quoted_post_ids(post.body.raw_data),
+                # if their target has since changed or gone away (django
+                # review, 342; audit 2026-11-24 F3).
+                "existing_quotes": stored_quotes(post.body.raw_data),
                 # A link card the author keeps is reused as stored — no
                 # refetch, and no change because the page changed (428).
                 "existing_link_previews": link_preview_snapshots(post.body.raw_data),
@@ -2016,6 +2019,8 @@ class PostImageUploadView(UnversionedForumAPIMixin, APIView):
         if replayed is not None:
             return replayed
 
+        # After the fingerprint, which is of the bytes the client sent.
+        image_file = normalize_image_upload(image_file)
         reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
         image = get_image_model().objects.create(
             title=(image_file.name or "forum-image")[:255],
@@ -2485,6 +2490,22 @@ class PublicProfileView(UnversionedForumAPIMixin, APIView):
         )
 
 
+# Block and line tags in rich-text HTML. `strip_tags` puts nothing in a tag's
+# place, so without this "<p>one</p><p>two</p>" reads "onetwo".
+_RICH_TEXT_BREAK_RE = re.compile(
+    r"</?(?:p|div|li|ul|ol|h[1-6]|blockquote|pre|br|hr)\b[^>]*>", re.IGNORECASE
+)
+
+
+def _rich_text_to_plain(raw: str) -> str:
+    """Rich-text HTML as one line of plain text: a space per block or line
+    break, tags stripped, THEN entities decoded (in that order, so escaped
+    markup the author typed stays as text). Not a sanitizer: consumers escape
+    it like any other plain text."""
+    spaced = _RICH_TEXT_BREAK_RE.sub(" ", raw)
+    return " ".join(html.unescape(safe_strip_tags(spaced)).split())
+
+
 def plain_text_excerpt(stream_value, limit: int) -> str:
     """Plain-text excerpt from a post body via ``raw_data``.
 
@@ -2497,13 +2518,18 @@ def plain_text_excerpt(stream_value, limit: int) -> str:
     ``code`` nor ``text`` and so falls through — the alt text is deliberately
     NOT excerpted, because an excerpt is a preview of what the author wrote in
     prose, not a transcript of the accessibility metadata.
+
+    Only a paragraph is HTML. Heading, quote and code text is plain by
+    contract, so an entity in one is what the author typed and stays as it is.
     """
     parts: list[str] = []
     total = 0
     for raw in stream_value.raw_data:
         value = raw.get("value")
-        if isinstance(value, str):
-            text = strip_tags(value).strip()
+        if isinstance(value, str) and raw.get("type") == "paragraph":
+            text = _rich_text_to_plain(value)
+        elif isinstance(value, str):
+            text = safe_strip_tags(value).strip()
         elif isinstance(value, dict) and isinstance(value.get("code"), str):
             text = value["code"].strip()
         elif isinstance(value, dict) and isinstance(value.get("text"), str):

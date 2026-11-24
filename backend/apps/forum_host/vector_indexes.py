@@ -74,6 +74,15 @@ def _build_embedding_transformer():
     return CachedEmbeddingTransformer(CoreEmbeddingTransformer(llm))
 
 
+def _topic_content(title, body) -> str:
+    """A topic's indexed text: its title and its opening post's ``body``
+    (``None`` when it has no live one)."""
+    parts = [title]
+    if body is not None:
+        parts.append(plain_text_excerpt(body, constants.SIMILAR_CONTENT_MAX_CHARS))
+    return "\n".join(p for p in parts if p)
+
+
 class TopicSource(ModelSource):
     """Vectorize a topic's title + opening-post plaintext.
 
@@ -83,13 +92,16 @@ class TopicSource(ModelSource):
     """
 
     def get_content(self, obj) -> str:
-        parts = [obj.title]
         opening = obj.posts.filter(live=True, is_opening_post=True).first()
-        if opening is not None:
-            parts.append(
-                plain_text_excerpt(opening.body, constants.SIMILAR_CONTENT_MAX_CHARS)
-            )
-        return "\n".join(p for p in parts if p)
+        return _topic_content(obj.title, opening.body if opening is not None else None)
+
+
+def topic_chunks(title, body) -> list[str]:
+    """The documents ``SimilarTopics`` would store now for a topic with
+    ``title`` and opening post ``body``, in chunk order. Pure: no index, no
+    key, no query."""
+    source = TopicSource(queryset=Topic.objects.none())
+    return list(source.chunk_transformer.transform(_topic_content(title, body)))
 
 
 @registry.register()

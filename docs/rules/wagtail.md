@@ -323,3 +323,6 @@ Compact checklist auto-injected before edits. Long-form:
   on the row being saved (skip on create and when `update_fields` omits the
   field), recount it in `post_save` (`wagtail_forum/signals.py`, audit
   2026-11-21 M2).
+- **Never read "no ReferenceIndex entry" as "unused".** Wagtail indexes only the
+  models it tracks; a plain model's FK to an image is not one of them
+  (`ForumIdentificationAttachment`, audit 2026-11-24). Check such relations by hand.

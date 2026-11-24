@@ -53,6 +53,13 @@ def _private_cache():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _no_host_recipient_filter(settings):
+    """The package's own rules, whatever this host's filter adds (a verified
+    address, audit 2026-11-24 F211). The filter tests below set their own."""
+    settings.WAGTAILFORUM_DIGEST_RECIPIENT_FILTER = None
+
+
 def test_the_run_lock_tests_never_touch_the_shared_cache():
     """Todo 630: the autouse fixture above swaps the default cache for a
     private, empty one, so the real run-lock key is never on the shared

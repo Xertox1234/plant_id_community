@@ -176,6 +176,9 @@ For questions about them, contact [[PRIVACY_OFFICER_NAME]] at
 - **Blog page views:** 90 days.
 - **Rate-limiting IP addresses:** briefly, in memory only.
 - **Audit log:** 90 days.
+- **A private message a moderator removed:** hidden from everyone in the
+  conversation at once. Moderators can still read its text for 90 days; then our
+  regular clean-up erases it.
 
 ### When you delete your account
 

@@ -5,6 +5,7 @@ topic-independent (POST /forum/images/) — see api/views.PostImageUploadView.
 """
 
 import io
+import struct
 from unittest.mock import patch
 
 import pytest
@@ -406,3 +407,124 @@ def test_alt_with_a_nul_is_normalised_not_a_500():
     )
     assert resp.status_code == 201
     assert resp.data["alt"] == "a fern frond"
+
+
+def _mpo(size=(40, 20), orientation=None):
+    """A two-frame MPO, how Pillow reads a phone JPEG carrying a depth map."""
+    frames = [PILImage.new("RGB", size, colour) for colour in ("red", "blue")]
+    buf = io.BytesIO()
+    options = {}
+    if orientation is not None:
+        exif = PILImage.Exif()
+        exif[0x0112] = orientation
+        exif[0x010F] = "PhoneMaker"
+        options["exif"] = exif
+    frames[0].save(
+        buf, format="MPO", save_all=True, append_images=frames[1:], **options
+    )
+    content = buf.getvalue()
+    with PILImage.open(io.BytesIO(content)) as probe:
+        assert probe.format == "MPO"
+    return content
+
+
+@pytest.mark.django_db
+def test_multi_frame_phone_jpeg_is_accepted_and_stored_as_a_plain_jpeg():
+    # F8: the avatar rule. An MPO is a JPEG with extra frames; what is stored
+    # is its first frame as an ordinary JPEG.
+    resp = _auth_client().post(
+        URL, {"image": _upload("phone.jpg", _mpo())}, format="multipart"
+    )
+
+    assert resp.status_code == 201, resp.data
+    assert (resp.data["width"], resp.data["height"]) == (40, 20)
+    image = get_image_model().objects.get(id=resp.data["id"])
+    assert image.file.name.endswith(".jpg")
+    with image.file.open("rb") as stored, PILImage.open(stored) as img:
+        assert img.format == "JPEG"
+        assert getattr(img, "n_frames", 1) == 1
+        red, _green, blue = img.convert("RGB").getpixel((5, 5))
+        assert red > 200 and blue < 60  # the first frame, not the second
+
+
+@pytest.mark.django_db
+def test_multi_frame_phone_jpeg_is_stored_upright_without_its_metadata():
+    resp = _auth_client().post(
+        URL, {"image": _upload("phone.jpg", _mpo(orientation=6))}, format="multipart"
+    )
+
+    assert resp.status_code == 201, resp.data
+    assert (resp.data["width"], resp.data["height"]) == (20, 40)
+    image = get_image_model().objects.get(id=resp.data["id"])
+    with image.file.open("rb") as stored, PILImage.open(stored) as img:
+        assert not img.getexif()
+
+
+@pytest.mark.django_db
+def test_multi_frame_phone_jpeg_is_still_bound_by_the_dimension_cap(settings):
+    settings.WAGTAILFORUM_IMAGE_MAX_WIDTH = 30
+    resp = _auth_client().post(
+        URL, {"image": _upload("phone.jpg", _mpo())}, format="multipart"
+    )
+    assert resp.status_code == 400
+    assert "dimensions too large" in str(resp.data)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("where", "error"),
+    [
+        ("PIL.ImageFile.ImageFile.load", OSError("truncated")),
+        # What Pillow raises on crafted EXIF.
+        ("PIL.ImageOps.exif_transpose", struct.error("unpack")),
+        ("PIL.ImageOps.exif_transpose", AttributeError("x")),
+    ],
+)
+def test_multi_frame_phone_jpeg_with_undecodable_pixels_is_a_400(caplog, where, error):
+    content = _mpo(size=(400, 400))
+    client = _auth_client()
+    with patch(where, side_effect=error):
+        resp = client.post(
+            URL, {"image": _upload("phone.jpg", content)}, format="multipart"
+        )
+    assert resp.status_code == 400
+    assert "rejected (undecodable)" in caplog.text  # normalize, not validate
+    assert not get_image_model().objects.exists()
+
+
+@pytest.mark.django_db
+def test_multi_frame_phone_jpeg_re_encoded_past_the_size_cap_is_a_400():
+    from rest_framework.exceptions import ValidationError
+    from wagtail_forum.api.upload_validation import normalize_image_upload
+
+    upload = _upload("phone.jpg", _mpo())
+    with patch("wagtail_forum.api.upload_validation.get_setting", return_value=10):
+        with pytest.raises(ValidationError, match="too large"):
+            normalize_image_upload(upload)
+
+
+@pytest.mark.django_db
+def test_multi_frame_phone_jpeg_with_a_broken_colour_profile_still_uploads():
+    frames = [PILImage.new("RGB", (40, 20), c) for c in ("red", "blue")]
+    buf = io.BytesIO()
+    frames[0].save(
+        buf, "MPO", save_all=True, append_images=frames[1:], icc_profile=b"junk"
+    )
+    resp = _auth_client().post(
+        URL, {"image": _upload("phone.jpg", buf.getvalue())}, format="multipart"
+    )
+    assert resp.status_code == 201
+    image = get_image_model().objects.get(id=resp.data["id"])
+    with image.file.open("rb") as stored, PILImage.open(stored) as img:
+        assert "icc_profile" not in img.info
+
+
+@pytest.mark.django_db
+def test_a_plain_jpeg_is_stored_byte_for_byte():
+    content = _jpeg()
+    resp = _auth_client().post(
+        URL, {"image": _upload(content=content)}, format="multipart"
+    )
+    image = get_image_model().objects.get(id=resp.data["id"])
+    with image.file.open("rb") as stored:
+        assert stored.read() == content

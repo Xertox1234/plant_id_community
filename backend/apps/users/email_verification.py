@@ -39,7 +39,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import signing
 from django.db import IntegrityError, transaction
-from django.db.models import Case, F, Q, Value, When
+from django.db.models import Case, Exists, F, OuterRef, Q, Value, When
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -58,6 +58,28 @@ def is_email_verified(user) -> bool:
             user=user, email__iexact=user.email, verified=True
         ).exists()
     )
+
+
+def verified_email_q() -> Q:
+    """``is_email_verified`` as a filter on a ``User`` queryset."""
+    return Q(
+        Exists(
+            EmailAddress.objects.filter(
+                user=OuterRef("pk"), email__iexact=OuterRef("email"), verified=True
+            )
+        )
+    )
+
+
+def verified_user_ids(users) -> set[int]:
+    """The pks of ``users`` for whom ``is_email_verified`` holds, in one query."""
+    current = {user.pk: (user.email or "").lower() for user in users}
+    rows = EmailAddress.objects.filter(user_id__in=current, verified=True)
+    return {
+        user_id
+        for user_id, email in rows.values_list("user_id", "email")
+        if current[user_id] and email.lower() == current[user_id]
+    }
 
 
 def get_account_by_email(email):

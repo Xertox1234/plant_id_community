@@ -1,0 +1,18 @@
+{% extends "wagtailadmin/generic/base.html" %}
+{% load wagtailadmin_tags %}
+
+{% comment %}
+    A page about one forum row. With breadcrumbs the slim header's h1 is for
+    screen readers only, so the heading is shown here, as Wagtail's own edit
+    form does (wagtailadmin/generic/form.html).
+{% endcomment %}
+{% block main_header %}
+    <div class="nice-padding w-mt-8">
+        <h2 class="w-relative w-h1" id="header-title">
+            {% if header_icon %}
+                {% icon classname="w-absolute w-top-1 -w-left-11 w-max-w-[1em] w-max-h-[1em]" name=header_icon %}
+            {% endif %}
+            <span>{{ header_title }}</span>
+        </h2>
+    </div>
+{% endblock %}

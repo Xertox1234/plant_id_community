@@ -40,6 +40,9 @@ class Command(BaseCommand):
             f"orphaned Firebase logins ({verb} delete): "
             f"{counts['orphan_firebase_logins']}"
         )
+        self.stdout.write(
+            f"removed messages ({verb} erase): {counts['removed_messages']}"
+        )
         self.stdout.write(f"expired sessions ({verb} delete): {counts['sessions']}")
         self.stdout.write(
             f"unreachable conversations ({verb} delete): {counts['conversations']}"

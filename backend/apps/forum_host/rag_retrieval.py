@@ -13,7 +13,8 @@ Pipeline per question:
 2. Discard everything under ``RAG_SIMILARITY_FLOOR``.
 3. Refetch survivors through EACH corpus's own visibility predicate — never
    trust the index: a page may have been unpublished or a board restricted
-   after indexing (and a topic author blocked by the asker).
+   after indexing (and a topic author blocked by the asker). A topic's text
+   is its opening post as it reads now; no live, non-blank one drops it.
 4. Dedupe per source object, keeping its best chunk.
 5. Merge across corpora by score, cap by count and total characters, renumber
    from 1 so ``[n]`` citations line up with the ``sources`` array.
@@ -27,11 +28,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
 from apps.blog.models import BlogPostPage
-from wagtail_forum.api.views import _exclude_blocked_authors, _visible_boards
-from wagtail_forum.models import Topic
+from wagtail_forum.api.views import (
+    _exclude_blocked_authors,
+    _visible_boards,
+    plain_text_excerpt,
+)
+from wagtail_forum.models import Post, Topic
 
 from . import constants
-from .vector_indexes import BlogChunks, SimilarTopics, _scored_search
+from .vector_indexes import BlogChunks, SimilarTopics, _scored_search, topic_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -87,12 +92,27 @@ def _best_per_pk(docs) -> dict:
     return best
 
 
-def _text(doc) -> str:
-    return (doc.content or "")[: constants.RAG_PASSAGE_MAX_CHARS]
+def _text(content) -> str:
+    return (content or "")[: constants.RAG_PASSAGE_MAX_CHARS]
 
 
-def _snippet(doc) -> str:
-    return " ".join((doc.content or "").split())[: constants.RAG_SNIPPET_CHARS]
+def _snippet(content) -> str:
+    return " ".join((content or "").split())[: constants.RAG_SNIPPET_CHARS]
+
+
+def _current_topic_text(doc, topic, opening) -> str:
+    """The text of ``topic`` as it reads NOW, for the passage ``doc`` matched;
+    ``""`` when the opening post says nothing. Never ``doc.content``: that is
+    what the post said when it was indexed, and it may have been edited,
+    redacted or erased since (audit 2026-11-24 F64)."""
+    if not plain_text_excerpt(opening.body, constants.SIMILAR_CONTENT_MAX_CHARS):
+        return ""
+    chunks = topic_chunks(topic.title, opening.body)
+    # The same part of a long post; the start of one that has been shortened.
+    number = doc.document_key.rpartition(":")[2]
+    if number.isdigit() and int(number) < len(chunks):
+        return chunks[int(number)]
+    return chunks[0]
 
 
 def _refetch_topics(docs, user) -> list[Passage]:
@@ -101,23 +121,37 @@ def _refetch_topics(docs, user) -> list[Passage]:
         pk__in=best, live=True, board__in=_visible_boards()
     ).select_related("board")
     qs = _exclude_blocked_authors(qs, user)
-    return [
-        Passage(
-            n=0,
-            kind="topic",
-            pk=topic.pk,
-            score=best[topic.pk].score,
-            title=topic.title,
-            date=topic.created_at.isoformat(),
-            text=_text(best[topic.pk]),
-            snippet=_snippet(best[topic.pk]),
-            topic_id=topic.pk,
-            topic_slug=topic.slug,
-            board_id=topic.board_id,
-            board_slug=topic.board.slug,
+    topics = list(qs)
+    # One per topic; the first by thread order, as the index takes.
+    openings: dict[int, Post] = {}
+    for post in Post.objects.filter(
+        topic__in=[topic.pk for topic in topics], live=True, is_opening_post=True
+    ):
+        openings.setdefault(post.topic_id, post)
+    passages = []
+    for topic in topics:
+        doc = best[topic.pk]
+        opening = openings.get(topic.pk)
+        content = _current_topic_text(doc, topic, opening) if opening else ""
+        if not content:
+            continue
+        passages.append(
+            Passage(
+                n=0,
+                kind="topic",
+                pk=topic.pk,
+                score=doc.score,
+                title=topic.title,
+                date=topic.created_at.isoformat(),
+                text=_text(content),
+                snippet=_snippet(content),
+                topic_id=topic.pk,
+                topic_slug=topic.slug,
+                board_id=topic.board_id,
+                board_slug=topic.board.slug,
+            )
         )
-        for topic in qs
-    ]
+    return passages
 
 
 def _refetch_blog(docs, user) -> list[Passage]:
@@ -139,8 +173,8 @@ def _refetch_blog(docs, user) -> list[Passage]:
                 score=doc.score,
                 title=page.title,
                 date=page.publish_date.isoformat(),
-                text=_text(doc),
-                snippet=_snippet(doc),
+                text=_text(doc.content),
+                snippet=_snippet(doc.content),
                 slug=page.slug,
                 anchor=f"block-{block_index}" if in_range else None,
             )

@@ -1,14 +1,18 @@
 from functools import cached_property
 
+from django.db import transaction
+from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 from wagtail import hooks
 from wagtail.actions.unpublish import UnpublishAction
 from wagtail.admin.forms import WagtailAdminModelForm
-from wagtail.admin.panels import ObjectList
+from wagtail.admin.panels import FieldPanel, ObjectList
 from wagtail.admin.panels.model_utils import extract_panel_definitions_from_model_class
 from wagtail.admin.search import SearchArea
 from wagtail.admin.site_summary import SummaryItem
+from wagtail.admin.widgets import Button
+from wagtail.log_actions import log
 from wagtail.permissions import register_permission_policy
 from wagtail.snippets.bulk_actions.snippet_bulk_action import SnippetBulkAction
 from wagtail.snippets.models import register_snippet
@@ -17,10 +21,21 @@ from wagtail.snippets.views.chooser import (
     ChooseView,
     SnippetChooserViewSet,
 )
-from wagtail.snippets.views.snippets import SnippetViewSet, SnippetViewSetGroup
+from wagtail.snippets.views.snippets import (
+    IndexView,
+    InspectView,
+    SnippetViewSet,
+    SnippetViewSetGroup,
+)
 
 from .admin.forums import ForumViewSet
-from .models import Badge, ForumProfile, Message, Post, Report, Topic
+from .admin.reported_message import (
+    READ_MESSAGE_LOG_ACTION,
+    REMOVE_MESSAGE_LOG_ACTION,
+    RemoveReportedMessageView,
+    can_remove_reported_message,
+)
+from .models import Badge, ForumProfile, Message, Post, Report, Topic, TrustLevel
 from .permissions import (
     ForumScopedPermissionPolicy,
     forum_ids_moderated_by,
@@ -115,11 +130,19 @@ class PostAdminForm(WagtailAdminModelForm):
 class ReportAdminForm(WagtailAdminModelForm):
     """A forum moderator editing a report in their forum (round-1 review):
     its post may only be one of their forums' posts, and its message, a
-    private message only a post-less report has, is never offered at all."""
+    private message only a post-less report has, is never offered at all.
+
+    Anyone else is offered the reported message only (audit 2026-11-24 F84):
+    a report opens its message's text, so a free choice would open every
+    private message."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         user = self.for_user
+        if "message" in self.fields:
+            self.fields["message"].queryset = Message.objects.filter(
+                pk=self.instance.message_id
+            )
         if user is None or report_policy.has_model_perm(user, ("change",)):
             return
         if "post" in self.fields:
@@ -128,6 +151,28 @@ class ReportAdminForm(WagtailAdminModelForm):
             )
         if "message" in self.fields:
             self.fields["message"].queryset = Message.objects.none()
+
+
+class ForumProfileAdminForm(WagtailAdminModelForm):
+    """Staff set ``trust_level_override``; the level in force follows it at
+    once. Clearing it goes back to the level the member's posts earn now,
+    whatever staff had set."""
+
+    def save(self, commit=True):
+        if "trust_level_override" not in self.changed_data:
+            return super().save(commit)
+        from .signals import _refresh_profile
+
+        override = self.instance.trust_level_override
+        # NEW when cleared: the recount treats a level above the earned one
+        # as granted by hand and would keep it.
+        self.instance.trust_level = TrustLevel.NEW if override is None else override
+        with transaction.atomic():
+            instance = super().save(commit)
+            if commit and override is None:
+                _refresh_profile(instance.user_id)
+                instance.refresh_from_db(fields=["trust_level", "post_count"])
+        return instance
 
 
 class TopicViewSet(ForumScopedSnippetViewSet):
@@ -201,13 +246,27 @@ class TopicViewSet(ForumScopedSnippetViewSet):
         return qs.select_related("board", "author", "last_post_author")
 
 
+class PostIndexView(IndexView):
+    # Newest first: a moderator triages what just arrived.
+    default_ordering = "-created_at"
+
+    def order_queryset(self, queryset):
+        # Tie-break by id, in the same direction: pages must not overlap. Not
+        # on a search, whose backend sorts only by declared index fields.
+        if not self.is_searching and self.ordering in ("created_at", "-created_at"):
+            tie_break = "-pk" if self.ordering.startswith("-") else "pk"
+            return queryset.order_by(self.ordering, tie_break)
+        return super().order_queryset(queryset)
+
+
 class PostViewSet(ForumScopedSnippetViewSet):
     scoped_policy = post_policy
     edit_handler = ObjectList(Post.panels, base_form_class=PostAdminForm)
     model = Post
     icon = "comment"
     menu_label = _("Posts")
-    list_display = ["__str__", "topic", "author", "live"]
+    index_view_class = PostIndexView
+    list_display = ["admin_title", "topic", "author", "live", "created_at"]
     list_filter = ["live"]
     # Post is index.Indexed with one SearchField ("body"); this list is passed
     # through to the search backend as the `fields` filter, not a separate ORM
@@ -227,7 +286,7 @@ class ForumProfileViewSet(SnippetViewSet):
     model = ForumProfile
     icon = "user"
     menu_label = _("Profiles")
-    list_display = ["__str__", "trust_level", "post_count"]
+    list_display = ["__str__", "trust_level", "trust_level_override", "post_count"]
     list_filter = ["trust_level"]
     # ForumProfile is a plain model (not index.Indexed), so this list drives a
     # direct ORM icontains filter, not the search backend (audit M20).
@@ -238,6 +297,23 @@ class ForumProfileViewSet(SnippetViewSet):
     # auto-generated JSON field would let an admin store any shape.
     exclude_form_fields = ["fcm_token", "notification_preferences"]
 
+    def get_edit_handler(self):
+        # The level in force is derived: shown, and changed only through
+        # `trust_level_override` (a recount would revert a direct edit).
+        panels = [
+            (
+                FieldPanel("trust_level", read_only=True)
+                if panel.field_name == "trust_level"
+                else panel
+            )
+            for panel in extract_panel_definitions_from_model_class(
+                self.model, exclude=self.get_exclude_form_fields()
+            )
+        ]
+        return ObjectList(panels, base_form_class=ForumProfileAdminForm).bind_to_model(
+            self.model
+        )
+
     def get_queryset(self, request):
         # __str__ falls back to user.get_username() — N+1 without this.
         qs = super().get_queryset(request)
@@ -246,9 +322,78 @@ class ForumProfileViewSet(SnippetViewSet):
         return qs.select_related("user")
 
 
+class ReportInspectView(InspectView):
+    """Shows a message report's whole message, that one only, to a moderator
+    holding view or change on reports; each such read is logged. The queue,
+    the listing and the export keep their excerpt."""
+
+    message_fields = (
+        "message_sender",
+        "message_sent_at",
+        "message_text",
+        "message_removed_at",
+    )
+
+    def shows_message(self):
+        return self.object.message_id is not None and report_policy.has_model_perm(
+            self.request.user, ("view", "change")
+        )
+
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        if self.shows_message():
+            log(
+                instance=self.object,
+                action=READ_MESSAGE_LOG_ACTION,
+                user=request.user,
+            )
+        return response
+
+    def get_fields_context(self):
+        hidden = ("message_summary",) if self.shows_message() else self.message_fields
+        return [
+            self.get_context_for_field(name)
+            for name in self.fields
+            if name not in hidden
+        ]
+
+    @cached_property
+    def header_more_buttons(self):
+        buttons = list(super().header_more_buttons)
+        if can_remove_reported_message(self.request.user, self.object):
+            buttons.append(
+                Button(
+                    _("Remove message"),
+                    url=reverse(
+                        Report.snippet_viewset.get_url_name(  # type: ignore[attr-defined]
+                            "remove_message"
+                        ),
+                        args=[self.object.pk],
+                    ),
+                    icon_name="bin",
+                    priority=30,
+                )
+            )
+        return buttons
+
+
 class ReportViewSet(ForumScopedSnippetViewSet):
     scoped_policy = report_policy
     model = Report
+    inspect_view_class = ReportInspectView
+
+    def get_urlpatterns(self):
+        # Guarded like the other object URLs; the view asks for `change` too.
+        return super().get_urlpatterns() + scope_object_urls(
+            [
+                path(
+                    "remove-message/<str:pk>/",
+                    RemoveReportedMessageView.as_view(),
+                    name="remove_message",
+                )
+            ],
+            self.scoped_policy,
+        )
 
     def get_edit_handler(self):
         # Report has no panels: Wagtail's own fallback, on ReportAdminForm.
@@ -314,6 +459,7 @@ class ReportViewSet(ForumScopedSnippetViewSet):
         "topic_title",
         "post",
         "message_summary",
+        *ReportInspectView.message_fields,
         "reporter",
         "created_at",
         "resolved_at",
@@ -368,13 +514,24 @@ register_snippet(ForumViewSetGroup)
 
 @hooks.register("register_log_actions")
 def register_forum_structure_log_actions(actions):
-    """The structure screen's own log actions (todo 729). A forum delete
+    """The structure screen's own log actions (todo 729) and the reported
+    private message's. A forum delete
     logs Wagtail's ``wagtail.delete`` with the topics choice in its data."""
     from .admin.forum_delete import CHANGE_TYPE_LOG_ACTION
     from .admin.forum_structure_tree import MOVE_LOG_ACTION
 
     actions.register_action(CHANGE_TYPE_LOG_ACTION, _("Change type"), _("Type changed"))
     actions.register_action(MOVE_LOG_ACTION, _("Move"), _("Moved"))
+    actions.register_action(
+        READ_MESSAGE_LOG_ACTION,
+        _("Read reported message"),
+        _("Reported private message read"),
+    )
+    actions.register_action(
+        REMOVE_MESSAGE_LOG_ACTION,
+        _("Remove reported message"),
+        _("Reported private message removed"),
+    )
 
 
 def _pending_moderation_count(user=None):
@@ -513,6 +670,13 @@ class ForumUnpublishBulkAction(SnippetBulkAction):
         return self.permission_policy.user_has_permission_for_instance(
             self.request.user, "publish", obj
         )
+
+    def object_context(self, snippet):
+        # A post's str() is two ids; the confirmation shows its text.
+        return {
+            **super().object_context(snippet),
+            "title": getattr(snippet, "admin_title", None) or str(snippet),
+        }
 
     def get_execution_context(self):
         # SnippetBulkAction.get_execution_context() supplies {"self": self}

@@ -1,7 +1,9 @@
 from django.conf import settings
+from django.contrib import admin
 from django.db import IntegrityError, models, transaction
 from django.db.models import F, Q
 from django.utils import timezone
+from django.utils.translation import gettext
 from django.utils.translation import gettext_lazy as _
 from wagtail.actions.unpublish import UnpublishAction
 
@@ -124,10 +126,60 @@ class Report(models.Model):
         instance — this is deliberately not `self.message` itself."""
         if self.message is None:
             return ""
-        body = self.message.body
+        body = self.message_text
         excerpt = body if len(body) <= 60 else body[:57] + "..."
         sender = self.message.sender if self.message.sender_id else "[deleted]"
         return f"{sender}: {excerpt}"
+
+    @property
+    @admin.display(description=_("Message from"))
+    def message_sender(self):
+        if self.message is None:
+            return ""
+        return self.message.sender if self.message.sender_id else "[deleted]"
+
+    @property
+    @admin.display(description=_("Message sent at"))
+    def message_sent_at(self):
+        return self.message.created_at if self.message else ""
+
+    @property
+    @admin.display(description=_("Message text"))
+    def message_text(self):
+        """The whole reported message, as it was sent: for the inspect page
+        of a moderator with Report permission only."""
+        if self.message is None:
+            return ""
+        # The host erases a removed message's text after a while.
+        return self.message.body or gettext("(text erased)")
+
+    @property
+    @admin.display(description=_("Message removed at"))
+    def message_removed_at(self):
+        return (self.message.removed_at if self.message else None) or ""
+
+    def remove_message(self, user) -> bool:
+        """Hide the reported message from every member and close the reports
+        still waiting on it. False when it was already removed. The caller
+        checks permission and logs."""
+        from .messages import Message
+
+        if self.message_id is None:
+            return False
+        with transaction.atomic():
+            message = Message.objects.select_for_update().get(pk=self.message_id)
+            if message.removed_at is not None:
+                return False
+            message.removed_at = timezone.now()
+            message.save(update_fields=["removed_at"])
+            type(self).objects.filter(
+                message=message, status__in=(self.OPEN, self.AUTO_HIDDEN)
+            ).update(
+                status=self.ACTIONED,
+                resolved_at=message.removed_at,
+                resolved_by=user,
+            )
+        return True
 
     @property
     def target_excerpt(self):
@@ -217,7 +269,7 @@ class Report(models.Model):
         no publish/unpublish state to enforce automatically. Crossing the
         threshold marks the matching reports AUTO_HIDDEN as a
         moderator-visibility signal only; a moderator must still act manually
-        to remove content. This is a deliberate scope decision (see todo
+        to remove content (`remove_message`). This is a deliberate scope decision (see todo
         319's Work Log), not an oversight.
         """
         from ..conf import get_setting

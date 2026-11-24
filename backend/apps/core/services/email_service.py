@@ -127,6 +127,7 @@ class EmailOutcome:
 # outbox's own words (``DeliveryIntent.last_error``).
 SUPPRESSED_PREFERENCE = "preference_off"
 SUPPRESSED_ADDRESS = "address_suppressed"
+SUPPRESSED_UNVERIFIED = "email_unverified"
 
 
 # An RFC 3463 enhanced status code at the start of an SMTP reply's text,
@@ -226,6 +227,18 @@ SYSTEM_EMAIL_TYPES = frozenset(
 )
 
 
+# Optional mail about the forum: sent only to a verified address.
+FORUM_EMAIL_TYPES = frozenset(
+    {
+        EmailType.FORUM_REPLY,
+        EmailType.FORUM_MENTION,
+        EmailType.FORUM_QUOTE,
+        EmailType.FORUM_SOLUTION,
+        EmailType.FORUM_DIGEST,
+    }
+)
+
+
 # Email type -> the list its unsubscribe link leaves (a key of
 # apps.users.email_unsubscribe.LISTS). A type with no entry carries no link.
 UNSUBSCRIBE_LISTS = {
@@ -251,7 +264,8 @@ class EmailService:
         # The EmailOutcome of the last send_email call (todo 619).
         self.last_outcome: Optional[str] = None
         # Why it was SUPPRESSED, for an outbox to record (todo 625):
-        # SUPPRESSED_PREFERENCE or SUPPRESSED_ADDRESS, else None.
+        # SUPPRESSED_PREFERENCE, SUPPRESSED_ADDRESS or SUPPRESSED_UNVERIFIED,
+        # else None.
         self.last_suppression_reason: Optional[str] = None
 
     def send_email(
@@ -313,6 +327,22 @@ class EmailService:
             )
             self.last_outcome = EmailOutcome.SUPPRESSED
             self.last_suppression_reason = SUPPRESSED_PREFERENCE
+            return False
+
+        # Forum mail goes only to an address its account proved it owns: an
+        # account can be registered with anyone's (audit 2026-11-24 F211).
+        if (
+            respect_preferences
+            and user
+            and email_type in FORUM_EMAIL_TYPES
+            and not self._address_verified(user)
+        ):
+            logger.info(
+                "[EMAIL] Forum email to user %s not sent: address not verified",
+                user.pk,
+            )
+            self.last_outcome = EmailOutcome.SUPPRESSED
+            self.last_suppression_reason = SUPPRESSED_UNVERIFIED
             return False
 
         # The provider reported this address as undeliverable, or its owner
@@ -567,6 +597,13 @@ class EmailService:
 
         # Check specific preference or default to True
         return email_preference_map.get(email_type, True)
+
+    @staticmethod
+    def _address_verified(user: User) -> bool:
+        # Imported late: that module imports this one.
+        from apps.users.email_verification import is_email_verified
+
+        return is_email_verified(user)
 
     def _get_base_context(
         self, user: Optional[User], email_type: str

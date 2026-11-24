@@ -31,6 +31,9 @@ from django.test import Client, override_settings
 from django.utils import timezone
 from wagtail_forum.digest import Digest, DigestTopic, send_digest
 
+# Forum email goes only to a verified address (audit 2026-11-24 F211).
+pytestmark = pytest.mark.usefixtures("verified_accounts")
+
 User = get_user_model()
 
 SITE = "https://web.example"
@@ -462,11 +465,13 @@ def test_a_template_error_makes_the_task_retry(task_name, module, args):
     (docs/rules/celery.md), since ``.apply()`` ignores the countdown."""
     from unittest import mock
 
+    from allauth.account.models import EmailAddress
     from apps.users import tasks
     from celery.exceptions import Retry
 
     task = getattr(tasks, task_name)
     user = _user(f"retry-{task_name[5:13]}")
+    EmailAddress.objects.filter(user=user).update(verified=False)
     mail.outbox.clear()
     task.push_request(retries=0)
     try:

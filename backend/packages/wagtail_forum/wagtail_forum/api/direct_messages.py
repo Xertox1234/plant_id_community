@@ -23,8 +23,8 @@ Decisions recorded (todo 319's Work Log has the full rationale):
   parallel `MessageReport` model, per this todo's Recommended Action.
 - No automatic retention/tombstone job. Messages persist indefinitely in this
   slice — the existing Topic tombstone-prune cron (todo 261) does not apply,
-  since DMs are never hard-deleted here. Revisit once a delete/moderation
-  action for DMs exists.
+  since DMs are never hard-deleted here. A moderator's removal
+  (`Report.remove_message`) hides the text and keeps the row.
 """
 
 from datetime import datetime
@@ -34,6 +34,7 @@ from types import SimpleNamespace
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import (
+    Case,
     Count,
     Exists,
     IntegerField,
@@ -41,7 +42,9 @@ from django.db.models import (
     Prefetch,
     Q,
     Subquery,
+    TextField,
     Value,
+    When,
 )
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
@@ -62,6 +65,7 @@ from ..models import (
     Report,
     UserBlock,
 )
+from ..models.messages import MESSAGE_REMOVED_TEXT
 from ..spam import get_spam_backend
 from ..spam.heuristic import HeuristicSpamBackend
 from ..workflow import author_is_trusted
@@ -296,7 +300,15 @@ def _inbox_queryset(user):
             unread_count=Coalesce(
                 Subquery(unread_total, output_field=IntegerField()), Value(0)
             ),
-            last_message_body=Subquery(newest.values("body")[:1]),
+            last_message_body=Subquery(
+                newest.annotate(
+                    shown=Case(
+                        When(removed_at__isnull=True, then="body"),
+                        default=Value(str(MESSAGE_REMOVED_TEXT)),
+                        output_field=TextField(),
+                    )
+                ).values("shown")[:1]
+            ),
             last_message_sender_id=Subquery(newest.values("sender_id")[:1]),
         )
     )
