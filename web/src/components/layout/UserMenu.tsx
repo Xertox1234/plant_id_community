@@ -81,7 +81,7 @@ export default function UserMenu() {
       {/* User Avatar Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-2 rounded-lg text-ink-2 hover:bg-surface transition-colors"
+        className="flex min-h-11 min-w-11 items-center justify-center gap-2 px-1.5 py-1.5 sm:px-3 sm:py-2 rounded-lg text-ink-2 hover:bg-surface transition-colors"
         aria-expanded={isOpen}
         aria-haspopup="true"
         data-testid="user-menu"
@@ -95,7 +95,9 @@ export default function UserMenu() {
         <span className="hidden md:inline font-medium">{user?.username || user?.email}</span>
 
         {/* Chevron Icon */}
-        <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          className={`hidden w-4 h-4 transition-transform sm:block ${isOpen ? 'rotate-180' : ''}`}
+        />
       </button>
 
       {/* Dropdown Menu */}

@@ -33,20 +33,17 @@ import {
   markSolution,
   clearSolution,
   votePoll,
+  ForumApiError,
 } from '../../services/forumService';
 import { parseLeadingId, userProfilePath, threadPath } from '../../utils/forumUrls';
 import { DELETED_AUTHOR_USERNAME } from '../../utils/forumAuthor';
 import {
-  bodyBlocksToDoc,
-  docToBodyBlocks,
-  draftToDoc,
   emptyDoc,
   isBlankDoc,
   isEmptyDoc,
-  isUnchangedBody,
   postQuoteNode,
   postQuoteText,
-} from '../../utils/forumBody';
+} from '../../utils/forumDoc';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import { useIdentitySwap } from '../../hooks/useIdentitySwap';
 import { specimenAvatar } from '../../utils/forumAvatars';
@@ -55,7 +52,8 @@ import IdentificationCard from '../../components/forum/IdentificationCard';
 import PollCard from '../../components/forum/PollCard';
 import ThreadSummaryPanel from '../../components/forum/ThreadSummaryPanel';
 import ForumErrorState from '../../components/forum/ForumErrorState';
-import TipTapEditor from '../../components/forum/TipTapEditor';
+import TipTapEditor, { EditorPlaceholder } from '../../components/forum/LazyTipTapEditor';
+import InlineError from '../../components/forum/InlineError';
 import LiveToast from '../../components/forum/LiveToast';
 import { ThreadDetailSkeleton } from '../../components/forum/ForumSkeleton';
 import Button from '../../components/ui/Button';
@@ -85,6 +83,14 @@ import type { LiveEvent, LiveToastSpec } from '@/types/forumLive';
 import type { JSONContent } from '@tiptap/react';
 import type { PaginatedResponse } from '@/types/forum';
 
+const EDITOR_LOAD_ERROR = 'The editor could not be loaded. Check your connection and try again.';
+
+/** The schema-based body converters, downloaded with the editor (audit F110). */
+const loadForumBody = () =>
+  import('../../utils/forumBody').catch((cause: unknown) => {
+    throw new Error(EDITOR_LOAD_ERROR, { cause });
+  });
+
 /**
  * Whether the post with `postId` is the topic's accepted answer. The single
  * source for this coercion — the leaf node, the tape/banner styling, and the
@@ -110,6 +116,23 @@ async function collectAllPosts(threadId: number): Promise<{ items: Post[]; next:
     cursor = next;
   }
   return { items, next };
+}
+
+// The current server copy of the posts already on screen, by id: walks the pages
+// only until every one of them has been seen.
+async function refetchLoadedPosts(threadId: number, ids: string[]): Promise<Map<string, Post>> {
+  const missing = new Set(ids);
+  const fresh = new Map<string, Post>();
+  let cursor: string | undefined;
+  for (let i = 0; i < MAX_REFRESH_PAGES && missing.size > 0; i++) {
+    const page = await fetchPosts(cursor ? { thread: threadId, cursor } : { thread: threadId });
+    page.items.forEach((p) => {
+      if (missing.delete(p.id)) fresh.set(p.id, p);
+    });
+    if (!page.meta.next) break;
+    cursor = page.meta.next;
+  }
+  return fresh;
 }
 
 // Deep-link / just-posted highlight duration — must outlast the CSS
@@ -186,11 +209,46 @@ export default function ThreadDetailPage() {
   // TipTap's `content` is init-only, so resetting replyBody won't clear the editor;
   // bumping this key remounts a fresh (empty) composer after a successful reply.
   const [composerKey, setComposerKey] = useState<number>(0);
+  // A stored draft needs the composer's schema to be read (audit F110): until
+  // it is, the composer is held back so nothing typed can be overwritten. The
+  // promise resolves to the draft, for a Quote pressed meanwhile.
+  const [draftState, setDraftState] = useState<'ready' | 'loading' | 'failed'>('ready');
+  const draftRestoreRef = useRef<Promise<JSONContent> | null>(null);
+  // Bumped when the draft stops being this reader's or this thread's: a Quote
+  // still waiting for it must not write it back.
+  const draftGenerationRef = useRef(0);
+  const quoteWaitingRef = useRef(false);
+  const restoreDraft = useCallback((raw: string) => {
+    const restore = loadForumBody().then((forumBody) => forumBody.draftToDoc(raw));
+    draftRestoreRef.current = restore;
+    setDraftState('loading');
+    restore.then(
+      (doc) => {
+        if (draftRestoreRef.current !== restore) return;
+        draftRestoreRef.current = null;
+        setReplyBody(doc);
+        setComposerKey((k) => k + 1);
+        setDraftState('ready');
+      },
+      (err: unknown) => {
+        if (draftRestoreRef.current !== restore) return;
+        draftRestoreRef.current = null;
+        logger.error('Error loading the reply draft', {
+          component: 'ThreadDetailPage',
+          error: err,
+        });
+        setDraftState('failed');
+      }
+    );
+  }, []);
   // A passive account swap (focus revalidation, expired session + a different
   // login) clears the stored drafts in AuthContext, but this page's own reply
   // state would re-persist the previous account's text on the next keystroke
   // (code review, PR #629) — drop it and remount the editor.
   useIdentitySwap(user?.id, () => {
+    draftRestoreRef.current = null;
+    draftGenerationRef.current += 1;
+    setDraftState('ready');
     setReplyBody(emptyDoc());
     setComposerKey((k) => k + 1);
     // AuthContext drops every draft key on the swap; this page's own persist
@@ -203,8 +261,15 @@ export default function ThreadDetailPage() {
   const [editSubmitting, setEditSubmitting] = useState<boolean>(false);
   const [subscribing, setSubscribing] = useState<boolean>(false);
   const [bookmarking, setBookmarking] = useState<boolean>(false);
-  // A transient banner for write errors + moderation outcomes.
+  // A transient banner for moderation outcomes and header-action errors.
   const [notice, setNotice] = useState<string | null>(null);
+  // Every other failure is shown at the control acted on (audit F57); a
+  // post's own actions report on its PostCard.
+  const [replyError, setReplyError] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const [newRepliesError, setNewRepliesError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<{ postId: string; message: string } | null>(null);
   // Focus the reply composer after a successful post (M25); reset on navigation
   // so arriving on a thread never steals focus into the reply box.
   const [autoFocusComposer, setAutoFocusComposer] = useState<boolean>(false);
@@ -262,6 +327,9 @@ export default function ThreadDetailPage() {
   // form outlives the editor's key-remounts, so the ref stays valid.
   const composerRef = useRef<HTMLFormElement>(null);
 
+  // The latest press of Edit: opening one loads the composer's schema first.
+  const editRequestRef = useRef(0);
+
   // Load thread and initial posts
   useEffect(() => {
     // Refs must not be written during render (react-hooks/refs) — this
@@ -275,10 +343,15 @@ export default function ThreadDetailPage() {
     // Restore this topic's reply draft (per-topic key); remount the composer
     // so TipTap's init-only content picks it up.
     // draftToDoc also reads a draft saved before todo 526 (the editor's HTML).
-    setReplyBody(
-      topicId != null ? draftToDoc(loadDraft(draftKey('reply', String(topicId)))) : emptyDoc()
-    );
+    const storedDraft = topicId != null ? loadDraft(draftKey('reply', String(topicId))) : null;
+    draftRestoreRef.current = null;
+    draftGenerationRef.current += 1;
+    setDraftState('ready');
+    setReplyBody(emptyDoc());
     setComposerKey((k) => k + 1);
+    if (storedDraft) restoreDraft(storedDraft);
+    // An Edit still loading for the previous thread must not open here.
+    editRequestRef.current += 1;
     // A subscribe/unsubscribe request still in flight for the PREVIOUS
     // thread must not leave this thread's Follow button stuck loading —
     // reset unconditionally on every navigation (handleToggleSubscription's
@@ -296,6 +369,11 @@ export default function ThreadDetailPage() {
     setAutoFocusComposer(false);
     // The press animation belongs to the thread it happened on.
     setJustPostedId(null);
+    // So do its errors.
+    setReplyError(null);
+    setLoadMoreError(null);
+    setNewRepliesError(null);
+    setDeleteError(null);
     // A stale "N new replies" offer belongs to the previous thread.
     setNewReplyCount(0);
     // So do its live-update marks.
@@ -350,7 +428,7 @@ export default function ThreadDetailPage() {
     return () => {
       ignore = true;
     };
-  }, [topicId, threadSlug, categorySlug, reloadKey]);
+  }, [topicId, threadSlug, categorySlug, reloadKey, restoreDraft]);
 
   // Load more posts (cursor pagination)
   const handleLoadMore = useCallback(async () => {
@@ -363,6 +441,7 @@ export default function ThreadDetailPage() {
 
     try {
       setLoadingMore(true);
+      setLoadMoreError(null);
       const postsData = (await fetchPosts({
         thread: requestTopicId,
         cursor: nextCursor,
@@ -378,7 +457,7 @@ export default function ThreadDetailPage() {
         context: { threadId: thread?.id },
       });
       if (currentTopicIdRef.current === requestTopicId) {
-        setNotice(
+        setLoadMoreError(
           `Failed to load more posts: ${err instanceof Error ? err.message : 'Unknown error'}`
         );
       }
@@ -426,7 +505,17 @@ export default function ThreadDetailPage() {
         }
         return fresh;
       } catch (err) {
-        // A failed check is silent — the next tick retries; the page is unaffected.
+        if (
+          err instanceof ForumApiError &&
+          (err.status === 404 || err.status === 403) &&
+          isActive() &&
+          currentTopicIdRef.current === requestTopicId
+        ) {
+          // Definitive: removed, or no longer this reader's to see.
+          setError(TOPIC_GONE_MESSAGE);
+          return null;
+        }
+        // Any other failure is silent — the next tick retries; the page is unaffected.
         logger.warn('New-replies poll failed', {
           component: 'ThreadDetailPage',
           error: err,
@@ -615,7 +704,30 @@ export default function ThreadDetailPage() {
     onEvent: handleLiveEvent,
     onOpen: handleLiveOpen,
   });
-  const topicGone = liveStatus === 'gone';
+
+  // A 4404 close does not mean the topic is gone: the server keeps the socket
+  // shut for a password forum this reader may still read over REST (todos 676,
+  // 680). Ask REST; only its 404/403 replaces the thread. Anything else leaves
+  // live updates off and the poll below running (audit F37).
+  useEffect(() => {
+    if (liveStatus !== 'gone' || topicId == null) return;
+    let active = true;
+    fetchThread(topicId, { peek: true }).catch((err) => {
+      if (!active) return;
+      if (err instanceof ForumApiError && (err.status === 404 || err.status === 403)) {
+        setError(TOPIC_GONE_MESSAGE);
+        return;
+      }
+      logger.warn('Could not confirm a live 4404', {
+        component: 'ThreadDetailPage',
+        error: err,
+        context: { threadId: topicId },
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [liveStatus, topicId]);
 
   // The poll runs only while the socket is not connected (spec §5).
   useEffect(() => {
@@ -683,6 +795,7 @@ export default function ThreadDetailPage() {
     const offered = newReplyCount;
     try {
       setLoadingNewReplies(true);
+      setNewRepliesError(null);
       // A real read this time (no peek): loading the replies IS reading them,
       // so the topic-read record advances. Posts are oldest-first, so the
       // reader's loaded items keep their keys and the new ones append.
@@ -699,6 +812,8 @@ export default function ThreadDetailPage() {
       setNextCursor(refreshed.next);
       setTotalPosts(fresh.post_count ?? 0);
       setNewReplyCount(0);
+      // A "posted, but not refreshed" message is answered by this load.
+      setReplyError(null);
       liveNewIdsRef.current = new Set();
       if (newIds.length > 0) {
         setFlashIds(newIds);
@@ -712,7 +827,7 @@ export default function ThreadDetailPage() {
         context: { threadId: requestTopicId },
       });
       if (currentTopicIdRef.current === requestTopicId) {
-        setNotice(
+        setNewRepliesError(
           `Failed to load new replies: ${err instanceof Error ? err.message : 'Unknown error'}`
         );
       }
@@ -844,7 +959,9 @@ export default function ThreadDetailPage() {
       try {
         setReplySubmitting(true);
         setNotice(null);
+        setReplyError(null);
         replyInFlightRef.current = true;
+        const { docToBodyBlocks } = await loadForumBody();
         const res = await createPost({
           thread: requestTopicId,
           body: docToBodyBlocks(replyBody),
@@ -886,10 +1003,39 @@ export default function ThreadDetailPage() {
           // Re-read the count alongside the refresh: the walk loads EVERY
           // reply that landed (anyone's), so `n + 1` would leave the poll's
           // baseline short and a ghost "new replies" pill would follow.
-          const [refreshed, fresh] = await Promise.all([
-            collectAllPosts(requestTopicId),
-            fetchThread(requestTopicId),
-          ]);
+          let refresh: [Awaited<ReturnType<typeof collectAllPosts>>, Thread];
+          try {
+            refresh = await Promise.all([
+              collectAllPosts(requestTopicId),
+              fetchThread(requestTopicId),
+            ]);
+          } catch (err) {
+            // The reply IS posted: never let this read as a failed post, or
+            // the member posts it twice (audit F154). Its live event is
+            // skipped as our own and a connected socket means no poll, so
+            // offer it through the pill (or the Load More count).
+            logger.error('Error refreshing after a posted reply', {
+              component: 'ThreadDetailPage',
+              error: err,
+              context: { threadId: requestTopicId },
+            });
+            if (currentTopicIdRef.current !== requestTopicId) {
+              if (drifted) announce(driftNotice, 'assertive');
+              return;
+            }
+            if (nextCursorRef.current) {
+              setTotalPosts((n) => n + 1);
+            } else if (!liveNewIdsRef.current.has(res.id)) {
+              liveNewIdsRef.current.add(res.id);
+              setNewReplyCount((n) => n + 1);
+            }
+            setReplyError(
+              'Your reply was posted, but this page could not be refreshed to show it. Do not post it again.'
+            );
+            if (drifted) setNotice(driftNotice);
+            return;
+          }
+          const [refreshed, fresh] = refresh;
           if (currentTopicIdRef.current !== requestTopicId) return;
           setPosts(refreshed.items);
           setNextCursor(refreshed.next);
@@ -922,7 +1068,7 @@ export default function ThreadDetailPage() {
           context: { threadId: requestTopicId },
         });
         if (currentTopicIdRef.current === requestTopicId) {
-          setNotice(err instanceof Error ? err.message : 'Failed to post reply');
+          setReplyError(err instanceof Error ? err.message : 'Failed to post reply');
         }
       } finally {
         setReplySubmitting(false);
@@ -953,22 +1099,40 @@ export default function ThreadDetailPage() {
   // mechanism as the post-reply reset — and the draft store is written
   // directly, since a remount fires no onChange.
   const handleQuote = useCallback(
-    (post: Post) => {
+    async (post: Post) => {
       if (topicId == null) return;
+      // Never write over a stored draft that has not been read yet.
+      if (draftState === 'failed') throw new Error(EDITOR_LOAD_ERROR);
+      let draft = replyBody;
+      if (draftRestoreRef.current) {
+        // Two waiting quotes would build on the same draft and lose the first.
+        if (quoteWaitingRef.current) {
+          throw new Error('Your draft is still loading. Try again in a moment.');
+        }
+        const generation = draftGenerationRef.current;
+        quoteWaitingRef.current = true;
+        try {
+          draft = await draftRestoreRef.current;
+        } finally {
+          quoteWaitingRef.current = false;
+        }
+        // Another account, or another visit to this thread, owns the composer now.
+        if (draftGenerationRef.current !== generation) return;
+      }
+      if (currentTopicIdRef.current !== topicId) return;
       const postId = Number(post.id);
       const text = postQuoteText(post.body);
       const quote = Number.isSafeInteger(postId) && postId > 0 ? postQuoteNode(postId, text) : null;
       if (!quote) {
         // An image-only post has nothing to quote, and the server rejects an
         // empty quote — say so instead of inserting a block that will 400.
-        setNotice('This post has no text to quote.');
-        return;
+        throw new Error('This post has no text to quote.');
       }
       const next: JSONContent = {
         type: 'doc',
-        content: isEmptyDoc(replyBody)
+        content: isEmptyDoc(draft)
           ? [quote, { type: 'paragraph' }]
-          : [quote, ...(replyBody.content ?? [])],
+          : [quote, ...(draft.content ?? [])],
       };
       setReplyBody(next);
       saveDraft(draftKey('reply', String(topicId)), JSON.stringify(next));
@@ -986,7 +1150,7 @@ export default function ThreadDetailPage() {
         'polite'
       );
     },
-    [topicId, replyBody, announce]
+    [topicId, replyBody, draftState, announce]
   );
 
   // (post, reaction type) pairs whose toggle is in flight (todo 465). A
@@ -1020,7 +1184,8 @@ export default function ThreadDetailPage() {
         error: err,
         context: { postId, reactionType },
       });
-      setNotice(err instanceof Error ? err.message : 'Failed to react');
+      // Rethrow: the PostCard shows it.
+      throw err instanceof Error ? err : new Error('Failed to react');
     } finally {
       reactInFlightRef.current.delete(inFlightKey);
     }
@@ -1122,7 +1287,7 @@ export default function ThreadDetailPage() {
           context: { topicId: requestTopicId, postId: post.id },
         });
         if (currentTopicIdRef.current === requestTopicId) {
-          setNotice(err instanceof Error ? err.message : 'Failed to update the accepted answer');
+          throw err instanceof Error ? err : new Error('Failed to update the accepted answer');
         }
       }
     },
@@ -1138,76 +1303,81 @@ export default function ThreadDetailPage() {
         error: err,
         context: { postId, reason },
       });
-      setNotice(err instanceof Error ? err.message : 'Failed to report post');
-      // Rethrow so PostCard's picker stays open for a retry instead of
-      // showing a false "Reported" confirmation (unlike handleReact, whose
-      // confirmation is driven by reaction_counts and never lies on failure).
-      throw err;
+      // Rethrow so PostCard's picker stays open for a retry, with the reason,
+      // instead of showing a false "Reported" confirmation.
+      throw err instanceof Error ? err : new Error('Failed to report post');
     }
   }, []);
 
-  // Block/unblock an author (todo 284/M9). A block can affect several posts
-  // by the same author on this page, so a single-post local update (like
-  // handleToggleSolution's setThread) isn't enough — reuse the same
-  // full-refetch retry mechanism as the ForumErrorState onRetry below to
-  // bring every post's is_blocked flag back in line from the server.
-  const handleBlockAuthor = useCallback(async (username: string) => {
-    try {
-      await blockUser(username);
-      setReloadKey((k) => k + 1);
-    } catch (err) {
-      logger.error('Error blocking user', {
-        component: 'ThreadDetailPage',
-        error: err,
-        context: { username },
-      });
-      setNotice(err instanceof Error ? err.message : 'Failed to block user');
-    }
-  }, []);
-
-  const handleUnblockAuthor = useCallback(async (username: string) => {
-    try {
-      await unblockUser(username);
-      setReloadKey((k) => k + 1);
-    } catch (err) {
-      logger.error('Error unblocking user', {
-        component: 'ThreadDetailPage',
-        error: err,
-        context: { username },
-      });
-      setNotice(err instanceof Error ? err.message : 'Failed to unblock user');
-    }
-  }, []);
-
-  // Mute/unmute an author (todo 347) — same full-refetch contract as block:
-  // a mute affects every post by that author on the page.
-  const handleMuteAuthor = useCallback(async (username: string) => {
-    try {
-      await muteUser(username);
-      setReloadKey((k) => k + 1);
-    } catch (err) {
-      logger.error('Error muting user', {
-        component: 'ThreadDetailPage',
-        error: err,
-        context: { username },
-      });
-      setNotice(err instanceof Error ? err.message : 'Failed to mute user');
-    }
-  }, []);
-
-  const handleUnmuteAuthor = useCallback(async (username: string) => {
-    try {
-      await unmuteUser(username);
-      setReloadKey((k) => k + 1);
-    } catch (err) {
-      logger.error('Error unmuting user', {
-        component: 'ThreadDetailPage',
-        error: err,
-        context: { username },
-      });
-      setNotice(err instanceof Error ? err.message : 'Failed to unmute user');
-    }
-  }, []);
+  // Block/unblock, mute/unmute an author (todos 284/M9, 347). Each can affect
+  // several posts on this page, and quotes of that author's posts, so the
+  // server's flags are refetched. In the background and in place (audit F58):
+  // the page, its scroll position, the open composer and the loaded later
+  // pages all stay. Newest refetch wins; failures reach the pressed card.
+  const relationRefreshRef = useRef(0);
+  const changeRelation = useCallback(
+    async (
+      username: string,
+      verb: 'block' | 'unblock' | 'mute' | 'unmute',
+      request: (username: string) => Promise<void>
+    ) => {
+      const requestTopicId = currentTopicIdRef.current;
+      try {
+        await request(username);
+      } catch (err) {
+        logger.error(`Error: ${verb} user failed`, {
+          component: 'ThreadDetailPage',
+          error: err,
+          context: { username },
+        });
+        throw err instanceof Error ? err : new Error(`Failed to ${verb} user`);
+      }
+      if (requestTopicId == null || currentTopicIdRef.current !== requestTopicId) return;
+      relationRefreshRef.current += 1;
+      const refresh = relationRefreshRef.current;
+      try {
+        const fresh = await refetchLoadedPosts(
+          requestTopicId,
+          postsRef.current.map((p) => p.id)
+        );
+        if (
+          currentTopicIdRef.current !== requestTopicId ||
+          relationRefreshRef.current !== refresh
+        ) {
+          return;
+        }
+        setPosts((prev) => prev.map((p) => fresh.get(p.id) ?? p));
+      } catch (err) {
+        logger.error('Error refreshing posts after a block or mute', {
+          component: 'ThreadDetailPage',
+          error: err,
+          context: { username },
+        });
+        const done = verb.endsWith('mute') ? `${verb}d` : `${verb}ed`;
+        throw new Error(
+          `This member is now ${done}, but this page could not be refreshed. Reload it to see the change.`,
+          { cause: err }
+        );
+      }
+    },
+    []
+  );
+  const handleBlockAuthor = useCallback(
+    (username: string) => changeRelation(username, 'block', blockUser),
+    [changeRelation]
+  );
+  const handleUnblockAuthor = useCallback(
+    (username: string) => changeRelation(username, 'unblock', unblockUser),
+    [changeRelation]
+  );
+  const handleMuteAuthor = useCallback(
+    (username: string) => changeRelation(username, 'mute', muteUser),
+    [changeRelation]
+  );
+  const handleUnmuteAuthor = useCallback(
+    (username: string) => changeRelation(username, 'unmute', unmuteUser),
+    [changeRelation]
+  );
 
   // Open the styled delete confirmation (M24 — replaces window.confirm).
   const handleDelete = useCallback((post: Post) => {
@@ -1218,6 +1388,7 @@ export default function ThreadDetailPage() {
     const post = pendingDelete;
     if (!post) return;
     setPendingDelete(null);
+    setDeleteError(null);
     try {
       await deletePost(post.id);
       setPosts((prev) => prev.filter((p) => p.id !== post.id));
@@ -1228,30 +1399,38 @@ export default function ThreadDetailPage() {
         error: err,
         context: { postId: post.id },
       });
-      setNotice(err instanceof Error ? err.message : 'Failed to delete post');
+      setDeleteError({
+        postId: post.id,
+        message: err instanceof Error ? err.message : 'Failed to delete post',
+      });
     }
   }, [pendingDelete]);
 
   // Start editing `post`. If another post is mid-edit with unsaved changes,
   // confirm the discard first instead of silently dropping them (M27).
-  const startEditing = useCallback((post: Post) => {
+  const startEditing = useCallback(async (post: Post) => {
+    const request = ++editRequestRef.current;
+    const { bodyBlocksToDoc } = await loadForumBody();
+    if (editRequestRef.current !== request) return;
     setEditingPostId(post.id);
+    setEditError(null);
     setEditBody(bodyBlocksToDoc(post.body));
   }, []);
 
   const handleEdit = useCallback(
-    (post: Post) => {
+    async (post: Post) => {
       if (editingPostId != null && editingPostId !== post.id) {
         const current = posts.find((p) => p.id === editingPostId);
         // Compared as the body blocks a save would send, not by document
         // identity: an untouched edit is not "unsaved changes" (todo 526).
+        const { isUnchangedBody } = await loadForumBody();
         const isDirty = !!current && !isUnchangedBody(editBody, current.body);
         if (isDirty) {
           setPendingEditSwitch(post);
           return;
         }
       }
-      startEditing(post);
+      await startEditing(post);
     },
     [editingPostId, editBody, posts, startEditing]
   );
@@ -1264,14 +1443,16 @@ export default function ThreadDetailPage() {
       // revision identical to the stored body (and, for an untrusted author,
       // re-queue the post for moderation). Saving just closes the editor.
       const current = posts.find((p) => p.id === editingPostId);
-      if (current && isUnchangedBody(editBody, current.body)) {
-        setEditingPostId(null);
-        setEditBody(emptyDoc());
-        return;
-      }
       try {
         setEditSubmitting(true);
+        const { docToBodyBlocks, isUnchangedBody } = await loadForumBody();
+        if (current && isUnchangedBody(editBody, current.body)) {
+          setEditingPostId(null);
+          setEditBody(emptyDoc());
+          return;
+        }
         setNotice(null);
+        setEditError(null);
         const res = await updatePost(editingPostId, { body: docToBodyBlocks(editBody) });
         setPosts((prev) => prev.map((p) => (p.id === editingPostId ? res.post : p)));
         if (res.status === 'pending') {
@@ -1285,7 +1466,7 @@ export default function ThreadDetailPage() {
           error: err,
           context: { postId: editingPostId },
         });
-        setNotice(err instanceof Error ? err.message : 'Failed to save edit');
+        setEditError(err instanceof Error ? err.message : 'Failed to save edit');
       } finally {
         setEditSubmitting(false);
       }
@@ -1301,7 +1482,11 @@ export default function ThreadDetailPage() {
   // Confirmed the unsaved-edit discard (M27): switch to the post the user asked
   // to edit, dropping the previous edit's changes.
   const confirmEditSwitch = useCallback(() => {
-    if (pendingEditSwitch) startEditing(pendingEditSwitch);
+    if (pendingEditSwitch) {
+      startEditing(pendingEditSwitch).catch((err: unknown) => {
+        setEditError(err instanceof Error ? err.message : EDITOR_LOAD_ERROR);
+      });
+    }
     setPendingEditSwitch(null);
   }, [pendingEditSwitch, startEditing]);
 
@@ -1313,11 +1498,11 @@ export default function ThreadDetailPage() {
     );
   }
 
-  if (error || topicGone || !thread) {
+  if (error || !thread) {
     return (
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <ForumErrorState
-          message={error || (topicGone ? TOPIC_GONE_MESSAGE : 'Thread not found')}
+          message={error || 'Thread not found'}
           onRetry={() => setReloadKey((k) => k + 1)}
         />
       </div>
@@ -1440,7 +1625,7 @@ export default function ThreadDetailPage() {
         </div>
 
         <div className="flex items-start justify-between flex-wrap gap-4">
-          <div className="flex-1 min-w-0">
+          <div className="min-w-0 grow basis-80">
             <h1
               className="gt-display break-words text-ink mb-3"
               style={{ viewTransitionName: `thread-${thread.id}` }}
@@ -1465,11 +1650,9 @@ export default function ThreadDetailPage() {
             </p>
           </div>
 
-          {/* flex-wrap on the pair below: the outer row's own wrap is
-              neutralized by the title block's flex-1 min-w-0 (0 flex-basis
-              contributes nothing to the wrap calc), so at narrow widths this
-              pair — now two buttons, not one — needs its own wrap fallback
-              rather than squeezing the title (code review, todo 283). */}
+          {/* The title block's real flex-basis (basis-80, not flex-1's zero)
+              makes this pair wrap to its own row wherever both do not fit, so
+              a phone gives the title the full width (audit F301). */}
           {isAuthenticated && (
             <div className="flex flex-wrap items-center gap-2">
               <Button
@@ -1511,7 +1694,7 @@ export default function ThreadDetailPage() {
         </div>
       </header>
 
-      {/* Write-path notice (errors + moderation outcomes). Persistent live
+      {/* Write-path notice (moderation outcomes, Bookmark/Follow errors). Persistent live
           region: the container is always mounted so swapping its text is read
           out by a screen reader — a conditionally-mounted `role` node generally
           is NOT announced (audit M26/AC1). Visually collapsed when empty. */}
@@ -1593,6 +1776,7 @@ export default function ThreadDetailPage() {
                   allowImages={canAttach}
                   forumId={thread.category.id || undefined}
                 />
+                <InlineError message={editError} />
                 <div className="flex gap-2">
                   <Button
                     type="submit"
@@ -1629,6 +1813,7 @@ export default function ThreadDetailPage() {
                 // Only where there is a composer to quote INTO: a locked
                 // thread renders none (todo 342).
                 onQuote={isAuthenticated && !thread.is_locked ? handleQuote : undefined}
+                deleteError={deleteError?.postId === post.id ? deleteError.message : null}
                 isSolution={isSolution}
                 // Offered only to a viewer the backend says may mark, and never
                 // on the opening post — a question is not its own answer, and
@@ -1651,7 +1836,7 @@ export default function ThreadDetailPage() {
       <div
         className={
           isAuthenticated && newReplyCount > 0
-            ? 'sticky bottom-4 z-10 mb-4 flex justify-center'
+            ? 'sticky bottom-4 z-10 mb-4 flex flex-col items-center gap-2'
             : 'sr-only'
         }
         aria-live="polite"
@@ -1669,6 +1854,9 @@ export default function ThreadDetailPage() {
               ? 'Loading...'
               : `Load ${newReplyCount} new ${newReplyCount === 1 ? 'reply' : 'replies'}`}
           </Button>
+        )}
+        {isAuthenticated && newReplyCount > 0 && newRepliesError && (
+          <p className="rounded-md bg-surface px-3 py-1 text-sm text-error">{newRepliesError}</p>
         )}
       </div>
 
@@ -1691,6 +1879,7 @@ export default function ThreadDetailPage() {
                   totalPosts - posts.filter((p) => !p.is_first_post).length
                 )} remaining)`}
           </Button>
+          <InlineError message={loadMoreError} className="mt-2" />
         </div>
       )}
 
@@ -1736,25 +1925,37 @@ export default function ThreadDetailPage() {
           )}
           <p className="gt-label">Join the discussion</p>
           <h2 className="gt-h3 text-ink">Post a Reply</h2>
-          <TipTapEditor
-            key={composerKey}
-            content={replyBody}
-            autoFocus={autoFocusComposer}
-            allowImages={canAttach}
-            forumId={thread.category.id || undefined}
-            onChange={(doc) => {
-              setReplyBody(doc);
-              if (topicId != null) {
-                // isEmptyDoc, not isBlankDoc: an image-only reply is not
-                // postable yet, but it is a draft worth keeping (todo 538).
-                saveDraft(
-                  draftKey('reply', String(topicId)),
-                  isEmptyDoc(doc) ? '' : JSON.stringify(doc)
-                );
-              }
-            }}
-            placeholder="Write a reply..."
-          />
+          {draftState !== 'ready' ? (
+            <EditorPlaceholder
+              failed={draftState === 'failed'}
+              onRetry={() => {
+                const raw = topicId != null && loadDraft(draftKey('reply', String(topicId)));
+                if (raw) restoreDraft(raw);
+                else setDraftState('ready');
+              }}
+            />
+          ) : (
+            <TipTapEditor
+              key={composerKey}
+              content={replyBody}
+              autoFocus={autoFocusComposer}
+              allowImages={canAttach}
+              forumId={thread.category.id || undefined}
+              onChange={(doc) => {
+                setReplyBody(doc);
+                if (topicId != null) {
+                  // isEmptyDoc, not isBlankDoc: an image-only reply is not
+                  // postable yet, but it is a draft worth keeping (todo 538).
+                  saveDraft(
+                    draftKey('reply', String(topicId)),
+                    isEmptyDoc(doc) ? '' : JSON.stringify(doc)
+                  );
+                }
+              }}
+              placeholder="Write a reply..."
+            />
+          )}
+          <InlineError message={replyError} />
           <Button
             type="submit"
             variant="primary"

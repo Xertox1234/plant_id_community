@@ -149,6 +149,36 @@ describe('AppShell', () => {
     expect(screen.getAllByRole('navigation', { name: 'Main' })).toHaveLength(1);
   });
 
+  it('signed in, the header leaves room at 320px: theme moves to the drawer (audit F302)', async () => {
+    mockAuth.isAuthenticated = true;
+    renderShell();
+    const header = within(screen.getByRole('banner'));
+    expect(header.getByRole('button', { name: /switch to/i })).toHaveClass('max-[375px]:hidden');
+    // Every other header control keeps a 44px target on a phone.
+    expect(header.getByRole('button', { name: 'Open menu' })).toHaveClass('h-11', 'w-11');
+    expect(header.getByRole('link', { name: 'New post' })).toHaveClass('h-11', 'w-11');
+    expect(header.getByRole('button', { name: /^search/i })).toHaveClass('min-h-11', 'min-w-11');
+
+    await userEvent.click(header.getByRole('button', { name: 'Open menu' }));
+    const drawer = within(screen.getByRole('dialog', { name: 'Menu' }));
+    const toggle = drawer.getByRole('button', { name: /switch to/i });
+    expect(toggle).toHaveClass('min-[375px]:hidden');
+    const before = document.documentElement.dataset.mode;
+    await userEvent.click(toggle);
+    expect(document.documentElement.dataset.mode).not.toBe(before);
+  });
+
+  it('signed out, the theme toggle stays in the header at every width (audit F302)', async () => {
+    renderShell();
+    const header = within(screen.getByRole('banner'));
+    expect(header.getByRole('button', { name: /switch to/i })).not.toHaveClass(
+      'max-[375px]:hidden'
+    );
+    await userEvent.click(header.getByRole('button', { name: 'Open menu' }));
+    const drawer = within(screen.getByRole('dialog', { name: 'Menu' }));
+    expect(drawer.queryByRole('button', { name: /switch to/i })).not.toBeInTheDocument();
+  });
+
   it('theme toggle flips mode', async () => {
     renderShell();
     const toggle = screen.getByRole('button', { name: /switch to light mode/i });

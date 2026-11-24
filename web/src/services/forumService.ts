@@ -712,7 +712,8 @@ export async function toggleReaction(
 export async function reportPost(postId: string, reason: string, detail?: string): Promise<void> {
   await authenticatedFetch<{ reported: boolean }>(`${FORUM_BASE}/posts/${postId}/reports/`, {
     method: 'POST',
-    body: JSON.stringify({ reason, detail: detail ?? '' }),
+    // The server refuses a blank detail: omit it (audit F142).
+    body: JSON.stringify({ reason, ...(detail && { detail }) }),
   });
 }
 

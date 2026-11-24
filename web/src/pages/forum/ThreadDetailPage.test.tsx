@@ -3,6 +3,7 @@ import { render, screen, waitFor, within, act, fireEvent } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import * as ReactRouter from 'react-router-dom';
+import { draftKey, saveDraft } from '../../utils/forumDrafts';
 import ThreadDetailPage, { NEW_REPLIES_POLL_INTERVAL_MS } from './ThreadDetailPage';
 import {
   createMockCategory,
@@ -43,6 +44,10 @@ vi.mock('../../services/forumService');
 // exist in jsdom anyway) — but both mocks guard against a real network call.
 vi.mock('../../services/blogService');
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../../utils/forumBody', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/forumBody')>();
+  return { ...actual, draftToDoc: vi.fn(actual.draftToDoc) };
+});
 vi.mock('../../components/forum/TipTapEditor', async () => {
   const { generateHTML } = await import('@tiptap/react');
   const { FORUM_SCHEMA_EXTENSIONS } = await import('../../components/forum/forumEditorSchema');
@@ -2417,6 +2422,362 @@ describe('ThreadDetailPage quote reply (todo 342)', () => {
     // notice says why.
     expect(await screen.findByText('This post has no text to quote.')).toBeInTheDocument();
     expect(screen.getByLabelText('Write a reply...')).toHaveValue('');
+    expect(sessionStorage.getItem('forum-draft:reply:12')).toBeNull();
+  });
+});
+
+describe('ThreadDetailPage write failures (audit F57, F154)', () => {
+  const mockPage = (items = [createMockPost({ id: '5' })], next: string | null = null) => ({
+    items,
+    meta: { count: 0, next, previous: null },
+  });
+  const textPost = (id: string, text: string, extra = {}) =>
+    createMockPost({
+      id,
+      body: [{ id: `b${id}`, type: 'paragraph', value: `<p>${text}</p>` }],
+      ...extra,
+    });
+  const composer = () =>
+    screen.getByRole('button', { name: 'Post Reply' }).closest('form') as HTMLElement;
+  const card = (id: string) => document.getElementById(`post-${id}`) as HTMLElement;
+  const submitReply = async () => {
+    await userEvent.type(await screen.findByLabelText('Write a reply...'), 'my reply');
+    await userEvent.click(screen.getByRole('button', { name: 'Post Reply' }));
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: '12-watering-tips',
+    });
+    vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+    vi.mocked(forumService.fetchThreads).mockResolvedValue({
+      items: [],
+      meta: { next: null, count: 0 },
+    });
+    vi.mocked(blogService.fetchPopularPosts).mockResolvedValue([]);
+    vi.mocked(forumService.fetchThread).mockResolvedValue(createMockThread({ post_count: 0 }));
+    vi.mocked(forumService.fetchPosts).mockResolvedValue(mockPage());
+  });
+
+  it('a refused reply keeps the text and the draft and says why in the composer', async () => {
+    vi.mocked(forumService.createPost).mockRejectedValue(new Error('Slow down.'));
+    renderThreadDetailPage();
+    await screen.findByLabelText('Write a reply...');
+    // Mounted, empty, before the failure: only then is the text announced.
+    const region = composer().querySelector('[aria-live="polite"]');
+    expect(region).toBeInTheDocument();
+    await submitReply();
+
+    expect(await within(composer()).findByText('Slow down.')).toBe(region);
+    expect(screen.getByLabelText('Write a reply...')).toHaveValue('my reply');
+    expect(sessionStorage.getItem('forum-draft:reply:12')).toContain('my reply');
+    expect(screen.getByRole('button', { name: 'Post Reply' })).toBeEnabled();
+  });
+
+  it('a failed refresh after a successful reply says the reply WAS posted', async () => {
+    vi.mocked(forumService.createPost).mockResolvedValue({ id: '99', status: 'published' });
+    renderThreadDetailPage();
+    await screen.findByLabelText('Write a reply...');
+    vi.mocked(forumService.fetchPosts).mockRejectedValueOnce(new Error('Failed to fetch'));
+    await submitReply();
+
+    expect(
+      await within(composer()).findByText(/Your reply was posted, but .* could not be refreshed/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Failed to fetch')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Write a reply...')).toHaveValue('');
+
+    // With the socket connected nothing polls, so the pill is the way to it.
+    vi.mocked(forumService.fetchPosts).mockResolvedValue(
+      mockPage([createMockPost({ id: '5' }), textPost('99', 'my reply')])
+    );
+    vi.mocked(forumService.fetchThread).mockResolvedValue(createMockThread({ post_count: 1 }));
+    await userEvent.click(screen.getByRole('button', { name: 'Load 1 new reply' }));
+    expect(await screen.findByText('my reply')).toBeInTheDocument();
+    expect(screen.queryByText(/Your reply was posted/)).not.toBeInTheDocument();
+  });
+
+  it('a failed refresh does not hide that the acting identity changed', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      ...mockAuth(true),
+      revalidateIdentity: vi.fn().mockResolvedValue({ id: 2, username: 'someone-else' }),
+    } as unknown as ReturnType<typeof useAuth>);
+    vi.mocked(forumService.createPost).mockResolvedValue({ id: '99', status: 'published' });
+    renderThreadDetailPage();
+    await screen.findByLabelText('Write a reply...');
+    vi.mocked(forumService.fetchPosts).mockRejectedValueOnce(new Error('Failed to fetch'));
+    await submitReply();
+    expect(await screen.findByText(/posted as someone-else/)).toBeInTheDocument();
+  });
+
+  it('a refused edit keeps the editor open with its text and says why in the form', async () => {
+    vi.mocked(forumService.fetchPosts).mockResolvedValue(
+      mockPage([textPost('5', 'old', { can_edit: true })])
+    );
+    vi.mocked(forumService.updatePost).mockRejectedValue(new Error('Edit refused.'));
+    renderThreadDetailPage();
+    await userEvent.click(await screen.findByTitle('Edit post'));
+    const box = await screen.findByLabelText('body');
+    await userEvent.clear(box);
+    await userEvent.type(box, 'new text');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    const form = screen.getByRole('button', { name: 'Save' }).closest('form') as HTMLElement;
+    expect(await within(form).findByText('Edit refused.')).toHaveAttribute('aria-live', 'polite');
+    expect(screen.getByLabelText('body')).toHaveValue('new text');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+  });
+
+  it('a refused delete keeps the post and says why on that post', async () => {
+    vi.mocked(forumService.fetchPosts).mockResolvedValue(
+      mockPage([textPost('5', 'stays', { can_delete: true }), textPost('6', 'other')])
+    );
+    vi.mocked(forumService.deletePost).mockRejectedValue(new Error('Delete refused.'));
+    renderThreadDetailPage();
+    await userEvent.click(await screen.findByTitle('Delete post'));
+    await userEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: /^delete$/i })
+    );
+    expect(await within(card('5')).findByText('Delete refused.')).toBeInTheDocument();
+    expect(screen.getByText('stays')).toBeInTheDocument();
+  });
+
+  it('a failed reaction, report, block and mute each speak on their own post', async () => {
+    vi.mocked(forumService.fetchPosts).mockResolvedValue(
+      mockPage([
+        createMockPost({
+          id: '5',
+          can_report: true,
+          can_block: true,
+          can_mute: true,
+          reaction_counts: { like: 1 },
+        }),
+        createMockPost({ id: '6' }),
+      ])
+    );
+    vi.mocked(forumService.toggleReaction).mockRejectedValue(new Error('No react.'));
+    vi.mocked(forumService.reportPost).mockRejectedValue(new Error('No report.'));
+    vi.mocked(forumService.blockUser).mockRejectedValue(new Error('No block.'));
+    vi.mocked(forumService.muteUser).mockRejectedValue(new Error('No mute.'));
+    renderThreadDetailPage();
+    await waitFor(() => expect(card('5')).toBeInTheDocument());
+    const own = within(card('5'));
+
+    await userEvent.click(own.getByRole('button', { name: 'React like' }));
+    expect(await own.findByText('No react.')).toHaveAttribute('aria-live', 'polite');
+    await userEvent.click(own.getByTitle('Block user'));
+    expect(await own.findByText('No block.')).toHaveAttribute('aria-live', 'polite');
+    await userEvent.click(own.getByTitle('Mute user'));
+    expect(await own.findByText('No mute.')).toBeInTheDocument();
+    await userEvent.click(own.getByTitle('Report post'));
+    await userEvent.click(own.getByText('Submit'));
+    expect(await own.findByText('No report.')).toBeInTheDocument();
+    expect(own.queryByText('No mute.')).not.toBeInTheDocument();
+    expect(own.getByLabelText('Report reason')).toBeInTheDocument();
+  });
+
+  it('a failed Load More speaks next to its button', async () => {
+    vi.mocked(forumService.fetchPosts).mockResolvedValueOnce(mockPage(undefined, 'c2'));
+    renderThreadDetailPage();
+    const button = await screen.findByRole('button', { name: /Load More/ });
+    vi.mocked(forumService.fetchPosts).mockRejectedValueOnce(new Error('Offline'));
+    await userEvent.click(button);
+    expect(
+      await within(button.parentElement as HTMLElement).findByText(/Offline/)
+    ).toBeInTheDocument();
+  });
+});
+
+describe('ThreadDetailPage block and mute keep the page (audit F58)', () => {
+  const page = (items: ReturnType<typeof createMockPost>[], next: string | null = null) => ({
+    items,
+    meta: { count: 0, next, previous: null },
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: '12-watering-tips',
+    });
+    vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+    vi.mocked(forumService.fetchThreads).mockResolvedValue({
+      items: [],
+      meta: { next: null, count: 0 },
+    });
+    vi.mocked(blogService.fetchPopularPosts).mockResolvedValue([]);
+    vi.mocked(forumService.fetchThread).mockResolvedValue(createMockThread());
+  });
+
+  it.each([
+    ['Block', 'is_blocked', 'blockUser', 'unblockUser'],
+    ['Mute', 'is_muted', 'muteUser', 'unmuteUser'],
+  ] as const)(
+    '%s and its undo swap the posts in place, keep later pages, and move focus to the counterpart',
+    async (label, flag, doFn, undoFn) => {
+      const items = (on: boolean) => ({
+        first: createMockPost({ id: '5', can_block: true, can_mute: true, [flag]: on }),
+        second: createMockPost({ id: '6', can_block: true, can_mute: true, [flag]: on }),
+      });
+      let on = false;
+      // Page 2 exists and the reader has loaded it; page 3 they have not.
+      vi.mocked(forumService.fetchPosts).mockImplementation(async ({ cursor }) =>
+        cursor === 'c2' ? page([items(on).second], 'c3') : page([items(on).first], 'c2')
+      );
+      vi.mocked(forumService[doFn]).mockImplementation(async () => {
+        on = true;
+      });
+      vi.mocked(forumService[undoFn]).mockImplementation(async () => {
+        on = false;
+      });
+      renderThreadDetailPage();
+      await userEvent.click(await screen.findByRole('button', { name: /Load More/ }));
+      await waitFor(() => expect(document.getElementById('post-6')).toBeInTheDocument());
+      const node = document.getElementById('post-6') as HTMLElement;
+      const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+
+      await userEvent.click(within(node).getByRole('button', { name: label }));
+      const undo = await within(node).findByRole('button', { name: `Un${label.toLowerCase()}` });
+      expect(document.getElementById('post-6')).toBe(node);
+      expect(document.getElementById('post-5')).toHaveTextContent(/You've/);
+      await waitFor(() => expect(undo).toHaveFocus());
+      expect(focusSpy).toHaveBeenLastCalledWith({ preventScroll: true });
+      expect(forumService.fetchPosts).not.toHaveBeenCalledWith({ thread: 12, cursor: 'c3' });
+
+      // Reveal, undo, and do it again: the card must collapse again.
+      await userEvent.click(within(node).getByRole('button', { name: 'Show anyway' }));
+      await userEvent.click(within(node).getByRole('button', { name: `Un${label.toLowerCase()}` }));
+      const redo = await within(node).findByRole('button', { name: label });
+      await waitFor(() => expect(redo).toHaveFocus());
+      await userEvent.click(redo);
+      expect(await within(node).findByText(/You've/)).toBeInTheDocument();
+      focusSpy.mockRestore();
+    }
+  );
+
+  it('shows no skeleton while refreshing, and a failed refresh keeps the thread', async () => {
+    vi.mocked(forumService.fetchPosts).mockResolvedValueOnce(
+      page([createMockPost({ id: '5', can_block: true })])
+    );
+    vi.mocked(forumService.blockUser).mockResolvedValue(undefined);
+    renderThreadDetailPage();
+    const block = await screen.findByRole('button', { name: 'Block' });
+    let fail: (err: Error) => void = () => {};
+    vi.mocked(forumService.fetchPosts).mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      })
+    );
+    const node = document.getElementById('post-5') as HTMLElement;
+    await userEvent.click(block);
+    expect(document.getElementById('post-5')).toBe(node);
+    await act(async () => fail(new Error('Offline')));
+    expect(
+      await within(node).findByText(/blocked, but this page could not be refreshed/)
+    ).toBeInTheDocument();
+    expect(document.getElementById('post-5')).toBe(node);
+  });
+});
+
+describe('ThreadDetailPage header (audit F301)', () => {
+  it('lets the title claim the row so Bookmark/Follow wrap below it on narrow screens', async () => {
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: '12-watering-tips',
+    });
+    vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+    vi.mocked(forumService.fetchThreads).mockResolvedValue({
+      items: [],
+      meta: { next: null, count: 0 },
+    });
+    vi.mocked(blogService.fetchPopularPosts).mockResolvedValue([]);
+    vi.mocked(forumService.fetchThread).mockResolvedValue(createMockThread());
+    vi.mocked(forumService.fetchPosts).mockResolvedValue({ items: [], meta: { count: 0 } });
+    renderThreadDetailPage();
+    const block = (await screen.findByRole('heading', { level: 1 })).parentElement;
+    // A zero flex-basis (flex-1) never forces a wrap; a real one does.
+    expect(block).toHaveClass('basis-80', 'grow', 'min-w-0');
+    expect(block).not.toHaveClass('flex-1');
+    expect(block?.parentElement).toHaveClass('flex-wrap');
+  });
+});
+
+describe('ThreadDetailPage stored draft (audit F110)', () => {
+  it('holds the composer back until the draft is read, then shows it', async () => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: '12-watering-tips',
+    });
+    vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+    vi.mocked(forumService.fetchThread).mockResolvedValue(createMockThread());
+    vi.mocked(forumService.fetchPosts).mockResolvedValue({
+      items: [],
+      meta: { count: 0, next: null, previous: null },
+    });
+    saveDraft(
+      draftKey('reply', '12'),
+      JSON.stringify({
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'half a reply' }] }],
+      })
+    );
+    renderThreadDetailPage();
+    expect(await screen.findByLabelText('Write a reply...')).toHaveValue('<p>half a reply</p>');
+    expect(screen.getByRole('button', { name: 'Post Reply' })).toBeEnabled();
+  });
+
+  it('a Quote waiting for the draft does not carry it into another account', async () => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: '12-watering-tips',
+    });
+    vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+    vi.mocked(forumService.fetchThread).mockResolvedValue(createMockThread());
+    vi.mocked(forumService.fetchPosts).mockResolvedValue({
+      items: [
+        createMockPost({ id: '5', body: [{ type: 'paragraph', value: '<p>Water it less.</p>' }] }),
+      ],
+      meta: { count: 1, next: null, previous: null },
+    } as never);
+    const { draftToDoc } = await import('../../utils/forumBody');
+    let finish: (doc: JSONContent) => void = () => {};
+    vi.mocked(draftToDoc).mockReturnValueOnce(
+      new Promise<JSONContent>((resolve) => (finish = resolve)) as never
+    );
+    saveDraft(draftKey('reply', '12'), '{"type":"doc"}');
+    const { rerender } = renderThreadDetailPage();
+    await userEvent.click(await screen.findByTitle('Quote post'));
+    await waitFor(() => expect(draftToDoc).toHaveBeenCalled());
+
+    vi.mocked(useAuth).mockReturnValue({
+      ...mockAuth(true),
+      user: { id: 2 },
+    } as unknown as ReturnType<typeof useAuth>);
+    rerender(
+      <MemoryRouter initialEntries={['/forum/plant-care/watering-tips']}>
+        <AnnouncerProvider>
+          <ThreadDetailPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+    await act(async () => {
+      finish({
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'account A, unsent' }] }],
+      });
+    });
+
+    expect(await screen.findByLabelText('Write a reply...')).toHaveValue('');
     expect(sessionStorage.getItem('forum-draft:reply:12')).toBeNull();
   });
 });

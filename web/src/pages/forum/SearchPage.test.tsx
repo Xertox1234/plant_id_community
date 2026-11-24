@@ -165,6 +165,58 @@ describe('SearchPage', () => {
     });
   });
 
+  describe('failed Load more (audit F54)', () => {
+    const pageOne = () =>
+      createMockSearchResults({
+        threads: [createMockThread({ id: '1', title: 'Monstera roots' })],
+        total_threads: 1,
+        has_more_threads: true,
+      });
+    const pageTwo = () =>
+      createMockSearchResults({
+        threads: [createMockThread({ id: '2', title: 'Pothos leaves' })],
+        total_threads: 1,
+      });
+
+    it('keeps the results and retries from the same button', async () => {
+      const search = vi
+        .spyOn(forumService, 'searchForum')
+        .mockResolvedValueOnce(pageOne())
+        .mockRejectedValueOnce(new Error('Server is down'))
+        .mockResolvedValueOnce(pageTwo());
+      renderSearchPage('/forum/search?q=watering');
+      expect((await screen.findAllByText('Monstera roots')).length).toBeGreaterThan(0);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Load more results' }));
+
+      expect(await screen.findByText('Server is down')).toBeInTheDocument();
+      expect(screen.getAllByText('Monstera roots').length).toBeGreaterThan(0);
+      expect(announceMock).toHaveBeenCalledWith('Server is down', 'assertive');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Load more results' }));
+
+      expect((await screen.findAllByText('Pothos leaves')).length).toBeGreaterThan(0);
+      expect(search).toHaveBeenLastCalledWith({ q: 'watering', category: '', page: 2 });
+      expect(screen.getAllByText('Monstera roots').length).toBeGreaterThan(0);
+      expect(screen.queryByText('Server is down')).not.toBeInTheDocument();
+    });
+
+    it('drops the load-more error when a new search starts', async () => {
+      vi.spyOn(forumService, 'searchForum')
+        .mockResolvedValueOnce(pageOne())
+        .mockRejectedValueOnce(new Error('Server is down'))
+        .mockResolvedValue(pageOne());
+      renderSearchPage('/forum/search?q=watering');
+      expect((await screen.findAllByText('Monstera roots')).length).toBeGreaterThan(0);
+      await userEvent.click(screen.getByRole('button', { name: 'Load more results' }));
+      await screen.findByText('Server is down');
+
+      await userEvent.type(screen.getByLabelText('Search query'), ' more');
+
+      await waitFor(() => expect(screen.queryByText('Server is down')).not.toBeInTheDocument());
+    });
+  });
+
   describe('Search Results', () => {
     it('displays results summary with counts', async () => {
       const mockResults = createMockSearchResults({
@@ -231,6 +283,26 @@ describe('SearchPage', () => {
       });
 
       expect(screen.queryByText('[deleted]')).not.toBeInTheDocument();
+    });
+
+    it('shows an excerpt exactly as the plain text it is (audit F139)', async () => {
+      const excerpt = 'Our R&D says a < b and typed <b> here & there';
+      const post = mapSearchPostToPost({
+        id: 1,
+        topic_id: 42,
+        topic_title: 'Watering Guide',
+        topic_slug: 'watering-guide',
+        board_id: 1,
+        board_slug: 'plant-care',
+        excerpt,
+      });
+      vi.spyOn(forumService, 'searchForum').mockResolvedValue(
+        createMockSearchResults({ query: 'zzz', posts: [post], total_posts: 1 })
+      );
+
+      renderSearchPage('/forum/search?q=zzz');
+
+      expect(await screen.findByText(excerpt)).toBeInTheDocument();
     });
 
     it('renders post results as compact rows (excerpt + topic title link, no PostCard)', async () => {

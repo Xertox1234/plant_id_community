@@ -55,10 +55,10 @@
           "dart": "0xFF99BFA5"
         },
         "ink-3": {
-          "css": "color-mix(in oklab, var(--canopy-sage) 65%, var(--canopy-forest))",
-          "hex": "#68927C",
-          "rgba": "rgb(104, 146, 124)",
-          "dart": "0xFF68927C"
+          "css": "color-mix(in oklab, var(--canopy-sage) 96%, var(--canopy-forest))",
+          "hex": "#8AB297",
+          "rgba": "rgb(138, 178, 151)",
+          "dart": "0xFF8AB297"
         },
         "primary": {
           "css": "var(--canopy-mint)",
@@ -208,10 +208,10 @@
           "dart": "0xFF35594B"
         },
         "ink-3": {
-          "css": "#5e8271",
-          "hex": "#5E8271",
-          "rgba": "rgb(94, 130, 113)",
-          "dart": "0xFF5E8271"
+          "css": "#4c695c",
+          "hex": "#4C695C",
+          "rgba": "rgb(76, 105, 92)",
+          "dart": "0xFF4C695C"
         },
         "primary": {
           "css": "var(--canopy-forest)",

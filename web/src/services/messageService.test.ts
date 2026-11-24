@@ -210,10 +210,10 @@ describe('messageService (forum direct messages, todo 339)', () => {
     expect(JSON.parse(init.body)).toEqual({ reason: 'abuse', detail: 'rude' });
   });
 
-  it('reportMessage sends an empty detail when none is given', async () => {
+  it('reportMessage omits the detail when none is given (audit F142)', async () => {
     fetchMock.mockResolvedValueOnce(okJson({ reported: true }));
     await reportMessage(31, 'spam');
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ reason: 'spam', detail: '' });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ reason: 'spam' });
   });
 });
 

@@ -569,7 +569,9 @@ describe('postQuoteText (todo 342)', () => {
       },
       { type: 'paragraph', value: '<p>bye</p>' },
     ];
-    expect(postQuoteText(body)).toBe('Hello there, @ada\n\none\ntwo\n\nan earlier quote\n\nbye');
+    // ...and the quote stops there: text on both sides of it is not one
+    // piece of the post, which the server requires (audit F3).
+    expect(postQuoteText(body)).toBe('Hello there, @ada\n\none\ntwo\n\nan earlier quote…');
   });
 
   it('returns "" for a body with no text, and cuts long text at the cap with an ellipsis', () => {
@@ -1216,17 +1218,14 @@ describe('isEmptyDoc (todo 538)', () => {
   });
 });
 
-describe('isBlankDoc memoisation (todo 538)', () => {
-  it('answers a repeated question about the same document from the cache', () => {
+describe('isBlankDoc cost (todo 538)', () => {
+  it('never serialises the document or runs DOMPurify, however often it is asked', () => {
     const doc = docOf(para(text('hi')));
     const purify = vi.spyOn(DOMPurify, 'sanitize');
     expect(isBlankDoc(doc)).toBe(false);
     expect(isBlankDoc(doc)).toBe(false);
-    expect(isBlankDoc(doc)).toBe(false);
-    expect(purify).toHaveBeenCalledTimes(1);
-    // A different object is a fresh question.
     expect(isBlankDoc(docOf(para()))).toBe(true);
-    expect(purify).toHaveBeenCalledTimes(2);
+    expect(purify).not.toHaveBeenCalled();
   });
 
   it('keeps the HTML rule exactly: a non-breaking space is not blank', () => {

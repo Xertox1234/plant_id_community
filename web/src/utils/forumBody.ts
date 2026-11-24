@@ -28,6 +28,17 @@ import { FORUM_SCHEMA_EXTENSIONS } from '../components/forum/forumEditorSchema';
 import { stripHtml } from './sanitize';
 import { safeExternalUrl } from './externalUrl';
 import { logger } from './logger';
+import { descendantsOfType, emptyDoc, nodeText, quoteNode, trimLines } from './forumDoc';
+
+export {
+  emptyDoc,
+  isBlankDoc,
+  isEmptyDoc,
+  postQuoteNode,
+  postQuoteText,
+  QUOTE_TEXT_MAX_CHARS,
+  templateToDoc,
+} from './forumDoc';
 
 /**
  * Whether `html` is an effectively-empty rich-text body.
@@ -57,13 +68,6 @@ import { logger } from './logger';
 export function isBlankHtml(html: string): boolean {
   return stripHtml(html) === '';
 }
-
-/**
- * Client-side cap on the text the Quote action lifts out of a post (todo
- * 342) — half the server's QUOTE_MAX_CHARS (1000), so a long post never 400s
- * the reply that quotes it. Cut with an ellipsis, not silently.
- */
-export const QUOTE_TEXT_MAX_CHARS = 500;
 
 // ---------------------------------------------------------------------------
 // The composer schema (todo 526)
@@ -98,67 +102,6 @@ function nodesToHtml(nodes: JSONContent[]): string {
     Fragment.fromArray(nodes.map((node) => schema.nodeFromJSON(node))),
     schema
   );
-}
-
-/** A fresh empty composer document (the schema needs at least one block). */
-export function emptyDoc(): JSONContent {
-  return { type: 'doc', content: [{ type: 'paragraph' }] };
-}
-
-/**
- * A forum's plain-text topic template -> a composer document (todo 678;
- * owner decision 2026-10-30): each line becomes a paragraph, nothing is
- * formatted, and a blank line stays an empty paragraph.
- */
-export function templateToDoc(text: string): JSONContent {
-  if (!text.trim()) return emptyDoc();
-  return {
-    type: 'doc',
-    content: text
-      .replace(/\r\n?/g, '\n')
-      .split('\n')
-      .map((line) =>
-        line
-          ? { type: 'paragraph', content: [{ type: 'text', text: line }] }
-          : { type: 'paragraph' }
-      ),
-  };
-}
-
-/** isBlankDoc's answers, per document object. */
-const blankDocCache = new WeakMap<JSONContent, boolean>();
-
-/**
- * Whether a composer document is effectively empty — the submit gate. Same
- * rule as before todo 526, applied to the editor's own serialisation, so
- * "blank" did not move: an image-only body still counts as blank.
- */
-export function isBlankDoc(doc: JSONContent | null | undefined): boolean {
-  if (!doc) return true;
-  // Memoised per document object (todo 538): the pages ask this of the same
-  // `getJSON()` result several times per keystroke (the submit gate, the
-  // draft writer, the persist effect), and each answer serialised the whole
-  // document and ran it through DOMPurify. A WeakMap rather than a hand-rolled
-  // text scan keeps the rule byte-for-byte the one above (`&nbsp;` is NOT
-  // blank, because DOMPurify re-emits the entity — a `.trim()` scan would
-  // say it is). Documents are never mutated in place: TipTap returns a fresh
-  // object per transaction and the pages replace state, never edit it.
-  const cached = blankDocCache.get(doc);
-  if (cached !== undefined) return cached;
-  const blank = isBlankHtml(nodesToHtml(doc.content ?? []));
-  blankDocCache.set(doc, blank);
-  return blank;
-}
-
-/**
- * Whether a composer document holds nothing at all — no text AND no image.
- * Not the submit gate: `isBlankDoc` deliberately counts an image-only body as
- * blank. This is for code that would otherwise DISCARD the document, e.g. the
- * Quote action deciding whether to keep the reply already drafted (todo 538:
- * an image-only reply was dropped when the user quoted a post).
- */
-export function isEmptyDoc(doc: JSONContent | null | undefined): boolean {
-  return isBlankDoc(doc) && descendantsOfType(doc ?? {}, 'image').length === 0;
 }
 
 /**
@@ -213,31 +156,6 @@ export function draftToDoc(raw: string | null | undefined): JSONContent {
   } catch {
     return toComposerDoc(raw); // a pre-526 HTML draft
   }
-}
-
-/** The plain text a mention node renders (the extension's default `renderText`). */
-function mentionText(node: JSONContent): string {
-  const attrs = node.attrs ?? {};
-  return `@${attrs.label ?? attrs.id ?? ''}`;
-}
-
-/**
- * A node's visible text. `hardBreak` is `br`: '' reads as `textContent` does
- * (the embed rule), '\n' keeps a quote's line structure.
- */
-function nodeText(node: JSONContent, hardBreak: '' | '\n'): string {
-  if (node.type === 'text') return node.text ?? '';
-  if (node.type === 'hardBreak') return hardBreak;
-  if (node.type === 'mention') return mentionText(node);
-  return (node.content ?? []).map((child) => nodeText(child, hardBreak)).join('');
-}
-
-/** Every descendant of `node` of type `type`, in document order. */
-function descendantsOfType(node: JSONContent, type: string): JSONContent[] {
-  return (node.content ?? []).flatMap((child) => [
-    ...(child.type === type ? [child] : []),
-    ...descendantsOfType(child, type),
-  ]);
 }
 
 /**
@@ -384,32 +302,6 @@ export function previewUrlFromHtml(html: string): string | null {
 }
 
 /**
- * An element's visible text with each `<br>` as "\n". `textContent` drops a
- * hard break entirely ("one<br>two" -> "onetwo"). Only text nodes and breaks
- * contribute, so no tag ever leaks into the plain text of a quote.
- */
-function textWithBreaks(el: Element): string {
-  let out = '';
-  for (const node of Array.from(el.childNodes)) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      out += node.textContent ?? '';
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      out += (node as Element).tagName === 'BR' ? '\n' : textWithBreaks(node as Element);
-    }
-  }
-  return out;
-}
-
-/** Trim each line and the whole, keeping the line structure ("a \n b" -> "a\nb"). */
-function trimLines(text: string): string {
-  return text
-    .split('\n')
-    .map((line) => line.trim())
-    .join('\n')
-    .trim();
-}
-
-/**
  * A blockquote node's visible text, one entry per child block. Raw text would
  * mash `<p>a</p><p>b</p>` into "ab" — join the children with a blank line
  * instead. A `hardBreak` inside a child (the form quoteParagraphs writes a
@@ -503,49 +395,6 @@ function linkParagraph(url: string | null | undefined): JSONContent | null {
     type: 'paragraph',
     content: [{ type: 'text', text: url, marks: [{ type: 'link', attrs: { href: url } }] }],
   };
-}
-
-/**
- * Plain quote text -> one paragraph node per paragraph. The text is a TEXT
- * node, never markup: `quote` is a Wagtail `BlockQuoteBlock` (a `TextBlock`)
- * whose value the server deliberately leaves unsanitized ("text by contract",
- * api/sanitize.py), so it must not become document structure. A single "\n"
- * inside a paragraph (a list-sourced quote — postQuoteText joins list items
- * with one "\n" — or a non-browser client) becomes a `hardBreak`, which
- * blockquoteText reads back as "\n", so the round trip is stable.
- */
-function quoteParagraphs(text: string): JSONContent[] {
-  return (
-    text
-      // Split on a BLANK line only. Splitting on /\n+/ would rewrite a
-      // single "\n" into "\n\n" on every re-edit, since blockquoteText
-      // always rejoins paragraphs with "\n\n".
-      .split(/\n{2,}/)
-      .map((paragraph) =>
-        paragraph
-          .split('\n')
-          .map((line) => line.trim())
-          .filter(Boolean)
-      )
-      .filter((lines) => lines.length > 0)
-      .map((lines) => ({
-        type: 'paragraph',
-        content: lines.flatMap((line, i): JSONContent[] =>
-          i === 0
-            ? [{ type: 'text', text: line }]
-            : [{ type: 'hardBreak' }, { type: 'text', text: line }]
-        ),
-      }))
-  );
-}
-
-/** A blockquote node of `text`, carrying `postId` when it is a valid post id. */
-function quoteNode(text: string, postId?: number): JSONContent | null {
-  const content = quoteParagraphs(text);
-  if (content.length === 0) return null;
-  return postId != null && Number.isSafeInteger(postId) && postId > 0
-    ? { type: 'blockquote', attrs: { postId: String(postId) }, content }
-    : { type: 'blockquote', content };
 }
 
 /**
@@ -656,68 +505,4 @@ function withoutTrailingEmptyParagraphs(
     end -= 1;
   }
   return end === content.length ? doc : { ...doc, content: content.slice(0, end) };
-}
-
-/**
- * The composer node for the Quote action (todo 342): a `post_quote`
- * blockquote of `postId` holding `text`, in exactly the form docToBodyBlocks
- * turns back into `{type: 'post_quote', value: {post, text}}`. `text` comes
- * from postQuoteText, i.e. from another member's post — it is a text node,
- * never markup. Null when `text` has no content.
- */
-export function postQuoteNode(postId: number, text: string): JSONContent | null {
-  return quoteNode(text, postId);
-}
-
-/** Visible text of one rich-text paragraph block, one entry per top-level element. */
-function richTextParagraphs(html: string): string[] {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  // Collapse runs of spaces but KEEP line structure: a hard break in the
-  // source (`<p>a<br>b</p>`, Shift+Enter) is lifted as "a\nb", which
-  // quoteParagraphs renders back as a hard break — never as the merged "ab".
-  const collapse = (s: string | null | undefined) => trimLines((s ?? '').replace(/[^\S\n]+/g, ' '));
-  const children = Array.from(doc.body.children);
-  if (children.length === 0) return [collapse(doc.body.textContent)].filter(Boolean);
-  return children
-    .map((el) =>
-      // A list's textContent would mash its items together — one line each.
-      el.tagName === 'UL' || el.tagName === 'OL'
-        ? Array.from(el.querySelectorAll('li'))
-            .map((li) => collapse(textWithBreaks(li)))
-            .filter(Boolean)
-            .join('\n')
-        : collapse(textWithBreaks(el))
-    )
-    .filter(Boolean);
-}
-
-/**
- * The plain text the Quote action lifts out of a post body (todo 342):
- * paragraphs (and headings) as text, blank-line separated; a legacy `quote`
- * as its text. Skipped on purpose: `post_quote` blocks (quoting a quote
- * would put a third person's words under this author's name), images,
- * embeds and code. Cut at `maxChars` with an ellipsis. '' when the post has
- * no quotable text (an image-only post) — the caller must not quote nothing,
- * since the server rejects an empty quote.
- */
-export function postQuoteText(
-  body: StreamFieldBlock[] | null | undefined,
-  maxChars = QUOTE_TEXT_MAX_CHARS
-): string {
-  if (!body) return '';
-  const parts: string[] = [];
-  for (const block of body) {
-    if (block.type === 'paragraph') {
-      if (typeof block.value === 'string' && block.value)
-        parts.push(...richTextParagraphs(block.value));
-    } else if (block.type === 'heading') {
-      parts.push(block.value.trim());
-    } else if (block.type === 'quote') {
-      const v = block.value;
-      parts.push((typeof v === 'string' ? v : (v.quote_text ?? v.quote ?? '')).trim());
-    }
-  }
-  const text = parts.filter(Boolean).join('\n\n');
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars).trimEnd()}…`;
 }

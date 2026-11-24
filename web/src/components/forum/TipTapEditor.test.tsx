@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { Editor, type JSONContent } from '@tiptap/react';
 import TipTapEditor from './TipTapEditor';
 import * as forumService from '../../services/forumService';
+import * as imageDownscale from '../../utils/imageDownscale';
 import { logger } from '../../utils/logger';
 import {
   bodyBlocksToDoc,
@@ -441,6 +442,139 @@ describe('TipTapEditor', () => {
     );
   });
 
+  describe('photos over the server pixel limit (audit F207)', () => {
+    const uploadedImage = {
+      id: 1,
+      url: 'https://cdn.example/x.jpg',
+      alt: '',
+      decorative: false,
+      width: 10,
+      height: 10,
+    };
+    const mountAndPick = async (file: File) => {
+      const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+      await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+      fireEvent.change(screen.getByTestId('forum-image-input'), { target: { files: [file] } });
+    };
+
+    it('uploads the shrunk copy, and a retry sends the same bytes under the same key', async () => {
+      const small = new File(['small'], 'big.jpg', { type: 'image/jpeg' });
+      const downscale = vi
+        .spyOn(imageDownscale, 'downscaleForUpload')
+        .mockResolvedValueOnce(small)
+        .mockResolvedValue(new File(['other bytes'], 'big.jpg', { type: 'image/jpeg' }));
+      const uploadSpy = vi
+        .spyOn(forumService, 'uploadPostImage')
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockResolvedValue(uploadedImage);
+      const big = new File(['big'], 'big.jpg', { type: 'image/jpeg', lastModified: 1 });
+      await mountAndPick(big);
+      await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+      await screen.findByText('offline');
+      expect(downscale).toHaveBeenCalledWith(big);
+      fireEvent.change(screen.getByTestId('forum-image-input'), { target: { files: [big] } });
+      await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+      await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(2));
+      expect(uploadSpy.mock.calls[0][0]).toBe(small);
+      expect(uploadSpy.mock.calls[1][0]).toBe(small);
+      expect(uploadSpy.mock.calls[1][2]).toBe(uploadSpy.mock.calls[0][2]);
+      downscale.mockRestore();
+    });
+
+    it('says why when the photo cannot be shrunk, and uploads nothing', async () => {
+      const downscale = vi
+        .spyOn(imageDownscale, 'downscaleForUpload')
+        .mockRejectedValue(new imageDownscale.ImageTooLargeError(6000, 6000));
+      const uploadSpy = vi.spyOn(forumService, 'uploadPostImage');
+      await mountAndPick(new File(['x'], 'a.gif', { type: 'image/gif' }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+      expect(await screen.findByText(/6000 × 6000 pixels/)).toBeInTheDocument();
+      expect(uploadSpy).not.toHaveBeenCalled();
+      downscale.mockRestore();
+    });
+
+    it('offers a photo over 10 MB when shrinking brings it under', async () => {
+      const measure = vi.spyOn(imageDownscale, 'canMeasureImages').mockReturnValue(true);
+      const small = new File(['small'], 'big.jpg', { type: 'image/jpeg' });
+      const downscale = vi
+        .spyOn(imageDownscale, 'downscaleForUpload')
+        .mockImplementation((file) => Promise.resolve(file === small ? file : small));
+      const uploadSpy = vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue(uploadedImage);
+      const big = new File(['big'], 'big.jpg', { type: 'image/jpeg' });
+      Object.defineProperty(big, 'size', { value: 12 * 1024 * 1024 });
+      await mountAndPick(big);
+      await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+      await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(1));
+      expect(uploadSpy.mock.calls[0][0]).toBe(small);
+      measure.mockRestore();
+      downscale.mockRestore();
+    });
+
+    it('still refuses a file over 10 MB that is within the pixel limit', async () => {
+      const measure = vi.spyOn(imageDownscale, 'canMeasureImages').mockReturnValue(true);
+      const downscale = vi
+        .spyOn(imageDownscale, 'downscaleForUpload')
+        .mockImplementation((file) => Promise.resolve(file));
+      const big = new File(['big'], 'big.jpg', { type: 'image/jpeg' });
+      Object.defineProperty(big, 'size', { value: 12 * 1024 * 1024 });
+      await mountAndPick(big);
+      expect(await screen.findByText(/too large/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Skip' })).not.toBeInTheDocument();
+      measure.mockRestore();
+      downscale.mockRestore();
+    });
+  });
+
+  it.each(['Escape', 'Cancel'])(
+    '%s closes the alt prompt without uploading (audit F134)',
+    async (way) => {
+      const uploadSpy = vi.spyOn(forumService, 'uploadPostImage');
+      const { container } = render(<TipTapEditor onChange={vi.fn()} />);
+      await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+      revokeObjectURL.mockClear();
+      fireEvent.change(screen.getByTestId('forum-image-input'), {
+        target: { files: [new File(['x'], 'ok.jpg', { type: 'image/jpeg' })] },
+      });
+      const input = await screen.findByLabelText('Describe this image');
+      await userEvent.type(input, 'half-typed');
+
+      if (way === 'Escape') await userEvent.keyboard('{Escape}');
+      else await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(screen.queryByLabelText('Describe this image')).not.toBeInTheDocument();
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:preview-mock');
+      expect(uploadSpy).not.toHaveBeenCalled();
+      expect(container.querySelector('img')).not.toBeInTheDocument();
+    }
+  );
+
+  it.each(['Escape', 'Cancel'])(
+    "%s while editing keeps an image's existing alt text (audit F134)",
+    async (way) => {
+      const { container } = render(
+        <TipTapEditor
+          content={bodyBlocksToDoc([
+            {
+              id: 'i',
+              type: 'image',
+              value: { id: 9, url: '/m/x.jpg', alt: 'A fern', decorative: false },
+            } as StreamFieldBlock,
+          ])}
+          onChange={vi.fn()}
+        />
+      );
+      await waitFor(() => expect(container.querySelector('img')).toBeInTheDocument());
+      await userEvent.click(screen.getByRole('button', { name: 'Edit image alt text' }));
+      await screen.findByLabelText('Describe this image');
+
+      if (way === 'Escape') await userEvent.keyboard('{Escape}');
+      else await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(screen.queryByLabelText('Describe this image')).not.toBeInTheDocument();
+      expect(container.querySelector('img')).toHaveAttribute('alt', 'A fern');
+    }
+  );
+
   it('revokes the preview object URL when the prompt closes (M7)', async () => {
     vi.spyOn(forumService, 'uploadPostImage').mockResolvedValue({
       id: 1,
@@ -715,6 +849,23 @@ describe('TipTapEditor', () => {
     await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
 
     expect(container.querySelector('.ProseMirror blockquote[data-post-id="7"]')).not.toBeNull();
+  });
+
+  it("locks a quoted post's words in the composer itself (audit F3)", async () => {
+    const { container } = render(
+      <TipTapEditor
+        content={{ type: 'doc', content: [postQuoteNode(7, 'quoted')!, { type: 'paragraph' }] }}
+        onChange={vi.fn()}
+      />
+    );
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeInTheDocument());
+    const { editor } = container.querySelector('.ProseMirror') as unknown as {
+      editor: import('@tiptap/react').Editor;
+    };
+
+    editor.view.dispatch(editor.state.tr.insertText('invented ', 2));
+
+    expect(container.querySelector('blockquote[data-post-id="7"]')?.textContent).toBe('quoted');
   });
 });
 
