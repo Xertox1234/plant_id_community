@@ -11,7 +11,6 @@ import { logger } from '../../utils/logger';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { sanitizeSearchQuery } from '../../utils/validation';
 import { threadPath } from '../../utils/forumUrls';
-import { stripHtml } from '../../utils/sanitize';
 import PageMeta from '../../components/PageMeta';
 import type { Forum, SearchForumResponse } from '@/types';
 
@@ -70,6 +69,9 @@ export default function SearchPage() {
   // 1-based page across both result sections; Load More bumps it and appends.
   const [page, setPage] = useState<number>(1);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
+  // Separate from `error`, which replaces the results: a failed append keeps
+  // them, and the Load more button is its retry (audit F54).
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
 
   // Use ref for debounce timer to prevent memory leaks
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -114,6 +116,7 @@ export default function SearchPage() {
 
   // Perform search when query changes
   useEffect(() => {
+    setLoadMoreError(null);
     if (!query) {
       setSearchResults(null);
       return;
@@ -226,7 +229,7 @@ export default function SearchPage() {
     const gen = searchGenRef.current;
     try {
       setLoadingMore(true);
-      setError(null);
+      setLoadMoreError(null);
       const more = await searchForum({ q: query, category, page: nextPage });
       if (searchGenRef.current !== gen) return; // a newer query superseded us
       setSearchResults((prev) => {
@@ -255,9 +258,9 @@ export default function SearchPage() {
         context: { query, category, page: nextPage },
       });
       const message = err instanceof Error ? err.message : 'Search failed';
-      setError(message);
-      // The banner is conditionally mounted, so it is never announced on
-      // its own (audit 2026-09-04 M4).
+      setLoadMoreError(message);
+      // The line is conditionally mounted, so it is never announced on its
+      // own (audit 2026-09-04 M4).
       announce(message, 'assertive');
     } finally {
       if (searchGenRef.current === gen) setLoadingMore(false);
@@ -396,12 +399,10 @@ export default function SearchPage() {
               <h2 className="gt-h3 text-ink mb-4">Posts ({searchResults.total_posts})</h2>
               <div className="space-y-4">
                 {searchResults.posts.map((post) => {
-                  // content_raw holds the backend excerpt. plain_text_excerpt()
-                  // already strips tags per block BEFORE truncating, so a
-                  // truncated tag does not actually reach here today — the swap
-                  // to stripHtml closed a CodeQL alert, it did not fix a bug.
-                  // Strip tags so we render plain text only — never dangerouslySetInnerHTML.
-                  const plainExcerpt = stripHtml(post.content_raw);
+                  // The backend excerpt is decoded plain text, so it is only ever
+                  // a React text child: stripHtml would re-encode "&" and drop a
+                  // literally typed "<b>" (audit F139).
+                  const plainExcerpt = post.content_raw;
                   // Build a real thread link from the board/topic identity carried by
                   // mapSearchPostToPost, deep-linked to the specific post.
                   const topicLink =
@@ -457,6 +458,7 @@ export default function SearchPage() {
               >
                 {loadingMore ? 'Loading…' : 'Load more results'}
               </Button>
+              {loadMoreError && <p className="mt-2 text-sm text-error">{loadMoreError}</p>}
             </div>
           )}
         </div>

@@ -340,7 +340,10 @@ describe('ConversationPage (todo 339)', () => {
     await userEvent.click(screen.getByRole('button', { name: /report/i }));
     await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
 
-    expect(await screen.findByText('You cannot report your own message.')).toBeInTheDocument();
+    const reportForm = screen.getByLabelText('Report reason').closest('form') as HTMLElement;
+    expect(
+      await within(reportForm).findByText('You cannot report your own message.')
+    ).toHaveAttribute('aria-live', 'polite');
     expect(screen.getByLabelText('Report reason')).toBeInTheDocument();
     expect(screen.queryByText('Reported')).not.toBeInTheDocument();
   });

@@ -33,7 +33,14 @@ vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return { ...actual, useParams: vi.fn(), useNavigate: vi.fn() };
 });
-vi.mock('../../services/forumService');
+vi.mock('../../services/forumService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../services/forumService')>();
+  const mocked = Object.fromEntries(
+    Object.entries(actual).map(([k, v]) => [k, typeof v === 'function' ? vi.fn() : v])
+  );
+  // The real class: the page branches on `instanceof` and `.status`.
+  return { ...mocked, ForumApiError: actual.ForumApiError };
+});
 vi.mock('../../services/blogService');
 vi.mock('../../services/authService', () => ({ refreshAccessToken: vi.fn() }));
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn() }));
@@ -384,10 +391,60 @@ describe('ThreadDetailPage live updates', () => {
     expect(await screen.findByText('This topic is no longer available.')).toBeInTheDocument();
   });
 
-  it('a 4404 close shows "This topic is no longer available."', async () => {
-    await loadAndOpen();
-    act(() => live().serverClose(LIVE_CLOSE.notFound));
-    expect(await screen.findByText('This topic is no longer available.')).toBeInTheDocument();
+  describe('a 4404 close (audit F37)', () => {
+    // The server keeps the socket shut for a password forum the reader may
+    // still read over REST, so the close alone never means "gone".
+    const close4404 = () =>
+      act(async () => {
+        live().serverClose(LIVE_CLOSE.notFound);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    const GONE = 'This topic is no longer available.';
+
+    it.each([404, 403])('shows gone when REST confirms with a %i', async (status) => {
+      await loadAndOpen();
+      vi.mocked(forumService.fetchThread).mockRejectedValue(
+        new forumService.ForumApiError('No.', status)
+      );
+      await close4404();
+      expect(await screen.findByText(GONE)).toBeInTheDocument();
+    });
+
+    it('keeps the thread and the 30 s poll when REST still serves the topic', async () => {
+      await loadAndOpen();
+      const before = peekCalls();
+      await close4404();
+      expect(peekCalls()).toBe(before + 1);
+      expect(screen.queryByText(GONE)).not.toBeInTheDocument();
+      expect(screen.getByText('Opening post')).toBeInTheDocument();
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 2 }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+      });
+      expect(await screen.findByRole('button', { name: 'Load 1 new reply' })).toBeInTheDocument();
+      expect(sockets).toHaveLength(1);
+    });
+
+    it.each([
+      ['a network error', () => new TypeError('Failed to fetch')],
+      ['a 500', () => new forumService.ForumApiError('Boom', 500)],
+      ['a 401', () => new forumService.ForumApiError('Expired', 401)],
+    ])('keeps the thread when the check fails with %s', async (_name, makeError) => {
+      await loadAndOpen();
+      vi.mocked(forumService.fetchThread).mockRejectedValue(makeError());
+      await close4404();
+      expect(screen.queryByText(GONE)).not.toBeInTheDocument();
+      expect(screen.getByText('Opening post')).toBeInTheDocument();
+
+      // The check was inconclusive, so the poll is what learns it is gone.
+      vi.mocked(forumService.fetchThread).mockRejectedValue(
+        new forumService.ForumApiError('No.', 404)
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(NEW_REPLIES_POLL_INTERVAL_MS);
+      });
+      expect(await screen.findByText(GONE)).toBeInTheDocument();
+    });
   });
 
   it('catch-up on reopen offers missed replies', async () => {

@@ -28,6 +28,7 @@ import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Timestamp from '../../components/ui/Timestamp';
 import { AVATAR_BOX } from '../../components/ui/dimensions';
 import ForumErrorState from '../../components/forum/ForumErrorState';
+import InlineError from '../../components/forum/InlineError';
 import { SkeletonBlock, SkeletonStatus } from '../../components/forum/ForumSkeleton';
 import { REPORT_REASONS } from '../../components/forum/reportReasons';
 import type { Conversation, DirectMessage } from '../../types/forum';
@@ -66,27 +67,22 @@ interface MessageReportFormProps {
   messageId: number;
   onSubmitted: () => void;
   onCancel: () => void;
-  onError: (message: string) => void;
   /** Reads the page's request epoch; captured at submit, re-checked after
    * the await so a late result never lands in another member's thread. */
   getEpoch: () => number;
 }
 
 /** Inline report picker for one message — the same reasons as a post report. */
-function MessageReportForm({
-  messageId,
-  getEpoch,
-  onSubmitted,
-  onCancel,
-  onError,
-}: MessageReportFormProps) {
+function MessageReportForm({ messageId, getEpoch, onSubmitted, onCancel }: MessageReportFormProps) {
   const [reason, setReason] = useState<string>(REPORT_REASONS[0].value);
   const [detail, setDetail] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
     const epoch = getEpoch();
     setSubmitting(true);
+    setError(null);
     try {
       await reportMessage(messageId, reason, detail.trim() || undefined);
       if (epoch !== getEpoch()) return;
@@ -98,7 +94,7 @@ function MessageReportForm({
         context: { messageId, reason },
       });
       if (epoch !== getEpoch()) return;
-      onError(err instanceof Error ? err.message : 'Failed to report message');
+      setError(err instanceof Error ? err.message : 'Failed to report message');
       setSubmitting(false);
     }
   };
@@ -155,6 +151,7 @@ function MessageReportForm({
       >
         Cancel
       </button>
+      <InlineError message={error} className="w-full" />
     </form>
   );
 }
@@ -784,7 +781,6 @@ export default function ConversationPage() {
                             setReportingId(null);
                           }}
                           onCancel={() => setReportingId(null)}
-                          onError={setNotice}
                         />
                       )}
                     </div>

@@ -62,7 +62,7 @@
   --gt-surface-3: color-mix(in oklab, var(--canopy-moss) 55%, var(--canopy-forest));
   --gt-ink: var(--canopy-mint);
   --gt-ink-2: color-mix(in oklab, var(--canopy-sage) 85%, var(--canopy-mint));
-  --gt-ink-3: color-mix(in oklab, var(--canopy-sage) 65%, var(--canopy-forest));
+  --gt-ink-3: color-mix(in oklab, var(--canopy-sage) 96%, var(--canopy-forest));
   --gt-line: color-mix(in oklab, var(--canopy-forest) 45%, transparent);
   --gt-line-2: color-mix(in oklab, var(--canopy-forest) 75%, transparent);
   --gt-primary: var(--canopy-mint);
@@ -125,7 +125,7 @@
   --gt-surface-3: #e9f5ec;
   --gt-ink: var(--canopy-pine);
   --gt-ink-2: #35594b;
-  --gt-ink-3: #5e8271;
+  --gt-ink-3: #4c695c;
   --gt-secondary: color-mix(in oklab, var(--canopy-forest) 60%, var(--canopy-sage));
   /* accents darkened for light surfaces (AA on --gt-surface-2) */
   --gt-tertiary: #8a6011;
@@ -189,7 +189,7 @@
   --gt-surface-3: #e3f0dd;
   --gt-ink: #1d3a1f;
   --gt-ink-2: #3a5a3c;
-  --gt-ink-3: #5c7a5d;
+  --gt-ink-3: #516b52;
   --gt-primary: #2f6b33;
   --gt-on-primary: #f7fbf4;
   --gt-grad-card: linear-gradient(150deg, #f7fbf4 0%, #eef7ea 100%);
@@ -201,7 +201,7 @@
   --gt-surface-3: #214a2a;
   --gt-ink: #e3f4e0;
   --gt-ink-2: #b9d6b5;
-  --gt-ink-3: #8fb58c;
+  --gt-ink-3: #92b88f;
   --gt-primary: #bfe8b8;
   --gt-on-primary: #0c1f10;
   --gt-grad-card: linear-gradient(150deg, #1a3d22 0%, #13301a 100%);
@@ -213,7 +213,7 @@
   --gt-surface-3: #e4ecd9;
   --gt-ink: #26331b;
   --gt-ink-2: #45573a;
-  --gt-ink-3: #66785a;
+  --gt-ink-3: #58674d;
   --gt-primary: #4a6b2a;
   --gt-on-primary: #f6f9f1;
   --gt-grad-card: linear-gradient(150deg, #f6f9f1 0%, #eef3e6 100%);
@@ -237,7 +237,7 @@
   --gt-surface-3: #f6e2d7;
   --gt-ink: #3d1f14;
   --gt-ink-2: #6a3a28;
-  --gt-ink-3: #8a5a46;
+  --gt-ink-3: #865744;
   --gt-primary: #a3472a;
   --gt-on-primary: #fdf6f2;
   --gt-grad-card: linear-gradient(150deg, #fdf6f2 0%, #fbede5 100%);
@@ -261,7 +261,7 @@
   --gt-surface-3: #e3e8ee;
   --gt-ink: #1c2733;
   --gt-ink-2: #3b4a5a;
-  --gt-ink-3: #5c6b7b;
+  --gt-ink-3: #556271;
   --gt-primary: #3c5a78;
   --gt-on-primary: #f7f9fb;
   --gt-grad-card: linear-gradient(150deg, #f7f9fb 0%, #eef1f5 100%);
