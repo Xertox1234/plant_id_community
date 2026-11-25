@@ -22,6 +22,7 @@ name: Mobile Fresh Checkout CI
       - '.github/workflows/mobile-ci.yml'
       - 'web/public/favicon.svg'
       - 'scripts/check_brand_assets.py'
+      - 'scripts/check_release_apk_google_id.py'
       - 'scripts/design/render_brand_assets.mjs'
   pull_request:
     branches: [main, develop]
@@ -57,6 +58,7 @@ jobs:
               - '.github/workflows/mobile-ci.yml'
               - 'web/public/favicon.svg'
               - 'scripts/check_brand_assets.py'
+              - 'scripts/check_release_apk_google_id.py'
               - 'scripts/design/render_brand_assets.mjs'
 
   flutter-fresh-checkout:
@@ -151,6 +153,33 @@ jobs:
           --dart-define=FIREBASE_MESSAGING_SENDER_ID=000000000000
           --dart-define=FIREBASE_PROJECT_ID=ci-placeholder-project
           --dart-define=FIREBASE_STORAGE_BUCKET=ci-placeholder-project.appspot.com
+
+      # The debug build above cannot catch this: only release builds shrink
+      # resources. google_sign_in_android reads default_web_client_id by name,
+      # which the shrinker cannot see, and without res/raw/keep.xml Google
+      # sign-in failed in every release APK (#1301). The signing key is made
+      # here and thrown away with the runner; the APK is never published.
+      - name: Build Android release APK
+        run: |  # pragma: allowlist secret
+          pass="$(openssl rand -hex 16)"
+          keytool -genkeypair -keystore "$RUNNER_TEMP/ci.jks" -alias ci \
+            -keyalg RSA -keysize 2048 -validity 1 -dname 'CN=CI' \
+            -storepass "$pass" -keypass "$pass"
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=ci\nkeyPassword=%s\n' \
+            "$RUNNER_TEMP/ci.jks" "$pass" "$pass" > android/key.properties
+          flutter build apk --release --target-platform android-arm64 \
+            --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1 \
+            --dart-define=FIREBASE_API_KEY=ci-placeholder-api-key \
+            --dart-define=FIREBASE_ANDROID_APP_ID=1:000000000000:android:0000000000000000000000 \
+            --dart-define=FIREBASE_MESSAGING_SENDER_ID=000000000000 \
+            --dart-define=FIREBASE_PROJECT_ID=ci-placeholder-project \
+            --dart-define=FIREBASE_STORAGE_BUCKET=ci-placeholder-project.appspot.com
+
+      - name: Verify the release APK keeps the Google client ID
+        working-directory: .
+        run: >-
+          python3 scripts/check_release_apk_google_id.py
+          plant_community_mobile/build/app/outputs/flutter-apk/app-release.apk
 
   # Required status check for `main`. ALWAYS runs (no path filter on pull_request)
   # so it always reports a status, and collapses the conditional Flutter job into a
