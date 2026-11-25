@@ -201,6 +201,8 @@ playwright-mcp/
 
 # Test run artifacts (generated)
 test-results/
+# Playwright saved logins (access and refresh token cookies)
+.auth/
 # RAG eval run output (manage.py rag_eval --json, todo 694)
 backend/evals/results/
 design-reference/
