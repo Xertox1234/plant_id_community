@@ -437,7 +437,9 @@ async function postRefresh(csrfRetried = false): Promise<RefreshOutcome> {
         }
         return 'unauthorized';
       }
-      return response.status === 400 || response.status === 401 ? 'unauthorized' : 'unavailable';
+      // 428: the account must accept a changed policy, which the sign-in page
+      // asks for. Ending the session sends the person there (todo 701).
+      return [400, 401, 428].includes(response.status) ? 'unauthorized' : 'unavailable';
     }
 
     // Token successfully refreshed (new tokens set in httpOnly cookies)

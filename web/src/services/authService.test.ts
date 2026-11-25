@@ -1113,6 +1113,7 @@ describe('authService', () => {
     it.each([
       [401, 'unauthorized'],
       [400, 'unauthorized'],
+      [428, 'unauthorized'],
       [500, 'unavailable'],
       [502, 'unavailable'],
       [503, 'unavailable'],
