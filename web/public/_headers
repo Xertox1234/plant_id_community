@@ -6,6 +6,11 @@
 # endpoint a violation only shows in the browser console. Promote it to
 # Content-Security-Policy once production shows no violations (todo 716 checks
 # the live headers after deploy).
+# Known violation, seen in production on 2026-11-23 (todo 716): Cloudflare
+# injects its Web Analytics beacon, https://static.cloudflareinsights.com/beacon.min.js,
+# which script-src does not allow. Before enforcing, add that host to
+# script-src (and https://cloudflareinsights.com to connect-src), or turn the
+# beacon off in the Cloudflare dashboard.
 #
 # frame-ancestors keeps the API origin: the Wagtail CMS on
 # https://api.houseplant-md.com frames /blog/preview. Do not add

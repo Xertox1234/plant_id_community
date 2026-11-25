@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: p2
 issue_id: "716"
 tags: [web, security, headers, cloudflare, prod-check, owner]
@@ -38,12 +38,12 @@ Source: `docs/audits/2026-11-10-auth-legal.md`; detail in todo 706.
 
 ## Acceptance Criteria
 
-- [ ] `curl -sI https://houseplant-md.com` and the API host show an HSTS
+- [x] `curl -sI https://houseplant-md.com` and the API host show an HSTS
       max-age of at least 15552000 — record the date and both header lines.
-- [ ] `curl -sI https://houseplant-md.com/settings` shows the CSP and
+- [x] `curl -sI https://houseplant-md.com/settings` shows the CSP and
       `Referrer-Policy`, and the CMS blog preview still renders — record the
       date and result.
-- [ ] A Sentry event from production carries no query string — record the
+- [x] A Sentry event from production carries no query string — record the
       date and event id.
 
 ## Work Log
@@ -82,3 +82,42 @@ Source: `docs/audits/2026-11-10-auth-legal.md`; detail in todo 706.
   or turn the beacon off, first.
 - The boxes above are not ticked here: they are ticked by the todo engine on the owner's
   confirmation.
+
+### 2026-11-23 - Implemented by the todo sweep (run 2026-11-22-1957)
+
+- No code changed: the three criteria are live-site checks, and the owner confirmed each on
+  2026-11-23. They are recorded as owner-confirmed in the run's local `ac.json` (not committed); nothing was
+  re-run against production by the sweep.
+- HSTS and the `/settings` headers plus CMS preview: as observed at 2026-11-23T21:05:50Z in the
+  entry above (both hosts `max-age=31536000; includeSubDomains`; report-only CSP and
+  `referrer-policy: strict-origin-when-cross-origin`; page 18 previewed in the live `/cms/`).
+- The Sentry criterion, "NOT met" in the entry above, was met later the same day, after the
+  production build that carries `VITE_SENTRY_DSN`: event `735c9351` (issue `HOUSEPLANT-MD-WEB-3`,
+  production, 22:25:36Z), thrown on `https://houseplant-md.com/?probe=716`, records the url
+  `https://houseplant-md.com/`. The owner searched the event JSON for `probe` and found no match.
+
+### 2026-11-23 - Confirmed by the owner, ticked by the todo sweep (run 2026-11-22-1957)
+
+- AC 1: confirmed by the owner on 2026-11-23: "Owner set Cloudflare zone HSTS to 12 months on 2026-11-23 ("saved"). Observed 2026-11-23T21:05:50Z with curl -sI: houseplant-md.com and api.houseplant-md.com both answer 'strict-transport-security: max-age=31536000; includeSubDomains'." (`state.py confirm`; no command or evidence)
+- AC 2: confirmed by the owner on 2026-11-23: "Observed 2026-11-23T21:05:50Z: curl -sI https://houseplant-md.com/settings shows content-security-policy-report-only and 'referrer-policy: strict-origin-when-cross-origin'; the CMS blog preview of page 18 rendered in the live /cms/ (Chrome). Owner present; no objection raised." (`state.py confirm`; no command or evidence)
+- AC 3: confirmed by the owner on 2026-11-23: "Owner 2026-11-23: Sentry event 735c9351 (issue HOUSEPLANT-MD-WEB-3, production, 22:25:36Z) thrown on https://houseplant-md.com/?probe=716 records url https://houseplant-md.com/; owner searched the event JSON: "no matches for probe"." (`state.py confirm`; no command or evidence)
+
+### 2026-11-23 - Completed by the todo sweep (run 2026-11-22-1957)
+
+- Archived by `land.py archive`; review is on the PR.
+
+### 2026-11-23 - Review round 1: non-blocking findings
+
+- **Fixed: the AC 2 line showed the header value masked as `***` (low, three reviewers).** The
+  value is `strict-origin-when-cross-origin`, as in the two entries above; restored.
+- **Recorded: AC 2's confirmation text is an observation, not the owner's own words (low).** The
+  header read and the CMS preview check were made by Claude on 2026-11-23 with the owner at the
+  console; the recorded text ends "Owner present; no objection raised". AC 1 and AC 3 quote the
+  owner directly ("saved"; "no matches for probe").
+- **Fixed: the Cloudflare beacon finding lived only in this archived todo (low).** A comment in
+  `web/public/_headers` now names `static.cloudflareinsights.com` as a known report-only
+  violation to allow, or turn off, before the CSP is enforced.
+- **Fixed: a reference to an uncommitted evidence file (low).** Reworded.
+- **Declined: the frontmatter still says `blocked-prod` and "not yet turned off" (low, three
+  reviewers).** Those fields record the triage of 2026-11-22; archived todos keep them. The
+  outcome is in the Work Log: the zone HSTS was set to 12 months, not turned off.
