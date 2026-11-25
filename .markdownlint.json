@@ -2,5 +2,8 @@
   "MD013": false,
   "MD036": false,
   "MD040": false,
-  "MD033": { "allowed_elements": ["details", "summary", "br", "img", "sub", "sup", "kbd", "div", "a", "table", "thead", "tbody", "tr", "th", "td"] }
+  "MD033": {
+    "allowed_elements": ["details", "summary", "br", "img", "sub", "sup", "kbd", "div", "a", "table", "thead", "tbody", "tr", "th", "td"]
+  },
+  "MD060": false
 }

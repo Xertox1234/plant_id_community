@@ -16,9 +16,12 @@ IMAGE_RENDITION_CACHE_TIMEOUT = 31536000  # 1 year - image renditions are immuta
 # before the deploy otherwise serve the old shape for their whole 24h TTL.
 # v2: plant_spotlight gained credit_lead/unsplash_href, and the web no longer
 # derives the Unsplash attribution link without them (todo 442).
-CACHE_PREFIX_BLOG_POST = "blog:post:v2"
-CACHE_PREFIX_BLOG_LIST = "blog:list:v2"
-CACHE_PREFIX_BLOG_CATEGORY = "blog:category"
+# v3 / category v2 / popular v2 (todo 731): the author payload dropped
+# first_name/last_name, so entries cached before that deploy (24 h TTL) must
+# never be served again. Bump these whenever a cached payload changes shape.
+CACHE_PREFIX_BLOG_POST = "blog:post:v3"
+CACHE_PREFIX_BLOG_LIST = "blog:list:v3"
+CACHE_PREFIX_BLOG_CATEGORY = "blog:category:v2"
 CACHE_PREFIX_RENDITION = "wagtail:rendition"
 
 # Query optimization constants
@@ -82,7 +85,7 @@ POPULAR_POSTS_DEFAULT_DAYS = 30  # Default time period (last 30 days)
 POPULAR_POSTS_CACHE_TIMEOUT = (
     1800  # 30 minutes (updates less frequently than regular content)
 )
-CACHE_PREFIX_POPULAR_POSTS = "blog:popular"  # Cache key prefix for popular posts
+CACHE_PREFIX_POPULAR_POSTS = "blog:popular:v2"  # Cache key prefix for popular posts
 
 # Recent posts API constants
 RECENT_POSTS_DEFAULT_LIMIT = (

@@ -256,9 +256,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Set up automatic token refresh every 10 minutes
     refreshTimerRef.current = window.setInterval(async () => {
       logger.info('[AuthContext] Refreshing access token...');
-      const success = await authService.refreshAccessToken();
+      // refreshSession() serializes refreshes across tabs (todo 706 M18): the
+      // server rotates the refresh token, so two overlapping refreshes used to
+      // log out whichever lost. Only a refused token ends the session here; a
+      // network blip or a 5xx keeps the user signed in for the next tick.
+      const outcome = await authService.refreshSession();
 
-      if (!success) {
+      if (outcome === 'unavailable') {
+        logger.warn('[AuthContext] Token refresh unavailable - keeping the session');
+        return;
+      }
+
+      if (outcome !== 'ok') {
         logger.warn('[AuthContext] Token refresh failed - logging out user');
         // Token refresh failed - log out user
         setUser(null);

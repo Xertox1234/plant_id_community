@@ -97,16 +97,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
+          python-version: '3.13'
 
       - name: Hook self-tests
         run: |
-          pip install ruff==0.15.17  # for test-format-on-edit.sh (matches backend/requirements.txt)
+          pip install ruff==0.15.17  # for test-format-on-edit.sh (matches backend/requirements-dev.in)
           bash .claude/hooks/test-inject-patterns.sh
           bash .claude/hooks/test-kimi-review.sh
           bash .claude/hooks/test-guard-worktree-isolation.sh

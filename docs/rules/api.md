@@ -213,7 +213,7 @@ Compact checklist auto-injected before edits. Long-form:
   (todo 352, blog comments).
 - **An edit resends the whole body: exempt references the stored body already
   carries from write-time availability checks** (`existing_author_id` for
-  images, `existing_quote_ids` for post quotes), or a referent that went away
+  images, `existing_quotes` for post quotes), or a referent that went away
   later locks the author out of saving anything else. Newly added references
   still validate (todo 342, audit L21).
 - **A preference matrix is resolved on read and partial on write.** Store only
@@ -287,3 +287,5 @@ Compact checklist auto-injected before edits. Long-form:
   passes: the allowance counts rows.
 - Every password `serializers.CharField` sets `trim_whitespace=False`: DRF trims
   by default, and login compares the password as sent (audit 2026-11-10, H6).
+- An optional `CharField` a form can leave empty sets `allow_blank=True`: DRF's
+  `required=False, default=""` still refuses a sent `""` (audit 2026-11-24, F142).

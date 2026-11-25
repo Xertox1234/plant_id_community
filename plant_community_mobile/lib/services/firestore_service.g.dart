@@ -143,7 +143,7 @@ final class FirestoreServiceProvider
   }
 }
 
-String _$firestoreServiceHash() => r'0e345266d8775efccb5625dd93a1c7aa7055a743';
+String _$firestoreServiceHash() => r'2cf7fb790a1885b2b3ebabb5a340231442358e57';
 
 /// Firestore service for offline data persistence and cross-device sync
 ///
@@ -184,7 +184,7 @@ abstract class _$FirestoreService extends $Notifier<void> {
   void build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<void, void>;
     final element =
         ref.element
@@ -194,7 +194,7 @@ abstract class _$FirestoreService extends $Notifier<void> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 

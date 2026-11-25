@@ -76,7 +76,7 @@ class _SlowRefreshApi extends FakeForumApi {
 T _withFixtures<T extends FakeForumApi>(T api) {
   final full = _fullApi();
   return api
-    ..boards = full.boards
+    ..categories = full.categories
     ..recentTopics = [_topic(1)]
     ..experts = full.experts
     ..communityStats = const ForumCommunityStats(
@@ -87,25 +87,27 @@ T _withFixtures<T extends FakeForumApi>(T api) {
 
 /// Everything the home reads, with the long strings that break layouts.
 FakeForumApi _fullApi() => FakeForumApi()
-  ..boards = const [
-    ForumBoard(
-      id: 1,
-      title: 'Pests, diseases and other unwelcome visitors on houseplants',
-      slug: 'pests-and-diseases',
-      description:
-          'Spider mites, thrips, fungus gnats, mealybugs, scale and every '
-          'spot, blotch and wilt you cannot name yet.',
-      topicCount: 12345,
-      postCount: 678901,
-    ),
-    ForumBoard(
-      id: 2,
-      title: 'Care',
-      slug: 'care',
-      description: 'Light, water, soil.',
-      topicCount: 1,
-      postCount: 1,
-    ),
+  ..categories = [
+    categoryOf(const [
+      ForumBoard(
+        id: 1,
+        title: 'Pests, diseases and other unwelcome visitors on houseplants',
+        slug: 'pests-and-diseases',
+        description:
+            'Spider mites, thrips, fungus gnats, mealybugs, scale and every '
+            'spot, blotch and wilt you cannot name yet.',
+        topicCount: 12345,
+        postCount: 678901,
+      ),
+      ForumBoard(
+        id: 2,
+        title: 'Care',
+        slug: 'care',
+        description: 'Light, water, soil.',
+        topicCount: 1,
+        postCount: 1,
+      ),
+    ]),
   ]
   ..recentTopics = [
     _topic(
@@ -116,9 +118,9 @@ FakeForumApi _fullApi() => FakeForumApi()
       isUnread: true,
       isSolved: true,
     ),
-    // No picture card here: its CachedNetworkImage reaches for
-    // path_provider, which has no plugin under test. The picture card's own
-    // 320x640 / 2.0x matrix lives in forum_activity_card_test.dart.
+    // No picture here: a CachedNetworkImage reaches for path_provider, which
+    // has no plugin under test. The card's own 320x640 / 2.0x matrix, with
+    // pictures and avatars stacked, lives in forum_activity_card_test.dart.
     _topic(2, title: 'Fungus gnats everywhere'),
     for (var i = 3; i <= 11; i++) _topic(i),
   ]
@@ -330,7 +332,7 @@ void main() {
   });
 
   group('forum home sections', () {
-    testWidgets('order: season, experts, boards, activity, online, footer', (
+    testWidgets('order: season, experts, forums, activity, online, footer', (
       tester,
     ) async {
       final api = _fullApi()
@@ -345,20 +347,21 @@ void main() {
       double top(Finder f) => tester.getTopLeft(f.first).dy;
       final season = top(find.byType(ForumSeasonCard));
       final experts = top(find.textContaining('Experts'));
-      final boards = top(find.text('Boards'));
+      final forums = top(find.text('General'));
       final activity = top(find.text('Recent activity'));
       expect(season, lessThan(experts));
-      expect(experts, lessThan(boards));
-      expect(boards, lessThan(activity));
+      expect(experts, lessThan(forums));
+      expect(forums, lessThan(activity));
       expect(
         top(find.text("Who's online")),
         lessThan(top(find.byType(ForumHomeFooter))),
       );
-      // Ten cards, though the feed returned eleven.
+      // Three cards, though the feed returned eleven.
       expect(
         find.byType(ForumActivityCard, skipOffstage: false),
-        findsNWidgets(10),
+        findsNWidgets(3),
       );
+      expect(api.recentTopicsLimits, [3]);
     });
 
     testWidgets('signed out: no season; activity and Who\'s online show', (
@@ -399,7 +402,7 @@ void main() {
         ..recentTopics = [_topic(1)]
         ..communityStatsError = ApiException('gone', statusCode: 404);
       await _pumpScreen(tester, api);
-      expect(find.text('Boards'), findsOneWidget);
+      expect(find.text('General'), findsOneWidget);
       expect(find.byType(ForumActivityCard), findsOneWidget);
       await tester.dragUntilVisible(
         find.byType(ForumHomeFooter),
@@ -577,7 +580,7 @@ void main() {
     expect(find.textContaining('Experts'), findsOneWidget);
     expect(find.text("Who's online"), findsOneWidget);
 
-    await tester.fling(find.text('Boards'), const Offset(0, 400), 1000);
+    await tester.fling(find.text('General'), const Offset(0, 400), 1000);
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     // Both refetches are in flight.
@@ -622,7 +625,7 @@ void main() {
     api
       ..failExpertsWith = ApiException('gone', statusCode: 404)
       ..communityStatsError = ApiException('gone', statusCode: 404);
-    await tester.fling(find.text('Boards'), const Offset(0, 400), 1000);
+    await tester.fling(find.text('General'), const Offset(0, 400), 1000);
     await tester.pumpAndSettle();
 
     expect(api.communityStatsCalls, 2);

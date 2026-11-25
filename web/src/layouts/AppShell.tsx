@@ -81,8 +81,10 @@ function NavItems({ onNavigate }: NavItemsProps) {
 
 interface SideFootProps {
   onNavigate?: () => void;
+  /** Rows shown above Settings (the drawer's phone-only theme toggle). */
+  children?: ReactNode;
 }
-function SideFoot({ onNavigate }: SideFootProps) {
+function SideFoot({ onNavigate, children }: SideFootProps) {
   const { isAuthenticated, logout } = useAuth();
   const handleLogout = async () => {
     await logout();
@@ -90,6 +92,7 @@ function SideFoot({ onNavigate }: SideFootProps) {
   };
   return (
     <nav aria-label="Account" className="mt-auto flex flex-col gap-0.5">
+      {children}
       <NavLink to="/settings" onClick={onNavigate} className={navClass}>
         <SettingsIcon className="h-[17px] w-[17px] opacity-85" aria-hidden="true" />
         Settings
@@ -269,17 +272,35 @@ export default function AppShell({ children }: AppShellProps) {
                 <nav aria-label="Main" className="flex flex-col gap-0.5">
                   <NavItems onNavigate={closeDrawer} />
                 </nav>
-                <SideFoot onNavigate={closeDrawer} />
+                <SideFoot onNavigate={closeDrawer}>
+                  {isAuthenticated && (
+                    <button
+                      type="button"
+                      onClick={toggleMode}
+                      className={`${navClass({ isActive: false })} min-h-11 text-left min-[375px]:hidden`}
+                    >
+                      {mode === 'dark' ? (
+                        <Sun className="h-[17px] w-[17px] opacity-85" aria-hidden="true" />
+                      ) : (
+                        <Moon className="h-[17px] w-[17px] opacity-85" aria-hidden="true" />
+                      )}
+                      {themeLabel}
+                    </button>
+                  )}
+                </SideFoot>
               </aside>
             </div>
           )}
 
           {/* Main column */}
           <div className="flex min-w-0 flex-1 flex-col bg-surface">
-            <header className="sticky top-0 z-40 flex items-center gap-3 border-b border-line bg-surface px-4 py-3.5 md:px-7">
+            {/* Signed in, seven 44px controls have to fit a phone (audit F302):
+                tight gaps and gutters below `sm`, and under 375px the theme
+                toggle moves into the drawer. */}
+            <header className="sticky top-0 z-40 flex items-center gap-1 border-b border-line bg-surface px-2 py-3.5 sm:gap-3 sm:px-4 md:px-7">
               <button
                 onClick={() => setDrawerOpen(true)}
-                className="rounded-md p-2 text-ink-3 hover:bg-surface-2 md:hidden"
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-md text-ink-3 hover:bg-surface-2 md:hidden"
                 aria-label="Open menu"
                 aria-expanded={drawerOpen}
               >
@@ -289,7 +310,7 @@ export default function AppShell({ children }: AppShellProps) {
                 type="button"
                 onClick={() => setPaletteOpen(true)}
                 aria-label="Search plants, posts, people…"
-                className="flex min-w-0 max-w-[430px] flex-1 items-center gap-2.5 rounded-pill border border-line bg-surface-2/70 px-4 py-2.5 text-body-sm text-ink-3 transition-colors hover:border-line-2"
+                className="flex min-h-11 min-w-11 max-w-[430px] flex-1 items-center gap-2.5 rounded-pill border border-line bg-surface-2/70 px-3 py-2.5 sm:min-h-0 sm:px-4 text-body-sm text-ink-3 transition-colors hover:border-line-2"
               >
                 <Search className="h-[15px] w-[15px] shrink-0" aria-hidden="true" />
                 {/* min-w-0 + truncate: without them this button's intrinsic width
@@ -303,12 +324,12 @@ export default function AppShell({ children }: AppShellProps) {
                   {isMac ? '⌘K' : 'Ctrl K'}
                 </kbd>
               </button>
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex items-center gap-1 sm:gap-2">
                 <Link
                   to="/forum/new-thread"
                   aria-label="New post"
                   title="New post"
-                  className="grid h-[38px] w-[38px] place-items-center rounded-md border border-line bg-surface-2/60 text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink"
+                  className="grid h-11 w-11 shrink-0 place-items-center sm:h-[38px] sm:w-[38px] rounded-md border border-line bg-surface-2/60 text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink"
                 >
                   <Plus className="h-4 w-4" aria-hidden="true" />
                 </Link>
@@ -318,7 +339,9 @@ export default function AppShell({ children }: AppShellProps) {
                   aria-label={themeLabel}
                   aria-pressed={mode === 'dark'}
                   title={themeLabel}
-                  className="grid h-[38px] w-[38px] place-items-center rounded-md border border-line bg-surface-2/60 text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink"
+                  className={`grid h-11 w-11 shrink-0 place-items-center rounded-md border border-line bg-surface-2/60 text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink sm:h-[38px] sm:w-[38px] ${
+                    isAuthenticated ? 'max-[375px]:hidden' : ''
+                  }`}
                 >
                   {mode === 'dark' ? (
                     <Sun className="h-4 w-4" aria-hidden="true" />

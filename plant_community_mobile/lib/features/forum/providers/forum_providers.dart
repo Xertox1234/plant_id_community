@@ -1,13 +1,16 @@
 import 'dart:async';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show KeepAliveLink;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../services/api_service.dart';
+import '../../../services/auth_service.dart';
 import '../models/models.dart';
 import '../services/forum_api.dart';
 import '../services/forum_sync_service.dart';
+import '../services/forum_unlock_store.dart';
 
 part 'forum_providers.g.dart';
 
@@ -39,34 +42,217 @@ Duration? forumRetry(int retryCount, Object error) {
   return ProviderContainer.defaultRetry(retryCount, error);
 }
 
-/// Forum boards (not paginated).
+/// Who the forum's per-member data is for: null for a guest, else the
+/// signed-in member's Firebase uid (a Firebase user still waiting on its JWT
+/// is not signed in). A token refresh keeps the same viewer.
+///
+/// The per-member feeds are families keyed on it, so a new viewer always
+/// reads a fresh element: Riverpod carries a provider's last value through a
+/// rebuild and into a failed one, which would leave the previous member's
+/// forums on screen when the new viewer's fetch fails.
 @riverpod
-class Boards extends _$Boards {
+String? forumViewer(Ref ref) => ref.watch(
+  authServiceProvider.select(
+    // '' only for a JWT with no Firebase user, which no sign-in path makes.
+    (s) => s.isAuthenticated ? (s.firebaseUser?.uid ?? '') : null,
+  ),
+);
+
+/// The forum index for [viewer]: categories, each with its forums and links,
+/// in the server's order (`GET /forum/categories/`). Read it through
+/// [viewerCategoriesProvider]; invalidate `categoriesProvider` (the whole
+/// family) to refetch.
+///
+/// Signed in, it first waits for the member's unlock tokens to load, so the
+/// first request after a cold start already carries them. A forum a sent
+/// token did not open (still `is_locked`) drops that token: the dead-token
+/// rule (spec §7.4).
+@Riverpod(retry: forumRetry)
+class Categories extends _$Categories {
+  /// Bumped by every fetch, so only the latest one applies the dead-token
+  /// rule.
+  int _fetches = 0;
+
   @override
-  Future<List<ForumBoard>> build() {
-    return ref.watch(forumApiProvider).fetchBoards();
-  }
+  Future<List<ForumCategory>> build(String? viewer) =>
+      _fetch(ref.watch(forumApiProvider));
 
   Future<void> refresh() async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(
-      () => ref.read(forumApiProvider).fetchBoards(),
-    );
+    state = await AsyncValue.guard(() => _fetch(ref.read(forumApiProvider)));
+  }
+
+  Future<List<ForumCategory>> _fetch(ForumApi api) async {
+    final fetch = ++_fetches;
+    var sent = const <MapEntry<int, String>>[];
+    if (viewer != null) {
+      try {
+        await ref.read(forumUnlocksProvider.future);
+        if (ref.mounted) sent = _sentTokens();
+      } catch (_) {
+        // The unlocks never fail the feed: it is fetched without them.
+      }
+    }
+    final categories = await api.fetchCategories();
+    if (sent.isNotEmpty && ref.mounted && fetch == _fetches) {
+      _dropDeadTokens(categories, sent);
+    }
+    return categories;
+  }
+
+  /// The unlocks this request carries: those whose token is in the header
+  /// right now, and only on a request with a bearer (the interceptor sends
+  /// none without one). The header, not the provider's state, is what the
+  /// server will see.
+  List<MapEntry<int, String>> _sentTokens() {
+    final apiService = ref.read(apiServiceProvider);
+    if (!apiService.hasAuthToken) return const [];
+    final installed = apiService.forumUnlockTokens.toSet();
+    if (installed.isEmpty) return const [];
+    final held = ref.read(forumUnlocksProvider).value ?? const {};
+    return [
+      for (final e in held.entries)
+        if (installed.contains(e.value)) e,
+    ];
+  }
+
+  /// Drops a sent token whose forum came back locked anyway, but only while
+  /// the stored token is still the one sent: an unlock made while the
+  /// request was out is never dropped by its answer.
+  void _dropDeadTokens(
+    List<ForumCategory> categories,
+    List<MapEntry<int, String>> sent,
+  ) {
+    final locked = {
+      for (final c in categories)
+        for (final f in c.forums)
+          if (f.isLocked) f.id,
+    };
+    final unlocks = ref.read(forumUnlocksProvider.notifier);
+    for (final entry in sent) {
+      if (locked.contains(entry.key)) {
+        unawaited(unlocks.drop(entry.key, ifToken: entry.value));
+      }
+    }
   }
 }
 
-/// Topics in a board, cursor-paginated with [loadMore].
+/// The forum index for the current viewer. Synchronous on purpose: it hands
+/// over the viewer's own element's state as is, so a new viewer starts from
+/// loading, never from the previous viewer's list (see [forumViewerProvider]).
 @riverpod
+AsyncValue<List<ForumCategory>> viewerCategories(Ref ref) =>
+    ref.watch(categoriesProvider(ref.watch(forumViewerProvider)));
+
+/// Every forum a member can post in, in feed order: the flat list the topic
+/// screen's header and the search filter read. Derived from
+/// [viewerCategoriesProvider] (no request of its own); forums still locked
+/// for the viewer are left out.
+///
+/// Not `whenData`: that turns a failure Riverpod is still retrying into a
+/// bare loading state, and the error must stay visible.
+@riverpod
+AsyncValue<List<ForumBoard>> boards(Ref ref) {
+  final feed = ref.watch(viewerCategoriesProvider);
+  if (feed.hasValue) {
+    return AsyncData([
+      for (final c in feed.requireValue)
+        for (final f in c.forums)
+          if (!f.isLocked) f,
+    ]);
+  }
+  if (feed.hasError) return AsyncError(feed.error!, feed.stackTrace!);
+  return const AsyncLoading();
+}
+
+/// Signed in ([viewer] not null), waits for the member's stored unlock
+/// tokens, so a read opened first on a cold start (a push, a deep link)
+/// already carries them, as [Categories] does. A guest never waits. The
+/// unlocks never fail the read: it is sent without them.
+Future<void> _awaitUnlocks(Ref ref, String? viewer) async {
+  if (viewer == null) return;
+  try {
+    await ref.read(forumUnlocksProvider.future);
+  } catch (_) {}
+}
+
+/// A forum's top contributors: the members with the most posts in it
+/// (`GET /forum/boards/{slug}/contributors/`). Keyed on [viewer] because the
+/// server leaves out members the viewer has blocked. A 4xx (a locked forum,
+/// or a server that predates the endpoint) fails at once; the section that
+/// reads it is then simply absent.
+@Riverpod(retry: forumRetry)
+Future<List<ForumContributor>> boardContributors(
+  Ref ref,
+  String boardSlug,
+  String? viewer,
+) async {
+  final api = ref.watch(forumApiProvider);
+  await _awaitUnlocks(ref, viewer);
+  return api.fetchBoardContributors(boardSlug);
+}
+
+/// How one board's topic list is sorted and filtered. Both `null` is the
+/// server's own order with no filter.
+class BoardTopicsFilter {
+  const BoardTopicsFilter({this.sort, this.tag});
+
+  /// A `?sort=` value, or `null` for the forum's default order.
+  final String? sort;
+
+  /// A tag name (`?tag=`), or `null` for every topic.
+  final String? tag;
+
+  @override
+  bool operator ==(Object other) =>
+      other is BoardTopicsFilter && other.sort == sort && other.tag == tag;
+
+  @override
+  int get hashCode => Object.hash(sort, tag);
+}
+
+/// The sort and tag filter chosen on a board's topic list. Lives as long as
+/// that list is on screen, so leaving the forum clears it.
+@riverpod
+class BoardTopicsFilterState extends _$BoardTopicsFilterState {
+  @override
+  BoardTopicsFilter build(String boardSlug) => const BoardTopicsFilter();
+
+  void setSort(String? sort) =>
+      state = BoardTopicsFilter(sort: sort, tag: state.tag);
+
+  /// Choosing the active tag again clears it.
+  void toggleTag(String tag) => state = BoardTopicsFilter(
+    sort: state.sort,
+    tag: state.tag == tag ? null : tag,
+  );
+}
+
+/// Topics in a board, cursor-paginated with [loadMore], in the order and
+/// under the tag filter of [boardTopicsFilterStateProvider]. A locked forum
+/// answers 403 `forum_locked`, which [forumRetry] does not re-request.
+@Riverpod(retry: forumRetry)
 class BoardTopics extends _$BoardTopics {
   /// Bumped by every [build]: see [loadMore].
   int _builds = 0;
 
+  /// [viewer] (see [forumViewerProvider]) keys the list on who reads it: a
+  /// password forum's topics are per member, and a new viewer must never
+  /// see the previous one's list, even when its own fetch fails.
   @override
-  Future<PagedList<ForumTopicListItem>> build(String boardSlug) async {
+  Future<PagedList<ForumTopicListItem>> build(
+    String boardSlug,
+    String? viewer,
+  ) async {
     _builds++;
-    final page = await ref
-        .watch(forumApiProvider)
-        .fetchTopics(boardSlug: boardSlug);
+    final api = ref.watch(forumApiProvider);
+    await _awaitUnlocks(ref, viewer);
+    final filter = ref.watch(boardTopicsFilterStateProvider(boardSlug));
+    final page = await api.fetchTopics(
+      boardSlug: boardSlug,
+      sort: filter.sort,
+      tag: filter.tag,
+    );
     return PagedList(items: page.items, nextUrl: page.next);
   }
 
@@ -120,9 +306,12 @@ class TopicDetail extends _$TopicDetail {
   String? _solutionKey;
   String? _solutionFingerprint;
 
+  /// [viewer] keys the topic on who reads it, as [BoardTopics] does.
   @override
-  Future<ForumTopicDetail> build(int topicId) {
-    return ref.watch(forumApiProvider).fetchTopicDetail(topicId);
+  Future<ForumTopicDetail> build(int topicId, String? viewer) async {
+    final api = ref.watch(forumApiProvider);
+    await _awaitUnlocks(ref, viewer);
+    return api.fetchTopicDetail(topicId);
   }
 
   /// Replace the topic with a fresh peek read (live replies: the catch-up on
@@ -153,6 +342,35 @@ class TopicDetail extends _$TopicDetail {
 
   bool _bookmarkInFlight = false;
 
+  /// Pin the topic in its forum, or unpin it. NOT optimistic: a pin reorders
+  /// the forum for everyone, so the icon changes only once the server has
+  /// agreed. Refetches every board's topic list (the pinned row moves) and
+  /// rethrows so the caller can surface the error.
+  ///
+  /// Returns the topic's pinned state after the call, or `null` when nothing
+  /// was sent (no topic loaded yet, or a toggle already in flight). The
+  /// caller words its confirmation from this, never from a provider read
+  /// after the await: the screen may be gone by then.
+  Future<bool?> togglePin() async {
+    final current = state.asData?.value;
+    if (current == null || _pinInFlight) return null;
+    _pinInFlight = true;
+    try {
+      final pinned = await ref
+          .read(forumApiProvider)
+          .setTopicPinned(current.id, pinned: !current.isPinned);
+      if (!ref.mounted) return pinned;
+      final latest = state.asData?.value ?? current;
+      state = AsyncData(latest.copyWith(isPinned: pinned));
+      ref.invalidate(boardTopicsProvider);
+      return pinned;
+    } finally {
+      _pinInFlight = false;
+    }
+  }
+
+  bool _pinInFlight = false;
+
   Future<void> _toggleBookmarkOnce(ForumTopicDetail current) async {
     final wasBookmarked = current.isBookmarked;
     state = AsyncData(current.copyWith(isBookmarked: !wasBookmarked));
@@ -172,7 +390,7 @@ class TopicDetail extends _$TopicDetail {
     final latest = state.asData?.value ?? current;
     final updated = latest.copyWith(isBookmarked: bookmarked);
     state = AsyncData(updated);
-    if (ref.exists(bookmarksFeedProvider)) {
+    if (ref.read(bookmarksFeedProvider.exists)) {
       ref
           .read(bookmarksFeedProvider.notifier)
           .applyBookmark(updated, bookmarked: bookmarked);
@@ -311,12 +529,36 @@ class TopicDetail extends _$TopicDetail {
 }
 
 /// A public forum profile, keyed by username (`GET /forum/users/{username}/`),
-/// plus the viewer's block/unblock of that member (todo 341).
+/// plus the viewer's block/unblock of that member (todo 341) and mute/unmute.
 @riverpod
 class ForumUserProfile extends _$ForumUserProfile {
   @override
   Future<ForumProfile> build(String username) {
+    ref.listen(authorMuteChangesProvider, (_, change) {
+      if (change != null && change.username == username) {
+        _applyMuted(change.muted);
+      }
+    });
     return ref.watch(forumApiProvider).fetchProfile(username);
+  }
+
+  /// Mute if not muted, else unmute. Rethrows; the state changes through
+  /// [AuthorMuteChanges], as it does for a mute made from a post.
+  Future<void> toggleMute() async {
+    final current = state.asData?.value;
+    if (current == null) return;
+    await ref
+        .read(authorMuteChangesProvider.notifier)
+        .set(username, muted: !current.isMuted);
+  }
+
+  /// A mute clears the activity lists; an unmute refetches them, because the
+  /// server sent none while the mute stood.
+  void _applyMuted(bool muted) {
+    final current = state.asData?.value;
+    if (current == null || current.isMuted == muted) return;
+    state = AsyncData(current.withMuted(muted));
+    if (!muted) ref.invalidateSelf();
   }
 
   /// Block if not blocked, else unblock. Optimistic with revert (a block is
@@ -362,6 +604,48 @@ class ForumUserProfile extends _$ForumUserProfile {
   }
 }
 
+/// One mute/unmute the viewer just performed, for [AuthorMuteChanges].
+class AuthorMuteChange {
+  const AuthorMuteChange({required this.username, required this.muted});
+  final String username;
+  final bool muted;
+}
+
+/// The most recent mute/unmute the viewer performed, from a thread or a
+/// profile. Every mounted thread and profile splices it locally, for the
+/// reasons [AuthorBlockChanges] gives. Its own provider, so a block and a
+/// mute made on one profile both reach a paused thread underneath.
+@Riverpod(keepAlive: true)
+class AuthorMuteChanges extends _$AuthorMuteChanges {
+  @override
+  AuthorMuteChange? build() => null;
+
+  /// Send the mute or unmute, then broadcast the state the server returned.
+  /// Not optimistic: nothing changes unless the server agrees.
+  Future<void> set(String username, {required bool muted}) async {
+    if (!_inFlight.add(username)) return; // Never two opposite writes.
+    try {
+      final viewer = ref.read(forumViewerProvider);
+      final api = ref.read(forumApiProvider);
+      final result = muted
+          ? await api.muteUser(username)
+          : await api.unmuteUser(username);
+      // Signed out or another account meanwhile: not that viewer's mute.
+      if (ref.mounted && ref.read(forumViewerProvider) == viewer) {
+        emit(username: username, muted: result);
+      }
+    } finally {
+      _inFlight.remove(username);
+    }
+  }
+
+  final _inFlight = <String>{};
+
+  void emit({required String username, required bool muted}) {
+    state = AuthorMuteChange(username: username, muted: muted);
+  }
+}
+
 /// One block/unblock the viewer just performed, for [AuthorBlockChanges].
 class AuthorBlockChange {
   const AuthorBlockChange({required this.username, required this.blocked});
@@ -402,8 +686,9 @@ class TopicPosts extends _$TopicPosts {
   String? _reportKey;
   String? _reportFingerprint;
 
+  /// [viewer] keys the thread on who reads it, as [BoardTopics] does.
   @override
-  Future<PagedList<ForumPost>> build(int topicId) async {
+  Future<PagedList<ForumPost>> build(int topicId, String? viewer) async {
     // Before the first await: a block/unblock performed on a profile pushed
     // over this thread splices every loaded post by that author in place
     // (todo 341) — see [AuthorBlockChanges] for why this is not an
@@ -413,13 +698,28 @@ class TopicPosts extends _$TopicPosts {
         applyAuthorBlocked(change.username, blocked: change.blocked);
       }
     });
-    final page = await ref.watch(forumApiProvider).fetchPosts(topicId: topicId);
+    ref.listen(authorMuteChangesProvider, (_, change) {
+      if (change != null) {
+        _spliceAuthor(change.username, (p) => p.withMuted(change.muted));
+      }
+    });
+    final api = ref.watch(forumApiProvider);
+    await _awaitUnlocks(ref, viewer);
+    final page = await api.fetchPosts(topicId: topicId);
     return PagedList(items: page.items, nextUrl: page.next);
   }
 
   /// Rewrite `isBlocked` on every loaded post by [username] — a local
   /// splice, same discipline as [applyEditedPost].
-  void applyAuthorBlocked(String username, {required bool blocked}) {
+  void applyAuthorBlocked(String username, {required bool blocked}) =>
+      _spliceAuthor(username, (p) => p.withBlocked(blocked));
+
+  /// Mute or unmute a post's author; every loaded post by them follows.
+  /// Rethrows so the caller can surface the error.
+  Future<void> setAuthorMuted(String username, {required bool muted}) =>
+      ref.read(authorMuteChangesProvider.notifier).set(username, muted: muted);
+
+  void _spliceAuthor(String username, ForumPost Function(ForumPost) splice) {
     final current = state.asData?.value;
     if (current == null) return;
     if (!current.items.any((p) => p.author.username == username)) return;
@@ -427,7 +727,7 @@ class TopicPosts extends _$TopicPosts {
       PagedList(
         items: [
           for (final p in current.items)
-            if (p.author.username == username) p.withBlocked(blocked) else p,
+            if (p.author.username == username) splice(p) else p,
         ],
         nextUrl: current.nextUrl,
         isLoadingMore: current.isLoadingMore,
@@ -714,11 +1014,22 @@ class RecentTopics extends _$RecentTopics {
   }
 }
 
-/// The home activity feed — the ten most recent topics with solved/unread
-/// state and a wide image. Distinct from [RecentTopics], the offline mirror.
+/// How many topics the forum home's Recent activity shows (owner decision
+/// 2026-11-16: the three latest, each collapsed).
+const int kHomeRecentTopicsLimit = 3;
+
+/// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
+/// with solved/unread state, pictures and recent repliers. Distinct from
+/// [RecentTopics], the offline mirror.
+///
+/// Keyed on [viewer] (see [forumViewerProvider]): the feed honours the
+/// member's forum unlocks, so a new viewer must start from loading, never
+/// from the previous one's titles.
 @Riverpod(retry: forumRetry)
-Future<List<ForumRecentTopic>> homeRecentTopics(Ref ref) {
-  return ref.watch(forumApiProvider).fetchRecentTopics(limit: 10);
+Future<List<ForumRecentTopic>> homeRecentTopics(Ref ref, String? viewer) {
+  return ref
+      .watch(forumApiProvider)
+      .fetchRecentTopics(limit: kHomeRecentTopicsLimit);
 }
 
 /// A topic's latest-replies peek. Kept alive while the forum home is mounted
@@ -1099,7 +1410,7 @@ class ConversationThread extends _$ConversationThread {
     // refetch (invalidate); the inbox row is spliced in place IF the inbox
     // is alive — invalidating it would collapse its loaded pages to page 1.
     ref.invalidate(unreadConversationCountProvider);
-    if (ref.exists(conversationsFeedProvider)) {
+    if (ref.read(conversationsFeedProvider.exists)) {
       ref.read(conversationsFeedProvider.notifier).markRead(conversation.id);
     }
     return ConversationThreadState(
@@ -1188,7 +1499,7 @@ class ConversationThread extends _$ConversationThread {
         ),
       );
       final row = latest.conversation;
-      if (row != null && ref.exists(conversationsFeedProvider)) {
+      if (row != null && ref.read(conversationsFeedProvider.exists)) {
         ref
             .read(conversationsFeedProvider.notifier)
             .applyActivity(
@@ -1246,7 +1557,7 @@ class GroupConversationThread extends _$GroupConversationThread {
     // Reading marks my participant row read server-side — same badge /
     // inbox-splice discipline as the direct thread.
     ref.invalidate(unreadConversationCountProvider);
-    if (ref.exists(conversationsFeedProvider)) {
+    if (ref.read(conversationsFeedProvider.exists)) {
       ref.read(conversationsFeedProvider.notifier).markRead(conversationId);
     }
     return ConversationThreadState(
@@ -1265,7 +1576,7 @@ class GroupConversationThread extends _$GroupConversationThread {
   /// `null` means the GET 404'd (see [ForumApi.fetchConversation]); any
   /// other failure propagates as the provider's error state.
   Future<ForumConversation?> _resolveConversation(ForumApi api) async {
-    if (ref.exists(conversationsFeedProvider)) {
+    if (ref.read(conversationsFeedProvider.exists)) {
       final rows = ref.read(conversationsFeedProvider).asData?.value.items;
       if (rows != null) {
         for (final row in rows) {
@@ -1342,7 +1653,7 @@ class GroupConversationThread extends _$GroupConversationThread {
         ),
       );
       final row = latest.conversation;
-      if (row != null && ref.exists(conversationsFeedProvider)) {
+      if (row != null && ref.read(conversationsFeedProvider.exists)) {
         ref
             .read(conversationsFeedProvider.notifier)
             .applyActivity(
@@ -1402,7 +1713,7 @@ class GroupConversationThread extends _$GroupConversationThread {
           conversationId: conversationId,
           username: myUsername,
         );
-    if (ref.exists(conversationsFeedProvider)) {
+    if (ref.read(conversationsFeedProvider.exists)) {
       ref.read(conversationsFeedProvider.notifier).remove(conversationId);
     }
   }
@@ -1412,7 +1723,7 @@ class GroupConversationThread extends _$GroupConversationThread {
     if (current != null) {
       state = AsyncData(current.copyWith(conversation: row));
     }
-    if (ref.exists(conversationsFeedProvider)) {
+    if (ref.read(conversationsFeedProvider.exists)) {
       ref.read(conversationsFeedProvider.notifier).replaceRow(row);
     }
   }

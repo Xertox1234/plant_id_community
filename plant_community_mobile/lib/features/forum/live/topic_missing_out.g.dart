@@ -142,7 +142,7 @@ abstract class _$TopicMissingOut extends $Notifier<int> {
   int build(int topicId);
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<int, int>;
     final element =
         ref.element
@@ -152,6 +152,6 @@ abstract class _$TopicMissingOut extends $Notifier<int> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args));
   }
 }

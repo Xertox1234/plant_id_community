@@ -363,6 +363,45 @@ def test_bulk_unpublish_action_unpublishes_selected_posts(client):
 
 
 @pytest.mark.django_db
+def test_bulk_unpublish_needs_publish_not_only_change(client):
+    """The bulk action asks what Wagtail's own unpublish asks, the publish
+    permission: change_post alone took posts down (audit 2026-11-21 L6)."""
+    from django.contrib.auth.models import Permission
+    from django.urls import reverse
+    from wagtail_forum.models import ForumProfile, Post, Topic
+
+    author = User.objects.create_user(username="bulk_perm_author")
+    ForumProfile.for_user(author)
+    board = make_forum(name="BPerm", slug="bperm")
+    topic = Topic.objects.create(board=board, title="BP", slug="bp", author=author)
+    post = Post(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        body=[{"type": "paragraph", "value": "<p>keep me</p>"}],
+    )
+    post.save()
+    post.save_revision().publish()
+
+    editor = User.objects.create_user(username="change_only", is_staff=True)
+    editor.user_permissions.add(
+        Permission.objects.get(
+            content_type__app_label="wagtailadmin", codename="access_admin"
+        ),
+        Permission.objects.get(
+            content_type__app_label="wagtail_forum", codename="change_post"
+        ),
+    )
+    client.force_login(editor)
+    url = reverse("wagtail_bulk_action", args=("wagtail_forum", "post", "unpublish"))
+
+    client.post(f"{url}?id={post.pk}", data={})
+
+    post.refresh_from_db()
+    assert post.live is True
+
+
+@pytest.mark.django_db
 def test_bulk_unpublish_action_execution_context_carries_acting_user():
     """Pins `ForumUnpublishBulkAction.get_execution_context()`'s
     `user=self.request.user` override directly (todo 265).
@@ -706,3 +745,241 @@ def test_profile_snippet_edit_form_never_renders_the_token_or_preference_json(cl
     assert 'name="notification_preferences"' not in html
     assert 'name="fcm_token"' not in html
     assert 'name="bio"' in html  # the ordinary fields still render
+
+
+def _posts_for_list(count, topic_title="Yellow leaves"):
+    from wagtail_forum.models import Post, Topic
+
+    author = User.objects.create_user(username="listed")
+    board = make_forum(name="Listed", slug="listed")
+    topic = Topic.objects.create(
+        board=board, title=topic_title, slug="listed-topic", author=author
+    )
+    return [
+        Post.objects.create(
+            topic=topic,
+            author=author,
+            is_opening_post=(index == 0),
+            body=[{"type": "paragraph", "value": f"<p>words{index} &amp; more</p>"}],
+        )
+        for index in range(count)
+    ]
+
+
+POST_LIST = "/cms/snippets/wagtail_forum/post/"
+
+
+@pytest.mark.django_db
+def test_post_list_shows_an_excerpt_and_the_date_newest_first(client):
+    """F68: rows were "Post #12 in 3", oldest first, with no date."""
+    posts = _posts_for_list(3)
+    admin = User.objects.create_superuser(username="root", email="r@x.io")
+    client.force_login(admin)
+
+    resp = client.get(POST_LIST)
+
+    body = resp.content.decode()
+    assert [p.pk for p in resp.context["object_list"]] == [p.pk for p in posts[::-1]]
+    for index, post in enumerate(posts):
+        assert f"Post #{post.pk}: words{index} &amp; more" in body
+    assert "Created at" in body
+    assert "ordering=created_at" in body  # the date column sorts
+
+
+@pytest.mark.django_db
+def test_post_list_breaks_a_date_tie_by_newest_id(client):
+    from django.utils import timezone
+    from wagtail_forum.models import Post
+
+    posts = _posts_for_list(4)
+    Post.objects.update(created_at=timezone.now())
+    admin = User.objects.create_superuser(username="root", email="r@x.io")
+    client.force_login(admin)
+
+    for query in ("", "?ordering=-created_at"):
+        listed = client.get(POST_LIST + query).context["object_list"]
+        assert [p.pk for p in listed] == [p.pk for p in posts[::-1]]
+    listed = client.get(POST_LIST + "?ordering=created_at").context["object_list"]
+    assert [p.pk for p in listed] == [p.pk for p in posts]
+
+
+@pytest.mark.django_db
+def test_post_list_can_be_searched_while_sorted_by_date(client):
+    # A search sorted by a column the index does not declare is a 500.
+    posts = _posts_for_list(2)
+    admin = User.objects.create_superuser(username="root", email="r@x.io")
+    client.force_login(admin)
+
+    resp = client.get(POST_LIST + "?q=more&ordering=-created_at")
+
+    assert resp.status_code == 200
+    assert [p.pk for p in resp.context["object_list"]] == [p.pk for p in posts[::-1]]
+
+
+@pytest.mark.django_db
+def test_post_list_query_count_does_not_grow_with_rows(client):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+    from wagtail_forum.models import Post
+
+    posts = _posts_for_list(2)
+    admin = User.objects.create_superuser(username="root", email="r@x.io")
+    client.force_login(admin)
+    client.get(POST_LIST)  # warm per-process caches
+
+    with CaptureQueriesContext(connection) as few:
+        client.get(POST_LIST)
+    for index in range(6):
+        author = User.objects.create_user(username=f"more{index}")
+        Post.objects.create(
+            topic=posts[0].topic,
+            author=author,
+            body=[{"type": "paragraph", "value": "<p>x</p>"}],
+        )
+    with CaptureQueriesContext(connection) as many:
+        client.get(POST_LIST)
+
+    assert len(many) == len(few)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("count", [1, 2])
+def test_bulk_unpublish_confirmation_names_posts_by_their_text(client, count):
+    from urllib.parse import urlencode
+
+    from django.urls import reverse
+
+    posts = _posts_for_list(count)
+    admin = User.objects.create_superuser(username="root", email="r@x.io")
+    client.force_login(admin)
+    url = reverse("wagtail_bulk_action", args=("wagtail_forum", "post", "unpublish"))
+
+    query = urlencode([("id", p.pk) for p in posts])
+    body = client.get(f"{url}?{query}").content.decode()
+
+    main = body[body.index("<main") :]
+    for index, post in enumerate(posts):
+        assert f"Post #{post.pk}: words{index} &amp; more" in main
+
+
+@pytest.mark.django_db
+def test_bulk_unpublish_confirmation_still_names_a_topic_by_its_title(client):
+    from django.urls import reverse
+
+    post = _posts_for_list(1, topic_title="Wilting fern")[0]
+    admin = User.objects.create_superuser(username="root", email="r@x.io")
+    client.force_login(admin)
+    url = reverse("wagtail_bulk_action", args=("wagtail_forum", "topic", "unpublish"))
+
+    body = client.get(f"{url}?id={post.topic_id}").content.decode()
+
+    assert "Wilting fern" in body[body.index("<main") :]
+
+
+@pytest.mark.django_db
+def test_a_post_without_text_still_has_a_row_title():
+    post = _posts_for_list(1)[0]
+    post.body = []
+    assert post.admin_title == f"Post #{post.pk}: (no text)"
+
+
+# --- Staff-set trust (audit 2026-11-24 F53) ----------------------------------
+
+
+def _member_with_posts(count, username="trusted"):
+    from wagtail_forum.models import ForumProfile, Post, Topic
+
+    author = User.objects.create_user(username=username)
+    board = make_forum(name="Trust", slug=f"trust-{username}")
+    topic = Topic.objects.create(board=board, title="T", slug="t", author=author)
+    for _ in range(count):
+        _publish(Post(topic=topic, author=author, body=[]))
+    return topic, ForumProfile.objects.get(user=author)
+
+
+def _publish(post):
+    post.live = False
+    post.save()
+    post.save_revision().publish()
+
+
+def _edit_profile(client, profile, **changes):
+    """POST the profile edit form as the page rendered it, plus ``changes``."""
+    from django.urls import reverse
+    from wagtail_forum.models import ForumProfile
+
+    url = reverse(ForumProfile.snippet_viewset.get_url_name("edit"), args=[profile.pk])
+    page = client.get(url)
+    assert page.status_code == 200
+    form = page.context["form"]
+    data = {}
+    for field in form:
+        value = field.value()
+        if value is not None and value is not False:
+            data[field.html_name] = value
+    resp = client.post(url, {**data, **changes})
+    assert resp.status_code == 302, resp.context["form"].errors
+    profile.refresh_from_db()
+    return form
+
+
+@pytest.mark.django_db
+def test_a_staff_demotion_survives_the_members_next_post(client):
+    from wagtail_forum.models import Post
+
+    topic, profile = _member_with_posts(6)
+    assert profile.trust_level == 2
+    admin = _admin_client(client)
+
+    _edit_profile(admin, profile, trust_level_override="0")
+    assert profile.trust_level == 0
+
+    _publish(Post(topic=topic, author=profile.user, body=[]))
+    profile.refresh_from_db()
+    assert profile.post_count == 7
+    assert profile.trust_level == 0
+
+
+@pytest.mark.django_db
+def test_a_staff_promotion_survives_posts_being_taken_down(client):
+    from wagtail_forum.models import Post
+
+    topic, profile = _member_with_posts(1)
+    _edit_profile(_admin_client(client), profile, trust_level_override="1")
+
+    Post.objects.filter(author=profile.user).first().unpublish()
+
+    profile.refresh_from_db()
+    assert profile.post_count == 0
+    assert profile.trust_level == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("level", ["0", "4"])
+def test_clearing_a_staff_level_returns_to_the_earned_one(client, level):
+    _, profile = _member_with_posts(6)
+    admin = _admin_client(client)
+    _edit_profile(admin, profile, trust_level_override=level)
+    assert profile.trust_level == int(level)
+
+    _edit_profile(admin, profile, trust_level_override="")
+
+    assert profile.trust_level_override is None
+    assert profile.trust_level == 2
+
+
+@pytest.mark.django_db
+def test_an_unrelated_profile_edit_leaves_the_trust_level_alone(client):
+    from wagtail_forum.models import ForumProfile
+
+    # A level granted before the override existed keeps today's behaviour.
+    _, profile = _member_with_posts(1)
+    ForumProfile.objects.filter(pk=profile.pk).update(trust_level=3)
+
+    form = _edit_profile(_admin_client(client), profile, title="Head moderator")
+
+    assert profile.title == "Head moderator"
+    assert profile.trust_level == 3
+    assert profile.trust_level_override is None
+    # One control: the derived level is shown, not edited.
+    assert "trust_level" not in form.fields

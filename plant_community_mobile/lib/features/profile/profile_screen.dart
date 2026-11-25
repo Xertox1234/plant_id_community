@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../core/routing/app_router.dart';
 import '../../core/theme/green_thumb_extension.dart';
+import '../forum/widgets/author_identity.dart' show forumAvatarRadius;
 import '../../models/user_profile.dart';
 import '../../services/user_profile_service.dart';
 import '../../services/auth_service.dart';
@@ -159,32 +160,47 @@ class _ProfileHeader extends StatelessWidget {
       padding: EdgeInsets.all(ext.padCard),
       child: Column(
         children: [
-          // Avatar
-          CircleAvatar(
-            radius: 50,
-            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-            backgroundImage: profile.avatar != null
-                ? NetworkImage(profile.avatar!)
-                : null,
-            onBackgroundImageError: profile.avatar != null
-                ? (error, _) {
-                    if (kDebugMode) {
-                      debugPrint(
-                        '[PROFILE] Avatar image failed to load: $error',
-                      );
-                    }
-                  }
-                : null,
-            child: profile.avatar == null
-                ? Text(
-                    profile.username.isNotEmpty
-                        ? profile.username[0].toUpperCase()
-                        : '?',
-                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.onPrimaryContainer,
-                    ),
-                  )
-                : null,
+          // Avatar: a rounded square, the same shape as the forum avatar.
+          SizedBox.square(
+            dimension: 100,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: forumAvatarRadius(100),
+                image: profile.avatar != null
+                    ? DecorationImage(
+                        image: NetworkImage(profile.avatar!),
+                        fit: BoxFit.cover,
+                        onError: (error, _) {
+                          if (kDebugMode) {
+                            debugPrint(
+                              '[PROFILE] Avatar image failed to load: $error',
+                            );
+                          }
+                        },
+                      )
+                    : null,
+              ),
+              child: profile.avatar == null
+                  ? Center(
+                      // Sized to the square, not the text scale, as
+                      // CircleAvatar did.
+                      child: MediaQuery.withNoTextScaling(
+                        child: Text(
+                          profile.username.isNotEmpty
+                              ? profile.username[0].toUpperCase()
+                              : '?',
+                          style: Theme.of(context).textTheme.headlineLarge
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onPrimaryContainer,
+                              ),
+                        ),
+                      ),
+                    )
+                  : null,
+            ),
           ),
 
           const SizedBox(height: 16),
@@ -634,7 +650,10 @@ class _LogoutButton extends ConsumerWidget {
 
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Logout failed: $e'),
+                // Fixed text, never the raw exception (todo 704, audit L8).
+                content: Text(
+                  e is AuthException ? e.message : signOutFailedMessage,
+                ),
                 backgroundColor: Theme.of(context).colorScheme.error,
               ),
             );

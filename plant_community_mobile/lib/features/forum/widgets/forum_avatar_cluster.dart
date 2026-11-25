@@ -53,11 +53,8 @@ class AuthorAvatarCluster extends StatelessWidget {
       return Semantics(
         label: viewer == null ? 'No members' : 'No other members',
         excludeSemantics: true,
-        child: CircleAvatar(
-          radius: radius + 6,
-          // Opaque, matching AuthorIdentity's initial disc: avatars overlap by
-          // a quarter here, and a translucent disc shows the one beneath it.
-          backgroundColor: theme.colorScheme.surfaceContainerHigh,
+        child: _AvatarSlot(
+          side: (radius + 6) * 2,
           child: Icon(
             LucideIcons.users,
             color: theme.colorScheme.onSurface,
@@ -88,7 +85,7 @@ class AuthorAvatarCluster extends StatelessWidget {
                 left: i * step,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    shape: BoxShape.circle,
+                    borderRadius: forumAvatarRadius(radius * 2),
                     border: Border.all(
                       color: theme.colorScheme.surface,
                       width: 2,
@@ -102,16 +99,14 @@ class AuthorAvatarCluster extends StatelessWidget {
                 left: shown.length * step,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    shape: BoxShape.circle,
+                    borderRadius: forumAvatarRadius(radius * 2),
                     border: Border.all(
                       color: theme.colorScheme.surface,
                       width: 2,
                     ),
                   ),
-                  child: CircleAvatar(
-                    radius: radius,
-                    // Opaque for the same reason as the empty-roster disc.
-                    backgroundColor: theme.colorScheme.surfaceContainerHigh,
+                  child: _AvatarSlot(
+                    side: radius * 2,
                     child: Text(
                       '+$extra',
                       style: theme.textTheme.labelSmall?.copyWith(
@@ -124,6 +119,32 @@ class AuthorAvatarCluster extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A non-member square in an avatar slot (the "+N" overflow and the
+/// empty-roster glyph), shaped like [AuthorAvatar]. Opaque, matching the
+/// avatar fill: avatars overlap by a quarter here, and a translucent square
+/// shows the one beneath it. Its content ignores text scaling, as
+/// `CircleAvatar` did, so "+12" stays inside a 28pt square at 2.0x.
+class _AvatarSlot extends StatelessWidget {
+  const _AvatarSlot({required this.side, required this.child});
+
+  final double side;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: side,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHigh,
+          borderRadius: forumAvatarRadius(side),
+        ),
+        child: Center(child: MediaQuery.withNoTextScaling(child: child)),
       ),
     );
   }

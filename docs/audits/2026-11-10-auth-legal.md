@@ -120,7 +120,7 @@ laws do not apply at this size.
 | ID | Todo | Rationale |
 | --- | --- | --- |
 | H1, H3, H5, H9, M12, M16, M21, L12, L14, L16, L17 | [701](../../todos/701-pending-p1-legal-policy-text-revision.md) | All change policy text or are lawyer questions; one revision, one `LEGAL_POLICY_VERSION` bump, after the owner fills the blanks |
-| H4, M20 | [702](../../todos/702-pending-p1-breach-runbook-and-processor-register.md) | Documents, not code; the owner should read the runbook before relying on it |
+| H4, M20 | [702](../../todos/archive/702-completed-p1-breach-runbook-and-processor-register.md) | Documents, not code; the owner should read the runbook before relying on it |
 | H2, M19 | [703](../../todos/703-pending-p1-email-sender-identity-and-opt-out.md) | Needs the sender name and mailing address |
 | H7, H8, M13, M14, M17, L8, L9 | [704](../../todos/704-pending-p2-mobile-auth-gaps.md) | Device checks and an owner console change; no mobile code was touched in this audit |
 | M6 (rest), M4, M5, M22, L4, L5, L6, L7 | [705](../../todos/705-pending-p2-backend-auth-hardening.md) | Code-only; kept out to hold this PR to a reviewable size |

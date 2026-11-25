@@ -50,3 +50,76 @@ def test_post_count_promotes_trust_level_to_member():
     profile = ForumProfile.for_user(user)
     assert profile.post_count == 5
     assert profile.trust_level == TrustLevel.MEMBER
+
+
+# ---- a move in the /cms/ editor recounts BOTH sides (audit 2026-11-21 M2) ----
+
+
+@pytest.mark.django_db
+def test_moving_a_topic_to_another_forum_recounts_the_forum_it_left():
+    user = User.objects.create_user(username="mover")
+    source = make_forum(name="Pests", slug="pests")
+    target = make_forum(name="Care", slug="care")
+    topic = Topic.objects.create(board=source, title="T", slug="t", author=user)
+    _publish(topic, user, opening=True)
+    _publish(topic, user)
+    topic.save_revision().publish()
+    source.refresh_from_db()
+    assert (source.topic_count, source.post_count) == (1, 2)
+
+    # What the editor's Board field does: a revision with the new board,
+    # published (publish saves a copy built from the revision).
+    topic.refresh_from_db()
+    topic.board = target
+    topic.save_revision().publish()
+
+    source.refresh_from_db()
+    target.refresh_from_db()
+    assert (source.topic_count, source.post_count) == (0, 0)
+    assert (target.topic_count, target.post_count) == (1, 2)
+
+
+@pytest.mark.django_db
+def test_moving_a_reply_to_another_topic_recounts_the_topic_it_left():
+    user = User.objects.create_user(username="replymover")
+    other = User.objects.create_user(username="other")
+    board = make_forum(name="General", slug="general")
+    old = Topic.objects.create(board=board, title="Old", slug="old", author=user)
+    new = Topic.objects.create(board=board, title="New", slug="new", author=user)
+    _publish(old, user, opening=True)
+    _publish(new, user, opening=True)
+    reply = _publish(old, other)
+    old.refresh_from_db()
+    assert (old.reply_count, old.last_post_author_id) == (1, other.pk)
+
+    reply.refresh_from_db()
+    reply.topic = new
+    reply.save_revision().publish()
+
+    old.refresh_from_db()
+    new.refresh_from_db()
+    assert (old.reply_count, old.last_post_author_id) == (0, user.pk)
+    assert (new.reply_count, new.last_post_author_id) == (1, other.pk)
+
+
+@pytest.mark.django_db
+def test_moving_a_reply_to_a_topic_on_another_forum_recounts_both_forums():
+    user = User.objects.create_user(username="crossmover")
+    source = make_forum(name="Pests", slug="pests")
+    target = make_forum(name="Care", slug="care")
+    old = Topic.objects.create(board=source, title="Old", slug="old", author=user)
+    new = Topic.objects.create(board=target, title="New", slug="new", author=user)
+    for topic in (old, new):
+        _publish(topic, user, opening=True)
+        topic.save_revision().publish()
+    reply = _publish(old, user)
+    source.refresh_from_db()
+    assert source.post_count == 2
+
+    reply.refresh_from_db()
+    reply.topic = new
+    reply.save_revision().publish()
+
+    source.refresh_from_db()
+    target.refresh_from_db()
+    assert (source.post_count, target.post_count) == (1, 2)

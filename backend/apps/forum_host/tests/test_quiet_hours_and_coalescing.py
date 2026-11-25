@@ -34,6 +34,9 @@ from wagtail_forum.models import ForumProfile, Post, Topic, TopicRead, TopicSubs
 from wagtail_forum.preferences import merge_preferences
 from wagtail_forum.tests.factories import make_forum
 
+# Forum email goes only to a verified address (audit 2026-11-24 F211).
+pytestmark = pytest.mark.usefixtures("verified_accounts")
+
 User = get_user_model()
 Kind = DeliveryIntent.Kind
 Status = DeliveryIntent.Status
@@ -1000,3 +1003,268 @@ def test_a_counter_save_costs_no_quiet_hours_read():
     # names its update_fields): a counter save never pays for it.
     assert snapshots(lambda: profile.save(update_fields=["post_count"])) == []
     assert len(snapshots(profile.save)) == 1
+
+
+@pytest.mark.django_db
+def test_the_soft_time_limit_stops_the_push_batch_and_keeps_what_was_sent():
+    """Not swallowed as a send failure (audit 2026-11-21 M3): the member
+    already pushed is recorded sent, the one cut off and the untried ones go
+    back to pending (none failed), and the limit is re-raised. Reconciliation
+    then reaches the rest, nobody twice."""
+    from celery.exceptions import SoftTimeLimitExceeded
+    from django.utils import timezone
+
+    members = [_member(f"cosoft{i}") for i in range(3)]
+    topic, author = _topic("cosoft", *members)
+    post = _reply(topic, author, "Reply")
+    payload = {"topic_id": str(topic.pk), "post_id": str(post.pk)}
+    batch = delivery.record_batch(
+        Kind.FORUM_PUSH,
+        "reply_added",
+        [m.pk for m in members],
+        payload,
+        subject_key=post.pk,
+    )
+    sends = iter(["ok", SoftTimeLimitExceeded()])
+
+    def fcm_send(fcm, token, data, content, collapse_key):
+        outcome = next(sends)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    with (
+        _channels_up(),
+        _captured(),
+        patch("apps.core.fcm.send_fcm_message", side_effect=fcm_send),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        tasks.send_forum_push_batch(
+            "reply_added", [m.pk for m in members], payload, batch_id=batch
+        )
+
+    rows = DeliveryIntent.objects.filter(batch_id=batch)
+    assert sorted(rows.values_list("status", flat=True)) == sorted(
+        [Status.SENT, Status.PENDING, Status.PENDING]
+    )
+    assert not rows.exclude(status=Status.SENT).exclude(claim_token=None).exists()
+    first = rows.get(status=Status.SENT).recipient
+
+    DeliveryIntent.objects.filter(status=Status.PENDING).update(
+        next_attempt_at=timezone.now() - datetime.timedelta(seconds=1)
+    )
+    again = _reconcile_and_run()
+    assert _to(again, first).fcm == []
+    assert sum(len(_to(again, m).fcm) for m in members) == 2
+    assert set(rows.values_list("status", flat=True)) == {Status.SENT}
+
+
+def _soft_limit_batch(prefix, kind):
+    members = [_member(f"{prefix}{i}") for i in range(3)]
+    topic, author = _topic(prefix, *members)
+    post = _reply(topic, author, "Reply")
+    payload = {"topic_id": str(topic.pk), "post_id": str(post.pk)}
+    batch = delivery.record_batch(
+        kind,
+        "reply_added",
+        [m.pk for m in members],
+        payload,
+        subject_key=post.pk,
+    )
+    return members, payload, batch
+
+
+def _assert_one_sent_rest_released(batch):
+    rows = DeliveryIntent.objects.filter(batch_id=batch)
+    assert sorted(rows.values_list("status", flat=True)) == sorted(
+        [Status.SENT, Status.PENDING, Status.PENDING]
+    )
+    assert not rows.exclude(status=Status.SENT).exclude(claim_token=None).exists()
+    return rows
+
+
+@pytest.mark.django_db
+@override_settings(
+    VAPID_PUBLIC_KEY="BPub",
+    VAPID_PRIVATE_KEY="priv",  # pragma: allowlist secret
+    VAPID_CLAIMS_EMAIL="ops@example.com",
+)
+def test_the_soft_time_limit_stops_the_web_push_batch_and_keeps_what_was_sent():
+    """Audit 2026-11-21 M3: the browser-push sender re-raises the limit, and
+    the batch records the push that went out, releases the rest (none marked
+    gone), and re-raises."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    members, payload, batch = _soft_limit_batch("cowebsoft", Kind.FORUM_WEB_PUSH)
+    outcomes = iter([True, SoftTimeLimitExceeded()])
+
+    def web_send(subscription, **kwargs):
+        outcome = next(outcomes)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    with (
+        _captured(),
+        patch(
+            "apps.users.services.NotificationService.send_web_push_notification",
+            side_effect=web_send,
+        ),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        tasks.send_forum_web_push_batch(
+            "reply_added", [m.pk for m in members], payload, batch_id=batch
+        )
+
+    _assert_one_sent_rest_released(batch)
+
+
+@pytest.mark.django_db
+def test_the_soft_time_limit_stops_the_email_batch_and_keeps_what_was_sent():
+    """Audit 2026-11-21 M3: send_email re-raises the limit instead of
+    recording a transient failure; the batch keeps the email that went out,
+    releases the rest, and re-raises."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    members, payload, batch = _soft_limit_batch("coemailsoft", Kind.FORUM_EMAIL)
+    real_send = mail.EmailMultiAlternatives.send
+    calls = {"n": 0}
+
+    def send(message, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise SoftTimeLimitExceeded()
+        return real_send(message, *args, **kwargs)
+
+    with (
+        _captured(),
+        patch(
+            "django.core.mail.EmailMultiAlternatives.send",
+            autospec=True,
+            side_effect=send,
+        ),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        tasks.send_forum_email_batch(
+            "reply_added", [m.pk for m in members], payload, batch_id=batch
+        )
+
+    assert len(mail.outbox) == 1
+    _assert_one_sent_rest_released(batch)
+
+
+def _finish_folds_hits_the_limit_on(call_number):
+    """A pacing.finish_folds that raises the soft limit on its Nth call: the
+    limit is a signal, so it can land in bookkeeping, not only in a send."""
+    from apps.forum_host import pacing
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    real = pacing.finish_folds
+    calls = {"n": 0}
+
+    def finish_folds(send, delivered):
+        calls["n"] += 1
+        if calls["n"] == call_number:
+            raise SoftTimeLimitExceeded()
+        return real(send, delivered)
+
+    return patch("apps.forum_host.pacing.finish_folds", side_effect=finish_folds)
+
+
+@pytest.mark.django_db
+def test_a_soft_limit_in_push_bookkeeping_still_records_who_was_pushed():
+    """Phase 6 review: the limit landing after recipient 2's push, in its
+    bookkeeping, still records 1 and 2 as sent and releases 3."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    members, payload, batch = _soft_limit_batch("cobooksoft", Kind.FORUM_PUSH)
+    with (
+        _channels_up(),
+        _captured(),
+        _finish_folds_hits_the_limit_on(2),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        tasks.send_forum_push_batch(
+            "reply_added", [m.pk for m in members], payload, batch_id=batch
+        )
+
+    rows = DeliveryIntent.objects.filter(batch_id=batch)
+    assert sorted(rows.values_list("status", flat=True)) == sorted(
+        [Status.SENT, Status.SENT, Status.PENDING]
+    )
+    assert not rows.exclude(status=Status.SENT).exclude(claim_token=None).exists()
+
+
+@pytest.mark.django_db
+def test_a_soft_limit_in_email_bookkeeping_leaves_no_sent_row_claimed():
+    """Phase 6 review: the outcome is written before the fold bookkeeping, so
+    a limit landing there cannot leave a sent email claimed for a resend."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    members, payload, batch = _soft_limit_batch("coemailbook", Kind.FORUM_EMAIL)
+    with (
+        _captured(),
+        _finish_folds_hits_the_limit_on(1),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        tasks.send_forum_email_batch(
+            "reply_added", [m.pk for m in members], payload, batch_id=batch
+        )
+
+    assert len(mail.outbox) == 1
+    sent = DeliveryIntent.objects.get(batch_id=batch, status=Status.SENT)
+    assert sent.recipient.email == mail.outbox[0].to[0]
+
+
+@pytest.mark.django_db
+def test_a_soft_limit_during_a_push_hand_off_releases_that_row():
+    """Close review round 2: the hand-off's broker guard swallowed the limit,
+    so the row was recorded handed_off with nothing queued (lost)."""
+    from celery.exceptions import SoftTimeLimitExceeded
+    from firebase_admin import exceptions as fb_exceptions
+
+    members, payload, batch = _soft_limit_batch("cohandsoft", Kind.FORUM_PUSH)
+    with (
+        _channels_up(),
+        patch(
+            "apps.core.fcm.send_fcm_message",
+            side_effect=fb_exceptions.UnavailableError("busy"),
+        ),
+        patch(f"{TASKS}.send_forum_push.delay", side_effect=SoftTimeLimitExceeded()),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        tasks.send_forum_push_batch(
+            "reply_added", [m.pk for m in members], payload, batch_id=batch
+        )
+
+    rows = DeliveryIntent.objects.filter(batch_id=batch)
+    assert set(rows.values_list("status", "claim_token")) == {(Status.PENDING, None)}
+
+
+@pytest.mark.django_db
+@override_settings(
+    VAPID_PUBLIC_KEY="BPub",
+    VAPID_PRIVATE_KEY="priv",  # pragma: allowlist secret
+    VAPID_CLAIMS_EMAIL="ops@example.com",
+)
+def test_a_soft_limit_in_web_push_bookkeeping_still_records_the_sends():
+    """Close review round 2: the limit landing in the post-send bookkeeping
+    still records every browser push that went out before re-raising."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    members, payload, batch = _soft_limit_batch("cowebbook", Kind.FORUM_WEB_PUSH)
+    with (
+        _captured(),
+        patch(
+            "apps.users.services.NotificationService.send_web_push_notification",
+            return_value=True,
+        ),
+        _finish_folds_hits_the_limit_on(1),
+        pytest.raises(SoftTimeLimitExceeded),
+    ):
+        tasks.send_forum_web_push_batch(
+            "reply_added", [m.pk for m in members], payload, batch_id=batch
+        )
+
+    rows = DeliveryIntent.objects.filter(batch_id=batch)
+    assert set(rows.values_list("status", flat=True)) == {Status.SENT}

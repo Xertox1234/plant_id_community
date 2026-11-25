@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/green_thumb_extension.dart';
 import '../models/models.dart';
 import 'author_identity.dart';
@@ -18,12 +19,18 @@ class ForumExpertsStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (experts.isEmpty) return const SizedBox.shrink();
+    // As tall as a tile and no taller: 4 + avatar + 4 + one line of the name
+    // at the reader's text size + 4. A fixed height left a hole under the
+    // names at 1.0x and clipped them when text was enlarged.
+    final nameLine = MediaQuery.textScalerOf(
+      context,
+    ).scale(AppTypography.meta.fontSize! * AppTypography.meta.height!);
     return SizedBox(
-      height: 92,
+      height: AppSpacing.xs * 3 + _avatarRadius * 2 + nameLine,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: experts.length,
-        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
+        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.md),
         itemBuilder: (context, index) {
           final expert = experts[index];
           final onTap = this.onTap;
@@ -39,6 +46,9 @@ class ForumExpertsStrip extends StatelessWidget {
   }
 }
 
+/// 40pt avatars, the same size as a forum row's tile.
+const double _avatarRadius = 20;
+
 class _ExpertTile extends StatelessWidget {
   const _ExpertTile({required this.expert, this.onTap});
 
@@ -47,7 +57,6 @@ class _ExpertTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final author = expert.author;
     return Semantics(
       label: '${author.name}${expert.online ? ', online' : ''}',
@@ -59,16 +68,19 @@ class _ExpertTile extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(AppSpacing.rSm),
         onTap: onTap,
-        child: SizedBox(
-          width: 72,
+        // Left-aligned and as wide as the name, so the first avatar starts on
+        // the page margin and a name is not cut at 72pt.
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 48, maxWidth: 140),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: AppSpacing.xs),
               Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  AuthorAvatar(author: author, radius: 24),
+                  AuthorAvatar(author: author, radius: _avatarRadius),
                   if (expert.online)
                     Positioned(right: -1, bottom: -1, child: _OnlineDot()),
                 ],
@@ -78,12 +90,9 @@ class _ExpertTile extends StatelessWidget {
                 author.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                // ink2, not labelSmall's ink3: the strip sits on the bare
-                // ground, where light-mode ink3 is 3.3:1 (spec §5.1).
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: context.canopy.ink2,
-                ),
+                // ink2, not ink3: the strip sits on the bare ground, where
+                // light-mode ink3 is 3.3:1 (spec §5.1).
+                style: AppTypography.meta.copyWith(color: context.canopy.ink2),
               ),
             ],
           ),

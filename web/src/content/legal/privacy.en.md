@@ -1,4 +1,4 @@
-<!-- version: 2026-11-11 -->
+<!-- version: 2026-11-24 -->
 
 # Privacy Policy
 
@@ -23,8 +23,13 @@ answer questions about the service providers outside Canada listed below.
 ## What we collect and why
 
 **Your account.** Your email, username, first and last name, bio, location
-(free text, if you enter one), website and avatar. If you sign in with Google
-or GitHub, we record that sign-in. On the app, your login uses Google Firebase,
+(free text, if you enter one), website and avatar. If you sign in with Google,
+we record that sign-in. On the iPhone app you can also sign in with Apple:
+Apple shares only your name and email with us, and if you choose "Hide My
+Email", the email we receive is a private relay address
+(`@privaterelay.appleid.com`) that Apple forwards to your real inbox, so we never
+see your real address. When you delete an account that uses Apple sign-in, we
+also ask Apple to revoke the app's access. On the app, your login uses Google Firebase,
 so we store your Firebase user ID. When you sign up you confirm that you are 14 or
 older and accept this policy and the Terms of Service; we record which version
 you accepted and when. We use this to run your account and show your profile.
@@ -128,7 +133,9 @@ needs for its task, and acts for us:
   your scan photos, to identify plants and check their health.
 - **Google Firebase (United States):** login, saved plants and push
   notifications.
-- **Apple (United States):** push notifications.
+- **Apple (United States):** push notifications, and Sign in with Apple if
+  you use it, which forwards our email to you through Apple's private relay
+  when you hide your email.
 - **OpenAI (United States):** forum posts and private messages from new or
   not-yet-trusted members, to screen them for spam, while that screen is
   switched on. While an optional AI feature is switched on: the title and
@@ -173,6 +180,9 @@ For questions about them, contact [[PRIVACY_OFFICER_NAME]] at
 - **Blog page views:** 90 days.
 - **Rate-limiting IP addresses:** briefly, in memory only.
 - **Audit log:** 90 days.
+- **A private message a moderator removed:** hidden from everyone in the
+  conversation at once. Moderators can still read its text for 90 days; then our
+  regular clean-up erases it.
 
 ### When you delete your account
 
@@ -244,6 +254,6 @@ version takes effect, we ask you to accept it before you continue.
 
 ## Effective date
 
-This version takes effect on 2026-11-11.
+This version takes effect on 2026-11-24.
 
 See also our [Terms of Service](/terms).

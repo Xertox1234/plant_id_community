@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../shared/widgets/canopy_accents.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/user_profile_service.dart';
 import '../forum_errors.dart';
@@ -12,6 +13,7 @@ import '../providers/forum_providers.dart';
 import '../widgets/author_identity.dart';
 import '../widgets/forum_notice_banner.dart';
 import '../widgets/forum_stats_grid.dart';
+import '../widgets/forum_style.dart';
 import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// A public forum profile: identity + trust + recent activity, read-only.
@@ -54,6 +56,8 @@ class ForumUserProfileScreen extends ConsumerWidget {
     // this viewer block this member" — false for an anonymous viewer and on
     // your own profile — so no client-side identity check is re-derived.
     final canBlock = isAuthenticated && (profile?.canBlock ?? false);
+    final isMuted = profile?.isMuted ?? false;
+    final canMute = isAuthenticated && (profile?.canMute ?? false);
 
     return Scaffold(
       appBar: AppBar(
@@ -68,17 +72,24 @@ class ForumUserProfileScreen extends ConsumerWidget {
                 pathParameters: {'username': username},
               ),
             ),
-          if (canBlock)
+          if (canBlock || canMute)
             PopupMenuButton<String>(
               tooltip: 'Profile options',
               onSelected: (value) {
                 if (value == 'block') _toggleBlock(context, ref, isBlocked);
+                if (value == 'mute') _toggleMute(context, ref, isMuted);
               },
               itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'block',
-                  child: Text(isBlocked ? 'Unblock' : 'Block'),
-                ),
+                if (canMute)
+                  PopupMenuItem(
+                    value: 'mute',
+                    child: Text(isMuted ? 'Unmute' : 'Mute'),
+                  ),
+                if (canBlock)
+                  PopupMenuItem(
+                    value: 'block',
+                    child: Text(isBlocked ? 'Unblock' : 'Block'),
+                  ),
               ],
             ),
         ],
@@ -105,24 +116,46 @@ class ForumUserProfileScreen extends ConsumerWidget {
                         'are collapsed and they can\'t message you.',
                   ),
                 ),
-              AuthorIdentity(
-                author: profile.author,
-                avatarRadius: 32,
-                nameStyle: Theme.of(context).textTheme.titleLarge,
-              ),
-              if (profile.author.title.isNotEmpty)
+              if (profile.isMuted && !profile.isBlocked)
                 Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.xs),
-                  child: Text(
-                    profile.author.title,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                  padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                  child: ForumNoticeBanner(
+                    icon: LucideIcons.volumeX,
+                    message:
+                        "You've muted ${profile.author.name}. Their recent "
+                        'activity is hidden.',
                   ),
                 ),
+              // The avatar leads the name and the title, so both share one
+              // text edge instead of the title dropping under the avatar.
+              Row(
+                children: [
+                  ExcludeSemantics(
+                    child: AuthorAvatar(author: profile.author, radius: 28),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        AuthorIdentity(
+                          author: profile.author,
+                          showAvatar: false,
+                          nameStyle: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        if (profile.author.title.isNotEmpty)
+                          Text(
+                            profile.author.title,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
               if (profile.bio.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.sm),
+                  padding: const EdgeInsets.only(top: AppSpacing.md),
                   child: Text(profile.bio),
                 ),
               Padding(
@@ -133,57 +166,96 @@ class ForumUserProfileScreen extends ConsumerWidget {
                     if (profile.joinedAt != null)
                       'Joined ${forumRelativeTime(profile.joinedAt)}',
                   ].join(' · '),
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                  style: forumMeta(context),
                 ),
               ),
               // Earned badges are public identity (todo 348): shown even
               // when the viewer has blocked this member.
               if (profile.badges.isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.lg),
-                const _SectionHeader('Badges'),
+                const SizedBox(height: forumSectionGap),
+                const ForumSectionHeader('Badges'),
                 ForumBadgeChips(badges: profile.badges),
               ],
-              const SizedBox(height: AppSpacing.lg),
-              const _SectionHeader('Recent topics'),
-              if (profile.recentTopics.isEmpty)
-                const _EmptyLine('No topics yet.')
-              else
-                for (final t in profile.recentTopics)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(t.title),
-                    subtitle: Text(
-                      '${t.replyCount} replies · ${forumRelativeTime(t.createdAt)}',
-                    ),
-                    onTap: () => context.pushNamed(
-                      'forumTopic',
-                      pathParameters: {'id': '${t.id}'},
-                      extra: t.title,
-                    ),
+              // A mute hides the activity: empty sections would claim the
+              // member has none.
+              if (!profile.isMuted) ...[
+                const SizedBox(height: forumSectionGap),
+                const ForumSectionHeader('Recent topics'),
+                if (profile.recentTopics.isEmpty)
+                  const _EmptyLine('No topics yet.')
+                else
+                  CanopyGroupedCard(
+                    rows: [
+                      for (final t in profile.recentTopics)
+                        ForumListRow(
+                          title: t.title,
+                          // Joined, so a topic with no date has no
+                          // dangling separator.
+                          meta: [
+                            '${t.replyCount} '
+                                '${t.replyCount == 1 ? 'reply' : 'replies'}',
+                            if (t.createdAt != null)
+                              forumRelativeTime(t.createdAt),
+                          ].join(' · '),
+                          onTap: () => context.pushNamed(
+                            'forumTopic',
+                            pathParameters: {'id': '${t.id}'},
+                            extra: t.title,
+                          ),
+                        ),
+                    ],
                   ),
-              const SizedBox(height: AppSpacing.md),
-              const _SectionHeader('Recent posts'),
-              if (profile.recentPosts.isEmpty)
-                const _EmptyLine('No replies yet.')
-              else
-                for (final p in profile.recentPosts)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(p.topicTitle),
-                    subtitle: Text(forumRelativeTime(p.createdAt)),
-                    onTap: () => context.pushNamed(
-                      'forumTopic',
-                      pathParameters: {'id': '${p.topicId}'},
-                      extra: p.topicTitle,
-                    ),
+                const SizedBox(height: forumSectionGap),
+                const ForumSectionHeader('Recent posts'),
+                if (profile.recentPosts.isEmpty)
+                  const _EmptyLine('No replies yet.')
+                else
+                  CanopyGroupedCard(
+                    rows: [
+                      for (final p in profile.recentPosts)
+                        ForumListRow(
+                          title: p.topicTitle,
+                          meta: forumRelativeTime(p.createdAt),
+                          onTap: () => context.pushNamed(
+                            'forumTopic',
+                            pathParameters: {'id': '${p.topicId}'},
+                            extra: p.topicTitle,
+                          ),
+                        ),
+                    ],
                   ),
+              ],
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// Reversible and one-sided, so no confirmation in either direction.
+  Future<void> _toggleMute(
+    BuildContext context,
+    WidgetRef ref,
+    bool isMuted,
+  ) async {
+    try {
+      await ref.read(forumUserProfileProvider(username).notifier).toggleMute();
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            forumErrorMessage(
+              e,
+              fallback: isMuted
+                  ? 'Could not unmute this member.'
+                  : 'Could not mute this member.',
+              forbidden: "You can't mute this member.",
+            ),
+          ),
+        ),
+      );
+    }
   }
 
   /// Block after an explicit confirmation (it hides content and cuts off
@@ -234,24 +306,6 @@ class ForumUserProfileScreen extends ConsumerWidget {
         ),
       );
     }
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.title);
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Text(
-        title,
-        style: Theme.of(
-          context,
-        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-      ),
-    );
   }
 }
 

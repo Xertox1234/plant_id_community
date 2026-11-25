@@ -16,7 +16,7 @@ Which checks run
 ----------------
 Recipient state always: the account exists and is active, ``forum_notifications``
 is on, the per-event preference for the channel is on, and for email the
-master ``email_notifications`` toggle is on and an address is on file.
+master ``email_notifications`` toggle is on and a verified address is on file.
 
 Content, block/mute, subscription and read-before-send checks (todo 624:
 the member already read the post in the app) run when the payload carries
@@ -43,6 +43,8 @@ REASON_MISSING = "recipient_missing"
 REASON_INACTIVE = "recipient_inactive"
 REASON_PREFERENCE = "preference_off"
 REASON_NO_DESTINATION = "no_destination"
+# The account never verified its current address (audit 2026-11-24 F211).
+REASON_UNVERIFIED = "email_unverified"
 REASON_CONTENT = "content_unavailable"
 REASON_BLOCKED = "blocked_or_muted"
 REASON_UNSUBSCRIBED = "unsubscribed"
@@ -154,24 +156,30 @@ def _unreadable_ids(users_by_pk, forum_id) -> set[int]:
     return set(users_by_pk) - readers
 
 
-def visible_posts(post_ids) -> dict:
-    """{post pk: post} for the posts in ``post_ids`` that ``visible_post``
-    would return, in one query."""
-    from wagtail_forum.api.views import _visible_boards
+def readable_posts(post_ids, users_by_pk) -> tuple[dict, dict]:
+    """The recheck's rule for many posts: ``({post pk: post}, {forum pk:
+    recipient pks who may not read it})``. A post counts when it is live on a
+    live topic, whoever may read its forum, and then each recipient's own
+    grants decide (``_live_post`` + ``_unreadable_ids``), never the guest
+    view: on a forum guests cannot read, the guest view hid every post from
+    the members who read it (audit 2026-11-21 M5). One query per distinct
+    forum, plus one."""
     from wagtail_forum.models import Post
 
     ids = [int(pk) for pk in post_ids]
     if not ids:
-        return {}
-    return {
+        return {}, {}
+    posts = {
         post.pk: post
         for post in Post.objects.filter(
-            pk__in=ids,
-            live=True,
-            topic__live=True,
-            topic__board__in=_visible_boards(),
+            pk__in=ids, live=True, topic__live=True
         ).select_related("topic__board", "author")
     }
+    unreadable = {
+        forum_id: _unreadable_ids(users_by_pk, forum_id)
+        for forum_id in {post.topic.board_id for post in posts.values()}
+    }
+    return posts, unreadable
 
 
 def blocked_recipient_ids(actor_id, recipient_ids) -> set[int]:
@@ -283,6 +291,12 @@ def recheck(
         if not content_gone and post is not None:
             read = already_read_ids(event, post, by_pk)
 
+    verified: set[int] = set()
+    if channel == "email":
+        from apps.users.email_verification import verified_user_ids
+
+        verified = verified_user_ids(users)
+
     for pk in ids:
         user = by_pk.get(pk)
         reason = None
@@ -298,6 +312,8 @@ def recheck(
             reason = REASON_PREFERENCE
         elif channel == "email" and not user.email:
             reason = REASON_NO_DESTINATION
+        elif channel == "email" and pk not in verified:
+            reason = REASON_UNVERIFIED
         elif content_gone or pk in unreadable:
             reason = REASON_CONTENT
         elif pk in blocked:

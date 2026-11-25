@@ -11,6 +11,7 @@ from unittest.mock import patch
 from apps.users import oauth_views
 from apps.users.consent import needs_policy_acceptance, record_policy_acceptance
 from apps.users.constants import (
+    ACCOUNT_DISABLED_CODE,
     CONSENT_REQUIRED_CODE,
     LEGAL_POLICY_VERSION,
     POLICY_UPDATE_REQUIRED_CODE,
@@ -130,6 +131,14 @@ class LoginReconsentTests(TestCase):
 
         self.assertEqual(self._login().status_code, 403)
 
+    def test_disabled_account_is_never_stamped(self):
+        user = _user(is_active=False)
+
+        self.assertEqual(self._login(accepted_terms=True).status_code, 403)
+
+        user.refresh_from_db()
+        self.assertEqual(user.policy_version_accepted, OLD_VERSION)
+
 
 class RefreshReconsentTests(TestCase):
     client: APIClient
@@ -164,6 +173,18 @@ class RefreshReconsentTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
+    def test_disabled_account_is_told_disabled_and_never_stamped(self):
+        user = _user(is_active=False)
+        token = str(RefreshToken.for_user(user))
+
+        response = self.client.post(
+            self.url, {"refresh": token, "accepted_terms": True}, format="json"
+        )
+
+        self.assertEqual(response.status_code, 401)
+        user.refresh_from_db()
+        self.assertEqual(user.policy_version_accepted, OLD_VERSION)
+
 
 class FirebaseExchangeReconsentTests(TestCase):
     client: APIClient
@@ -176,6 +197,7 @@ class FirebaseExchangeReconsentTests(TestCase):
             "uid": "uid-reconsent",
             "email": "member@example.com",
             "email_verified": True,
+            "firebase": {"sign_in_provider": "google.com"},
         }
 
     def _exchange(self, **extra):
@@ -212,6 +234,17 @@ class FirebaseExchangeReconsentTests(TestCase):
         _user(firebase_uid="uid-reconsent", version=LEGAL_POLICY_VERSION)
 
         self.assertEqual(self._exchange().status_code, 200)
+
+    def test_disabled_account_is_told_disabled_and_never_stamped(self):
+        user = _user(firebase_uid="uid-reconsent", is_active=False)
+
+        for extra in ({}, {"accepted_terms": True}):
+            response = self._exchange(**extra)
+            self.assertEqual(response.status_code, 401)
+            self.assertEqual(response.data["code"], ACCOUNT_DISABLED_CODE)
+
+        user.refresh_from_db()
+        self.assertEqual(user.policy_version_accepted, OLD_VERSION)
 
 
 class OAuthReconsentTests(TestCase):
@@ -315,6 +348,34 @@ class OAuthReconsentTests(TestCase):
 
         self.assertIn("success=true", response["Location"])
         self.assertIn("access_token", response.cookies)
+
+    def test_disabled_account_is_neither_parked_nor_stamped(self):
+        user = _user(is_active=False)
+        mark_email_verified(user)
+
+        for extra in ({}, {"oauth_accepted_terms": True}):
+            response = self._callback(**extra)
+            self.assertIn(f"error={ACCOUNT_DISABLED_CODE}", response["Location"])
+            self.assertNotIn("oauth_pending_signup", self.client.session)
+
+        user.refresh_from_db()
+        self.assertEqual(user.policy_version_accepted, OLD_VERSION)
+
+    def test_finish_refuses_an_account_disabled_while_parked_unstamped(self):
+        user = _user()
+        mark_email_verified(user)
+        self._callback()
+        User.objects.filter(pk=user.pk).update(is_active=False)
+
+        response = self.client.post(
+            reverse("v1:users:oauth_finish_signup"),
+            {"accepted_terms": True},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        user.refresh_from_db()
+        self.assertEqual(user.policy_version_accepted, OLD_VERSION)
 
 
 class RefusalCodeTests(TestCase):

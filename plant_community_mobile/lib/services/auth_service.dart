@@ -8,7 +8,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../core/utils/log_redaction.dart';
+import '../features/forum/services/forum_unlock_store.dart'
+    show forumUnlockStoreProvider;
 import 'api_service.dart';
+import 'firestore_service.dart'
+    show
+        firestoreOfflineCacheClearerProvider,
+        firestorePendingWritesFlusherProvider;
 import 'push_registration_service.dart';
 import 'user_profile_service.dart';
 
@@ -108,17 +114,63 @@ const emailStillUnverifiedMessage =
     'Your email is not verified yet. Open the link in the email we sent, '
     'then try again.';
 
+/// Fixed messages for failures with no mapped cause (todo 704, audit L8).
+/// The exception's own text goes to the debug log only: a plugin or
+/// platform message is not written for users, and can carry internals.
+const signInFailedMessage = 'Sign in failed. Please try again.';
+const googleSignInFailedMessage = 'Google sign in failed. Please try again.';
+const appleSignInFailedMessage = 'Apple sign in failed. Please try again.';
+
+/// Firebase's `account-exists-with-different-credential`: the email Apple
+/// shared already signs in another way (Google or a password), and Firebase
+/// keeps one account per email.
+const appleAccountExistsMessage =
+    'This email already has an account. Sign in the way you did before.';
+const registrationFailedMessage = 'Registration failed. Please try again.';
+const signOutFailedMessage = 'Sign out failed. Please try again.';
+
+/// The minimum length of a new password: the Firebase Auth password policy
+/// (Require enforcement, minimum 14, set in the console on 2026-11-19,
+/// todo 715) and the web sign-up's own minimum. Firebase enforces it; the
+/// sign-up form checks it locally to save a round trip.
+const int minPasswordLength = 14;
+const authFailedMessage = 'Something went wrong. Please try again.';
+
+/// [AuthService.sendPasswordResetEmail] could not send for a reason that is
+/// not the address.
+const passwordResetFailedMessage =
+    'Could not send the reset email. Please try again.';
+
+/// Whether this device offers "Continue with Apple" (todo 717): iOS only.
+/// App Store Guideline 4.8 asks for it on iOS, where Google sign-in is
+/// offered; on Android the button is hidden (owner decision 2026-11-19), and
+/// firebase_auth's native Apple flow refuses macOS.
+bool appleSignInSupported([TargetPlatform? platform]) =>
+    !kIsWeb && (platform ?? defaultTargetPlatform) == TargetPlatform.iOS;
+
 /// How [AuthService.freshIdTokenAfterReauth] proves it is still the account
 /// holder before an account deletion (Plan B task 10).
-enum ReauthMethod { google, password }
+enum ReauthMethod { apple, google, password }
 
 /// The re-auth method for an account with these linked sign-in methods
-/// (`User.providerData` provider ids): `google.com` wins over `password`
-/// when both are linked, since it needs no typing and works for an account
-/// whose password the user never set or forgot. `null` for anything else
-/// (no other provider is offered by this app).
-ReauthMethod? reauthMethodFor(Iterable<String> providerIds) {
+/// (`User.providerData` provider ids).
+///
+/// `apple.com` wins wherever Apple sign-in is offered ([appleSignInSupported],
+/// [platform] defaulting to this device's): only a fresh Apple sign-in hands
+/// back the authorization code that revokes the account's Apple tokens when
+/// it is deleted (Guideline 5.1.1(v), todo 717). Then `google.com` wins over
+/// `password` when both are linked, since it needs no typing and works for
+/// an account whose password the user never set or forgot. `null` for
+/// anything else (no other provider is offered by this app).
+ReauthMethod? reauthMethodFor(
+  Iterable<String> providerIds, {
+  TargetPlatform? platform,
+}) {
   final ids = providerIds.toSet();
+  if (ids.contains(AppleAuthProvider.PROVIDER_ID) &&
+      appleSignInSupported(platform)) {
+    return ReauthMethod.apple;
+  }
   if (ids.contains(GoogleAuthProvider.PROVIDER_ID)) return ReauthMethod.google;
   if (ids.contains(EmailAuthProvider.PROVIDER_ID)) return ReauthMethod.password;
   return null;
@@ -191,9 +243,36 @@ class AuthService extends _$AuthService {
   @visibleForTesting
   FirebaseAuth get firebaseAuth => FirebaseAuth.instance;
   FirebaseAuth get _firebaseAuth => firebaseAuth;
-  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
+  final FlutterSecureStorage _secureStorage = authTokenStorage;
+
+  /// Where the Django access token and the sign-up consent marker live
+  /// (todo 715, audit M14). iOS: after first unlock, so a token refresh
+  /// in the background can write it, and `ThisDeviceOnly`, so an encrypted
+  /// backup or a new phone never receives it. An item an older build wrote
+  /// under the default (`unlocked`) level is still found: the plugin reads
+  /// and deletes across levels, and the next write replaces it under this
+  /// one, which every launch's exchange does. Android: the manifest turns
+  /// cloud backup off (`android:allowBackup="false"`). On Android 12+ that
+  /// does not stop a device-to-device transfer; a store copied that way
+  /// cannot be opened with the new device's key, and the plugin resets it,
+  /// so the next launch's exchange simply writes it again.
+  ///
+  /// None of this keeps the user signed in: Firebase holds that session in
+  /// its own store, and the access token is minted again on every launch.
+  @visibleForTesting
+  static const FlutterSecureStorage authTokenStorage = FlutterSecureStorage(
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+    ),
+  );
 
   static const String _jwtKey = 'django_jwt_token';
+
+  /// The key older builds kept the Django refresh token under. Nothing reads
+  /// it: an expired access token is replaced by a new exchange of the
+  /// Firebase token (todo 462), so the refresh token is no longer stored
+  /// (todo 715). Deleted once per launch and on every clear, so an old
+  /// install's copy goes.
   static const String _refreshTokenKey = 'django_refresh_token';
 
   /// The Firebase uid whose owner ticked the sign-up consent box on this
@@ -206,6 +285,21 @@ class AuthService extends _$AuthService {
   /// listener's exchange can start before [signInWithGoogle] stores it. Set
   /// for the duration of that call only.
   bool _acceptedTermsPending = false;
+
+  /// [signInWithApple] is running. Any token exchange that starts meanwhile
+  /// forces a Firebase token refresh: Apple hands over the user's name only
+  /// on the first sign-in, Firebase puts it on the new user record, and a
+  /// token minted before that may lack the `name` claim the backend stores
+  /// (todo 717).
+  bool _appleSignInPending = false;
+
+  /// The uid an Apple sign-in just signed in: its next exchange forces the
+  /// refresh too, should the auth-state event arrive after the call returned.
+  String? _appleRefreshUid;
+
+  /// The authorization code the last Apple re-auth handed back, for
+  /// [revokeAppleSignIn], and whose account it is.
+  ({String uid, String code})? _appleRevocation;
 
   /// The Firebase uid whose exchange the server refused with 428. Only that
   /// user's Firebase account is deleted by [declineTerms]: the signed-in user
@@ -238,6 +332,24 @@ class AuthService extends _$AuthService {
   /// of them completes the login (todo 500 finding 3).
   int _loginCompletedGeneration = -1;
 
+  /// A Firebase user has held this device since the last
+  /// [_endDeviceSession], so there is a session's device state to clear.
+  bool _deviceSessionLive = false;
+
+  /// That user had Google linked, so the Google session is signed out too.
+  bool _deviceSessionGoogle = false;
+
+  /// The next [_endDeviceSession] may drop the Firestore offline cache: the
+  /// signed-in user's queued writes were flushed before Firebase signed out
+  /// ([_flushPendingWrites]), or they belong to a deleted account. Otherwise
+  /// the cache is kept, because clearing it would delete writes that sync
+  /// when that user signs back in (todo 704 review).
+  bool _offlineCacheSafeToClear = false;
+
+  /// The [_endDeviceSession] in flight: every sign-out path calls it, and
+  /// in production `signOut()` also fires the listener's null branch.
+  Future<void>? _deviceSessionEnding;
+
   @override
   AuthState build() {
     // Initialize with current Firebase user
@@ -258,6 +370,7 @@ class AuthService extends _$AuthService {
         }
 
         if (user != null) {
+          _markDeviceSessionLive(user);
           // User signed in → exchange token
           await _exchangeFirebaseTokenForJWT(user);
         } else {
@@ -277,6 +390,7 @@ class AuthService extends _$AuthService {
           // same frame as the auth flip (todo 558 finding 2).
           _clearAccountProfile();
           state = AuthState(error: signedOutMessage);
+          await _endDeviceSession();
         }
       },
       // A platform error on the stream must not become an unhandled zone
@@ -298,8 +412,12 @@ class AuthService extends _$AuthService {
       apiService.setAccessTokenRefresher(null);
     });
 
+    // An older build's stored refresh token (todo 715): nothing reads it.
+    unawaited(_deleteLegacyRefreshToken());
+
     // If user is already signed in, exchange token
     if (currentUser != null) {
+      _markDeviceSessionLive(currentUser);
       _exchangeFirebaseTokenForJWT(currentUser);
     }
 
@@ -371,7 +489,8 @@ class AuthService extends _$AuthService {
       state = state.copyWith(isLoading: false, error: errorMessage);
       throw AuthException(errorMessage);
     } catch (e) {
-      final errorMessage = 'Sign in failed: ${e.toString()}';
+      if (kDebugMode) debugPrint('[AUTH ERROR] Sign in failed: $e');
+      const errorMessage = signInFailedMessage;
       state = state.copyWith(isLoading: false, error: errorMessage);
       throw AuthException(errorMessage);
     }
@@ -455,9 +574,14 @@ class AuthService extends _$AuthService {
         state = state.copyWith(isLoading: false, error: null);
         return;
       }
-      final message = 'Google sign in failed: ${e.description ?? e.code.name}';
-      state = state.copyWith(isLoading: false, error: message);
-      throw AuthException(message);
+      if (kDebugMode) {
+        debugPrint('[AUTH ERROR] Google sign in failed: ${e.code.name}');
+      }
+      state = state.copyWith(
+        isLoading: false,
+        error: googleSignInFailedMessage,
+      );
+      throw AuthException(googleSignInFailedMessage);
     } on FirebaseAuthException catch (e) {
       final errorMessage = _handleFirebaseAuthException(e);
       state = state.copyWith(isLoading: false, error: errorMessage);
@@ -466,13 +590,110 @@ class AuthService extends _$AuthService {
       state = state.copyWith(isLoading: false);
       rethrow;
     } catch (e) {
-      final errorMessage = 'Google sign in failed: $e';
-      state = state.copyWith(isLoading: false, error: errorMessage);
-      throw AuthException(errorMessage);
+      if (kDebugMode) debugPrint('[AUTH ERROR] Google sign in failed: $e');
+      state = state.copyWith(
+        isLoading: false,
+        error: googleSignInFailedMessage,
+      );
+      throw AuthException(googleSignInFailedMessage);
     } finally {
       _acceptedTermsPending = false;
     }
   }
+
+  /// Sign in with Apple, on iOS only ([appleSignInSupported], todo 717).
+  ///
+  /// firebase_auth runs Apple's native sheet itself
+  /// (`signInWithProvider(AppleAuthProvider)`), so no separate plugin is
+  /// needed. The `name` scope makes the plugin hand Apple's given and family
+  /// name to Firebase with the credential, on the one sign-in Apple sends
+  /// them; Firebase sets them as the new user's display name. The exchange
+  /// that follows forces a token refresh, so the `name` claim the backend
+  /// stores as the account's name is there. The backend still reads the name
+  /// only from the verified token, never from the request (audit C8).
+  ///
+  /// The email may be a `privaterelay.appleid.com` relay address ("Hide My
+  /// Email"); Apple marks it verified, so the exchange completes at once, and
+  /// it goes through the same `accepted_terms` consent gate as Google.
+  /// [acceptedTerms] works exactly as for [signInWithGoogle]. Closing the
+  /// sheet is a cancel, not an error: it returns false, and true once
+  /// Firebase signed the user in. Throws [AuthException] on a failure.
+  Future<bool> signInWithApple({bool acceptedTerms = false}) async {
+    if (acceptedTerms) _acceptedTermsPending = true;
+    _appleSignInPending = true;
+    try {
+      state = state.copyWith(isLoading: true, error: null);
+
+      final result = await _firebaseAuth.signInWithProvider(
+        appleAuthProvider(),
+      );
+      final signedIn = result.user;
+      if (signedIn != null) {
+        // Before any await: an auth-state event still to come must see it.
+        _appleRefreshUid = signedIn.uid;
+        if (acceptedTerms) {
+          await _secureStorage.write(
+            key: _acceptedTermsKey,
+            value: signedIn.uid,
+          );
+        }
+      }
+
+      if (kDebugMode) {
+        debugPrint(
+          '[AUTH] Apple sign in successful: ${redactEmail(signedIn?.email)}',
+        );
+      }
+
+      // The auth state listener handles the token exchange, as for Google.
+      if (state.isAuthenticated || state.consentRequired) {
+        state = _notLoading(state);
+      } else {
+        state = AuthState(firebaseUser: signedIn, isLoading: false);
+      }
+      return signedIn != null;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == _appleCanceledCode) {
+        state = state.copyWith(isLoading: false, error: null);
+        return false;
+      }
+      if (kDebugMode) {
+        debugPrint('[AUTH ERROR] Apple sign in failed: ${e.code}');
+      }
+      final errorMessage = _appleErrorMessage(e);
+      state = state.copyWith(isLoading: false, error: errorMessage);
+      throw AuthException(errorMessage);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH ERROR] Apple sign in failed: $e');
+      state = state.copyWith(isLoading: false, error: appleSignInFailedMessage);
+      throw AuthException(appleSignInFailedMessage);
+    } finally {
+      _acceptedTermsPending = false;
+      _appleSignInPending = false;
+    }
+  }
+
+  /// The code firebase_auth's iOS plugin reports when the user closes the
+  /// Apple sheet (`ASAuthorizationError.canceled`).
+  static const String _appleCanceledCode = 'canceled';
+
+  /// A Firebase code this app maps, or [appleSignInFailedMessage]: the
+  /// plugin's own Apple codes (`failed`, `invalid-response`, ...) are not
+  /// written for users.
+  String _appleErrorMessage(FirebaseAuthException e) {
+    if (e.code == 'account-exists-with-different-credential') {
+      return appleAccountExistsMessage;
+    }
+    final mapped = _handleFirebaseAuthException(e);
+    return mapped == authFailedMessage ? appleSignInFailedMessage : mapped;
+  }
+
+  /// The Apple provider for sign-in and re-auth: the email and the name, the
+  /// only data Apple sign-in shares (Guideline 4.8).
+  @visibleForTesting
+  AuthProvider appleAuthProvider() => AppleAuthProvider()
+    ..addScope('email')
+    ..addScope('name');
 
   /// How [freshIdTokenAfterReauth] will re-authenticate the current Firebase
   /// user, or `null` when signed out or no supported method is linked. The
@@ -488,9 +709,11 @@ class AuthService extends _$AuthService {
   /// token, whose `auth_time` is now: the account-deletion endpoint accepts
   /// only a sign-in younger than 300 s (Plan B task 10).
   ///
-  /// Picks the credential with [reauthMethod]: a fresh Google
-  /// `authenticate()` when `google.com` is linked (preferred, [password]
-  /// ignored), else `EmailAuthProvider.credential(email, password)`.
+  /// Picks the credential with [reauthMethod]: a fresh Apple sign-in when
+  /// `apple.com` is linked on iOS, keeping its authorization code for
+  /// [revokeAppleSignIn]; else a fresh Google `authenticate()` when
+  /// `google.com` is linked ([password] ignored for both); else
+  /// `EmailAuthProvider.credential(email, password)`.
   ///
   /// Throws [ReauthCancelledException] when the user backs out (the Google
   /// sheet closed, no password given), and [AuthException] with a readable
@@ -504,26 +727,43 @@ class AuthService extends _$AuthService {
       throw AuthException('Sign in again to delete your account.');
     }
     final method = reauthMethod;
-    final AuthCredential credential;
+    _appleRevocation = null;
+    final Future<void> Function() reauthenticate;
     switch (method) {
+      case ReauthMethod.apple:
+        reauthenticate = () async {
+          final result = await user.reauthenticateWithProvider(
+            appleAuthProvider(),
+          );
+          final code = result.additionalUserInfo?.authorizationCode;
+          if (code == null || code.isEmpty) {
+            if (kDebugMode) {
+              debugPrint('[AUTH] Apple re-auth returned no authorization code');
+            }
+            return;
+          }
+          _appleRevocation = (uid: user.uid, code: code);
+        };
       case ReauthMethod.google:
-        credential = await _freshGoogleCredential();
+        final credential = await _freshGoogleCredential();
+        reauthenticate = () => user.reauthenticateWithCredential(credential);
       case ReauthMethod.password:
         final email = user.email;
         if (password == null || password.isEmpty) {
           throw ReauthCancelledException();
         }
         if (email == null) throw AuthException(reauthUnsupportedMessage);
-        credential = EmailAuthProvider.credential(
+        final credential = EmailAuthProvider.credential(
           email: email,
           password: password,
         );
+        reauthenticate = () => user.reauthenticateWithCredential(credential);
       case null:
         throw AuthException(reauthUnsupportedMessage);
     }
 
     try {
-      await user.reauthenticateWithCredential(credential);
+      await reauthenticate();
       final token = await user.getIdToken(true);
       if (token == null) {
         throw AuthException(
@@ -533,14 +773,42 @@ class AuthService extends _$AuthService {
       return token;
     } on FirebaseAuthException catch (e) {
       if (kDebugMode) debugPrint('[AUTH] Re-auth refused: ${e.code}');
+      if (method == ReauthMethod.apple && e.code == _appleCanceledCode) {
+        throw ReauthCancelledException();
+      }
       throw AuthException(switch (e.code) {
         'wrong-password' || 'invalid-credential'
             when method == ReauthMethod.password =>
           reauthWrongPasswordMessage,
         'wrong-password' || 'invalid-credential' => reauthNotConfirmedMessage,
         'user-mismatch' => reauthWrongAccountMessage,
+        _ when method == ReauthMethod.apple => _appleErrorMessage(e),
         _ => _handleFirebaseAuthException(e),
       });
+    }
+  }
+
+  /// Revoke the Apple tokens of an account about to be deleted
+  /// (Guideline 5.1.1(v), todo 717), with the authorization code
+  /// the Apple re-auth in [freshIdTokenAfterReauth] kept. The delete screen
+  /// calls it before it sends the deletion request: the call needs the
+  /// Firebase user, and the server queues its erase the moment it accepts
+  /// the request (todo 717 review).
+  ///
+  /// Only for that same account, once (the code is single-use). Best-effort
+  /// and bounded: the account is already being deleted, so a failure is
+  /// logged, never thrown. A no-op for every other sign-in method.
+  Future<void> revokeAppleSignIn() async {
+    final pending = _appleRevocation;
+    _appleRevocation = null;
+    if (pending == null) return;
+    if (_firebaseAuth.currentUser?.uid != pending.uid) return;
+    try {
+      await _firebaseAuth
+          .revokeTokenWithAuthorizationCode(pending.code)
+          .timeout(_deviceStepTimeout);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH ERROR] Apple token revoke failed: $e');
     }
   }
 
@@ -559,9 +827,10 @@ class AuthService extends _$AuthService {
       if (e.code == GoogleSignInExceptionCode.canceled) {
         throw ReauthCancelledException();
       }
-      throw AuthException(
-        'Google sign in failed: ${e.description ?? e.code.name}',
-      );
+      if (kDebugMode) {
+        debugPrint('[AUTH ERROR] Google re-auth failed: ${e.code.name}');
+      }
+      throw AuthException(googleSignInFailedMessage);
     }
   }
 
@@ -645,7 +914,8 @@ class AuthService extends _$AuthService {
       state = state.copyWith(isLoading: false, error: errorMessage);
       throw AuthException(errorMessage);
     } catch (e) {
-      final errorMessage = 'Registration failed: ${e.toString()}';
+      if (kDebugMode) debugPrint('[AUTH ERROR] Registration failed: $e');
+      const errorMessage = registrationFailedMessage;
       state = state.copyWith(isLoading: false, error: errorMessage);
       throw AuthException(errorMessage);
     }
@@ -711,6 +981,37 @@ class AuthService extends _$AuthService {
     return state.isAuthenticated;
   }
 
+  /// "Forgot password?": ask Firebase to mail a password reset link to
+  /// [email] (todo 704, audit H7). This resets the Firebase password, the
+  /// credential the sign-in form checks; `passwordResetUri` resets the
+  /// Django one, for the account-conflict case only.
+  ///
+  /// A known and an unknown address get the same answer: `user-not-found`
+  /// (and `user-disabled`) return normally, as a sent mail does, so the
+  /// screen cannot be used to learn which addresses have accounts. Throws
+  /// [AuthException] with a fixed message only for what the address does
+  /// not decide (a malformed address, a rate limit, no network). Never
+  /// touches [state]: the dialog shows its own result, and an error on
+  /// state would also put up main.dart's root SnackBar.
+  Future<void> sendPasswordResetEmail(String email) async {
+    try {
+      await _firebaseAuth.sendPasswordResetEmail(email: email.trim());
+    } on FirebaseAuthException catch (e) {
+      if (kDebugMode) debugPrint('[AUTH] Password reset: ${e.code}');
+      switch (e.code) {
+        case 'user-not-found' || 'user-disabled':
+          return;
+        case 'invalid-email' || 'too-many-requests' || 'network-request-failed':
+          throw AuthException(_handleFirebaseAuthException(e));
+        default:
+          throw AuthException(passwordResetFailedMessage);
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH ERROR] Password reset failed: $e');
+      throw AuthException(passwordResetFailedMessage);
+    }
+  }
+
   /// Sign out current user
   Future<void> signOut() async {
     try {
@@ -724,17 +1025,32 @@ class AuthService extends _$AuthService {
       // new generation is the sign-out's own: a refresh the clear's 401
       // starts in it only re-sends the clear (todo 500 finding 3).
       _signOutGeneration = ++_authGeneration;
+      // Nothing Apple-specific outlives the session (todo 717 review).
+      _appleRefreshUid = null;
+      _appleRevocation = null;
       // And end the API session now, not at the setAuthToken(null) below: a
       // refresh that finishes during the clear is overtaken by this sign-out
       // and must not report "Your session expired" (todo 498). The token
       // stays set, because the clear still needs it.
       ref.read(apiServiceProvider).endSession();
 
+      // Forget this member's forum unlocks on the phone (spec §7.4): the
+      // header and the unlock session at once, so nothing sent or saved
+      // while the sign-out runs brings them back, then the store. Through
+      // ApiService, not the unlocks provider, which depends on this one.
+      // Its next build, signed out, sends nothing. The server still accepts
+      // a forgotten token until it expires or the forum's password changes.
+      // Never throws.
+      ref.read(apiServiceProvider).endForumUnlockSession();
+      await ref.read(forumUnlockStoreProvider).clear();
+
       // Clear the FCM token server-side BEFORE Firebase sign-out — the PATCH
       // needs the still-valid JWT. Best-effort with an internal timeout; it
       // never throws, so it cannot block or fail sign-out (todo 253 slice 6).
       await ref.read(pushRegistrationServiceProvider).clearOnLogout();
 
+      // While the user is still signed in: the write queue is per user.
+      await _flushPendingWrites();
       await _firebaseAuth.signOut();
       await _clearJWT();
 
@@ -743,11 +1059,18 @@ class AuthService extends _$AuthService {
 
       state = const AuthState();
 
+      // After the state flip, so the signed-in streams are torn down first.
+      // Never throws.
+      await _endDeviceSession();
+
       if (kDebugMode) {
         debugPrint('[AUTH] Sign out successful');
       }
     } catch (e) {
-      final errorMessage = 'Sign out failed: ${e.toString()}';
+      if (kDebugMode) debugPrint('[AUTH ERROR] Sign out failed: $e');
+      // Still signed in, maybe: a later write would go unflushed.
+      _offlineCacheSafeToClear = false;
+      const errorMessage = signOutFailedMessage;
       state = state.copyWith(error: errorMessage);
       throw AuthException(errorMessage);
     }
@@ -768,6 +1091,9 @@ class AuthService extends _$AuthService {
   }) async {
     final exchangeGeneration = ++_authGeneration;
     final apiService = ref.read(apiServiceProvider);
+    // Read before the first await: the Apple sign-in clears it in `finally`.
+    final appleRefresh = _appleSignInPending || _appleRefreshUid == user.uid;
+    if (_appleRefreshUid == user.uid) _appleRefreshUid = null;
 
     try {
       if (kDebugMode) {
@@ -781,7 +1107,7 @@ class AuthService extends _$AuthService {
 
       // Get Firebase ID token
       final firebaseToken = await user.getIdToken(
-        forceRefresh || !user.emailVerified,
+        forceRefresh || appleRefresh || !user.emailVerified,
       );
 
       if (firebaseToken == null) {
@@ -809,9 +1135,9 @@ class AuthService extends _$AuthService {
         options: Options(extra: {ApiService.skipAuthRefreshKey: true}),
       );
 
-      // Extract JWT tokens from response
+      // The access token only: the refresh token in the response is never
+      // stored, since nothing would read it (todo 715).
       final jwtToken = response.data['access_token'] as String?;
-      final refreshToken = response.data['refresh_token'] as String?;
 
       if (jwtToken == null) {
         throw AuthException('No JWT token in response');
@@ -826,17 +1152,14 @@ class AuthService extends _$AuthService {
         return;
       }
 
-      // Store tokens securely
+      // Store the token securely
       await _secureStorage.write(key: _jwtKey, value: jwtToken);
-      if (refreshToken != null) {
-        await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
-      }
 
       if (!_isCurrentExchange(user, exchangeGeneration)) {
         if (kDebugMode) {
           debugPrint('[AUTH] Clearing tokens from superseded token exchange');
         }
-        await _clearJWTIfMatches(jwtToken, refreshToken);
+        await _clearJWTIfMatches(jwtToken);
         return;
       }
 
@@ -956,21 +1279,21 @@ class AuthService extends _$AuthService {
         _firebaseAuth.currentUser?.uid == user.uid;
   }
 
-  Future<void> _clearJWTIfMatches(
-    String accessToken,
-    String? refreshToken,
-  ) async {
+  Future<void> _clearJWTIfMatches(String accessToken) async {
     final storedAccessToken = await _secureStorage.read(key: _jwtKey);
     if (storedAccessToken == accessToken) {
       await _secureStorage.delete(key: _jwtKey);
     }
+  }
 
-    if (refreshToken != null) {
-      final storedRefreshToken = await _secureStorage.read(
-        key: _refreshTokenKey,
-      );
-      if (storedRefreshToken == refreshToken) {
-        await _secureStorage.delete(key: _refreshTokenKey);
+  /// [_refreshTokenKey], best effort: storage that fails here fails the
+  /// exchange's own write too, and that path reports it.
+  Future<void> _deleteLegacyRefreshToken() async {
+    try {
+      await _secureStorage.delete(key: _refreshTokenKey);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AUTH] Could not delete the legacy refresh token: $e');
       }
     }
   }
@@ -1112,7 +1435,6 @@ class AuthService extends _$AuthService {
     }
     final data = response.data;
     final jwtToken = data is Map ? data['access_token'] : null;
-    final refreshToken = data is Map ? data['refresh_token'] : null;
     if (!_isCurrentExchange(user, generation)) {
       throw const RefreshSupersededException();
     }
@@ -1120,13 +1442,9 @@ class AuthService extends _$AuthService {
       throw AuthException('The sign-in server sent an unexpected response.');
     }
 
-    final storedRefresh = refreshToken is String ? refreshToken : null;
     await _secureStorage.write(key: _jwtKey, value: jwtToken);
-    if (storedRefresh != null) {
-      await _secureStorage.write(key: _refreshTokenKey, value: storedRefresh);
-    }
     if (!_isCurrentExchange(user, generation)) {
-      await _clearJWTIfMatches(jwtToken, storedRefresh);
+      await _clearJWTIfMatches(jwtToken);
       throw const RefreshSupersededException();
     }
 
@@ -1183,6 +1501,7 @@ class AuthService extends _$AuthService {
     unverifiedAccountConflict: s.unverifiedAccountConflict,
     emailVerificationRequired: s.emailVerificationRequired,
     consentRequired: s.consentRequired,
+    policyUpdate: s.policyUpdate,
   );
 
   static bool _isConsentRefusal(ApiException e) =>
@@ -1236,30 +1555,30 @@ class AuthService extends _$AuthService {
     final existingAccount = _consentRefusedIsUpdate;
     _consentRefusedUid = null;
     _consentRefusedIsUpdate = false;
-    try {
-      // Only the user the 428 was for: never delete some other signed-in one.
-      // And never an account that already exists: declining a changed policy
-      // signs out and keeps the login.
-      final current = _firebaseAuth.currentUser;
-      if (!existingAccount &&
-          current != null &&
-          refusedUid != null &&
-          current.uid == refusedUid) {
-        await current.delete();
-      }
-    } catch (e) {
-      if (kDebugMode) debugPrint('[AUTH] Consent declined; delete failed: $e');
+    // Only the user the 428 was for: never delete some other signed-in one.
+    // And never an account that already exists: declining a changed policy
+    // signs out and keeps the login.
+    final current = _firebaseAuth.currentUser;
+    if (!existingAccount &&
+        current != null &&
+        refusedUid != null &&
+        current.uid == refusedUid) {
+      await _deleteDeclinedUser(current);
+    }
+    // Before the sign-out, which the listener's null branch may finish first.
+    if (existingAccount) {
+      // The account stays, so its queued writes must reach the server or
+      // keep the cache, as in signOut().
+      await _flushPendingWrites();
+    } else {
+      // The declined account is deleted (or left to the orphan prune), so
+      // its queued writes have nowhere to sync: the cache goes unflushed.
+      _offlineCacheSafeToClear = true;
     }
     try {
       await _firebaseAuth.signOut();
     } catch (e) {
       if (kDebugMode) debugPrint('[AUTH ERROR] Firebase sign-out failed: $e');
-    }
-    try {
-      // google_sign_in 7.x: no call before `initialize`.
-      if (_googleInitialized) await googleSignIn.signOut();
-    } catch (e) {
-      if (kDebugMode) debugPrint('[AUTH ERROR] Google sign-out failed: $e');
     }
     await _forgetAcceptedTerms();
     try {
@@ -1269,6 +1588,43 @@ class AuthService extends _$AuthService {
       if (kDebugMode) debugPrint('[AUTH ERROR] Token clear failed: $e');
     }
     state = const AuthState();
+    // The push token, the offline cache and the Google session go too.
+    await _endDeviceSession();
+  }
+
+  /// Waits between the tries of [_deleteDeclinedUser]: one try, then one
+  /// more after each delay. Overridable so a test does not sleep.
+  @visibleForTesting
+  List<Duration> get declineDeleteRetryDelays => const [
+    Duration(milliseconds: 500),
+    Duration(seconds: 2),
+  ];
+
+  /// Delete the Firebase user a declined consent made (todo 704, audit L9),
+  /// trying again after each of [declineDeleteRetryDelays] when `delete()`
+  /// throws (offline, a timeout). Once the user is signed out this device
+  /// can no longer delete it, so what still fails is left to the server's
+  /// orphan prune (`apps/users/retention.py`): no Django account owns the
+  /// uid. Never throws.
+  Future<void> _deleteDeclinedUser(User user) async {
+    final delays = declineDeleteRetryDelays;
+    for (var attempt = 0; ; attempt++) {
+      try {
+        await user.delete();
+        return;
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint(
+            '[AUTH] Consent declined; delete try ${attempt + 1} '
+            'failed: $e',
+          );
+        }
+        if (attempt >= delays.length) return;
+      }
+      await Future<void>.delayed(delays[attempt]);
+      // Signed out or switched meanwhile: not ours to delete any more.
+      if (_firebaseAuth.currentUser?.uid != user.uid) return;
+    }
   }
 
   /// A 409 on the refresh's exchange: keep the user signed in to Firebase
@@ -1313,6 +1669,9 @@ class AuthService extends _$AuthService {
     // sign-out (todo 498).
     ref.read(apiServiceProvider).setAuthToken(null);
     await _clearJWT();
+    // Firebase is still signed in (only the API session expired), so the
+    // queued writes can still be flushed before it signs out.
+    await _flushPendingWrites();
     await _firebaseAuth.signOut();
 
     // After the awaits, in the same frame as the auth flip: clearing it
@@ -1321,6 +1680,121 @@ class AuthService extends _$AuthService {
     // 558 finding 3). The Firebase listener's null branch clears it too.
     _clearAccountProfile();
     state = const AuthState(error: message);
+    // No JWT is left to unregister push with: the token is deleted on the
+    // device instead (todo 704, audit M13).
+    await _endDeviceSession();
+  }
+
+  /// Records that [user] now holds this device, so the next sign-out clears
+  /// what the session left on it ([_endDeviceSession]).
+  void _markDeviceSessionLive(User user) {
+    _deviceSessionLive = true;
+    // A flush only covers the session it ran in.
+    _offlineCacheSafeToClear = false;
+    try {
+      if (user.providerData.any(
+        (info) => info.providerId == GoogleAuthProvider.PROVIDER_ID,
+      )) {
+        _deviceSessionGoogle = true;
+      }
+    } catch (_) {
+      // No provider list to read: only a Google sign-in this process
+      // ([_googleInitialized]) signs out of Google.
+    }
+  }
+
+  /// The one routine every sign-out path ends with (todo 704, audit M13):
+  /// `signOut()`, a session expiry, a sign-out Firebase reports (a revoked
+  /// token, a disabled account) and a declined consent. It
+  ///
+  /// * deletes this device's FCM token
+  ///   ([PushRegistrationService.revokeDeviceToken]), the unregister that
+  ///   needs no JWT: FCM refuses sends to it and the backend prunes the row
+  ///   at the next one. `signOut()` has already unregistered it with the
+  ///   server ([PushRegistrationService.clearOnLogout]) before this;
+  /// * clears the Firestore offline cache, the signed-out account's
+  ///   `users/<uid>/...` documents (unencrypted, unlimited), but only when
+  ///   [_offlineCacheSafeToClear]: its queued writes were flushed first, or
+  ///   the account is deleted. Otherwise the cache stays, so those writes
+  ///   still sync at the next sign-in (todo 704 review);
+  /// * signs out of Google, so the next "Continue with Google" asks for an
+  ///   account rather than reusing this one.
+  ///
+  /// Runs once per session (a second caller awaits the first), never
+  /// throws, and is bounded: each step has its own timeout. Collaborators
+  /// are read from `ref` before the first await, so it finishes even after
+  /// the notifier is disposed.
+  Future<void> _endDeviceSession() {
+    // Consumed by whichever caller comes first, before the early return.
+    final clearCache = _offlineCacheSafeToClear;
+    _offlineCacheSafeToClear = false;
+    if (!_deviceSessionLive) return _deviceSessionEnding ?? Future.value();
+    _deviceSessionLive = false;
+    final google = _deviceSessionGoogle || _googleInitialized;
+    _deviceSessionGoogle = false;
+    final push = ref.read(pushRegistrationServiceProvider);
+    final clearOfflineCache = ref.read(firestoreOfflineCacheClearerProvider);
+    GoogleSignIn? googleClient;
+    try {
+      if (google) googleClient = googleSignIn;
+    } catch (_) {
+      // No plugin behind it (a test): nothing to sign out of.
+    }
+    final googleToSignOut = googleClient;
+    return _deviceSessionEnding = () async {
+      await push.revokeDeviceToken();
+      if (!clearCache) {
+        // Queued writes may still be in it (offline, or a sign-out Firebase
+        // reported, which cannot flush): they sync when this user signs back
+        // in, so the cache stays (todo 704 review).
+        if (kDebugMode) {
+          debugPrint('[AUTH] Offline cache kept: writes not confirmed flushed');
+        }
+      } else {
+        try {
+          await clearOfflineCache().timeout(_deviceStepTimeout);
+        } catch (e) {
+          if (kDebugMode) debugPrint('[AUTH] Offline cache clear failed: $e');
+        }
+      }
+      if (googleToSignOut != null) {
+        try {
+          // google_sign_in 7.x: no call before `initialize`. A session
+          // restored at launch was never initialised in this process.
+          if (!_googleInitialized) {
+            await googleToSignOut.initialize().timeout(_deviceStepTimeout);
+            _googleInitialized = true;
+          }
+          await googleToSignOut.signOut().timeout(_deviceStepTimeout);
+        } catch (e) {
+          if (kDebugMode) debugPrint('[AUTH] Google sign-out failed: $e');
+        }
+      }
+    }();
+  }
+
+  static const Duration _deviceStepTimeout = Duration(seconds: 5);
+
+  /// How long a sign-out waits for Firestore to acknowledge the queued
+  /// writes. Overridable so a test does not sleep.
+  @visibleForTesting
+  Duration get pendingWritesFlushTimeout => _deviceStepTimeout;
+
+  /// Waits for the signed-in user's queued Firestore writes to reach the
+  /// backend, so the sign-out after it may clear the offline cache without
+  /// losing them (todo 704 review). Must run before `_firebaseAuth.signOut()`:
+  /// the queue is per user, and a wait after the sign-out sees none.
+  /// A timeout or an error (offline, Firebase not initialised) leaves the
+  /// cache in place. Never throws.
+  Future<void> _flushPendingWrites() async {
+    _offlineCacheSafeToClear = false;
+    try {
+      final flush = ref.read(firestorePendingWritesFlusherProvider);
+      await flush().timeout(pendingWritesFlushTimeout);
+      _offlineCacheSafeToClear = true;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AUTH] Pending writes not flushed: $e');
+    }
   }
 
   /// Forget whose account this was, on every sign-out path but the
@@ -1341,7 +1815,7 @@ class AuthService extends _$AuthService {
   /// gone (todo 558 finding 1). The next completed sign-in fetches it again
   /// ([_refetchAccountProfile]).
   void _clearAccountProfile() {
-    if (ref.exists(userProfileServiceProvider)) {
+    if (ref.read(userProfileServiceProvider.exists)) {
       ref.read(userProfileServiceProvider.notifier).clear();
     }
   }
@@ -1416,8 +1890,13 @@ class AuthService extends _$AuthService {
         return 'This account has been disabled. Please contact support.';
       case 'email-already-in-use':
         return 'An account already exists with this email.';
+      // 'password-does-not-meet-requirements' is what the console policy
+      // (Require enforcement) answers; 'weak-password' is Firebase's own
+      // six-character floor. Both mean the same rule to the user.
       case 'weak-password':
-        return 'Password is too weak. Use at least 6 characters.';
+      case 'password-does-not-meet-requirements':
+        return 'Password is too weak. Use at least $minPasswordLength '
+            'characters.';
       case 'operation-not-allowed':
         // Reached by BOTH paths now. Naming only email/password sent someone
         // hunting the wrong console toggle when Google is the one disabled.
@@ -1427,7 +1906,10 @@ class AuthService extends _$AuthService {
       case 'network-request-failed':
         return 'Network error. Please check your internet connection.';
       default:
-        return 'Authentication failed: ${e.message ?? e.code}';
+        if (kDebugMode) {
+          debugPrint('[AUTH ERROR] Unmapped Firebase code: ${e.code}');
+        }
+        return authFailedMessage;
     }
   }
 }

@@ -195,5 +195,45 @@ void main() {
         handle.dispose();
       }
     });
+
+    testWidgets('every slot is a rounded square, "+N" fits at 2.0x', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery.withClampedTextScaling(
+            minScaleFactor: 2.0,
+            maxScaleFactor: 2.0,
+            child: Scaffold(
+              body: Center(
+                child: AuthorAvatarCluster(
+                  authors: [
+                    for (final username in ['ada', 'bob', 'carol', 'dave'])
+                      author(username: username),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(CircleAvatar), findsNothing);
+      final rings = tester
+          .widgetList<DecoratedBox>(
+            find.descendant(
+              of: find.byType(AuthorAvatarCluster),
+              matching: find.byType(DecoratedBox),
+            ),
+          )
+          .map((box) => box.decoration as BoxDecoration);
+      expect(rings.every((d) => d.shape == BoxShape.rectangle), isTrue);
+      expect(
+        rings.every((d) => d.borderRadius == forumAvatarRadius(28)),
+        isTrue,
+      );
+      expect(find.text('+1'), findsOneWidget);
+    });
   });
 }

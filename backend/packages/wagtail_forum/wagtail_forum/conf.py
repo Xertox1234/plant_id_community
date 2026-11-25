@@ -1,4 +1,5 @@
 import copy
+from collections.abc import Callable
 from typing import Any
 
 from django.conf import settings
@@ -58,6 +59,9 @@ DEFAULTS: dict[str, Any] = {
     # password counts; a right one clears the count.
     "FORUM_UNLOCK_MAX_FAILURES": 5,
     "FORUM_UNLOCK_WINDOW_SECONDS": 15 * 60,
+    # How long an unlock token (the `X-Forum-Unlock` header a cookie-less
+    # client sends back, spec 2026-11-17 §7.4) stays valid after the unlock.
+    "FORUM_UNLOCK_TOKEN_MAX_AGE_SECONDS": 30 * 24 * 60 * 60,
     # How long tombstone rows (TopicDeletedLog) are retained before pruning.
     # A mobile client that hasn't synced in longer than this window will miss
     # some deletions and should fall back to a full resync.
@@ -105,6 +109,12 @@ DEFAULTS: dict[str, Any] = {
     # because each row may resolve a thumbnail rendition.
     "RECENT_TOPICS_DEFAULT_LIMIT": 5,
     "RECENT_TOPICS_MAX_LIMIT": 20,
+    # Per row: how many of the opening post's pictures (uploaded images and
+    # link-card images) `thumbnail_urls` carries
+    # and how many reply authors `repliers` carries (the collapsed home card
+    # stacks both).
+    "RECENT_TOPICS_THUMBNAILS": 3,
+    "RECENT_TOPICS_REPLIERS": 3,
     # topics/<id>/latest-replies/ (the expanded home activity card): items
     # shown (the accepted answer counts toward it), excerpt length, and how
     # many participant avatars the card carries.
@@ -113,6 +123,9 @@ DEFAULTS: dict[str, Any] = {
     "LATEST_REPLIES_PARTICIPANTS": 5,
     # users/experts/ ("Community experts" rail): row cap and minimum trust.
     "EXPERTS_LIMIT": 4,
+    # boards/<slug>/contributors/ (the topic list's "Top contributors"): how
+    # many members it returns.
+    "BOARD_CONTRIBUTORS_LIMIT": 5,
     "EXPERTS_MIN_TRUST_LEVEL": 3,  # TrustLevel.REGULAR
     # community/stats/ ("Who's online" panel): how long the site-wide counts
     # are cached as one shared value, and how many online members it shows.
@@ -223,6 +236,22 @@ DEFAULTS: dict[str, Any] = {
     # host owns its account-wide email policy, e.g. a master email switch
     # (todo 620); the package never names host user fields.
     "DIGEST_RECIPIENT_FILTER": None,
+    # Dotted path to a host callable(user) -> the URL of the account's own
+    # photo (absolute or site-relative), or None. Asked only for an author
+    # whose forum profile has no avatar, so a member who set a photo on their
+    # account is not shown as an initial in the forum. It runs once per
+    # author per row: it must read fields already loaded on the user and
+    # never query. The package never names host user fields.
+    "AUTHOR_AVATAR_FALLBACK": None,
+    # Dotted path to a host callable(request) -> str naming an ANONYMOUS
+    # reader for the topic view-count dedup (todo 730, audit 2026-11-21
+    # L15). None keys on REMOTE_ADDR, which is right with no proxy in front;
+    # behind a reverse proxy REMOTE_ADDR is the proxy's address, every
+    # anonymous reader shares one key and views undercount, so the host
+    # names its own trusted client-address resolver. The package never
+    # reads forwarding headers itself: which of them can be trusted is the
+    # host's deployment knowledge.
+    "VIEW_COUNT_CLIENT_RESOLVER": None,
     "EMAIL_SITE_URL": None,  # absolute origin for email links; None = settings.SITE_URL
     # Per-channel notification preferences (todo 343): the matrix a member
     # gets when they have not chosen otherwise. In-app is always on and is
@@ -263,7 +292,7 @@ MISSING = object()
 # answers MISSING). Registration lives here rather than in Django settings so
 # the hook is explicit and testable (``test_conf``), and so an unregistered
 # host is byte-for-byte the pre-hook behaviour.
-_override_providers = []
+_override_providers: list[Callable[[str], Any]] = []
 
 
 def register_override_provider(provider):

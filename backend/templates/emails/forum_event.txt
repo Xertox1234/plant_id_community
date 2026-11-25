@@ -1,4 +1,4 @@
-{% autoescape off %}{{ site_name }} - {{ notification_title }}
+{% load email_sender %}{% autoescape off %}{{ site_name }} - {{ notification_title }}
 
 {{ event_line }}:
 
@@ -12,4 +12,4 @@ Open the post: {% firstof post_url topic_url %}
 You get this email because you turned it on.
 Manage forum notifications: {{ preferences_url }}
 {% if unsubscribe_url %}Unsubscribe: {{ unsubscribe_url }}
-{% endif %}{% endautoescape %}
+{% endif %}{% email_sender_footer_text %}{% endautoescape %}

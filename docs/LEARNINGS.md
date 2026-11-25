@@ -7671,3 +7671,27 @@ which reads its own environment; only the pre-commit gate sees it.
 **Rule.** Trace a value end to end (form → request body → serializer → hash) before calling a
 "we alter X" finding fixed, and check in the library source that a hook is called for the case you
 are testing.
+
+## 2026-11-21 — Forum backend audit: a privacy rule written down as a convention, and a signal treated as an error
+
+1. **The binding rule told us to leak.** `docs/rules/forum.md` said package code should name a
+   user with `get_full_name() or get_username()`, for host-agnosticism. Every forum author block
+   did, and sign in with Apple, Google or Firebase fills `first_name` from the provider, so
+   anonymous readers saw legal names. A rule chosen for one property (portability) silently
+   decided another (privacy). Fix: `forum_display_name` (forum display name, else username), owner
+   decision; the rule is rewritten. Blog comments still do it (todo 731).
+2. **`SoftTimeLimitExceeded` was swallowed three layers deep.** The batch task's own loop, then
+   `NotificationService.send_notification`, then `EmailService.send_email`, then `_track_email_sent`
+   each caught `Exception`. Fixing the first layer and testing it with a mocked send passed; only an
+   end-to-end batch test exposed `NotificationService`. And because the limit is a signal, the
+   close review then showed the guard had to cover the bookkeeping too, and round 2 found a broker
+   hand-off whose `except Exception` recorded a recipient as handed off with nothing queued.
+3. **Process.** The `/audit` skill's "kimi-review every fix" step was followed literally and sent
+   permission, auth, visibility and privacy diffs to the cheap worker, against the owner's
+   standing rule; the skill now carries the exception. Three kimi CRITICALs (M1, M3, M4) were each
+   disproven by the code and a passing test. A first `--reuse-db` suite run showed 220 false
+   failures from Wagtail root-page residue; `--create-db` passed them all.
+
+**Rule.** When a rule fixes HOW to render something about a person, check what it reveals. For an
+exception that Celery delivers as a signal, test the escape from every statement in the loop, not
+just from the call you expect to be slow.

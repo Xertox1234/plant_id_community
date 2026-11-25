@@ -112,4 +112,23 @@ describe('GoogleSignInButton', () => {
     expect(container.querySelector('[aria-live="assertive"]')).toBe(region);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
+
+  // L10 (todo 706): the URL is checked where it is followed, as well as in the
+  // service, so a non-Google URL never reaches window.location.assign.
+  it.each([
+    'https://evil.example/o/oauth2/v2/auth',
+    'https://accounts.google.com.evil.com/o/oauth2/v2/auth',
+    'https://accounts.google.com@evil.com/',
+    'javascript:alert(1)',
+  ])('does not follow an oauth_url outside https://accounts.google.com: %s', async (url) => {
+    mockGetGoogleOAuthUrl.mockResolvedValue(url);
+    render(<GoogleSignInButton />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }));
+
+    expect(
+      await screen.findByText('Could not start Google sign-in. Please try again.')
+    ).toBeInTheDocument();
+    expect(assignMock).not.toHaveBeenCalled();
+  });
 });

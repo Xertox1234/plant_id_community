@@ -46,20 +46,33 @@ class ForumThreadScreen extends ConsumerWidget {
   /// open — scrolled into view once, best-effort, by [_ThreadBody].
   final int? highlightPostId;
 
+  /// The current viewer's topic and thread: both are keyed on who reads
+  /// them (see [forumViewerProvider]), so a sign-out or an account switch
+  /// never leaves the previous member's thread on screen.
+  TopicDetailProvider _detailOf(WidgetRef ref) =>
+      topicDetailProvider(topicId, ref.read(forumViewerProvider));
+  TopicPostsProvider _postsOf(WidgetRef ref) =>
+      topicPostsProvider(topicId, ref.read(forumViewerProvider));
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final detail = ref.watch(topicDetailProvider(topicId));
-    final postsAsync = ref.watch(topicPostsProvider(topicId));
+    final viewer = ref.watch(forumViewerProvider);
+    final detail = ref.watch(topicDetailProvider(topicId, viewer));
+    final postsAsync = ref.watch(topicPostsProvider(topicId, viewer));
     final isAuthenticated = ref.watch(
       authServiceProvider.select((s) => s.isAuthenticated),
     );
 
     final live = ref.watch(topicLiveProvider(topicId));
     final topic = detail.asData?.value;
-    final title = topic?.title ?? initialTitle ?? 'Topic';
+    final heading = topic?.title ?? initialTitle;
+    final title = heading ?? 'Topic';
     final isLocked = topic?.isLocked ?? false;
     final isSubscribed = topic?.isSubscribed ?? false;
     final isBookmarked = topic?.isBookmarked ?? false;
+    final isPinned = topic?.isPinned ?? false;
+    // Server authority (moderators), as for the solution affordance below.
+    final canPin = isAuthenticated && (topic?.canPin ?? false);
     // Server authority for the mark/unmark affordance (topic author or a
     // moderator) — never re-derived from the viewer's identity here.
     final canMarkSolution =
@@ -74,6 +87,12 @@ class ForumThreadScreen extends ConsumerWidget {
           title: Text(title),
           actions: [
             if (isAuthenticated && detail.hasValue) ...[
+              if (canPin)
+                IconButton(
+                  tooltip: isPinned ? 'Unpin topic' : 'Pin topic',
+                  icon: Icon(isPinned ? LucideIcons.pinOff : LucideIcons.pin),
+                  onPressed: () => _togglePin(context, ref),
+                ),
               IconButton(
                 tooltip: isBookmarked ? 'Remove bookmark' : 'Bookmark',
                 // Lucide has no filled bookmark, so the SAVED state is a different
@@ -105,25 +124,32 @@ class ForumThreadScreen extends ConsumerWidget {
                       const Center(child: CircularProgressIndicator()),
                   error: (error, _) => _ErrorRetry(
                     message: 'Could not load this thread.',
-                    onRetry: () => ref.invalidate(topicPostsProvider(topicId)),
+                    onRetry: () =>
+                        ref.invalidate(topicPostsProvider(topicId, viewer)),
                   ),
                   data: (paged) => _ThreadBody(
                     topicId: topicId,
+                    title: heading,
                     paged: paged,
                     canReact: isAuthenticated,
                     onReact: isAuthenticated
                         ? (postId, type) => ref
-                              .read(topicPostsProvider(topicId).notifier)
+                              .read(
+                                topicPostsProvider(topicId, viewer).notifier,
+                              )
                               .toggleReaction(postId, type)
                         : null,
                     onLoadMore: () => ref
-                        .read(topicPostsProvider(topicId).notifier)
+                        .read(topicPostsProvider(topicId, viewer).notifier)
                         .loadMore(),
                     onOpenLink: (href) => _openLink(context, ref, href),
                     onEdit: (post) => _openEdit(context, ref, post),
                     onDelete: (post) => _confirmDelete(context, ref, post),
                     onReport: isAuthenticated
                         ? (post) => _reportPost(context, ref, post)
+                        : null,
+                    onToggleMute: isAuthenticated
+                        ? (post) => _toggleMute(context, ref, post)
                         : null,
                     onShowHistory: isAuthenticated
                         ? (post) => showForumEditHistorySheet(
@@ -165,7 +191,7 @@ class ForumThreadScreen extends ConsumerWidget {
         floatingActionButton: (isAuthenticated && !isLocked && !live.gone)
             ? FloatingActionButton.extended(
                 onPressed: () => _openReply(context, ref),
-                icon: const Icon(LucideIcons.reply),
+                icon: const Icon(LucideIcons.reply, size: 15),
                 label: const Text('Reply'),
               )
             : null,
@@ -184,7 +210,7 @@ class ForumThreadScreen extends ConsumerWidget {
           .read(forumApiProvider)
           .fetchTopicDetail(topicId, peek: true);
       if (!context.mounted) return;
-      ref.read(topicDetailProvider(topicId).notifier).applyPeek(fresh);
+      ref.read(_detailOf(ref).notifier).applyPeek(fresh);
     } catch (_) {
       // The thread already refreshed; the topic header keeps what it had.
     }
@@ -236,9 +262,7 @@ class ForumThreadScreen extends ConsumerWidget {
       // plain `invalidate` (page 1 only) would leave it invisible on a
       // multi-page thread (todo 291) — walk every page instead.
       try {
-        await ref
-            .read(topicPostsProvider(topicId).notifier)
-            .refreshAfterReply();
+        await ref.read(_postsOf(ref).notifier).refreshAfterReply();
       } catch (_) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -250,15 +274,13 @@ class ForumThreadScreen extends ConsumerWidget {
           );
         }
       }
-      ref.invalidate(topicDetailProvider(topicId));
+      ref.invalidate(_detailOf(ref));
     }
   }
 
   Future<void> _toggleSubscription(BuildContext context, WidgetRef ref) async {
     try {
-      await ref
-          .read(topicDetailProvider(topicId).notifier)
-          .toggleSubscription();
+      await ref.read(_detailOf(ref).notifier).toggleSubscription();
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -281,7 +303,7 @@ class ForumThreadScreen extends ConsumerWidget {
     List<int> optionIds,
   ) async {
     try {
-      await ref.read(topicDetailProvider(topicId).notifier).votePoll(optionIds);
+      await ref.read(_detailOf(ref).notifier).votePoll(optionIds);
     } catch (e) {
       if (!context.mounted) return;
       final String message;
@@ -289,7 +311,7 @@ class ForumThreadScreen extends ConsumerWidget {
         message = e.message.isNotEmpty
             ? e.message
             : 'You have already voted in this poll.';
-        ref.invalidate(topicDetailProvider(topicId));
+        ref.invalidate(_detailOf(ref));
       } else {
         message = forumErrorMessage(
           e,
@@ -303,9 +325,34 @@ class ForumThreadScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _togglePin(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final pinned = await ref.read(_detailOf(ref).notifier).togglePin();
+      if (pinned == null) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            pinned
+                ? 'Pinned to the top of the forum.'
+                : 'Unpinned from the top of the forum.',
+          ),
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            forumErrorMessage(e, fallback: 'Could not update the pin.'),
+          ),
+        ),
+      );
+    }
+  }
+
   Future<void> _toggleBookmark(BuildContext context, WidgetRef ref) async {
     try {
-      await ref.read(topicDetailProvider(topicId).notifier).toggleBookmark();
+      await ref.read(_detailOf(ref).notifier).toggleBookmark();
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -327,10 +374,9 @@ class ForumThreadScreen extends ConsumerWidget {
     WidgetRef ref,
     ForumPost post,
   ) async {
-    final notifier = ref.read(topicDetailProvider(topicId).notifier);
+    final notifier = ref.read(_detailOf(ref).notifier);
     final isCurrent =
-        ref.read(topicDetailProvider(topicId)).asData?.value.solvedPostId ==
-        post.id;
+        ref.read(_detailOf(ref)).asData?.value.solvedPostId == post.id;
     try {
       if (isCurrent) {
         await notifier.clearSolution();
@@ -369,7 +415,7 @@ class ForumThreadScreen extends ConsumerWidget {
     if (choice == null || !context.mounted) return;
     try {
       await ref
-          .read(topicPostsProvider(topicId).notifier)
+          .read(_postsOf(ref).notifier)
           .reportPost(
             postId: post.id,
             reason: choice.reason,
@@ -395,6 +441,33 @@ class ForumThreadScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _toggleMute(
+    BuildContext context,
+    WidgetRef ref,
+    ForumPost post,
+  ) async {
+    try {
+      await ref
+          .read(_postsOf(ref).notifier)
+          .setAuthorMuted(post.author.username, muted: !post.isMuted);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            forumErrorMessage(
+              e,
+              fallback: post.isMuted
+                  ? 'Could not unmute this member.'
+                  : 'Could not mute this member.',
+              forbidden: "You can't mute this member.",
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
   /// Open the composer in edit mode (todo 292). Unlike [_openReply], a
   /// successful publish pops the updated [ForumPost] itself (not a bare
   /// `true`) — [TopicPosts.applyEditedPost] splices it into the already-
@@ -410,11 +483,11 @@ class ForumThreadScreen extends ConsumerWidget {
       extra: ForumComposeArgs.edit(post: post),
     );
     if (result != null) {
-      ref.read(topicPostsProvider(topicId).notifier).applyEditedPost(result);
+      ref.read(_postsOf(ref).notifier).applyEditedPost(result);
       // Same as _openReply below: refresh the single-object topic detail
       // (reply metadata etc.) — cheap, and unrelated to the paged-state
       // preservation applyEditedPost exists for (code review).
-      ref.invalidate(topicDetailProvider(topicId));
+      ref.invalidate(_detailOf(ref));
     }
   }
 
@@ -442,11 +515,11 @@ class ForumThreadScreen extends ConsumerWidget {
     );
     if (confirmed != true) return;
     try {
-      await ref.read(topicPostsProvider(topicId).notifier).deletePost(post.id);
+      await ref.read(_postsOf(ref).notifier).deletePost(post.id);
       // reply_count/last_post_at live on the topic detail, not the paged
       // post list — refresh it so a deletion is reflected immediately
       // rather than only on the next visit (code review).
-      ref.invalidate(topicDetailProvider(topicId));
+      ref.invalidate(_detailOf(ref));
     } on ApiException catch (e) {
       // The backend's 409 message is already specific and non-retry-implying
       // ("Topic is closed or locked.", "Opening posts cannot be deleted via
@@ -499,6 +572,7 @@ const _maxJumpSteps = 60;
 class _ThreadBody extends StatefulWidget {
   const _ThreadBody({
     required this.topicId,
+    this.title,
     required this.paged,
     required this.canReact,
     required this.onReact,
@@ -507,6 +581,7 @@ class _ThreadBody extends StatefulWidget {
     required this.onEdit,
     required this.onDelete,
     this.onReport,
+    this.onToggleMute,
     this.onShowHistory,
     this.solvedPostId,
     this.onToggleSolution,
@@ -526,6 +601,10 @@ class _ThreadBody extends StatefulWidget {
   });
 
   final int topicId;
+
+  /// The topic's title, shown whole above the first post (audit F303): the
+  /// app bar keeps it on one line. `null` until it is known.
+  final String? title;
   final PagedList<ForumPost> paged;
   final bool canReact;
   final void Function(int postId, String type)? onReact;
@@ -534,6 +613,7 @@ class _ThreadBody extends StatefulWidget {
   final void Function(ForumPost post) onEdit;
   final void Function(ForumPost post) onDelete;
   final void Function(ForumPost post)? onReport;
+  final void Function(ForumPost post)? onToggleMute;
   final void Function(ForumPost post)? onShowHistory;
 
   /// The accepted answer's post id (todo 341) — drives the card ring and
@@ -799,13 +879,19 @@ class _ThreadBodyState extends State<_ThreadBody> {
       if (mounted) _reportAtBottom();
     });
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final title = widget.title;
     if (widget.paged.items.isEmpty) {
       return _refreshable(
         ListView(
           controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
-          children: const [
-            SizedBox(height: 200, child: Center(child: Text('No posts yet.'))),
+          padding: const EdgeInsets.all(AppSpacing.md),
+          children: [
+            if (title != null) _ThreadTitle(title),
+            const SizedBox(
+              height: 200,
+              child: Center(child: Text('No posts yet.')),
+            ),
           ],
         ),
       );
@@ -843,6 +929,9 @@ class _ThreadBodyState extends State<_ThreadBody> {
           onReport: widget.onReport == null
               ? null
               : () => widget.onReport!(post),
+          onToggleMute: widget.onToggleMute == null
+              ? null
+              : () => widget.onToggleMute!(post),
           onShowHistory: widget.onShowHistory == null
               ? null
               : () => widget.onShowHistory!(post),
@@ -911,8 +1000,8 @@ class _ThreadBodyState extends State<_ThreadBody> {
 }
 
 extension on _ThreadBodyState {
-  /// [card] plus the identification snapshot and poll cards (todo 341 wave
-  /// 3), or just [card] when the topic carries neither.
+  /// The topic title, then [card] plus the identification snapshot and poll
+  /// cards (todo 341 wave 3).
   Widget _withHeaderCards(Widget card, {required bool leading}) {
     final identification = widget.identification;
     final poll = widget.poll;
@@ -926,15 +1015,40 @@ extension on _ThreadBodyState {
       if (poll != null)
         PollCard(poll: poll, canVote: widget.canVote, onVote: widget.onVote),
     ];
-    if (cards.isEmpty) return card;
-    final ordered = leading ? [...cards, card] : [card, ...cards];
+    final title = widget.title;
+    final ordered = [
+      if (title != null) _ThreadTitle(title),
+      if (leading) ...[...cards, card] else ...[card, ...cards],
+    ];
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (var i = 0; i < ordered.length; i++) ...[
           if (i > 0) const SizedBox(height: AppSpacing.sm),
           ordered[i],
         ],
       ],
+    );
+  }
+}
+
+/// The whole topic title, however many lines it takes.
+class _ThreadTitle extends StatelessWidget {
+  const _ThreadTitle(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    // Its own node, or the list item merges it with the post's text.
+    return Semantics(
+      container: true,
+      header: true,
+      child: Text(
+        title,
+        key: const ValueKey('thread-title'),
+        style: Theme.of(context).textTheme.titleLarge,
+      ),
     );
   }
 }

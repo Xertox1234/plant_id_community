@@ -227,6 +227,17 @@ per-person switch for email click records and blog view logging.
   Workers Builds variable `VITE_SENTRY_DSN` (the Cloudflare token here cannot
   write build settings).
 
+### 2026-11-24 - Merged main into the branch
+
+- Policy version is now `2026-11-24`: `main` added the 90-day rule for removed
+  private messages to all three policies without a new version, so one bump
+  covers both. Set it to the release date if the merge waits.
+- Migration renumbered `0026_usage_records_switch`.
+- Sign-in checks for a disabled account before asking for consent on every
+  path, so a disabled account is never stamped.
+- App: declining an update flushes the offline writes, as a sign-out does. A
+  declined new account still drops them.
+
 ## Notes
 
 P1 because consent is already being recorded against a draft. Not legal

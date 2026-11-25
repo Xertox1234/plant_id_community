@@ -15,6 +15,7 @@ from wagtail_forum.api import direct_messages as forum_direct_message_views
 from wagtail_forum.api import forum_rows as forum_row_views
 from wagtail_forum.api import image_management as forum_image_management_views
 from wagtail_forum.api import notifications as forum_notification_views
+from wagtail_forum.api import pins as forum_pin_views
 from wagtail_forum.api import polls as forum_poll_views
 from wagtail_forum.api import solutions as forum_solution_views
 from wagtail_forum.api import subscriptions as forum_subscription_views
@@ -286,6 +287,12 @@ class PollVoteView(forum_poll_views.PollVoteView):
 @_throttled("solution_mark", "POST")
 @_throttled("solution_clear", "DELETE")
 class TopicSolutionView(forum_solution_views.TopicSolutionView):
+    pass
+
+
+@_throttled("topic_pin", "POST")
+@_throttled("topic_unpin", "DELETE")
+class TopicPinView(forum_pin_views.TopicPinView):
     pass
 
 

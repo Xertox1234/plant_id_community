@@ -5,7 +5,7 @@ from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from wagtail.signals import page_published, page_unpublished
-from wagtail_forum.models import ForumProfile
+from wagtail_forum.models import ForumProfile, Post, Topic
 from wagtail_forum.signals import (
     moderation_decided,
     reply_added,
@@ -15,6 +15,7 @@ from wagtail_forum.signals import (
 
 from . import notifications
 from .tasks import sync_blog_page_chunks
+from .topic_copies import drop_stale_topic_vectors, drop_topic_vectors
 
 logger = logging.getLogger(__name__)
 
@@ -154,3 +155,44 @@ def _on_page_unpublished(sender, instance, **kwargs):
 @receiver(post_delete, sender=BlogPostPage)
 def _on_blog_page_deleted(sender, instance, **kwargs):
     _enqueue_blog_chunk_sync(instance, "delete")
+
+
+# --------------------------------------------------------------------------- #
+# SimilarTopics rows follow the opening post (audit 2026-11-24 F64). Plain    #
+# save signals, not Wagtail's published/unpublished: an erase is a bare       #
+# save(). Not flag-gated: deleting is free, and the words must go either way. #
+# --------------------------------------------------------------------------- #
+
+_POST_TEXT_FIELDS = {"body", "live", "is_opening_post", "topic"}
+_TOPIC_TEXT_FIELDS = {"title", "live"}
+
+
+@receiver(post_save, sender=Post, dispatch_uid="forum_vectors.post_saved")
+def _on_opening_post_saved(
+    sender, instance, created=False, update_fields=None, raw=False, **kwargs
+):
+    if raw or created or not instance.is_opening_post:
+        return
+    if update_fields is None or _POST_TEXT_FIELDS.intersection(update_fields):
+        drop_stale_topic_vectors(instance.topic_id)
+
+
+@receiver(post_save, sender=Topic, dispatch_uid="forum_vectors.topic_saved")
+def _on_topic_saved(
+    sender, instance, created=False, update_fields=None, raw=False, **kwargs
+):
+    if raw or created:
+        return
+    if update_fields is None or _TOPIC_TEXT_FIELDS.intersection(update_fields):
+        drop_stale_topic_vectors(instance.pk)
+
+
+@receiver(post_delete, sender=Post, dispatch_uid="forum_vectors.post_deleted")
+def _on_opening_post_deleted(sender, instance, **kwargs):
+    if instance.is_opening_post:
+        drop_topic_vectors(instance.topic_id)
+
+
+@receiver(post_delete, sender=Topic, dispatch_uid="forum_vectors.topic_deleted")
+def _on_topic_deleted(sender, instance, **kwargs):
+    drop_topic_vectors(instance.pk)

@@ -29,7 +29,8 @@ moderators of a forum see it whatever its grants (owner decision 2026-10-30,
 as staff saw ``is_hidden`` forums in the admin).
 
 **Passwords** (todo 680): a forum with a ``password_hash`` is left out until
-the reader unlocks it in their session (``unlocked_forum_ids``); moderators
+the reader unlocks it in their session or sends an unlock token
+(``unlocked_forum_ids``); moderators
 and staff bypass. ``include_locked=True`` keeps the row (the web index shows
 it with a lock) while topic paths keep it out.
 
@@ -43,6 +44,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from django.contrib.auth.models import Group, Permission
+from django.core import signing
 from django.db import transaction
 from django.db.models import (
     BooleanField,
@@ -58,6 +60,7 @@ from django.db.models import (
 from django.utils.crypto import constant_time_compare, salted_hmac
 from wagtail.models import PageViewRestriction
 
+from ..conf import get_setting
 from ..models import Forum, ForumGrant, ForumIndex, ForumModerator, ForumRole
 
 LIST = "list"
@@ -90,6 +93,10 @@ DEFAULT_ROLES: dict[str, str] = {
 
 # The session key holding the forum ids this session unlocked (todo 680).
 UNLOCKED_SESSION_KEY = "wagtail_forum_unlocked_forums"
+# Unlock tokens for clients with no session (spec 2026-11-17 §7.4).
+UNLOCK_TOKEN_SALT = "wagtail_forum.forum_unlock_token"
+UNLOCK_TOKEN_HEADER = "X-Forum-Unlock"
+UNLOCK_TOKEN_MAX_COUNT = 20
 
 _FLAGS_CACHE_ATTR = "_wagtail_forum_flags"
 _GROUPS_CACHE_ATTR = "_wagtail_forum_group_ids"
@@ -219,30 +226,91 @@ def _unlock_fingerprint(password_hash: str) -> str:
     ).hexdigest()
 
 
-def unlocked_forum_ids(request: Any) -> list[int]:
-    """The password forums this session unlocked (todo 680), for the user
-    who unlocked them only: a later sign-in on the same browser, or a
-    signed-out (edge-cacheable) request, starts locked. An unlock lasts only
-    while the forum keeps the password it was made with."""
+def make_unlock_token(user: Any, forum: Forum) -> str:
+    """A signed unlock for a client with no session (the mobile app, spec
+    2026-11-17 §7.4): sent back in ``X-Forum-Unlock``, it opens ``forum`` for
+    ``user`` only, while the forum keeps this password, for
+    ``FORUM_UNLOCK_TOKEN_MAX_AGE_SECONDS``. The server keeps no list of
+    tokens: a new password is the only way to end them early."""
+    return signing.dumps(
+        {"u": user.pk, "f": forum.pk, "p": _unlock_fingerprint(forum.password_hash)},
+        salt=UNLOCK_TOKEN_SALT,
+    )
+
+
+def _session_unlocks(request: Any, user: Any) -> dict[int, list[str]]:
+    """``{forum id: [fingerprint]}`` from this session's unlocks (todo 680)."""
     session = getattr(request, "session", None)
-    user = getattr(request, "user", None)
-    if session is None or user is None or not _authenticated(user):
-        return []
+    if session is None:
+        return {}
     stored = session.get(UNLOCKED_SESSION_KEY)
     if not isinstance(stored, dict) or stored.get("user") != user.pk:
-        return []
+        return {}
     forums = stored.get("forums")
-    if not isinstance(forums, dict) or not forums:
+    if not isinstance(forums, dict):
+        return {}
+    return {
+        int(pk): [fingerprint]
+        for pk, fingerprint in forums.items()
+        if str(pk).isdigit() and isinstance(fingerprint, str)
+    }
+
+
+def _token_unlocks(request: Any, user: Any) -> dict[int, list[str]]:
+    """``{forum id: [fingerprints]}`` from the request's ``X-Forum-Unlock``
+    tokens made for ``user``. Only the first ``UNLOCK_TOKEN_MAX_COUNT`` are
+    read; a bad, expired or foreign token is skipped, never an error. The
+    header's value is never logged."""
+    headers = getattr(request, "headers", None)
+    raw = headers.get(UNLOCK_TOKEN_HEADER) if headers is not None else None
+    if not isinstance(raw, str) or not raw:
+        return {}
+    max_age = int(get_setting("FORUM_UNLOCK_TOKEN_MAX_AGE_SECONDS"))
+    found: dict[int, list[str]] = {}
+    for part in raw.split(",", UNLOCK_TOKEN_MAX_COUNT)[:UNLOCK_TOKEN_MAX_COUNT]:
+        token = part.strip()
+        if not token:
+            continue
+        try:
+            payload = signing.loads(token, salt=UNLOCK_TOKEN_SALT, max_age=max_age)
+        except (signing.BadSignature, ValueError, TypeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        user_id, forum_id, fingerprint = (payload.get(k) for k in ("u", "f", "p"))
+        if (
+            type(user_id) is int
+            and type(forum_id) is int
+            and isinstance(fingerprint, str)
+            and user_id == user.pk
+        ):
+            found.setdefault(forum_id, []).append(fingerprint)
+    return found
+
+
+def unlocked_forum_ids(request: Any) -> list[int]:
+    """The password forums this request unlocked, for the user who unlocked
+    them only: the session's unlocks (todo 680) and the ``X-Forum-Unlock``
+    tokens of a cookie-less client (spec 2026-11-17 §7.4). A later sign-in on
+    the same browser, another member's token, or a signed-out (edge-
+    cacheable) request starts locked. An unlock lasts only while the forum
+    keeps the password it was made with. One query, whatever the number of
+    unlocks."""
+    user = getattr(request, "user", None)
+    if user is None or not _authenticated(user):
         return []
-    current = Forum.objects.filter(
-        pk__in=[int(pk) for pk in forums if str(pk).isdigit()]
-    ).exclude(password_hash="")
-    return [
-        pk
-        for pk, password_hash in current.values_list("pk", "password_hash")
-        if isinstance(forums.get(str(pk)), str)
-        and constant_time_compare(forums[str(pk)], _unlock_fingerprint(password_hash))
-    ]
+    candidates = _session_unlocks(request, user)
+    for pk, fingerprints in _token_unlocks(request, user).items():
+        candidates.setdefault(pk, []).extend(fingerprints)
+    if not candidates:
+        return []
+    current = Forum.objects.filter(pk__in=list(candidates)).exclude(password_hash="")
+    unlocked = []
+    for pk, password_hash in current.values_list("pk", "password_hash"):
+        expected = _unlock_fingerprint(password_hash)
+        if any(constant_time_compare(f, expected) for f in candidates[pk]):
+            unlocked.append(pk)
+    return unlocked
 
 
 def remember_unlocked(request: Any, forum: Forum) -> None:

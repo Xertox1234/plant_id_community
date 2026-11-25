@@ -268,9 +268,9 @@ export interface CodeBlock extends BaseStreamFieldBlock {
 export interface BlogPostAuthor {
   id?: number;
   username?: string;
-  first_name?: string;
-  last_name?: string;
-  /** Server-computed: get_full_name() or username. Preferred display string. */
+  /** Server-computed public name: the chosen display name, else the
+   * username. Never the legal name (todo 731); the server sends no
+   * first_name/last_name. */
   display_name?: string;
 }
 
@@ -356,14 +356,14 @@ export interface BlogPost {
 
 /**
  * Blog comment author — `apps/blog/serializers.py` `UserSerializer`
- * (id/username/first_name/last_name/display_name/avatar_url).
+ * (id/username/display_name/avatar_url).
  */
 export interface BlogCommentAuthor {
   id?: number;
   username?: string;
-  first_name?: string;
-  last_name?: string;
-  /** Server-computed: get_full_name() or username. Preferred display string. */
+  /** Server-computed public name: the chosen display name, else the
+   * username. Never the legal name (todo 731); the server sends no
+   * first_name/last_name. */
   display_name?: string;
   avatar_url?: string | null;
 }

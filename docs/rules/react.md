@@ -355,3 +355,9 @@ Compact checklist auto-injected before edits. Long-form:
 - **Never sanitize or trim a password field's value.** It is hashed, never
   rendered; changing it stores a different password than the user typed
   (audit 2026-11-10, H6).
+- **A WebSocket close code does not mean the resource is gone.** Confirm over REST,
+  and replace the page only on its 404/403; later polls apply the same rule
+  (`ThreadDetailPage.tsx`, audit 2026-11-24, F37).
+- **Re-check who is signed in, and which page this is, after every `await`** before
+  writing state or storage: compare a generation ref bumped on an account swap and
+  on navigation (`handleQuote`, `ThreadDetailPage.tsx`, audit 2026-11-24).

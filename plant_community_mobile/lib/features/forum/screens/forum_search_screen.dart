@@ -4,9 +4,10 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
-import '../../../shared/widgets/canopy_surfaces.dart';
+import '../../../shared/widgets/canopy_accents.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
+import '../widgets/forum_style.dart';
 import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// Full-text forum search: a query field, optional board filter, and two
@@ -64,19 +65,20 @@ class _ForumSearchScreenState extends ConsumerState<ForumSearchScreen> {
                     children: [
                       Expanded(
                         child: boardsAsync.when(
+                          skipLoadingOnReload: true,
                           loading: () => const SizedBox.shrink(),
                           error: (error, _) => const SizedBox.shrink(),
                           data: (boards) => DropdownButtonFormField<String?>(
                             initialValue: _boardFilter,
                             decoration: const InputDecoration(
-                              labelText: 'Board',
+                              labelText: 'Forum',
                               border: OutlineInputBorder(),
                               isDense: true,
                             ),
                             items: [
                               const DropdownMenuItem(
                                 value: null,
-                                child: Text('All boards'),
+                                child: Text('All forums'),
                               ),
                               for (final board in boards)
                                 DropdownMenuItem(
@@ -115,7 +117,12 @@ class _ResultsBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     switch (result.status) {
       case ForumSearchStatus.idle:
-        return const Center(child: Text('Search topics and posts.'));
+        return const Center(
+          child: ForumEmptyState(
+            icon: LucideIcons.search,
+            title: 'Search topics and posts.',
+          ),
+        );
       case ForumSearchStatus.loading:
         return const Center(child: CircularProgressIndicator());
       case ForumSearchStatus.error:
@@ -156,27 +163,35 @@ class _ResultsBody extends ConsumerWidget {
           ),
         if (result.topics.isNotEmpty) ...[
           const _SectionHeader('Topics'),
-          for (final topic in result.topics)
-            _TopicHitTile(
-              topic: topic,
-              onTap: () => context.pushNamed(
-                'forumTopic',
-                pathParameters: {'id': '${topic.id}'},
-                extra: topic.title,
-              ),
-            ),
+          CanopyGroupedCard(
+            rows: [
+              for (final topic in result.topics)
+                _TopicHitTile(
+                  topic: topic,
+                  onTap: () => context.pushNamed(
+                    'forumTopic',
+                    pathParameters: {'id': '${topic.id}'},
+                    extra: topic.title,
+                  ),
+                ),
+            ],
+          ),
         ],
         if (result.posts.isNotEmpty) ...[
           const _SectionHeader('Posts'),
-          for (final post in result.posts)
-            _PostHitTile(
-              post: post,
-              onTap: () => context.pushNamed(
-                'forumTopic',
-                pathParameters: {'id': '${post.topicId}'},
-                extra: post.topicTitle,
-              ),
-            ),
+          CanopyGroupedCard(
+            rows: [
+              for (final post in result.posts)
+                _PostHitTile(
+                  post: post,
+                  onTap: () => context.pushNamed(
+                    'forumTopic',
+                    pathParameters: {'id': '${post.topicId}'},
+                    extra: post.topicTitle,
+                  ),
+                ),
+            ],
+          ),
         ],
         if (result.hasMore)
           Padding(
@@ -234,15 +249,19 @@ class _SemanticSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const _SectionHeader('Related topics'),
-            for (final topic in topics)
-              _TopicHitTile(
-                topic: topic,
-                onTap: () => context.pushNamed(
-                  'forumTopic',
-                  pathParameters: {'id': '${topic.id}'},
-                  extra: topic.title,
-                ),
-              ),
+            CanopyGroupedCard(
+              rows: [
+                for (final topic in topics)
+                  _TopicHitTile(
+                    topic: topic,
+                    onTap: () => context.pushNamed(
+                      'forumTopic',
+                      pathParameters: {'id': '${topic.id}'},
+                      extra: topic.title,
+                    ),
+                  ),
+              ],
+            ),
           ],
         );
     }
@@ -273,14 +292,10 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The forum's section header, with the same air above it as elsewhere.
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-      child: Text(
-        title,
-        style: Theme.of(
-          context,
-        ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-      ),
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: ForumSectionHeader(title),
     );
   }
 }
@@ -292,16 +307,14 @@ class _TopicHitTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CanopyCard(
-      padding: EdgeInsets.zero,
-      child: ListTile(
-        onTap: onTap,
-        leading: const Icon(LucideIcons.messagesSquare),
-        title: Text(topic.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text(
-          '${topic.replyCount} replies · ${topic.viewCount} views',
-        ),
-      ),
+    String count(int n, String one, String many) => '$n ${n == 1 ? one : many}';
+    return ForumListRow(
+      onTap: onTap,
+      icon: LucideIcons.messagesSquare,
+      title: topic.title,
+      meta:
+          '${count(topic.replyCount, 'reply', 'replies')} · '
+          '${count(topic.viewCount, 'view', 'views')}',
     );
   }
 }
@@ -313,22 +326,11 @@ class _PostHitTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CanopyCard(
-      padding: EdgeInsets.zero,
-      child: ListTile(
-        onTap: onTap,
-        leading: const Icon(LucideIcons.messageCircle),
-        title: Text(
-          post.topicTitle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          post.excerpt,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
+    return ForumListRow(
+      onTap: onTap,
+      icon: LucideIcons.messageCircle,
+      title: post.topicTitle,
+      body: post.excerpt,
     );
   }
 }

@@ -1,7 +1,9 @@
 from django.conf import settings
+from django.contrib import admin
 from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext
 from django.utils.translation import gettext_lazy as _
 from wagtail.admin.panels import FieldPanel
 from wagtail.fields import StreamField
@@ -90,6 +92,9 @@ class Post(
         # Any real-backend search over live posts filters on this; without it
         # Elasticsearch raises FilterFieldError (Topic declares it; Post must too).
         index.FilterField("live"),
+        # The CMS post list searched while sorted by date: the search backend
+        # raises OrderByFieldError on a column not declared here.
+        index.FilterField("created_at"),
         # SearchView excludes blocked authors' posts (todo 284/M9) via
         # author_id__in=Subquery(...); same FilterFieldError without this.
         index.FilterField("author_id"),
@@ -124,7 +129,20 @@ class Post(
         ]
 
     def __str__(self):
+        # No body text: str() is also what Wagtail copies into log entries,
+        # which outlive an erased post. `admin_title` is the readable form.
         return f"Post #{self.pk} in {self.topic_id}"
+
+    @property
+    @admin.display(description=_("Post"))
+    def admin_title(self) -> str:
+        """The post's row title in the CMS: its id and the start of its text.
+        Reads only this row (``raw_data``), so a listing adds no query per
+        row. Imported lazily: ``api.views`` imports this module."""
+        from ..api.views import plain_text_excerpt
+
+        text = plain_text_excerpt(self.body, 80) or gettext("(no text)")
+        return f"Post #{self.pk}: {text}"
 
     def with_content_json(self, content):
         """The object a revision describes, keeping this row's

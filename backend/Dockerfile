@@ -10,7 +10,12 @@
 #      wagtail_forum`. RAILPACK copies only requirements.txt before `pip install`
 #      and fails ("not a valid editable requirement"). Here we `COPY . .` first,
 #      so the local package path exists at install time.
-FROM python:3.13-slim
+#
+# Pinned to a patch (todo 709, owner decision 2026-11-17: stay on 3.13), so a
+# deploy never changes Python on its own and Dependabot proposes patch bumps.
+# Keep the same patch in `.python-version` and `backend/.python-version`: CI's
+# backend jobs read the root file, and Dependabot bumps only this line.
+FROM python:3.13.18-slim
 
 # System deps: libpq for psycopg, build-essential as a safety net for any
 # dependency that lacks a cp313 wheel, gettext for `msgfmt` (the compilemessages
@@ -32,6 +37,10 @@ WORKDIR /app
 # resolves. No secret ARG/ENV above this line → no secrets in image layers.
 COPY . .
 
+# requirements.txt is the production lock only (todo 708): the dev and test
+# tools are in requirements-dev.txt and never reach the image. settings.py adds
+# debug_toolbar/django_extensions only when installed, so the DEBUG=True build
+# steps below run without them.
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Compile translation catalogs at BUILD time. Django reads the compiled `.mo`,

@@ -21,7 +21,7 @@ ProviderContainer _container(FakeForumApi api) {
 }
 
 ForumPoll _pollOf(ProviderContainer c) =>
-    c.read(topicDetailProvider(10)).asData!.value.poll!;
+    c.read(topicDetailProvider(10, null)).asData!.value.poll!;
 
 void main() {
   group('TopicDetail.votePoll (todo 341 wave 3)', () {
@@ -36,10 +36,12 @@ void main() {
           options: [pollOption(id: 2, text: 'Fortnightly', voteCount: 42)],
         );
       final container = _container(api);
-      container.listen(topicDetailProvider(10), (_, _) {});
-      await container.read(topicDetailProvider(10).future);
+      container.listen(topicDetailProvider(10, null), (_, _) {});
+      await container.read(topicDetailProvider(10, null).future);
 
-      await container.read(topicDetailProvider(10).notifier).votePoll([2]);
+      await container.read(topicDetailProvider(10, null).notifier).votePoll([
+        2,
+      ]);
 
       expect(api.votePollCalls, [
         [2],
@@ -58,12 +60,12 @@ void main() {
         ..topicDetail = topicDetail(id: 10, poll: poll(totalVotes: 1))
         ..voteGate = gate;
       final container = _container(api);
-      container.listen(topicDetailProvider(10), (_, _) {});
-      await container.read(topicDetailProvider(10).future);
+      container.listen(topicDetailProvider(10, null), (_, _) {});
+      await container.read(topicDetailProvider(10, null).future);
 
-      final pending = container.read(topicDetailProvider(10).notifier).votePoll(
-        [1, 3],
-      );
+      final pending = container
+          .read(topicDetailProvider(10, null).notifier)
+          .votePoll([1, 3]);
       final inFlight = _pollOf(container);
       expect(inFlight.pendingOptionIds, [1, 3]);
       expect(inFlight.isVoting, isTrue);
@@ -85,11 +87,11 @@ void main() {
         ..topicDetail = topicDetail(id: 10, poll: poll(totalVotes: 4))
         ..failVoteWith = ApiException('This poll has closed.', statusCode: 409);
       final container = _container(api);
-      container.listen(topicDetailProvider(10), (_, _) {});
-      await container.read(topicDetailProvider(10).future);
+      container.listen(topicDetailProvider(10, null), (_, _) {});
+      await container.read(topicDetailProvider(10, null).future);
 
       await expectLater(
-        container.read(topicDetailProvider(10).notifier).votePoll([1]),
+        container.read(topicDetailProvider(10, null).notifier).votePoll([1]),
         throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 409)),
       );
 
@@ -103,9 +105,9 @@ void main() {
       final api = FakeForumApi()
         ..topicDetail = topicDetail(id: 10, poll: poll());
       final container = _container(api);
-      container.listen(topicDetailProvider(10), (_, _) {});
-      await container.read(topicDetailProvider(10).future);
-      final notifier = container.read(topicDetailProvider(10).notifier);
+      container.listen(topicDetailProvider(10, null), (_, _) {});
+      await container.read(topicDetailProvider(10, null).future);
+      final notifier = container.read(topicDetailProvider(10, null).notifier);
 
       await Future.wait([
         notifier.votePoll([1]),
@@ -121,16 +123,18 @@ void main() {
     test('a topic without a poll, or an empty ballot, sends nothing', () async {
       final api = FakeForumApi()..topicDetail = topicDetail(id: 10);
       final container = _container(api);
-      container.listen(topicDetailProvider(10), (_, _) {});
-      await container.read(topicDetailProvider(10).future);
+      container.listen(topicDetailProvider(10, null), (_, _) {});
+      await container.read(topicDetailProvider(10, null).future);
 
-      await container.read(topicDetailProvider(10).notifier).votePoll([1]);
+      await container.read(topicDetailProvider(10, null).notifier).votePoll([
+        1,
+      ]);
       expect(api.votePollCalls, isEmpty);
 
       api.topicDetail = topicDetail(id: 11, poll: poll());
-      container.listen(topicDetailProvider(11), (_, _) {});
-      await container.read(topicDetailProvider(11).future);
-      await container.read(topicDetailProvider(11).notifier).votePoll([]);
+      container.listen(topicDetailProvider(11, null), (_, _) {});
+      await container.read(topicDetailProvider(11, null).future);
+      await container.read(topicDetailProvider(11, null).notifier).votePoll([]);
       expect(api.votePollCalls, isEmpty);
     });
   });

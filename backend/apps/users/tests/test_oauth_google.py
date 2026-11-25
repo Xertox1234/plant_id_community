@@ -202,11 +202,6 @@ _GOOGLE_PROFILE = {
     "given_name": "New",
     "family_name": "Bie",
 }
-_GITHUB_PROFILE = {
-    "id": 4242,
-    "email": "octo@example.com",
-    "name": "Octo Cat",
-}
 
 
 class WebOAuthConsentTest(TestCase):
@@ -230,9 +225,7 @@ class WebOAuthConsentTest(TestCase):
 
     def _callback(self, provider="google", profile=None):
         handler = f"_handle_{provider}_callback"
-        profile = dict(
-            profile or (_GOOGLE_PROFILE if provider == "google" else _GITHUB_PROFILE)
-        )
+        profile = dict(profile or _GOOGLE_PROFILE)
         with patch.object(oauth_views, handler, return_value=profile):
             return self.client.get(
                 reverse("v1:users:oauth_callback", kwargs={"provider": provider}),
@@ -422,7 +415,7 @@ class WebOAuthConsentTest(TestCase):
         self.assertTrue(User.objects.filter(email="newbie@example.com").exists())
 
     def test_oauth_login_drops_a_parked_signup(self):
-        for provider, query in (("google", {}), ("github", {"accepted_terms": "1"})):
+        for provider, query in (("google", {}), ("google", {"accepted_terms": "1"})):
             self._seed_pending()
             with patch.object(
                 oauth_views, "_provider_settings", return_value=_PROVIDER_SETTINGS
@@ -449,15 +442,3 @@ class WebOAuthConsentTest(TestCase):
         stored = self.client.session["oauth_pending_signup"]["user_data"]
         self.assertNotIn("access_token", stored)
         self.assertNotIn("picture", stored)
-
-    def test_github_callback_new_user_also_gated(self):
-        self._seed_state()
-
-        response = self._callback(provider="github")
-
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue(response["Location"].endswith("/signup/finish"))
-        self.assertFalse(User.objects.filter(email="octo@example.com").exists())
-        self.assertEqual(
-            self.client.session["oauth_pending_signup"]["provider"], "github"
-        )

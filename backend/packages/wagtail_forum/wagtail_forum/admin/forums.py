@@ -440,6 +440,7 @@ class ForumViewSet(ModelViewSet):
     @property
     def permissions_view(self) -> Any:
         return ForumPermissionsView.as_view(
+            index_url_name=self.get_url_name("index"),
             edit_url_name=self.get_url_name("edit"),
             permissions_url_name=self.get_url_name("permissions"),
         )
@@ -447,6 +448,7 @@ class ForumViewSet(ModelViewSet):
     @property
     def change_type_view(self) -> Any:
         return ForumChangeTypeView.as_view(
+            index_url_name=self.get_url_name("index"),
             edit_url_name=self.get_url_name("edit"),
             change_type_url_name=self.get_url_name("change_type"),
         )

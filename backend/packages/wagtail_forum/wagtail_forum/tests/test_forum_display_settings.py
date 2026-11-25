@@ -192,7 +192,7 @@ def test_canopy_accent_colours_are_accepted(colour):
         "1",
         "<b>",
         "★x",
-        "\U0001F3FD",  # a lone skin-tone modifier
+        "\U0001f3fd",  # a lone skin-tone modifier
         "🌿\u200d",  # a trailing joiner
         "1\u20e3",  # a keycap without VS16
     ],

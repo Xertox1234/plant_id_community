@@ -25,11 +25,11 @@ from django.urls import reverse
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy
 from django.views.generic import TemplateView
-from wagtail.admin.views.generic.base import WagtailAdminTemplateMixin
 from wagtail.admin.views.generic.permissions import PermissionCheckedMixin
 
 from ..models import Forum, ForumGrant, ForumRole
 from ..services.forum_permissions import DEFAULT_ROLES, copy_permissions, set_grant
+from .forum_row_page import ForumRowPageMixin
 
 TEMPLATE = "wagtail_forum/admin/forum_permissions.html"
 ACTION_SAVE = "save"
@@ -97,15 +97,12 @@ class CopyPermissionsForm(forms.Form):
         )
 
 
-class ForumPermissionsView(
-    PermissionCheckedMixin, WagtailAdminTemplateMixin, TemplateView
-):
+class ForumPermissionsView(PermissionCheckedMixin, ForumRowPageMixin, TemplateView):
     model = Forum
     permission_required = "change"
     template_name = TEMPLATE
     page_title = gettext_lazy("Permissions")
     header_icon = "lock"
-    edit_url_name: str | None = None
     permissions_url_name: str | None = None
 
     def setup(self, request: HttpRequest, *args: Any, **kwargs: Any) -> None:

@@ -217,8 +217,6 @@ JWT_SECRET_KEY=<a generated value, at least 50 characters>
 # OAuth (if using; leave unset to keep the integration off)
 GOOGLE_OAUTH2_CLIENT_ID=<the client id from the Google console>
 GOOGLE_OAUTH2_CLIENT_SECRET=<its client secret>
-GITHUB_CLIENT_ID=<the client id from GitHub>
-GITHUB_CLIENT_SECRET=<its client secret>
 
 # Database
 DATABASE_URL=postgres://user:password@localhost:5432/plant_community
@@ -354,7 +352,8 @@ twelve pre-436 literals too (`GITHUB_CLIENT_SECRET=your-github-client-secret`,
 environment built from the older template still carries them. They live in
 `backend/plant_community_backend/env_placeholders.py` (`LEGACY_PLACEHOLDERS`,
 matched as a substring like the prefix), with the same split: fatal in
-production, a warning under `DEBUG`.
+production, a warning under `DEBUG`. The two GitHub keys left both lists when GitHub sign-in
+was removed (2026-11-19), so ten keys remain.
 
 The mechanism, in one place:
 `reject_insecure_value(name, value)` in
@@ -376,7 +375,7 @@ different mistake from "you chose a weak value".
 | `JWT_SECRET_KEY` | rejected at boot | `reject_insecure_value("JWT_SECRET_KEY", …)`, guarded on `not DEBUG`, placed **before** `SIMPLE_JWT["SIGNING_KEY"]` is assigned |
 | `PLANT_ID_API_KEY` | rejected at boot | prefix check in `validate_environment()`'s `api_key_checks` loop, ahead of the length floor |
 | `PLANTNET_API_KEY` | rejected at boot | same loop |
-| The 12 optional integrations: `OPENWEATHER_API_KEY`, `TREFLE_API_KEY`, `PLANT_HEALTH_API_KEY`, `OPENAI_API_KEY`, `UNSPLASH_ACCESS_KEY`, `PEXELS_API_KEY`, `GOOGLE_OAUTH2_CLIENT_ID` / `_SECRET`, `GITHUB_CLIENT_ID` / `_SECRET`, `FIREBASE_PROJECT_ID`, `FIREBASE_CREDENTIALS_PATH` | rejected at boot; a configuration warning under DEBUG | `validate_environment()`'s `optional_integration_keys` loop (todo 436), reading each through `config()`. Unset is never an error: every one is read with a default |
+| The 10 optional integrations: `OPENWEATHER_API_KEY`, `TREFLE_API_KEY`, `PLANT_HEALTH_API_KEY`, `OPENAI_API_KEY`, `UNSPLASH_ACCESS_KEY`, `PEXELS_API_KEY`, `GOOGLE_OAUTH2_CLIENT_ID` / `_SECRET`, `FIREBASE_PROJECT_ID`, `FIREBASE_CREDENTIALS_PATH` | rejected at boot; a configuration warning under DEBUG | `validate_environment()`'s `optional_integration_keys` loop (todo 436), reading each through `config()`. Unset is never an error: every one is read with a default |
 | `FIELD_ENCRYPTION_KEY` | n/a — **removed** | it was accepted and never read; `django-encrypted-model-fields` was dropped from `requirements.txt` with it |
 
 **Two things are worth remembering about how this looked before.**

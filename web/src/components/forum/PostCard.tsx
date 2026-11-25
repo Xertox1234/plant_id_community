@@ -1,4 +1,4 @@
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Check,
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import StreamFieldRenderer from '../StreamFieldRenderer';
 import EditHistoryDialog from './EditHistoryDialog';
+import InlineError from './InlineError';
 import Timestamp from '../ui/Timestamp';
 import Card from '../ui/Card';
 import { POST_CARD_PADDING } from '../ui/dimensions';
@@ -28,9 +29,10 @@ import type { Post } from '@/types';
 
 interface PostCardProps {
   post: Post;
-  onEdit?: (post: Post) => void;
+  onEdit?: (post: Post) => void | Promise<void>;
   onDelete?: (post: Post) => void;
-  onReact?: (postId: string, reactionType: string) => void;
+  /** May reject: the card shows the reason (as for every promise below). */
+  onReact?: (postId: string, reactionType: string) => Promise<void> | void;
   onReport?: (postId: string, reason: string) => Promise<void>;
   /** Block/unblock this post's author (todo 284/M9). Same triple-gate
    * discipline as onReport: visibility is `post.can_block && handler`. */
@@ -45,7 +47,9 @@ interface PostCardProps {
    * viewer can actually reply (signed in, thread not locked) — its presence
    * is the affordance, the same contract as onReact.
    */
-  onQuote?: (post: Post) => void;
+  onQuote?: (post: Post) => void | Promise<void>;
+  /** A failed delete: confirmed in the page's dialog, so the page reports it. */
+  deleteError?: string | null;
   /** Whether this post is the topic's accepted answer (audit H6). */
   isSolution?: boolean;
   /**
@@ -55,7 +59,7 @@ interface PostCardProps {
    * offered on the opening post: the question is not its own answer, and the
    * backend rejects it with a 422.
    */
-  onToggleSolution?: (post: Post) => void;
+  onToggleSolution?: (post: Post) => Promise<void> | void;
 }
 
 // Helper function for reaction emojis
@@ -87,6 +91,7 @@ function PostCard({
   onMute,
   onUnmute,
   onQuote,
+  deleteError = null,
   isSolution = false,
   onToggleSolution,
 }: PostCardProps) {
@@ -105,6 +110,14 @@ function PostCard({
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [isBlockActionPending, setIsBlockActionPending] = useState(false);
   const [isMuteActionPending, setIsMuteActionPending] = useState(false);
+  const [actionError, setActionError] = useState<{
+    at: 'header' | 'footer';
+    message: string;
+  } | null>(null);
+  // Which control to focus once a block/mute has settled and rendered.
+  const [focusRelation, setFocusRelation] = useState<'block' | 'mute' | null>(null);
+  const blockControlRef = useRef<HTMLButtonElement>(null);
+  const muteControlRef = useRef<HTMLButtonElement>(null);
   // Local-only: reveals a collapsed (is_blocked) post without a refetch — the
   // real author/body are already in the payload (server doesn't redact).
   // Deliberately NOT tracking a local "just blocked/unblocked" flag: blocking
@@ -134,50 +147,63 @@ function PostCard({
   const authorHref =
     post.author.username === DELETED_AUTHOR_USERNAME ? null : userProfilePath(post.author.username);
 
+  // Run an action and keep its failure on THIS card, next to the control that
+  // caused it (audit F57). One error at a time: a new action clears the last.
+  const run = async (at: 'header' | 'footer', action: () => unknown): Promise<boolean> => {
+    setActionError(null);
+    try {
+      await action();
+      return true;
+    } catch (err) {
+      setActionError({ at, message: err instanceof Error ? err.message : 'Something went wrong.' });
+      return false;
+    }
+  };
+
   // Same non-optimistic contract as submitReport: call the handler and let
-  // the parent's refetch update post.is_blocked. Guards against a double
-  // click while the request is in flight; does not fabricate success.
-  const handleBlock = async () => {
-    if (!onBlock) return;
-    setIsBlockActionPending(true);
-    try {
-      await onBlock(post.author.username);
-    } finally {
-      setIsBlockActionPending(false);
-    }
+  // the parent's refetch update post.is_blocked / is_muted. Guards against a
+  // double click while the request is in flight; does not fabricate success.
+  // Focus then returns to the same control or its counterpart (audit F58):
+  // collapsing, revealing or disabling drops it from the one pressed.
+  const runRelation = async (
+    kind: 'block' | 'mute',
+    handler: ((username: string) => Promise<void>) | undefined
+  ) => {
+    if (!handler) return;
+    const setPending = kind === 'block' ? setIsBlockActionPending : setIsMuteActionPending;
+    setPending(true);
+    await run('footer', () => handler(post.author.username));
+    setFocusRelation(kind);
+    setPending(false);
   };
+  const handleBlock = () => runRelation('block', onBlock);
+  const handleUnblock = () => runRelation('block', onUnblock);
+  const handleMute = () => runRelation('mute', onMute);
+  const handleUnmute = () => runRelation('mute', onUnmute);
 
-  const handleUnblock = async () => {
-    if (!onUnblock) return;
-    setIsBlockActionPending(true);
-    try {
-      await onUnblock(post.author.username);
-    } finally {
-      setIsBlockActionPending(false);
-    }
-  };
+  useEffect(() => {
+    if (!focusRelation || isBlockActionPending || isMuteActionPending) return;
+    setFocusRelation(null);
+    // The reader has already moved on to another control: leave them there.
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const own = focusRelation === 'block' ? blockControlRef : muteControlRef;
+    (own.current ?? blockControlRef.current ?? muteControlRef.current)?.focus({
+      preventScroll: true,
+    });
+  }, [focusRelation, isBlockActionPending, isMuteActionPending]);
 
-  // Mute/unmute (todo 347): same non-optimistic contract as block — the
-  // parent's refetch is the only source of truth for post.is_muted.
-  const handleMute = async () => {
-    if (!onMute) return;
-    setIsMuteActionPending(true);
-    try {
-      await onMute(post.author.username);
-    } finally {
-      setIsMuteActionPending(false);
-    }
-  };
+  // A reveal lasts as long as the block/mute it clicked through. The card now
+  // survives the refetch, so without this a second Block would not collapse it.
+  if ((revealedFor === 'block' && !post.is_blocked) || (revealedFor === 'mute' && !post.is_muted)) {
+    setRevealedFor(null);
+  }
 
-  const handleUnmute = async () => {
-    if (!onUnmute) return;
-    setIsMuteActionPending(true);
-    try {
-      await onUnmute(post.author.username);
-    } finally {
-      setIsMuteActionPending(false);
-    }
-  };
+  const footerError = (
+    <InlineError
+      message={actionError?.at === 'footer' ? actionError.message : null}
+      className="pt-2 text-right"
+    />
+  );
 
   // Collapsed placeholder for a blocked author's post (todo 284/M9) — COLLAPSE,
   // not HIDE: removing a reply mid-thread would break numbering/reply-count
@@ -205,6 +231,7 @@ function PostCard({
             {onUnblock && (
               <button
                 type="button"
+                ref={blockControlRef}
                 onClick={handleUnblock}
                 disabled={isBlockActionPending}
                 className="min-h-11 px-3 py-1 text-sm text-primary hover:bg-primary/10 rounded-pill inline-flex items-center gap-1.5 disabled:opacity-50"
@@ -214,6 +241,7 @@ function PostCard({
             )}
           </div>
         </div>
+        {footerError}
       </Card>
     );
   }
@@ -243,6 +271,7 @@ function PostCard({
             {onUnmute && (
               <button
                 type="button"
+                ref={muteControlRef}
                 onClick={handleUnmute}
                 disabled={isMuteActionPending}
                 className="min-h-11 px-3 py-1 text-sm text-primary hover:bg-primary/10 rounded-pill inline-flex items-center gap-1.5 disabled:opacity-50"
@@ -252,6 +281,7 @@ function PostCard({
             )}
           </div>
         </div>
+        {footerError}
       </Card>
     );
   }
@@ -270,21 +300,17 @@ function PostCard({
   };
 
   // Only confirm "Reported" once the request actually succeeds — a network
-  // failure must leave the picker open (with the real error surfaced by the
-  // caller's onReport), not silently claim success like an optimistic update.
+  // failure must leave the picker open (with the real error shown
+  // beside it), not silently claim success like an optimistic update.
   const submitReport = async () => {
     if (!onReport) return;
     setIsSubmittingReport(true);
-    try {
-      await onReport(post.id, reportReason);
+    // On failure the picker stays open for a retry, with the reason below it.
+    if (await run('footer', () => onReport(post.id, reportReason))) {
       setHasReported(true);
       setIsReporting(false);
-    } catch {
-      // The caller (onReport) already surfaced the error to the user — leave
-      // the picker open so they can retry instead of falsely confirming.
-    } finally {
-      setIsSubmittingReport(false);
     }
+    setIsSubmittingReport(false);
   };
 
   return (
@@ -390,7 +416,7 @@ function PostCard({
           </button>
           {onToggleSolution && (
             <button
-              onClick={() => onToggleSolution(post)}
+              onClick={() => void run('header', () => onToggleSolution(post))}
               className="min-h-11 px-3 py-1 text-sm text-ink-2 hover:bg-secondary/10 rounded-pill inline-flex items-center gap-1.5"
               // aria-pressed makes this a toggle to assistive tech, so the
               // current state is announced rather than inferred from the label.
@@ -403,7 +429,7 @@ function PostCard({
           )}
           {showEdit && (
             <button
-              onClick={() => onEdit!(post)}
+              onClick={() => void run('header', () => onEdit!(post))}
               className="min-h-11 px-3 py-1 text-sm text-sky hover:bg-sky/10 rounded-pill inline-flex items-center gap-1.5"
               title="Edit post"
             >
@@ -421,6 +447,11 @@ function PostCard({
           )}
         </div>
       </div>
+
+      <InlineError
+        message={actionError?.at === 'header' ? actionError.message : deleteError}
+        className="mb-4"
+      />
 
       {/* Clipboard-unavailable fallback: the URL, selectable for manual copy. */}
       {copyFallbackUrl && (
@@ -461,7 +492,9 @@ function PostCard({
               <button
                 key={type}
                 type="button"
-                onClick={onReact ? () => onReact(post.id, type) : undefined}
+                onClick={
+                  onReact ? () => void run('footer', () => onReact(post.id, type)) : undefined
+                }
                 disabled={!onReact}
                 aria-pressed={onReact ? isReacted : undefined}
                 className={`inline-flex items-center gap-1.5 min-h-11 px-3 py-1 rounded-full border text-sm transition-colors disabled:cursor-default ${
@@ -497,7 +530,7 @@ function PostCard({
                 key={type}
                 type="button"
                 onClick={() => {
-                  onReact(post.id, type);
+                  void run('footer', () => onReact(post.id, type));
                   setShowReactionPicker(false);
                 }}
                 aria-pressed={false}
@@ -513,7 +546,7 @@ function PostCard({
           {onQuote && (
             <button
               type="button"
-              onClick={() => onQuote(post)}
+              onClick={() => void run('footer', () => onQuote(post))}
               className="ml-auto min-h-11 px-3 py-1 text-sm text-ink-3 hover:text-primary hover:bg-surface-3 rounded-pill inline-flex items-center gap-1.5"
               title="Quote post"
             >
@@ -533,6 +566,7 @@ function PostCard({
               ? onUnblock && (
                   <button
                     type="button"
+                    ref={blockControlRef}
                     onClick={handleUnblock}
                     disabled={isBlockActionPending}
                     className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-3 rounded-pill inline-flex items-center gap-1.5 disabled:opacity-50"
@@ -544,6 +578,7 @@ function PostCard({
               : onBlock && (
                   <button
                     type="button"
+                    ref={blockControlRef}
                     onClick={handleBlock}
                     disabled={isBlockActionPending}
                     className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:text-error hover:bg-error/10 rounded-pill inline-flex items-center gap-1.5 disabled:opacity-50"
@@ -557,6 +592,7 @@ function PostCard({
               ? onUnmute && (
                   <button
                     type="button"
+                    ref={muteControlRef}
                     onClick={handleUnmute}
                     disabled={isMuteActionPending}
                     className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-3 rounded-pill inline-flex items-center gap-1.5 disabled:opacity-50"
@@ -568,6 +604,7 @@ function PostCard({
               : onMute && (
                   <button
                     type="button"
+                    ref={muteControlRef}
                     onClick={handleMute}
                     disabled={isMuteActionPending}
                     className="min-h-11 px-3 py-1 text-sm text-ink-3 hover:bg-surface-3 rounded-pill inline-flex items-center gap-1.5 disabled:opacity-50"
@@ -625,6 +662,8 @@ function PostCard({
             ))}
         </div>
       )}
+
+      {footerError}
 
       <EditHistoryDialog open={showHistory} postId={post.id} onClose={closeHistory} />
     </Card>

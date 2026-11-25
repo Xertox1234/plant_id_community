@@ -13,9 +13,12 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   `settings.AUTH_USER_MODEL` avoids a hardcoded FK, but package code (e.g.
   `wagtail_forum/api/`) can still break the contract by reading a property
   that only exists on THIS host's custom User model (e.g. `.display_name`).
-  Use `user.get_full_name() or user.get_username()` instead — both are part
-  of Django's base `AbstractBaseUser`/`AbstractUser` contract, so they work
-  for any host. Mirrors `PostAuthorSerializer.get_display_name`; see the fix
+  Use `user.get_username()` (Django's base contract) instead, through
+  `wagtail_forum.api.serializers.forum_display_name(user)`: the forum display
+  name, else the username. **Never `get_full_name()`** (owner decision
+  2026-11-21, audit H1): sign in with Apple, Google or Firebase copies the
+  provider's name into `first_name`, and forum payloads reach anonymous
+  readers. The host's push tray line and reply email use the same helper. Mirrors `PostAuthorSerializer.get_display_name`; see the fix
   in `wagtail_forum/api/user_search.py` (todo 253 slice 4 review, "most
   significant single finding"). Note: a package-OWNED model can legitimately
   have its own `display_name` field (e.g. `models/profiles.py`'s `Profile`) —
@@ -177,7 +180,7 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   from the request.** A client can resend any block it read, so a card or
   snapshot is reduced to its key (a `link_preview` to its URL). Its other
   fields come from the stored body (the edit path passes them, as
-  `existing_quote_ids` does) or from the server's own fetch. Otherwise any
+  `existing_quotes` does) or from the server's own fetch. Otherwise any
   member can post a card whose title and image say one thing while the link
   goes elsewhere (todo 428).
 - **Changing stored markup changes every raw-markup counter over it.** The
@@ -195,3 +198,12 @@ Compact checklist auto-injected before edits to the forum code. Long-form:
   against the request**, as `serialize_image_for_api` does. Local storage
   answers a relative `/media/...`; the web masks it with `mediaUrl`, but
   Flutter's `CachedNetworkImage` cannot resolve it (`link_preview_envelope`).
+- **A public forum name is `forum_display_name(user)`, everywhere: never
+  `get_full_name()` and never the host's `User.display_name`** (which prefers
+  the full name). Covers author blocks, @-mention search, push `actor_name`
+  (dispatch and folded pushes) and email author lines (audit 2026-11-21 H1/M6).
+- **Send-time host code never filters with the guest view.** `_visible_boards()`
+  with no user hides every members-only forum, so a fold count built on it
+  told members "1 reply" of 4. Use the recheck's rule per recipient: live post
+  on a live topic (`eligibility._live_post` / `readable_posts`), then
+  `_unreadable_ids(users, forum_id)` (audit 2026-11-21 M5).

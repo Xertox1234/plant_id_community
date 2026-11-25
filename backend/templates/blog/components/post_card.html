@@ -33,7 +33,7 @@
             </h3>
 
             <div class="post-meta">
-                <span class="author">{{ post.author.get_full_name|default:post.author.username }}</span>
+                <span class="author">{{ post.author.public_name }}</span>
                 <span class="date">{{ post.publish_date|date:"M j, Y" }}</span>
                 {% if post.reading_time %}
                     <span class="reading-time">{{ post.reading_time }} min</span>
@@ -51,7 +51,7 @@
             {% if post.is_featured %}
                 <span class="featured-badge">Featured</span>
             {% endif %}
-            
+
             {% if post.difficulty_level %}
                 <span class="difficulty-badge difficulty-{{ post.difficulty_level }}">
                     {{ post.get_difficulty_level_display }}

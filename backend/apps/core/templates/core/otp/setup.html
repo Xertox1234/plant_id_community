@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Set up two-step sign-in</title>
+</head>
+<body>
+  <main>
+    <h1>Set up two-step sign-in</h1>
+    <p>The admin needs a code from an authenticator app (Google Authenticator,
+      1Password, Authy, ...) every time you sign in.</p>
+    <ol>
+      <li>In the app, add an account by entering this setup key:
+        <p><code>{{ secret }}</code></p>
+        <p>Or open this link on the phone that has the app:
+          <a href="{{ config_url }}">add to authenticator</a></p>
+      </li>
+      <li>Type the 6-digit code the app shows.</li>
+    </ol>
+    {% if error %}<p role="alert">{{ error }}</p>{% endif %}
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ next }}">
+      <label for="token">Code</label>
+      <input id="token" name="token" inputmode="numeric" autocomplete="one-time-code" required autofocus>
+      <button type="submit">Confirm</button>
+    </form>
+    <p><a href="/cms/logout/">Sign out</a></p>
+  </main>
+</body>
+</html>

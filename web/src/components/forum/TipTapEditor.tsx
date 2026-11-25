@@ -27,18 +27,30 @@ import {
   uploadPostImage,
   type UploadedImage,
 } from '../../services/forumService';
+import {
+  canMeasureImages,
+  downscaleForUpload,
+  ImageTooLargeError,
+} from '../../utils/imageDownscale';
 import { logger } from '../../utils/logger';
 import { previewUrlFromHtml } from '../../utils/forumBody';
 import LinkPreviewCard from './LinkPreviewCard';
 import { forumComposerExtensions } from './forumEditorSchema';
 import ForumImagePicker from './ForumImagePicker';
 import { ForumMention } from './forumMentionNode';
+import {
+  ForumQuoteLock,
+  insertPositionAvoidingQuotes,
+  positionOutsideLockedQuotes,
+} from './forumQuoteLock';
 import type { LinkPreview } from '@/types/forum';
 
 // Client-side pre-upload limits — mirror wagtail_forum conf.py
 // (IMAGE_MAX_SIZE_BYTES, IMAGE_ALLOWED_MIME_TYPES). Defense-in-depth: the
 // server re-validates, but a fast local check avoids a wasted round-trip (M29).
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
+// The biggest file worth decoding to see whether shrinking it helps (F207).
+const MAX_SOURCE_BYTES = 60 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 const IMAGE_LIMIT_HINT = 'JPEG, PNG, GIF or WebP, up to 10 MB';
 
@@ -230,6 +242,7 @@ export default function TipTapEditor({
     // there. Placeholder adds no schema, so it stays editor-only.
     extensions: [
       ...forumComposerExtensions(ForumMention),
+      ForumQuoteLock,
       Placeholder.configure({
         placeholder,
       }),
@@ -260,7 +273,13 @@ export default function TipTapEditor({
   // its Idempotency-Key. Without this every retry got a fresh key, which is
   // exactly what makes the server store a duplicate row and orphan a file —
   // the thing M36 exists to prevent.
-  const failedUploadRef = useRef<{ signature: string; idempotencyKey: string } | null>(null);
+  // `prepared` is the file that attempt sent (a shrunk copy of a big photo):
+  // the server refuses a reused key whose bytes differ.
+  const failedUploadRef = useRef<{
+    signature: string;
+    idempotencyKey: string;
+    prepared: File;
+  } | null>(null);
   // Where a dropped file landed, so the image is inserted THERE rather than at
   // whatever the caret happened to be (dropping at the end of a long unfocused
   // post otherwise puts the image at the top).
@@ -324,13 +343,22 @@ export default function TipTapEditor({
   const previewUrlRef = useRef<string | null>(null);
 
   // Close the alt prompt and release its object URL. Every exit path — confirm,
-  // skip, Escape, unmount — must go through here or the blob leaks.
+  // skip, cancel, unmount — must go through here or the blob leaks.
   const closeAltPrompt = () => {
     if (previewUrlRef.current) {
       URL.revokeObjectURL(previewUrlRef.current);
       previewUrlRef.current = null;
     }
     setAltPrompt(null);
+  };
+
+  // Abandon the prompt (Escape, Cancel): nothing is uploaded, inserted or
+  // re-described. Skip is the "no description" choice, not this (audit F134).
+  const cancelAltPrompt = () => {
+    dropPosRef.current = null;
+    closeAltPrompt();
+    // The focused control unmounts with the prompt; go back to the text.
+    editor?.commands.focus(null, { scrollIntoView: false });
   };
 
   // The ONE validation gate for every way an image can enter the composer:
@@ -359,9 +387,34 @@ export default function TipTapEditor({
       return;
     }
     if (file.size > MAX_IMAGE_BYTES) {
-      setImageError(`Image is too large — ${IMAGE_LIMIT_HINT}.`);
+      const tooLarge = `Image is too large — ${IMAGE_LIMIT_HINT}.`;
+      if (!canMeasureImages() || file.size > MAX_SOURCE_BYTES) {
+        setImageError(tooLarge);
+        return;
+      }
+      // A 48 MP photo is over both limits, and shrinking it for the pixel
+      // limit usually fixes this one too (audit F207). Counted as in flight so
+      // the decode window cannot start a second image.
+      uploadsInFlightRef.current += 1;
+      setUploadingImage(true);
+      downscaleForUpload(file)
+        .then((smaller) => {
+          if (smaller.size > MAX_IMAGE_BYTES) setImageError(tooLarge);
+          else if (!editor.isDestroyed) openUploadPrompt(smaller);
+        })
+        .catch((err: unknown) => {
+          setImageError(err instanceof ImageTooLargeError ? err.message : tooLarge);
+        })
+        .finally(() => {
+          uploadsInFlightRef.current -= 1;
+          setUploadingImage(uploadsInFlightRef.current > 0);
+        });
       return;
     }
+    openUploadPrompt(file);
+  };
+
+  const openUploadPrompt = (file: File) => {
     // Ask for alt text BEFORE uploading — the value rides the upload request so
     // it also becomes the image row's default description.
     closeAltPrompt(); // revoke a previous preview if one was somehow still open
@@ -455,6 +508,20 @@ export default function TipTapEditor({
     });
   };
 
+  /** Insert an image at `at` (a drop), else at the caret; never inside a quoted post. */
+  const insertImage = (at: number | null, attrs: Record<string, unknown>) => {
+    if (!editor) return;
+    const position =
+      at === null
+        ? insertPositionAvoidingQuotes(editor.state)
+        : positionOutsideLockedQuotes(editor.state.doc, at);
+    // insertContent (not setImage) so the custom attrs ride along.
+    const chain = editor.chain().focus();
+    if (position !== null) chain.insertContentAt(position, { type: 'image', attrs });
+    else chain.insertContent({ type: 'image', attrs });
+    chain.run();
+  };
+
   // Commit the prompt. `alt` is passed explicitly so the Skip path sends "" no
   // matter what is typed — a decorative image is correctly alt="", and empty
   // must never block posting. A blank alt IS the decorative declaration.
@@ -493,11 +560,7 @@ export default function TipTapEditor({
       // Always at the caret: this path is only reachable from the toolbar
       // button, never from a drop, so there is no drop coordinate to honour
       // (handlePickExisting clears any stale one).
-      editor
-        .chain()
-        .focus()
-        .insertContent({ type: 'image', attrs: { src, alt: trimmed, decorative, imageId } })
-        .run();
+      insertImage(null, { src, alt: trimmed, decorative, imageId });
       return;
     }
 
@@ -508,13 +571,30 @@ export default function TipTapEditor({
     closeAltPrompt();
     uploadsInFlightRef.current += 1;
     setUploadingImage(true);
+    const failed = failedUploadRef.current;
+    let prepared: File;
+    try {
+      // Over the server's pixel limit: send a smaller copy (audit F207).
+      prepared =
+        failed?.idempotencyKey === idempotencyKey
+          ? failed.prepared
+          : await downscaleForUpload(file);
+      if (prepared.size > MAX_IMAGE_BYTES) {
+        throw new Error(`Image is too large — ${IMAGE_LIMIT_HINT}.`);
+      }
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : 'Image upload failed');
+      uploadsInFlightRef.current -= 1;
+      setUploadingImage(uploadsInFlightRef.current > 0);
+      return;
+    }
     try {
       // The forum id only when known, so an upload outside a forum (and
       // every call site before todo 677) keeps its three-argument shape.
       const image =
         forumId != null
-          ? await uploadPostImage(file, trimmed, idempotencyKey, forumId)
-          : await uploadPostImage(file, trimmed, idempotencyKey);
+          ? await uploadPostImage(prepared, trimmed, idempotencyKey, forumId)
+          : await uploadPostImage(prepared, trimmed, idempotencyKey);
       failedUploadRef.current = null;
       const attrs = {
         // alt/decorative come from what the AUTHOR typed, not the response:
@@ -526,19 +606,12 @@ export default function TipTapEditor({
         decorative,
         imageId: image.id,
       };
-      // insertContent (not setImage) so the custom attrs ride along.
-      const chain = editor.chain().focus();
-      if (insertAt !== null) {
-        chain.insertContentAt(insertAt, { type: 'image', attrs });
-      } else {
-        chain.insertContent({ type: 'image', attrs });
-      }
-      chain.run();
+      insertImage(insertAt, attrs);
     } catch (err) {
       logger.error('[forum] image upload failed', err);
       // Remember the key so re-picking THIS file retries under it rather than
       // minting a new one (which would store a duplicate server-side).
-      failedUploadRef.current = { signature, idempotencyKey };
+      failedUploadRef.current = { signature, idempotencyKey, prepared };
       setImageError(err instanceof Error ? err.message : 'Image upload failed');
     } finally {
       uploadsInFlightRef.current -= 1;
@@ -895,9 +968,7 @@ export default function TipTapEditor({
                   e.preventDefault();
                   void commitAltPrompt(altPrompt.alt);
                 } else if (e.key === 'Escape') {
-                  // Escape SKIPS (commits with no alt, i.e. decorative); it
-                  // does not cancel — the user already chose this image.
-                  void commitAltPrompt('');
+                  cancelAltPrompt();
                 }
               }}
               placeholder="e.g. A monstera leaf with brown edges"
@@ -922,6 +993,13 @@ export default function TipTapEditor({
             className="min-h-11 rounded-xs px-3 text-sm text-ink-2"
           >
             Skip
+          </button>
+          <button
+            type="button"
+            onClick={cancelAltPrompt}
+            className="min-h-11 rounded-xs px-3 text-sm text-ink-2"
+          >
+            Cancel
           </button>
         </div>
       )}

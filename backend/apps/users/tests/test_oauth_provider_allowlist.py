@@ -117,3 +117,33 @@ def test_login_endpoint_still_serves_supported_providers(path, provider):
     if resp.status_code == 200:
         assert resp.json()["provider"] == provider
         assert resp.json()["oauth_url"].startswith("https://")
+
+
+# GitHub sign-in was removed (owner decision 2026-11-19): no page linked to it,
+# so it was sign-in code nobody could reach. Both the custom views and the
+# allauth provider must refuse it, on every mount.
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/auth/oauth/github/login/",
+        "/api/v1/auth/oauth/github/login/",
+        "/api/auth/oauth/github/callback/",
+        "/api/v1/auth/oauth/github/callback/",
+    ],
+)
+def test_github_sign_in_is_refused(path):
+    resp = Client().get(path, {"code": "abc", "state": "s"})
+
+    assert resp.status_code == 400, resp.status_code
+    assert "Location" not in resp
+
+
+def test_allauth_github_provider_is_not_installed():
+    from django.conf import settings
+    from django.urls import NoReverseMatch, reverse
+
+    assert "allauth.socialaccount.providers.github" not in settings.INSTALLED_APPS
+    assert "github" not in settings.SOCIALACCOUNT_PROVIDERS
+    with pytest.raises(NoReverseMatch):
+        reverse("github_login")

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:uuid/uuid.dart';
 
 import '../forum_format.dart';
@@ -61,9 +63,13 @@ class ForumComposerController {
     required String title,
     required String bodyText,
     int? imageId,
+    ForumPollDraft? poll,
   }) {
+    final pollJson = poll?.toJson();
+    // The poll is content: changing it after a failed post needs a new key.
     _refreshKeyForContent(
-      'topic|$boardSlug|${title.trim()}|${bodyText.trim()}|${imageId ?? ''}',
+      'topic|$boardSlug|${title.trim()}|${bodyText.trim()}|${imageId ?? ''}'
+      '|${pollJson == null ? '' : jsonEncode(pollJson)}',
     );
     return _api.createTopic(
       boardSlug: boardSlug,
@@ -71,6 +77,7 @@ class ForumComposerController {
       slug: slugifyForumTitle(title),
       body: _buildBody(bodyText, imageId),
       idempotencyKey: _key,
+      poll: pollJson,
     );
   }
 

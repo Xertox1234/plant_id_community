@@ -2,9 +2,12 @@
  * Per-forum themes (todo 681): every theme index.css defines is a token scope
  * for BOTH modes, and its text passes WCAG contrast in light and dark.
  *
+ * The base modes' own ink is checked the same way (audit F132).
+ *
  * Reads index.css itself, so a hex edited there is checked here. Thresholds:
- * 4.5:1 for body text (ink, ink-2, on-primary on primary), 3:1 for the
- * muted ink-3 labels and for the mode's own accent tokens (todo 669's forum
+ * 4.5:1 for body text (ink, ink-2, on-primary on primary) and for ink-3, which
+ * carries body-size helper copy (audit F132); 3:1 for the mode's own accent
+ * tokens (todo 669's forum
  * colour sits on top of a theme, owner decision 2026-10-30), which render as
  * rings, icons and large text.
  */
@@ -12,6 +15,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { FORUM_THEMES } from './forumDisplay';
+import { extract } from '../../../scripts/design/extract_canopy_tokens.mjs';
 
 // Vitest runs from web/ (the jsdom environment gives no file: import.meta.url).
 const CSS_PATH = [
@@ -77,6 +81,25 @@ describe('forum theme contrast (todo 681)', () => {
   });
 
   for (const mode of ['light', 'dark'] as const) {
+    // The base modes use color-mix, so their colours come from the same
+    // extractor that writes design/canopy-tokens.json.
+    it(`the base ${mode} mode's ink passes on every surface (audit F132)`, () => {
+      const colors = extract().modes[mode].colors;
+      const failures: string[] = [];
+      for (const surface of SURFACES) {
+        const bg = colors[surface.replace('--gt-', '')].hex;
+        for (const [ink, min] of [
+          ['ink', 4.5],
+          ['ink-2', 4.5],
+          ['ink-3', 4.5],
+        ] as const) {
+          const ratio = contrast(colors[ink].hex, bg);
+          if (ratio < min) failures.push(`${ink} on ${surface}: ${ratio.toFixed(2)} < ${min}`);
+        }
+      }
+      expect(failures).toEqual([]);
+    });
+
     const base = block(`[data-mode='${mode}']`);
     for (const theme of FORUM_THEMES) {
       it(`${theme} passes in ${mode} mode`, () => {
@@ -89,7 +112,7 @@ describe('forum theme contrast (todo 681)', () => {
         for (const surface of SURFACES) {
           check('--gt-ink', hex(tokens, '--gt-ink'), surface, 4.5);
           check('--gt-ink-2', hex(tokens, '--gt-ink-2'), surface, 4.5);
-          check('--gt-ink-3', hex(tokens, '--gt-ink-3'), surface, 3);
+          check('--gt-ink-3', hex(tokens, '--gt-ink-3'), surface, 4.5);
           for (const accent of ACCENTS) check(accent, hex(base, accent), surface, 3);
         }
         check('--gt-on-primary', hex(tokens, '--gt-on-primary'), '--gt-primary', 4.5);

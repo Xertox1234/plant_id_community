@@ -5,6 +5,7 @@ Plant Community Web App - A comprehensive platform for plant enthusiasts
 Built with Django 5.2 LTS, Wagtail 7.0 LTS, and modern web technologies.
 """
 
+import importlib.util
 import logging
 import os
 import re
@@ -256,7 +257,6 @@ THIRD_PARTY_APPS = [
     "allauth.account",
     "allauth.socialaccount",
     "allauth.socialaccount.providers.google",
-    "allauth.socialaccount.providers.github",
     # django-ai-core vector index for the forum "similar topics" feature
     # (todo 255 slice 4 / H15). The pgvector storage app ships the
     # `CREATE EXTENSION vector` migration; the index app owns the embedding +
@@ -265,6 +265,11 @@ THIRD_PARTY_APPS = [
     # feature itself gates on FORUM_VECTOR_SEARCH_ENABLED (below).
     "django_ai_core.contrib.index",
     "django_ai_core.contrib.index.storage.pgvector",
+    # Admin second factor (todo 705 M22): TOTP apps, plus one-time static
+    # codes for recovery (`manage.py addstatictoken <username>`).
+    "django_otp",
+    "django_otp.plugins.otp_totp",
+    "django_otp.plugins.otp_static",
 ]
 
 # Local Apps
@@ -287,11 +292,17 @@ INSTALLED_APPS += [
     "channels",
 ]
 
-if DEBUG:
-    INSTALLED_APPS += [
-        "debug_toolbar",
-        "django_extensions",
-    ]
+# Dev tools, from requirements-dev.txt only (todo 708). The production image
+# installs requirements.txt alone, and its build runs compilemessages and
+# collectstatic with DEBUG=True, so each is added only when it is installed.
+_HAS_DEBUG_TOOLBAR = DEBUG and importlib.util.find_spec("debug_toolbar") is not None
+_HAS_DJANGO_EXTENSIONS = (
+    DEBUG and importlib.util.find_spec("django_extensions") is not None
+)
+if _HAS_DEBUG_TOOLBAR:
+    INSTALLED_APPS += ["debug_toolbar"]
+if _HAS_DJANGO_EXTENSIONS:
+    INSTALLED_APPS += ["django_extensions"]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -305,10 +316,16 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Admin sign-in hardening (todo 705 M22, apps/core/admin_security.py):
+    # OTPMiddleware gives request.user is_verified(); the staff middleware
+    # sends an unverified user on /cms/ or /admin/ to the second factor.
+    "django_otp.middleware.OTPMiddleware",
+    "apps.core.admin_security.StaffOTPRequiredMiddleware",
+    "apps.core.admin_security.AdminLoginThrottleMiddleware",
     "allauth.account.middleware.AccountMiddleware",  # OAuth middleware
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "wagtail.contrib.redirects.middleware.RedirectMiddleware",
+    "apps.forum_host.redirects.ForumRedirectMiddleware",
     "apps.blog.middleware.BlogViewTrackingMiddleware",  # Blog analytics (Phase 6.2)
 ]
 
@@ -324,7 +341,7 @@ if _HAS_REQUEST_ID:
         "request_id.middleware.RequestIdMiddleware"
     )  # Request ID tracking
 
-if DEBUG:
+if _HAS_DEBUG_TOOLBAR:
     MIDDLEWARE += ["debug_toolbar.middleware.DebugToolbarMiddleware"]
 
 ROOT_URLCONF = "plant_community_backend.urls"
@@ -334,6 +351,7 @@ _base_context_processors = [
     "django.template.context_processors.request",
     "django.contrib.auth.context_processors.auth",
     "django.contrib.messages.context_processors.messages",
+    "apps.core.context_processors.email_sender",
 ]
 _template_dirs = [BASE_DIR / "templates"]
 
@@ -387,6 +405,15 @@ DATABASES = {
 _IS_PYTEST_RUN = "pytest" in sys.modules
 _IS_DJANGO_TEST_RUN = "test" in sys.argv
 _IS_TEST_RUN = _IS_PYTEST_RUN or _IS_DJANGO_TEST_RUN
+
+# Every signed-in request to /cms/ or /admin/ needs a verified django-otp
+# second factor (todo 705 M22, owner decision 2026-11-17). Off under test runs
+# only, so the admin's own tests keep using force_login; the tests of the
+# gate itself turn it on (apps/core/tests/test_admin_login_ratelimit.py). Set
+# STAFF_OTP_REQUIRED=False in a local .env to skip it in development.
+STAFF_OTP_REQUIRED = config("STAFF_OTP_REQUIRED", default=not _IS_TEST_RUN, cast=bool)
+# The name an authenticator app shows for the account.
+OTP_TOTP_ISSUER = "Houseplant MD"
 if _IS_TEST_RUN:
     configured_database_url = config("DATABASE_URL", default="").strip()
     if _IS_PYTEST_RUN and configured_database_url:
@@ -417,6 +444,13 @@ if _IS_TEST_RUN:
         )
 
 
+# Redis client timeouts, in seconds (todo 710). redis-py 8 made 5 s the
+# default read timeout; every pool that runs a blocking command needs a read
+# timeout longer than its longest block, or an idle wait raises TimeoutError.
+REDIS_SOCKET_CONNECT_TIMEOUT = 5
+REDIS_CACHE_SOCKET_TIMEOUT = 20  # > CACHE_LOCK_TIMEOUT (15 s lock BLPOP)
+REDIS_CHANNEL_LAYER_SOCKET_TIMEOUT = 15  # > channels_redis brpop_timeout (5 s)
+
 # Cache configuration with Redis fallback to dummy cache
 try:
     # Try Redis configuration if available
@@ -426,7 +460,20 @@ try:
     redis_client = redis.from_url(redis_url)
     redis_client.ping()  # Test connection
 
-    _redis_pool_kwargs: dict[str, Any] = {"retry_on_timeout": True}
+    # redis-py 8 defaults socket_timeout to 5 s (7.x waited forever). The
+    # distributed lock on this pool BLPOPs for up to CACHE_LOCK_TIMEOUT (15 s,
+    # apps/plant_identification/constants.py), and a read timeout shorter than
+    # that turns a contended lock into a TimeoutError (todo 710). Connects keep
+    # a short timeout of their own. The read timeout covers every op on this
+    # pool, so against a hung Redis a cache call now waits up to ~20 s (twice
+    # that with retry_on_timeout) before IGNORE_EXCEPTIONS swallows it; 7.x
+    # waited forever. The `renditions` pool runs no blocking command, so it
+    # keeps redis-py's 5 s default: give it a longer one before blocking on it.
+    _redis_pool_kwargs: dict[str, Any] = {
+        "retry_on_timeout": True,
+        "socket_timeout": REDIS_CACHE_SOCKET_TIMEOUT,
+        "socket_connect_timeout": REDIS_SOCKET_CONNECT_TIMEOUT,
+    }
     if not redis_url.startswith("unix://"):
         # TCP-only: a Unix-socket connection rejects them with a TypeError that
         # IGNORE_EXCEPTIONS then hides, silently disabling the cache. Sweep
@@ -853,6 +900,10 @@ SIMPLE_JWT = {
     "SLIDING_TOKEN_REFRESH_LIFETIME": timedelta(days=1),
 }
 
+# Password reset links (Django's token generator: Wagtail admin and allauth
+# resets) live one hour, not Django's default three days (todo 705 L7).
+PASSWORD_RESET_TIMEOUT = 60 * 60
+
 # JWT_SECRET_KEY Validation (CRITICAL SECURITY)
 # JWT tokens MUST use a separate signing key from Django's SECRET_KEY
 # This prevents SECRET_KEY compromise from affecting JWT authentication
@@ -1039,7 +1090,17 @@ _REDIS_CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [_redis_url],
+            # A host dict, not a bare URL, so the pool gets a read timeout
+            # longer than the BZPOPMIN each receive() blocks on; under
+            # redis-py 8's 5 s default an idle socket's receive raised
+            # TimeoutError (todo 710).
+            "hosts": [
+                {
+                    "address": _redis_url,
+                    "socket_timeout": REDIS_CHANNEL_LAYER_SOCKET_TIMEOUT,
+                    "socket_connect_timeout": REDIS_SOCKET_CONNECT_TIMEOUT,
+                }
+            ],
         },
     },
 }
@@ -1098,11 +1159,23 @@ WAGTAILFORUM_DIGEST_UNSUBSCRIBE = "apps.users.email_unsubscribe.digest_unsubscri
 WAGTAILFORUM_DIGEST_RECIPIENT_FILTER = (
     "apps.users.notification_policy.digest_recipient_filter"
 )
+# One photo everywhere: an author with no forum avatar is shown with their
+# account photo (User.avatar, the one the mobile and web profile screens set)
+# instead of an initial.
+WAGTAILFORUM_AUTHOR_AVATAR_FALLBACK = "apps.forum_host.avatars.account_avatar_url"
+# An anonymous reader's topic view is deduplicated on the real client address
+# (the rate limiter's resolver), not REMOTE_ADDR, which behind Cloudflare and
+# Railway is the proxy's (todo 730, audit 2026-11-21 L15).
+WAGTAILFORUM_VIEW_COUNT_CLIENT_RESOLVER = "apps.core.ratelimit.request_client_id"
 # This API's own public origin (e.g. https://api.houseplant-md.com). SITE_URL
 # is the WEB app's. Set, every list email carries an RFC 8058 one-click
 # List-Unsubscribe URL on this origin plus List-Unsubscribe-Post; unset, the
 # header points at the web /unsubscribe page and one-click is off (todo 416).
 API_PUBLIC_URL = config("API_PUBLIC_URL", default="")
+# The origin of the web OAuth provider callbacks (todo 705 L6): fixed, never
+# the request's Host header. Unset (and not a test run) means web OAuth answers
+# 503 rather than guess; development (DEBUG) uses http://localhost:8000.
+OAUTH_CALLBACK_ORIGIN = API_PUBLIC_URL or ("http://testserver" if _IS_TEST_RUN else "")
 
 # Forum link preview cards (todo 428): a link posted on its own is stored as
 # a card (title, description, site, and OUR re-encoded copy of its image),
@@ -1277,6 +1350,17 @@ EMAIL_USE_LOCALTIME = config("EMAIL_USE_LOCALTIME", default=False, cast=bool)
 # Site configuration for email templates
 SITE_NAME = config("SITE_NAME", default="Houseplant MD")
 SITE_URL = config("SITE_URL", default="https://plantcommunity.com")
+
+# Who sends our email, printed in every email's footer (todo 703): CASL
+# s. 6(2) with SOR/2012-36 s. 2(1)(d) and CAN-SPAM 15 U.S.C. 7704(a)(5)(A)(iii)
+# want the sender's name and a valid postal address on commercial email. Read
+# at render time by apps.core.context_processors.email_sender, so every send
+# path gets them, with or without a request. Blank (the default) prints no
+# sender line: the owner sets both on Railway at launch (todo 724). They are
+# not declared in .railway/railway.ts until then, as for any variable Railway
+# does not have yet (see the comment there).
+EMAIL_SENDER_NAME = config("EMAIL_SENDER_NAME", default="")
+EMAIL_SENDER_ADDRESS = config("EMAIL_SENDER_ADDRESS", default="")
 
 # Logging configuration
 # Request ID configuration
@@ -1462,6 +1546,23 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.forum_host.tasks.send_forum_weekly_digest",
         "schedule": crontab(hour=9, minute=0, day_of_week="monday"),
     },
+    # Todo 728: the digest respects quiet hours. A member whose quiet window
+    # covered the 09:00 run was skipped and is still due; these hourly runs
+    # look only at members with quiet hours on and send once the window has
+    # ended. A window is shorter than a day, so the 24 hours after the main
+    # run cover every member: Monday 09:30-23:30, then Tuesday 00:30-09:30.
+    # On the half hour, so they never start with the 09:00 digest or the
+    # 10:00 newsletter.
+    "forum-weekly-digest-quiet-release-monday": {
+        "task": "apps.forum_host.tasks.send_forum_weekly_digest",
+        "schedule": crontab(hour="9-23", minute=30, day_of_week="monday"),
+        "kwargs": {"quiet_only": True},
+    },
+    "forum-weekly-digest-quiet-release-tuesday": {
+        "task": "apps.forum_host.tasks.send_forum_weekly_digest",
+        "schedule": crontab(hour="0-9", minute=30, day_of_week="tuesday"),
+        "kwargs": {"quiet_only": True},
+    },
     # Todo 409: the blog newsletter, to confirmed subscribers only. An hour
     # after the forum digest so the two runs don't share the worker.
     "blog-weekly-newsletter": {
@@ -1569,7 +1670,11 @@ RATELIMIT_TRUSTED_PROXY_COUNT = max(
 # set RATELIMIT_CLIENT_IP_META_KEY=HTTP_X_ENVOY_EXTERNAL_ADDRESS. Takes precedence
 # over the count when set. The proxy MUST set this header authoritatively (else a
 # client could spoof it). Empty = use the XFF-count strategy.
-RATELIMIT_CLIENT_IP_META_KEY = config("RATELIMIT_CLIENT_IP_META_KEY", default="")
+# The Django setting is RATELIMIT_CLIENT_IP_HEADER (todo 718): CodeQL read the
+# old setting name's `_KEY` as a secret and raised every log line that carried
+# the resolved client IP. The environment variable keeps its old name, which
+# is the one set on Railway (=HTTP_X_REAL_IP) and declared in railway.ts.
+RATELIMIT_CLIENT_IP_HEADER = config("RATELIMIT_CLIENT_IP_META_KEY", default="")
 # One-time diagnostic: log how each rate-limited request resolved its client IP
 # (REMOTE_ADDR + candidate forwarding headers). Enable briefly on a new proxy to
 # confirm its real shape, then set back to False. Default off.
@@ -1729,16 +1834,6 @@ SOCIALACCOUNT_PROVIDERS = {
             "key": "",
         },
     },
-    "github": {
-        "SCOPE": [
-            "user:email",
-        ],
-        "APP": {
-            "client_id": config("GITHUB_CLIENT_ID", default=""),
-            "secret": config("GITHUB_CLIENT_SECRET", default=""),
-            "key": "",
-        },
-    },
 }
 
 # Custom adapter for JWT integration
@@ -1758,12 +1853,6 @@ WAGTAIL_AI = {
             "model": "gpt-4o-mini",  # Cost-effective model for text generation
             "api_key": config("OPENAI_API_KEY", default=""),
         },
-        # Future: Add vision provider for image alt text generation (Phase 3)
-        # "vision": {
-        #     "provider": "openai",
-        #     "model": "gpt-4o-vision-preview",
-        #     "api_key": config('OPENAI_API_KEY', default=''),
-        # },
     },
     # Legacy BACKENDS configuration (deprecated but kept for backward compatibility)
     # Will be removed when all code migrates to PROVIDERS
@@ -2046,12 +2135,7 @@ def validate_environment():
         config("GOOGLE_OAUTH2_CLIENT_ID", default="")
         and config("GOOGLE_OAUTH2_CLIENT_SECRET", default="")
     )
-    github_configured = bool(
-        config("GITHUB_CLIENT_ID", default="")
-        and config("GITHUB_CLIENT_SECRET", default="")
-    )
-
-    if not google_configured and not github_configured:
+    if not google_configured:
         warnings.append(
             "No OAuth providers configured - users can only register with username/password"
         )

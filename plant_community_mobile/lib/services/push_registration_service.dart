@@ -206,6 +206,11 @@ class PushRegistrationService {
 
       await _refreshSubscription?.cancel();
       if (epoch != _epoch) return; // cancel() is an await too (review sweep)
+      // firebase_messaging 17 deprecates onTokenRefresh and getToken for
+      // register() and onRegistered, which hand out a Firebase installation
+      // ID, not a registration token. The backend stores and sends to
+      // tokens, so the token API stays until both sides move (todo 713).
+      // ignore: deprecated_member_use
       _refreshSubscription = messaging.onTokenRefresh.listen(
         registerToken,
         onError: (Object e) {
@@ -234,6 +239,7 @@ class PushRegistrationService {
     // A denied permission still yields a valid token on Android — the tray
     // stays silent but registration works, so proceed regardless; [status]
     // carries the permission separately.
+    // ignore: deprecated_member_use (see syncAfterLogin; todo 713)
     final token = await messaging.getToken();
     if (epoch != _epoch) return; // signed out while fetching the token
     if (token == null || token.isEmpty) {
@@ -470,6 +476,27 @@ class PushRegistrationService {
       if (kDebugMode) {
         debugPrint('[PUSH] FCM unregister on logout failed (ignored): $e');
       }
+    }
+  }
+
+  /// Device-side unregister for the sign-outs that have no JWT left to tell
+  /// the server with: a session expiry, a sign-out Firebase reports, a
+  /// declined consent (todo 704, audit M13). [detach]es, then deletes this
+  /// installation's FCM token, so FCM refuses every send to it. The backend
+  /// prunes a row whose token FCM calls unregistered at its next send
+  /// (`apps/core/fcm.py`), so the signed-out account stops reaching this
+  /// device. The next sign-in's [syncAfterLogin] gets a new token. Never
+  /// throws; bounded like [clearOnLogout].
+  Future<void> revokeDeviceToken() async {
+    detach();
+    try {
+      // deleteToken, not 17.x's unregister(): this app registers the FCM
+      // token (getToken), not the installation id unregister() retires.
+      // ignore: deprecated_member_use
+      await messaging.deleteToken().timeout(_logoutClearTimeout);
+      if (kDebugMode) debugPrint('[PUSH] FCM token deleted on sign-out');
+    } catch (e) {
+      if (kDebugMode) debugPrint('[PUSH] FCM token delete failed: $e');
     }
   }
 

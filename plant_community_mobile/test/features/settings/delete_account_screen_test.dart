@@ -46,6 +46,13 @@ class _FakeAuth extends FakeAuthService {
     return 'fresh-token';
   }
 
+  /// Recorded for an Apple account only: the real one is a no-op unless an
+  /// Apple re-auth kept a code (todo 717).
+  @override
+  Future<void> revokeAppleSignIn() async {
+    if (method == ReauthMethod.apple) events.add('revokeApple');
+  }
+
   @override
   Future<void> signOut() async {
     events.add('signOut');
@@ -178,6 +185,35 @@ void main() {
     expect(find.text('LOGIN SCREEN'), findsOneWidget);
   });
 
+  testWidgets('an Apple-linked account revokes its Apple tokens before the '
+      'deletion request: the server erases the Firebase user the revoke '
+      'needs as soon as it accepts (todo 717 review)', (tester) async {
+    final harness = await _pump(tester, method: ReauthMethod.apple);
+
+    await _tapDelete(tester);
+
+    expect(harness.events, [
+      'reauth',
+      'revokeApple',
+      'delete:fresh-token',
+      'signOut',
+      'clearCache',
+    ]);
+    expect(find.text(_finalMessage), findsOneWidget);
+  });
+
+  testWidgets('a refused deletion was already revoked and stays signed in', (
+    tester,
+  ) async {
+    final harness = await _pump(tester, method: ReauthMethod.apple);
+    harness.deletion.result = const AccountDeletionFailed('Try again later.');
+
+    await _tapDelete(tester);
+
+    expect(harness.events, ['reauth', 'revokeApple', 'delete:fresh-token']);
+    expect(find.text('Try again later.'), findsOneWidget);
+  });
+
   testWidgets('a password user is asked for the password first', (
     tester,
   ) async {
@@ -221,6 +257,16 @@ void main() {
     expect(harness.auth.state.isAuthenticated, isTrue);
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.text('Delete my account'), findsOneWidget);
+  });
+
+  testWidgets('a cancelled Apple re-auth revokes nothing', (tester) async {
+    final harness = await _pump(tester, method: ReauthMethod.apple);
+    harness.auth.reauthError = ReauthCancelledException();
+
+    await _tapDelete(tester);
+
+    expect(harness.events, ['reauth']);
+    expect(harness.auth.state.isAuthenticated, isTrue);
   });
 
   testWidgets('a failed re-auth shows its message and deletes nothing', (

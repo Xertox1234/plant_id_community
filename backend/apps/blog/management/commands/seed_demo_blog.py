@@ -156,8 +156,9 @@ class Command(BaseCommand):
         with transaction.atomic():
             for username, (first, last) in AUTHOR_NAMES.items():
                 user = ensure_demo_user(specs[username], self.stdout)
-                # Fill-if-blank ONLY (spec §5): the blog author line reads
-                # User.get_full_name(); a manually customised name wins.
+                # Fill-if-blank ONLY (spec §5); a manually customised name
+                # wins. Public bylines read User.public_name (the forum
+                # display name, else the username), never these (todo 731).
                 if not user.first_name and not user.last_name:
                     user.first_name = first
                     user.last_name = last
@@ -176,7 +177,7 @@ class Command(BaseCommand):
             if page is None:
                 page = index.add_child(
                     instance=BlogAuthorPage(
-                        title=user.get_full_name() or username,
+                        title=user.public_name,
                         slug=username.replace("_", "-"),
                         author=user,
                         bio=AUTHOR_BIOS[username],

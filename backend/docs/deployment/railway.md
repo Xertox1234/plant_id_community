@@ -32,7 +32,8 @@ depends on whether API and frontend share a registrable domain.
    address that changes per request, and `X-Real-IP` holds the client. A
    forged `X-Real-IP` or XFF from the client is overwritten upstream. So prod
    uses `RATELIMIT_CLIENT_IP_META_KEY=HTTP_X_REAL_IP` (set once its
-   `railway.ts` declaration was applied), which takes precedence over
+   `railway.ts` declaration was applied; the environment variable behind the
+   Django setting `RATELIMIT_CLIENT_IP_HEADER`, renamed in todo 718), which takes precedence over
    `RATELIMIT_TRUSTED_PROXY_COUNT`. No proxy count can find the client here:
    until then every per-IP limit (HTTP and the live socket gate) keyed on
    the changing internal address and never tripped.
@@ -115,8 +116,10 @@ show:
   `-e ./packages/wagtail_forum` requirement. The hand-written Dockerfile
   declares NO `ARG`s and `COPY . .`s before installing — see its header
   comments.
-- **Python version** is pinned by `backend/.python-version` (canonical) and
-  must stay in sync with the Dockerfile's `FROM python:3.13-slim`.
+- **Python version** is one patch, written in three places that must agree:
+  `.python-version`, `backend/.python-version` and the Dockerfile's
+  `FROM python:3.13.18-slim` (todo 709). A Dependabot patch bump changes only
+  the Dockerfile, so move both version files in the same PR.
 - **`collectstatic` runs at BUILD time** (a `RUN` step), never at container
   start: on the slim runtime image the filesystem copies ~3 s/file (262 files
   ≈ 13 min), which eats the whole healthcheck window so gunicorn never starts.

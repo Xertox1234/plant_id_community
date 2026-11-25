@@ -156,7 +156,7 @@ abstract final class CanopyPalette {
     // color-mix(in oklab, sage 85%, mint)
     ink2: Color(0xFF99BFA5),
     // color-mix(in oklab, sage 65%, forest)
-    ink3: Color(0xFF68927C),
+    ink3: Color(0xFF8AB297),
     // forest at 45% / 75% alpha — a color-mix with `transparent` mixes
     // premultiplied, so the hue is unchanged and only alpha moves.
     line: Color(0x73235347),
@@ -194,7 +194,7 @@ abstract final class CanopyPalette {
     surface3: Color(0xFFE9F5EC),
     ink: Color(0xFF0B2B26),
     ink2: Color(0xFF35594B),
-    ink3: Color(0xFF5E8271),
+    ink3: Color(0xFF4C695C),
     // sage at 38% / 62% alpha
     line: Color(0x618EB69B),
     line2: Color(0x9E8EB69B),

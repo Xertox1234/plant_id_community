@@ -141,7 +141,7 @@ export default function NotificationBell() {
         aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : 'Notifications'}
         aria-expanded={isOpen}
         aria-haspopup="true"
-        className="relative p-2 rounded-lg text-ink-2 hover:text-primary hover:bg-surface transition-colors"
+        className="relative inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-ink-2 hover:text-primary hover:bg-surface transition-colors"
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (

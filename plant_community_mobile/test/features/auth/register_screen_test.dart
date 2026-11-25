@@ -172,8 +172,9 @@ void main() {
     for (final e in {
       'Display name': 'Ada',
       'Email': 'ada@example.com',
-      'Password': 'secret1', // pragma: allowlist secret
-      'Confirm password': 'secret1', // pragma: allowlist secret
+      // 14 characters: the sign-up minimum (todo 715).
+      'Password': 'secret1secret1', // pragma: allowlist secret
+      'Confirm password': 'secret1secret1', // pragma: allowlist secret
     }.entries) {
       await tester.enterText(
         find.widgetWithText(TextFormField, e.key),

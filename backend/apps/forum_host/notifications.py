@@ -135,11 +135,25 @@ def dispatch(event, **kwargs):
     from django.db import transaction
 
     from .tasks import (
+        recipient_chunks,
         send_forum_email_batch,
         send_forum_push,
         send_forum_push_batch,
         send_forum_web_push_batch,
     )
+
+    def _delay_chunks(task, event_name, pks, payload, batch_id, message, *args):
+        """Enqueue ``task`` once per ``NOTIFICATION_BATCH_CHUNK_SIZE``
+        recipients (todo 727), all under the one ``batch_id``: each task
+        claims only its own recipients' rows. Never raises: a chunk the
+        broker refuses is logged with ``message`` and the rest are still
+        tried; its outbox rows stay pending for reconciliation (todo 619)."""
+        extra = {"batch_id": batch_id} if batch_id else {}
+        for chunk in recipient_chunks(pks):
+            try:
+                task.delay(event_name, chunk, payload, **extra)
+            except Exception:
+                log_broker_failure(logger, message, *args)
 
     web_push_on = web_push_enabled()
 
@@ -181,36 +195,35 @@ def dispatch(event, **kwargs):
         # for reconciliation (todo 619).
         if not pks:
             return
-        try:
-            extra = {"batch_id": batch_id} if batch_id else {}
-            send_forum_web_push_batch.delay(event_name, list(pks), payload, **extra)
-        except Exception:
-            log_broker_failure(
-                logger,
-                "[CELERY] forum_host: failed to enqueue web push for event=%s",
-                event_name,
-            )
+        _delay_chunks(
+            send_forum_web_push_batch,
+            event_name,
+            list(pks),
+            payload,
+            batch_id,
+            "[CELERY] forum_host: failed to enqueue web push for event=%s",
+            event_name,
+        )
 
     topic = kwargs.get("topic")
     topic_id = getattr(topic, "id", None)
 
     def _build_payload(post):
         # actor_name feeds the FCM tray notification's body line (todo 253
-        # slice 6). This is HOST-app code, so the host User model's
-        # display_name property is the right source — the same naming policy
-        # the email channel already uses (send_forum_email reads
-        # post.author.display_name); the package-side host-agnostic rule
-        # (slice 4) applies to wagtail_forum code, not here.
+        # slice 6): the member's forum name (forum display name, else
+        # username), never the host User.display_name, which prefers the
+        # legal name sign-in copies into first_name (owner decision
+        # 2026-11-21, audit H1). The email channel uses the same rule.
         # actor_id is the host's send-time recheck input (todo 619,
         # eligibility.py): it is never sent to a device or a browser.
+        from wagtail_forum.api.serializers import forum_display_name
+
         author = getattr(post, "author", None)
         return {
             "topic_id": str(topic_id),
             "topic_title": topic.title if topic else "",
             "post_id": str(getattr(post, "id", "")),
-            "actor_name": (
-                getattr(author, "display_name", "") if author is not None else ""
-            ),
+            "actor_name": forum_display_name(author) if author is not None else "",
             "actor_id": str(author.pk) if author is not None else "",
         }
 
@@ -228,9 +241,6 @@ def dispatch(event, **kwargs):
         kept = {u.pk for u in _drop_blocked_pairs([u for u, _ in pairs], actor)}
         return [(u, q) for u, q in pairs if u.pk in kept]
 
-    def _batch_kwargs(batch_id):
-        return {"batch_id": batch_id} if batch_id else {}
-
     def _enqueue_email_for(event_name, users, payload, batch_id=None):
         # The optional important-event email (todo 624): enqueued for every
         # mentioned/quoted member; the task sends only to those who turned
@@ -239,17 +249,15 @@ def dispatch(event, **kwargs):
         pks = [user.pk for user in users]
         if not pks:
             return
-        try:
-            send_forum_email_batch.delay(
-                event_name, pks, payload, **_batch_kwargs(batch_id)
-            )
-        except Exception:
-            # The outbox rows stay pending for reconciliation (todo 619).
-            log_broker_failure(
-                logger,
-                "[CELERY] forum_host: failed to enqueue %s email batch",
-                event_name,
-            )
+        _delay_chunks(
+            send_forum_email_batch,
+            event_name,
+            pks,
+            payload,
+            batch_id,
+            "[CELERY] forum_host: failed to enqueue %s email batch",
+            event_name,
+        )
 
     def _enqueue_quote_push_for(users, payload, web_batch=None, batch=None):
         # Same shape as the mention push: batch task, event "quote" (copy in
@@ -259,14 +267,14 @@ def dispatch(event, **kwargs):
         pks = [user.pk for user in users]
         if not pks:
             return
-        try:
-            send_forum_push_batch.delay(
-                NotificationVerb.QUOTE, pks, payload, **_batch_kwargs(batch)
-            )
-        except Exception:
-            log_broker_failure(
-                logger, "[CELERY] forum_host: failed to enqueue quote push batch"
-            )
+        _delay_chunks(
+            send_forum_push_batch,
+            NotificationVerb.QUOTE,
+            pks,
+            payload,
+            batch,
+            "[CELERY] forum_host: failed to enqueue quote push batch",
+        )
         _enqueue_web_push(NotificationVerb.QUOTE, pks, payload, web_batch)
 
     def _enqueue_mention_push_for(mentioned, payload, web_batch=None, batch=None):
@@ -275,18 +283,15 @@ def dispatch(event, **kwargs):
         mentioned_pks = [user.pk for user in mentioned]
         if not mentioned_pks:
             return
-        try:
-            # One batched enqueue for all mentioned recipients (todo 268).
-            send_forum_push_batch.delay(
-                NotificationVerb.MENTION,
-                mentioned_pks,
-                payload,
-                **_batch_kwargs(batch),
-            )
-        except Exception:
-            log_broker_failure(
-                logger, "[CELERY] forum_host: failed to enqueue mention push batch"
-            )
+        # One batched enqueue per chunk of mentioned recipients (todo 268).
+        _delay_chunks(
+            send_forum_push_batch,
+            NotificationVerb.MENTION,
+            mentioned_pks,
+            payload,
+            batch,
+            "[CELERY] forum_host: failed to enqueue mention push batch",
+        )
         _enqueue_web_push(NotificationVerb.MENTION, mentioned_pks, payload, web_batch)
 
     if event == "reply_added":
@@ -300,25 +305,22 @@ def dispatch(event, **kwargs):
         payload = _build_payload(post)
 
         def _enqueue_push():
-            # One batched enqueue for all reply recipients + one for mentions
-            # (todo 268) — constant enqueue count regardless of subscriber count,
-            # instead of one .delay() per recipient blocking the request thread.
+            # Batched enqueues for the reply recipients and for the mentions
+            # (todo 268): one per NOTIFICATION_BATCH_CHUNK_SIZE recipients
+            # (todo 727), instead of one .delay() per recipient blocking the
+            # request thread.
             reply_recipient_pks = [user.pk for user in reply_recipients]
             if reply_recipient_pks:
-                try:
-                    send_forum_push_batch.delay(
-                        event,
-                        reply_recipient_pks,
-                        payload,
-                        **_batch_kwargs(batches.get("reply_push")),
-                    )
-                except Exception:
-                    log_broker_failure(
-                        logger,
-                        "[CELERY] forum_host: failed to enqueue reply push batch"
-                        " for event=%s",
-                        event,
-                    )
+                _delay_chunks(
+                    send_forum_push_batch,
+                    event,
+                    reply_recipient_pks,
+                    payload,
+                    batches.get("reply_push"),
+                    "[CELERY] forum_host: failed to enqueue reply push batch"
+                    " for event=%s",
+                    event,
+                )
                 _enqueue_web_push(
                     event, reply_recipient_pks, payload, batches.get("reply_web")
                 )
@@ -354,24 +356,16 @@ def dispatch(event, **kwargs):
             )
             reply_recipient_pks = [user.pk for user in reply_recipients]
             if reply_recipient_pks:
-                try:
-                    extra = (
-                        {"batch_id": batches["reply_email"]}
-                        if batches.get("reply_email")
-                        else {}
-                    )
-                    send_forum_email_batch.delay(
-                        event, reply_recipient_pks, payload, **extra
-                    )
-                except Exception:
-                    # The outbox rows stay pending: reconciliation sends
-                    # them once the broker is back (todo 619).
-                    log_broker_failure(
-                        logger,
-                        "[CELERY] forum_host: failed to enqueue reply email batch"
-                        " for event=%s",
-                        event,
-                    )
+                _delay_chunks(
+                    send_forum_email_batch,
+                    event,
+                    reply_recipient_pks,
+                    payload,
+                    batches.get("reply_email"),
+                    "[CELERY] forum_host: failed to enqueue reply email batch"
+                    " for event=%s",
+                    event,
+                )
 
         try:
             # A nested atomic() scopes any DB failure to a savepoint: this
@@ -529,25 +523,30 @@ def dispatch(event, **kwargs):
             resolved_topic_id: int | None = obj.topic_id
         else:
             resolved_topic_id = getattr(obj, "id", None)
-        try:
-            send_forum_push.delay(
-                event,
-                author.pk,
-                {
-                    "topic_id": (
-                        str(resolved_topic_id) if resolved_topic_id is not None else ""
-                    ),
-                    "status": status,
-                    "obj_id": str(getattr(obj, "id", "")),
-                },
-            )
-        except Exception:
-            log_broker_failure(
-                logger,
-                "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
-                event,
-                author.pk,
-            )
+        decided_user_id = author.pk
+        decided_payload = {
+            "topic_id": (
+                str(resolved_topic_id) if resolved_topic_id is not None else ""
+            ),
+            "status": status,
+            "obj_id": str(getattr(obj, "id", "")),
+        }
+
+        def _enqueue_decided():
+            # After the commit, like every other branch (docs/rules/celery.md;
+            # audit 2026-11-21 L9): the decision can be fired inside an atomic
+            # block, and a push sent first makes the client refetch old state.
+            try:
+                send_forum_push.delay(event, decided_user_id, decided_payload)
+            except Exception:
+                log_broker_failure(
+                    logger,
+                    "[CELERY] forum_host: failed to enqueue push for event=%s user=%s",
+                    event,
+                    decided_user_id,
+                )
+
+        transaction.on_commit(_enqueue_decided)
 
     elif event == "answer_accepted":
         post = kwargs.get("post")
@@ -558,6 +557,7 @@ def dispatch(event, **kwargs):
             # tell. The topic's solved state still stands.
             return
 
+        from wagtail_forum.api.serializers import forum_display_name
         from wagtail_forum.models import NotificationVerb
         from wagtail_forum.notifications import create_notifications
 
@@ -566,9 +566,7 @@ def dispatch(event, **kwargs):
         # the answer, or the tray line reads "You accepted your answer".
         payload = {
             **_build_payload(post),
-            "actor_name": (
-                getattr(actor, "display_name", "") if actor is not None else ""
-            ),
+            "actor_name": forum_display_name(actor) if actor is not None else "",
             # The recheck's actor is the acceptor, too (todo 619).
             "actor_id": str(actor.pk) if actor is not None else "",
         }
@@ -812,18 +810,14 @@ def dispatch(event, **kwargs):
                 pks = [user.pk for user in watcher_users]
                 if not pks:
                     return
-                try:
-                    send_forum_push_batch.delay(
-                        NotificationVerb.NEW_TOPIC,
-                        pks,
-                        payload,
-                        **_batch_kwargs(batches.get("new_topic_push")),
-                    )
-                except Exception:
-                    log_broker_failure(
-                        logger,
-                        "[CELERY] forum_host: failed to enqueue new-topic push batch",
-                    )
+                _delay_chunks(
+                    send_forum_push_batch,
+                    NotificationVerb.NEW_TOPIC,
+                    pks,
+                    payload,
+                    batches.get("new_topic_push"),
+                    "[CELERY] forum_host: failed to enqueue new-topic push batch",
+                )
                 _enqueue_web_push(
                     NotificationVerb.NEW_TOPIC,
                     pks,

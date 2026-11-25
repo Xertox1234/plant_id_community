@@ -15,10 +15,12 @@ from datetime import timedelta
 from unittest import mock
 from urllib.parse import parse_qs, urlencode, urlsplit
 
+import pytest
 from apps.core.services.email_service import EmailService, EmailType
 from apps.core.services.notification_service import NotificationService
 from apps.users.constants import RATE_LIMIT_EMAIL_UNSUBSCRIBE
 from apps.users.email_unsubscribe import (
+    ALL_OPTIONAL,
     UNSUBSCRIBE_MAX_AGE,
     UNSUBSCRIBE_SALT,
     UnsubscribeTokenExpired,
@@ -31,9 +33,13 @@ from django.core import mail, signing
 from django.core.cache import cache
 from django.test import Client, TestCase, override_settings
 from django.urls import NoReverseMatch, reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 from wagtail_forum.models import ForumProfile
 from wagtail_forum.preferences import wants_channel
+
+# Forum email goes only to a verified address (audit 2026-11-24 F211).
+pytestmark = pytest.mark.usefixtures("verified_accounts")
 
 User = get_user_model()
 
@@ -486,3 +492,199 @@ class UnsubscribeLinkInEmailTests(TestCase):
         message = mail.outbox[0]
         self.assertNotIn("List-Unsubscribe", message.extra_headers)
         self.assertNotIn("/unsubscribe?token=", message.body)
+
+
+@override_settings(SITE_URL=SITE)
+class StopAllOptionalEmailTests(TestCase):
+    """A signed-out visitor stops all optional email in one step (todo 703).
+
+    CASL and CAN-SPAM want a way to stop every commercial email from the
+    sender, not one list at a time. Any list's link can do it.
+    """
+
+    client: APIClient
+
+    def setUp(self):
+        from apps.blog.models import BlogNewsletter
+
+        cache.clear()
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="stopper", email="Stopper@example.com"
+        )
+        self.other = User.objects.create_user(
+            username="bystander", email="bystander@example.com"
+        )
+        self.newsletter = BlogNewsletter.objects.create(
+            email="stopper@example.com", confirmed_at=timezone.now()
+        )
+        self.other_newsletter = BlogNewsletter.objects.create(
+            email="bystander@example.com", confirmed_at=timezone.now()
+        )
+        self.url = reverse("v1:users:email_unsubscribe_all")
+
+    def _post(self, token):
+        return self.client.post(self.url, {"token": token}, format="json")
+
+    def test_route_lives_under_v1(self):
+        self.assertEqual(self.url, "/api/v1/auth/unsubscribe/all/")
+
+    def test_one_post_with_a_list_link_stops_all_optional_email(self):
+        response = self._post(make_token(self.user, LIST))
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.data["list"], ALL_OPTIONAL)
+        self.assertFalse(response.data["subscribed"])
+        self.user.refresh_from_db()
+        self.newsletter.refresh_from_db()
+        # The master switch stops forum notification email and the digest;
+        # the newsletter at the account's address (any case) is left too.
+        self.assertFalse(self.user.email_notifications)
+        self.assertFalse(self.newsletter.is_active)
+        # Forum push is a separate choice and stays on.
+        self.assertTrue(self.user.forum_notifications)
+        self.assertTrue(_reply_push_on(self.user))
+
+    def test_nobody_else_is_touched(self):
+        self._post(make_token(self.user, LIST))
+        self.other.refresh_from_db()
+        self.other_newsletter.refresh_from_db()
+        self.assertTrue(self.other.email_notifications)
+        self.assertTrue(self.other_newsletter.is_active)
+
+    def test_no_optional_email_is_sent_afterwards(self):
+        self._post(make_token(self.user, LIST))
+        self.user.refresh_from_db()
+        sent = NotificationService().send_forum_reply_notification(
+            user=self.user,
+            topic_title="Yellow leaves",
+            reply_author="fern",
+            reply_excerpt="Try less water.",
+            topic_url=f"{SITE}/forum/1-help/2-yellow-leaves",
+        )
+        self.assertFalse(sent)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_idempotent(self):
+        token = make_token(self.user, "forum_digest")
+        self.assertEqual(self._post(token).status_code, 200)
+        second = self._post(token)
+        self.assertEqual(second.status_code, 200)
+        self.assertFalse(second.data["subscribed"])
+
+    def test_forged_or_expired_token_changes_nothing(self):
+        token = make_token(self.user, LIST)
+        forged = self._post(token[:-2] + "xx")
+        self.assertEqual(forged.status_code, 400)
+        self.assertEqual(forged.data["code"], "invalid")
+        with _later(UNSUBSCRIBE_MAX_AGE + timedelta(minutes=1)):
+            expired = self._post(token)
+        self.assertEqual(expired.status_code, 400)
+        self.assertEqual(expired.data["code"], "expired")
+        self.user.refresh_from_db()
+        self.newsletter.refresh_from_db()
+        self.assertTrue(self.user.email_notifications)
+        self.assertTrue(self.newsletter.is_active)
+
+    def test_a_signed_in_session_does_not_choose_the_target(self):
+        self.client.force_login(self.other)
+        self._post(make_token(self.user, LIST))
+        self.other.refresh_from_db()
+        self.assertTrue(self.other.email_notifications)
+
+    def test_an_old_confirmation_link_cannot_undo_stop_all(self):
+        # Review round 1: a pending signup kept its confirmation stamp, so a
+        # link still in the inbox switched the newsletter back on.
+        from apps.blog import newsletter
+        from apps.blog.models import BlogNewsletter
+
+        self.newsletter.delete()
+        pending = BlogNewsletter.objects.create(
+            email="stopper@example.com", confirmation_sent_at=timezone.now()
+        )
+        confirm_link = newsletter.make_confirm_token(pending)
+
+        self.assertEqual(self._post(make_token(self.user, LIST)).status_code, 200)
+
+        with self.assertRaises(newsletter.NewsletterTokenInvalid):
+            newsletter.confirm(confirm_link)
+        pending.refresh_from_db()
+        self.assertFalse(pending.is_active)
+        self.assertIsNone(pending.confirmed_at)
+
+    def test_an_old_link_cannot_undo_stop_all_after_a_resignup(self):
+        # Review round 2: an earlier unsubscribe left the row inactive, and a
+        # new signup stamped it again. Stop-all must void that link too.
+        from apps.blog import newsletter
+        from apps.blog.models import BlogNewsletter
+
+        self.newsletter.delete()
+        row = BlogNewsletter.objects.create(
+            email="stopper@example.com",
+            is_active=False,
+            confirmation_sent_at=timezone.now(),
+        )
+        confirm_link = newsletter.make_confirm_token(row)
+
+        self.assertEqual(self._post(make_token(self.user, LIST)).status_code, 200)
+
+        with self.assertRaises(newsletter.NewsletterTokenInvalid):
+            newsletter.confirm(confirm_link)
+        row.refresh_from_db()
+        self.assertFalse(row.is_active)
+
+    def test_a_pending_signup_alone_is_not_subscribed(self):
+        # Review round 1: an unconfirmed row receives no newsletter, so with
+        # the master switch off nothing optional can reach the account.
+        from apps.blog.models import BlogNewsletter
+
+        self.newsletter.delete()
+        BlogNewsletter.objects.create(email="stopper@example.com")
+        User.objects.filter(pk=self.user.pk).update(email_notifications=False)
+
+        response = self.client.post(
+            reverse("v1:users:email_unsubscribe_check"),
+            {"token": make_token(self.user, ALL_OPTIONAL)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data["subscribed"])
+
+    def test_stop_all_is_rate_limited_per_ip(self):
+        # Review round 1: deleting the @ratelimit on this route kept the
+        # suite green.
+        limit = int(RATE_LIMIT_EMAIL_UNSUBSCRIBE.split("/")[0])
+        for _ in range(limit):
+            self._post("x")
+        self.assertEqual(self._post("x").status_code, 429)
+
+    def test_check_describes_the_all_optional_list(self):
+        response = self.client.post(
+            reverse("v1:users:email_unsubscribe_check"),
+            {"token": make_token(self.user, ALL_OPTIONAL)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["list"], ALL_OPTIONAL)
+        self.assertTrue(response.data["subscribed"])
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.email_notifications)
+
+    def test_welcome_email_carries_a_working_stop_all_link(self):
+        self.assertTrue(EmailService().send_welcome_email(self.user))
+        message = mail.outbox[0]
+        html = message.alternatives[0][0]
+        for body in (message.body, html):
+            urls = set(
+                re.findall(re.escape(SITE) + r"/unsubscribe\?token=[^\s\"<&]+", body)
+            )
+            self.assertEqual(len(urls), 1, urls)
+        (url,) = urls
+        token = parse_qs(urlsplit(url).query)["token"][0]
+        self.assertEqual(read_token(token), (self.user, ALL_OPTIONAL))
+        response = APIClient().post(
+            reverse("v1:users:email_unsubscribe"), {"token": token}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.email_notifications)

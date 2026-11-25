@@ -351,3 +351,184 @@ def test_queue_query_count_does_not_grow_with_rows(client):
         client.get(_queue_url())
 
     assert len(three) == len(one)
+
+
+# --- A reported private message (audit 2026-11-24 F84) -----------------------
+
+LONG_DM = "Hello there. " * 20 + "<b>THE THREAT</b>"
+
+
+def _dm_report(body=LONG_DM):
+    sender = User.objects.create_user(username="dm-sender")
+    reporter = User.objects.create_user(username="dm-reporter")
+    conversation = Conversation.between(sender, reporter)
+    for text in ("private before", "private after"):
+        Message.objects.create(conversation=conversation, sender=sender, body=text)
+    message = Message.objects.create(
+        conversation=conversation, sender=sender, body=body
+    )
+    return Report.objects.create(
+        message=message, reporter=reporter, reason=Report.ABUSE
+    )
+
+
+def _report_url(name, report):
+    return reverse(Report.snippet_viewset.get_url_name(name), args=[report.pk])
+
+
+def _assert_refused(resp):
+    # Wagtail answers PermissionDenied with a redirect to the admin home.
+    assert resp.status_code == 302 and resp["Location"] == reverse("wagtailadmin_home")
+
+
+def _log_actions(report):
+    from wagtail.log_actions import registry
+
+    return [
+        (entry.action, entry.user_id)
+        for entry in registry.get_logs_for_instance(report)
+        if entry.action.startswith("wagtail_forum.")
+    ]
+
+
+def test_a_moderator_reads_the_whole_reported_message_and_nothing_else(client):
+    report = _dm_report()
+    moderator = _moderator()
+    client.force_login(moderator)
+
+    resp = client.get(_report_url("inspect", report))
+
+    html = resp.content.decode()
+    assert resp.status_code == 200
+    assert "&lt;b&gt;THE THREAT&lt;/b&gt;" in html and "<b>THE THREAT" not in html
+    assert "dm-sender" in html
+    assert "private before" not in html and "private after" not in html
+    assert _report_url("remove_message", report) in html
+    assert _log_actions(report) == [("wagtail_forum.report.read_message", moderator.pk)]
+
+
+def test_removing_a_reported_message_needs_a_confirmation_and_is_logged(client):
+    report = _dm_report()
+    other = Report.objects.create(
+        message=report.message,
+        reporter=User.objects.create_user(username="dm-reporter-2"),
+        reason=Report.SPAM,
+        status=Report.AUTO_HIDDEN,
+    )
+    dismissed = Report.objects.create(
+        message=report.message,
+        reporter=User.objects.create_user(username="dm-reporter-3"),
+        reason=Report.SPAM,
+        status=Report.DISMISSED,
+    )
+    moderator = _moderator()
+    client.force_login(moderator)
+    url = _report_url("remove_message", report)
+
+    confirm = client.get(url)
+    assert confirm.status_code == 200
+    assert "THE THREAT" in confirm.content.decode()
+    report.message.refresh_from_db()
+    assert report.message.removed_at is None  # a GET removes nothing
+
+    assert client.post(url).status_code == 302
+    report.message.refresh_from_db()
+    removed_at = report.message.removed_at
+    assert removed_at is not None
+    for row in (report, other):
+        row.refresh_from_db()
+        assert row.status == Report.ACTIONED
+        assert row.resolved_by == moderator and row.resolved_at is not None
+    dismissed.refresh_from_db()
+    assert dismissed.status == Report.DISMISSED
+    removal = ("wagtail_forum.report.remove_message", moderator.pk)
+    assert _log_actions(report).count(removal) == 1
+
+    # A double click removes and logs nothing again.
+    assert client.post(url).status_code == 302
+    report.message.refresh_from_db()
+    assert report.message.removed_at == removed_at
+    assert _log_actions(report).count(removal) == 1
+    html = client.get(_report_url("inspect", report)).content.decode()
+    assert url not in html
+    # The log names the report, never the private text.
+    from wagtail.log_actions import registry
+
+    for entry in registry.get_logs_for_instance(report):
+        assert "THREAT" not in f"{entry.label}{entry.data}"
+
+
+def test_who_may_read_or_remove_a_reported_message(client):
+    from wagtail_forum.models import ForumModerator
+
+    report = _dm_report()
+    remove = _report_url("remove_message", report)
+
+    client.force_login(_staff("viewer", "view_report"))
+    html = client.get(_report_url("inspect", report)).content.decode()
+    assert "THE THREAT" in html and remove not in html
+    for method in (client.get, client.post):
+        _assert_refused(method(remove))
+
+    # `add_report` opens the inspect page but is no moderation right.
+    client.force_login(_staff("adder", "add_report"))
+    assert (
+        "THE THREAT" not in client.get(_report_url("inspect", report)).content.decode()
+    )
+
+    forum_moderator = _staff("forum-mod")
+    ForumModerator.objects.create(forum=_board(), user=forum_moderator)
+    client.force_login(forum_moderator)
+    _assert_refused(client.get(_report_url("inspect", report)))
+    _assert_refused(client.get(remove))
+    _assert_refused(client.post(remove))
+
+    for user in (report.message.sender, report.reporter):
+        client.force_login(user)
+        assert "/login/" in client.post(remove)["Location"]
+
+    report.message.refresh_from_db()
+    assert report.message.removed_at is None
+
+
+def test_a_post_report_has_no_message_to_remove(client):
+    post = _post(_board(), User.objects.create_user(username="pa"), "T", "x")
+    report = Report.objects.create(
+        post=post, reporter=User.objects.create_user(username="pr"), reason=Report.SPAM
+    )
+    client.force_login(_moderator())
+
+    html = client.get(_report_url("inspect", report)).content.decode()
+    assert "remove-message" not in html and "Message text" not in html
+    assert client.post(_report_url("remove_message", report)).status_code == 404
+    assert _log_actions(report) == []
+
+
+def test_a_report_cannot_be_pointed_at_another_private_message(client):
+    # The report is what opens a message's text to a moderator, so choosing
+    # the message would open every private message.
+    report = _dm_report()
+    reported = report.message
+    other = Message.objects.exclude(pk=reported.pk).first()
+    client.force_login(_staff("changer", "view_report", "change_report"))
+    url = _report_url("edit", report)
+    assert list(client.get(url).context["form"].fields["message"].queryset) == [
+        reported
+    ]
+
+    resp = client.post(
+        url,
+        {
+            "message": other.pk,
+            "reporter": report.reporter_id,
+            "reason": report.reason,
+            "status": report.status,
+        },
+    )
+
+    assert resp.status_code == 200  # refused by the form
+    report.refresh_from_db()
+    assert report.message == reported
+    client.force_login(_staff("creator", "add_report"))
+    add = client.get(reverse(Report.snippet_viewset.get_url_name("add")))
+    assert not add.context["form"].fields["message"].queryset.exists()

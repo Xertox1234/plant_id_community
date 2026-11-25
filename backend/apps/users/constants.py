@@ -71,7 +71,7 @@ GENERATED_USERNAME_ATTEMPTS = 10
 # Version of the Privacy Policy and Terms of Service a sign-up accepts. The
 # server stamps it; a client never sends a version. Bump it when either text
 # changes materially.
-LEGAL_POLICY_VERSION = "2026-11-11"
+LEGAL_POLICY_VERSION = "2026-11-24"
 # Sign-up without an explicit boolean ``true`` consent is refused with HTTP 428.
 CONSENT_REQUIRED_CODE = "consent_required"
 CONSENT_REQUIRED_MESSAGE = (
@@ -147,9 +147,17 @@ THINNED_DELETION_REASONS = (
 # report still in the moderation queue keeps its content this long, so a
 # moderator can still review it; the scheduled erase then removes it.
 FORUM_HELD_POST_DAYS = 30
+# A private message a moderator removed keeps its text, for moderators only,
+# this long (nightly prune).
+REMOVED_MESSAGE_DAYS = 90
 # What an erased account's topics are titled. The same sentinel the forum
 # shows for a deleted author.
 DELETED_TOPIC_TITLE = "[deleted]"
+# The rest of an erased topic: its slug (the topic pk follows), its poll's
+# question, and its poll's options (the 1-based position fills {n}).
+DELETED_TOPIC_SLUG_PREFIX = "deleted-topic"
+DELETED_POLL_QUESTION = "[deleted]"
+DELETED_POLL_OPTION = "Option {n}"
 # What replaces a deleted child's words where another person's post quotes
 # them (an under-13 deletion only).
 DELETED_QUOTE_TEXT = "[deleted]"
@@ -235,3 +243,26 @@ ORPHAN_FIREBASE_DELETE_CAP = 50
 # delete_account_task's retries span only minutes, and a .delay() that failed
 # at commit leaves the record with no job at all.
 ACCOUNT_DELETE_STALE_HOURS = 1
+
+# Auth hardening (todo 705, audit 2026-11-10).
+#
+# M6: the Firebase sign-in providers the exchange accepts, read from the ID
+# token's `firebase.sign_in_provider` claim. The mobile app signs in with
+# email/password and Google; Apple is linked (account_links.py). Anything else
+# (anonymous, phone, custom tokens, a provider enabled in the console by
+# mistake) gets no Django session.
+FIREBASE_ALLOWED_SIGN_IN_PROVIDERS = frozenset({"password", "google.com", "apple.com"})
+ACCOUNT_DISABLED_CODE = "account_disabled"
+ACCOUNT_DISABLED_MESSAGE = "This account has been disabled."
+
+# M5: a refresh session (a chain of rotated refresh tokens) lives at most this
+# long from the sign-in that started it (owner decision 2026-11-17: 30 days).
+# The start rides in the refresh token as this claim, through every rotation.
+REFRESH_SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+REFRESH_SESSION_START_CLAIM = "session_start"
+# Reusing a rotated (blacklisted) refresh token ends every session the account
+# has. A token blacklisted less than this many seconds ago is a client race
+# (two tabs refreshing with one cookie), not theft: refused, nothing revoked.
+REFRESH_REUSE_GRACE_SECONDS = 30
+SESSION_EXPIRED_CODE = "SESSION_EXPIRED"
+REFRESH_TOKEN_REUSED_CODE = "REFRESH_TOKEN_REUSED"

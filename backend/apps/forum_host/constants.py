@@ -102,6 +102,10 @@ DEFAULT_FORUM_RATELIMITS = {
     # badge, and each mark can fan out a push to the answer's author.
     "solution_mark": "20/m",
     "solution_clear": "20/m",
+    # Pin/unpin a topic (moderators). Same tier and reasoning as the solution
+    # mark: a deliberate, occasional action, so a burst is a UI bug.
+    "topic_pin": "20/m",
+    "topic_unpin": "20/m",
     # Same tier as `search` — a debounced live-search-as-you-type box.
     "mention_user_search": "30/m",
     # Premium AI thread-summary GET (todo 255 slice 3 / H14). A cache miss
@@ -136,6 +140,18 @@ LINK_PREVIEW_TIMEOUT_SECONDS = 4
 LINK_PREVIEW_PAGE_DEADLINE_SECONDS = 8
 LINK_PREVIEW_DNS_TIMEOUT_SECONDS = 2
 LINK_PREVIEW_DNS_WORKERS = 4
+# A host whose lookup ran out the full DNS timeout is not looked up again for
+# this long (todo 730, audit 2026-11-21 L2): each such lookup keeps one of the
+# few DNS workers busy until the resolver gives up, so repeats for one slow
+# host could stall previews for every member.
+LINK_PREVIEW_DNS_NEGATIVE_CACHE_KEY_PREFIX = "forum_link_preview_dns_timeout"
+LINK_PREVIEW_DNS_NEGATIVE_CACHE_TTL_SECONDS = 60
+# A timed-out lookup is remembered only when the lookup itself ran the full
+# DNS timeout. The worker stamps its start a moment after the caller starts
+# waiting, so "full" allows this much: a lookup that started later than this
+# was waiting for a free worker and is not remembered (never more than half
+# the timeout, so a shortened timeout still tells the two apart).
+LINK_PREVIEW_DNS_START_GRACE_SECONDS = 0.1
 LINK_PREVIEW_ALLOWED_PORTS = (80, 443)
 LINK_PREVIEW_MAX_BODY_BYTES = 512 * 1024
 LINK_PREVIEW_READ_CHUNK_BYTES = 8192
@@ -337,10 +353,22 @@ SUMMARY_PROMPT_VERSION = 1
 
 # Pending-generation lock: a cache.add() key (by content hash) that dedupes
 # concurrent enqueues, so a client polling during a slow generation enqueues at
-# most one task per thread state (bounds duplicate LLM spend). TTL >= the Celery
-# task time limit so a failed generation frees the lock for a later re-poll.
+# most one task per thread state (bounds duplicate LLM spend). The TTL covers
+# the task's worst case, every attempt running to the 120 s hard time limit
+# plus each backoff (3 x 120 + 10 + 20 = 390 s): a shorter lock let a poll
+# enqueue a second task while the first was still retrying (audit 2026-11-21
+# M4). It still expires, so a failed generation frees it for a later re-poll.
 SUMMARY_PENDING_LOCK_PREFIX = "forum_topic_summary_pending"
-SUMMARY_PENDING_LOCK_TTL = 120
+SUMMARY_PENDING_LOCK_TTL = 420
+
+# Budget counter, SEPARATE from the blog editor's `ai_rate_limit:global`
+# (owner decision 2026-11-22, audit 2026-11-21 R3): sharing it let summary
+# polls starve the blog editor. Spent through peek_budget + consume_budget so
+# only calls that reached the provider are billed (M4). The limit keeps the
+# 100/hr summaries had under the shared key, so the aggregate hourly ceiling
+# rises by that much: the blog editor gets its full 100 back.
+SUMMARY_BUDGET_CACHE_KEY = "ai_rate_limit:forum_summary"
+SUMMARY_BUDGET_LIMIT = 100
 
 # Celery retry policy for the summarization task (transient provider errors).
 SUMMARY_MAX_RETRIES = 2
@@ -675,6 +703,21 @@ RAG_INDEX_RETRY_DELAY = 30
 # thundering herd docs/rules/celery.md warns about.
 NOTIFICATION_BATCH_MAX_RETRIES = 3
 NOTIFICATION_BATCH_RETRY_DELAY = 30
+
+# Fan-out chunking (todo 727, owner decision 2026-11-22): a reply to a topic
+# with many followers is enqueued as one batch task per this many recipients
+# on each channel, so no single task carries every follower.
+NOTIFICATION_BATCH_CHUNK_SIZE = 50
+# The batch tasks' own time limits, sized to ONE chunk instead of inheriting
+# the global 90 s / 120 s (docs/rules/celery.md: size a cohort task's limits
+# yourself). 50 sends take a few seconds when the provider is healthy; the
+# soft limit leaves room for several sends that each run to their timeout
+# (apps.core.constants.FIREBASE_HTTP_TIMEOUT_SECONDS, EMAIL_TIMEOUT) before
+# the batch stops cleanly and releases the rest. The hard limit stays well
+# under DELIVERY_CLAIM_LEASE_SECONDS (15 min), so a claim never outlives its
+# lease while its task is still running.
+NOTIFICATION_BATCH_SOFT_TIME_LIMIT = 4 * 60
+NOTIFICATION_BATCH_TIME_LIMIT = 5 * 60
 
 # When send_forum_push_batch stops on Firebase credentials errors, the
 # recipients it had not tried yet go out in ONE follow-up batch after this many

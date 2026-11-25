@@ -27,7 +27,10 @@ tracked email itself (``<hpmd.{uuid}@{sender domain}>``) and stores it on the
 row; Resend reports it as ``data.message_id``. Its own ``data.email_id`` is
 stored from the first matching event, so a later event carrying only that id
 still finds the row. That Resend keeps a client-set Message-ID over SMTP is
-documented for its API, not yet observed for this sender (todo 638).
+documented for its API, not yet observed for this sender (todo 638); the
+2026-11-21 prod read found no event linked to its row. Each recorded event
+keeps the ``data.message_id`` it carried, so the next read shows what form
+Resend sends back (todo 726).
 Address-level suppression works whether or not an event matches a row.
 
 Click attribution (owner decision 2026-10-12): first-party signed click
@@ -342,6 +345,14 @@ def _text(value, field: str, *, required: bool = False, limit: int = 255) -> str
     return value[:limit]
 
 
+def _db_safe(value: str) -> str:
+    """``value`` without what Postgres refuses in text: NUL, and characters
+    UTF-8 cannot encode (a lone surrogate passes ``json.loads``). Either one
+    would fail the lookup or the insert and 500 the webhook, so Svix would
+    retry an event that can never be recorded."""
+    return value.replace("\x00", "").encode("utf-8", "ignore").decode("utf-8")
+
+
 def parse_event(payload) -> ParsedEvent:
     """Validate a decoded webhook body. Raises ``MalformedEvent``."""
     if not isinstance(payload, dict):
@@ -373,7 +384,7 @@ def parse_event(payload) -> ParsedEvent:
         event_type=event_type,
         occurred_at=occurred,
         email_id=_text(data.get("email_id"), "data.email_id", limit=64),
-        message_id=_text(data.get("message_id"), "data.message_id").strip(),
+        message_id=_db_safe(_text(data.get("message_id"), "data.message_id")).strip(),
         recipients=tuple(recipients),
         bounce_type=_text(bounce.get("type"), "data.bounce.type", limit=32),
         bounce_subtype=_text(bounce.get("subType"), "data.bounce.subType", limit=32),
@@ -430,6 +441,9 @@ def _find_notification(event: ParsedEvent):
     return None
 
 
+MESSAGE_ID_REDACTED = "redacted:recipient"
+
+
 def _apply_to_notification(row, event: ParsedEvent) -> None:
     """Order-independent: each event sets its own timestamp once (the
     earliest wins), and the status moves only up the ladder sent < delivered
@@ -466,6 +480,23 @@ def _apply_to_notification(row, event: ParsedEvent) -> None:
         row.save(update_fields=fields)
 
 
+def _storable_message_id(event: ParsedEvent) -> str:
+    """The event's ``data.message_id`` as reported, for the ledger (todo 726).
+
+    An id that quotes one of the event's recipient addresses verbatim is not
+    stored: ``MESSAGE_ID_REDACTED`` goes in its place, so a prod read can
+    tell "dropped" from "Resend sent none" (blank). The check is on the
+    verbatim address only; an encoded form is not recognised. Our own
+    Message-ID names only the sender domain."""
+    value = event.message_id
+    lowered = value.lower()
+    for recipient in event.recipients:
+        address = (parseaddr(recipient)[1] or recipient).strip().lower()
+        if address and address in lowered:
+            return MESSAGE_ID_REDACTED
+    return value
+
+
 def ingest(svix_id: str, event: ParsedEvent) -> str:
     """Record and apply one verified event. Returns ``duplicate`` when this
     svix id was already recorded (nothing is applied twice), ``ignored`` for
@@ -487,6 +518,7 @@ def ingest(svix_id: str, event: ParsedEvent) -> str:
                     event_type=event.event_type,
                     occurred_at=event.occurred_at,
                     provider_email_id=event.email_id,
+                    message_id=_storable_message_id(event),
                     bounce_type=event.bounce_type,
                     bounce_subtype=event.bounce_subtype,
                 )

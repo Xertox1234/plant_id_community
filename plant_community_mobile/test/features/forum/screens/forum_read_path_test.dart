@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/forum_screen.dart';
-import 'package:plant_community_mobile/features/forum/widgets/home/forum_boards_section.dart';
+import 'package:plant_community_mobile/features/forum/widgets/home/forum_categories_section.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_composer_screen.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_thread_screen.dart';
@@ -21,15 +21,17 @@ void main() {
     tester,
   ) async {
     final api = FakeForumApi()
-      ..boards = const [
-        ForumBoard(
-          id: 1,
-          title: 'General',
-          slug: 'general',
-          description: 'Chat',
-          topicCount: 2,
-          postCount: 5,
-        ),
+      ..categories = [
+        categoryOf(const [
+          ForumBoard(
+            id: 1,
+            title: 'General',
+            slug: 'general',
+            description: 'Chat',
+            topicCount: 2,
+            postCount: 5,
+          ),
+        ], title: 'Community'),
       ]
       // The home's Recent activity reads GET forum/topics/recent/ now; the
       // offline sync mirror is still synced on open (asserted below).
@@ -74,7 +76,7 @@ void main() {
     // Scoped: the activity card's board chip also says "General".
     expect(
       find.descendant(
-        of: find.byType(ForumBoardsSection),
+        of: find.byType(ForumCategoriesSection),
         matching: find.text('General'),
       ),
       findsOneWidget,
@@ -206,7 +208,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Monstera help'), findsOneWidget);
+    // The app bar and the full heading above the first post (F303).
+    expect(find.text('Monstera help'), findsNWidgets(2));
     expect(find.textContaining('Leaves turning yellow'), findsOneWidget);
   });
 

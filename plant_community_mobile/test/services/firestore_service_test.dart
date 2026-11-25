@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -281,6 +282,24 @@ void main() {
       expect(snapshot.plants.first.name, 'Rose');
     });
 
+    test('getPlantsStream follows the cache-to-server change', () async {
+      // The server confirming an unchanged cached list is a metadata-only
+      // change. The sync badge needs that event to leave "Offline".
+      final recording = _RecordingFirestore();
+      final scoped = ProviderContainer(
+        overrides: [firebaseFirestoreProvider.overrideWithValue(recording)],
+      );
+      addTearDown(scoped.dispose);
+
+      final snapshots = await scoped
+          .read(firestoreServiceProvider.notifier)
+          .getPlantsStream(uid)
+          .toList();
+
+      expect(recording.includeMetadataChanges, isTrue);
+      expect(snapshots.map((s) => s.isFromCache), [true, false]);
+    });
+
     test('getPlantsStream orders plants by timestamp, newest first', () async {
       await service.savePlant(
         uid,
@@ -393,4 +412,79 @@ void main() {
       );
     });
   });
+}
+
+/// A Firestore that records how the plants query is listened to, and answers
+/// with the cached list followed by the server confirming it.
+class _RecordingFirestore extends Fake implements FirebaseFirestore {
+  bool? includeMetadataChanges;
+
+  @override
+  CollectionReference<Map<String, dynamic>> collection(String collectionPath) =>
+      _RecordingQuery(this);
+}
+
+// ignore: subtype_of_sealed_class
+class _RecordingDoc extends Fake
+    implements DocumentReference<Map<String, dynamic>> {
+  _RecordingDoc(this._owner);
+
+  final _RecordingFirestore _owner;
+
+  @override
+  CollectionReference<Map<String, dynamic>> collection(String collectionPath) =>
+      _RecordingQuery(_owner);
+}
+
+// ignore: subtype_of_sealed_class
+class _RecordingQuery extends Fake
+    implements CollectionReference<Map<String, dynamic>> {
+  _RecordingQuery(this._owner);
+
+  final _RecordingFirestore _owner;
+
+  @override
+  DocumentReference<Map<String, dynamic>> doc([String? path]) =>
+      _RecordingDoc(_owner);
+
+  @override
+  Query<Map<String, dynamic>> orderBy(
+    Object field, {
+    bool descending = false,
+  }) => this;
+
+  @override
+  Stream<QuerySnapshot<Map<String, dynamic>>> snapshots({
+    bool includeMetadataChanges = false,
+    ListenSource source = ListenSource.defaultSource,
+  }) {
+    _owner.includeMetadataChanges = includeMetadataChanges;
+    return Stream.fromIterable([
+      _EmptySnapshot(isFromCache: true),
+      // Sent only to a listener that asked for metadata changes.
+      if (includeMetadataChanges) _EmptySnapshot(isFromCache: false),
+    ]);
+  }
+}
+
+class _EmptySnapshot extends Fake
+    implements QuerySnapshot<Map<String, dynamic>> {
+  _EmptySnapshot({required bool isFromCache})
+    : metadata = _Metadata(isFromCache);
+
+  @override
+  final SnapshotMetadata metadata;
+
+  @override
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> get docs => const [];
+}
+
+class _Metadata extends Fake implements SnapshotMetadata {
+  _Metadata(this.isFromCache);
+
+  @override
+  final bool isFromCache;
+
+  @override
+  bool get hasPendingWrites => false;
 }

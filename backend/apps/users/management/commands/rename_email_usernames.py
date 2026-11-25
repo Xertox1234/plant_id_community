@@ -33,8 +33,9 @@ from apps.users.signup import generate_username
 from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import Field
 from wagtail.models import Revision
 from wagtail.search import index
 
@@ -165,6 +166,9 @@ class Command(BaseCommand):
         total = 0
 
         body_field = Post._meta.get_field("body")
+        # get_field can also return a reverse relation, which has no to_python.
+        if not isinstance(body_field, Field):
+            raise CommandError("Post.body is not a concrete field")
         for post in Post.objects.only("pk", "body").iterator():
             raw, count = _rewrite(list(post.body.raw_data), pattern, renames)
             if count:

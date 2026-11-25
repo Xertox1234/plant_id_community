@@ -24,16 +24,22 @@ class ForumQuoteDraft {
   final String authorName;
 }
 
-/// The quote draft the "Quote" action pre-fills for [post]: its
-/// reader-visible text capped at [forumQuoteMaxChars], keyed to the post's
+/// The quote draft the "Quote" action pre-fills for [post]: its first
+/// unbroken stretch of text ([forumBodyQuotableText]) capped at [forumQuoteMaxChars], keyed to the post's
 /// id. Returns `null` when the post has no quotable text (image-only,
 /// deleted image, an embed).
 ForumQuoteDraft? forumQuoteDraft(ForumPost post) {
-  var text = forumBodyPlainText(post.body);
+  var (:text, :truncated) = forumBodyQuotableText(post.body);
   if (text.isEmpty) return null;
   if (text.length > forumQuoteMaxChars) {
-    text = '${text.substring(0, forumQuoteMaxChars).trimRight()}…';
+    var end = forumQuoteMaxChars;
+    // Never cut between the two halves of a surrogate pair: the half left
+    // behind is in no text the server can match.
+    if (text.codeUnitAt(end - 1) & 0xFC00 == 0xD800) end--;
+    text = text.substring(0, end).trimRight();
+    truncated = true;
   }
+  if (truncated) text = '$text…';
   return ForumQuoteDraft(
     postId: post.id,
     text: text,
@@ -41,8 +47,30 @@ ForumQuoteDraft? forumQuoteDraft(ForumPost post) {
   );
 }
 
+const _monthNames = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/// Time label for a row in a topic list: [forumRelativeTime] within a week,
+/// then a short date a reader can scan ("Aug 16"; "Aug 16, 2025" in another
+/// year) instead of the ISO form. Returns an empty string for null.
+String forumListTime(DateTime? dt, {DateTime? now}) {
+  return forumRelativeTime(dt, now: now);
+}
+
 /// Compact relative-time label for forum timestamps ("just now", "5m", "3h",
-/// "2d", or an absolute date beyond a week). Returns an empty string for null.
+/// "2d", then "Aug 16", or "Aug 16, 2025" in another year). Returns an empty string for null.
 String forumRelativeTime(DateTime? dt, {DateTime? now}) {
   if (dt == null) return '';
   final reference = now ?? DateTime.now();
@@ -51,8 +79,10 @@ String forumRelativeTime(DateTime? dt, {DateTime? now}) {
   if (diff.inMinutes < 60) return '${diff.inMinutes}m';
   if (diff.inHours < 24) return '${diff.inHours}h';
   if (diff.inDays < 7) return '${diff.inDays}d';
+  // Past a week: a short date a reader can scan, never the ISO form.
   final local = dt.toLocal();
-  final month = local.month.toString().padLeft(2, '0');
-  final day = local.day.toString().padLeft(2, '0');
-  return '${local.year}-$month-$day';
+  final label = '${_monthNames[local.month - 1]} ${local.day}';
+  return local.year == reference.toLocal().year
+      ? label
+      : '$label, ${local.year}';
 }

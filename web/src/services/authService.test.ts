@@ -23,6 +23,8 @@ import {
   getStoredUser,
   getGoogleOAuthUrl,
   finishOAuthSignup,
+  refreshSession,
+  refreshAccessToken,
   OAuthFinishError,
 } from './authService';
 import { clearCsrfToken } from '../utils/csrf';
@@ -922,7 +924,10 @@ describe('authService', () => {
     });
 
     it('appends ?accepted_terms=1 only when acceptedTerms is true', async () => {
-      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ oauth_url: 'https://g/x' }) });
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ oauth_url: 'https://accounts.google.com/x' }),
+      });
       await getGoogleOAuthUrl({ acceptedTerms: true });
       expect(fetchMock.mock.calls[0][0]).toMatch(
         /\/api\/auth\/oauth\/google\/login\/\?accepted_terms=1$/
@@ -981,6 +986,203 @@ describe('authService', () => {
       expect(err).toBeInstanceOf(OAuthFinishError);
       expect(err.status).toBe(429);
       expect(err.code).toBeUndefined();
+    });
+  });
+
+  // ============================================================================
+  // L10: OAUTH URL ORIGIN (todo 706)
+  // ============================================================================
+
+  describe('getGoogleOAuthUrl origin check (todo 706 L10)', () => {
+    const refused = [
+      'https://evil.example/o/oauth2/v2/auth',
+      'https://accounts.google.com.evil.com/o/oauth2/v2/auth',
+      'https://accounts.google.com@evil.com/o/oauth2/v2/auth',
+      'http://accounts.google.com/o/oauth2/v2/auth',
+      'https://accounts.google.com:8443/o/oauth2/v2/auth',
+      'https://github.com/login/oauth/authorize?client_id=x',
+      '//accounts.google.com/o/oauth2/v2/auth',
+      '/api/auth/oauth/google/callback/',
+      'javascript:alert(1)',
+      'not a url',
+    ];
+
+    it.each(refused)('refuses to return %s', async (oauthUrl) => {
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ oauth_url: oauthUrl }) });
+      await expect(getGoogleOAuthUrl()).rejects.toThrow(/unavailable/i);
+    });
+
+    it('returns a URL on https://accounts.google.com', async () => {
+      const oauthUrl = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=xyz';
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ oauth_url: oauthUrl }) });
+      await expect(getGoogleOAuthUrl()).resolves.toBe(oauthUrl);
+    });
+  });
+
+  // ============================================================================
+  // M18: TOKEN REFRESH ACROSS TABS (todo 706)
+  // ============================================================================
+
+  describe('refreshSession (todo 706 M18)', () => {
+    const originalLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
+
+    afterEach(() => {
+      if (originalLocks) Object.defineProperty(navigator, 'locks', originalLocks);
+      else delete (navigator as { locks?: unknown }).locks;
+    });
+
+    /** An in-memory Web Locks manager: exclusive locks, FIFO, like the browser's. */
+    function installFakeLocks() {
+      const queues = new Map<string, Promise<unknown>>();
+      const names: string[] = [];
+      const locks = {
+        request: (name: string, callback: () => Promise<unknown>) => {
+          names.push(name);
+          const previous = queues.get(name) ?? Promise.resolve();
+          const run = previous.then(callback, callback);
+          queues.set(
+            name,
+            run.catch(() => undefined)
+          );
+          return run;
+        },
+      };
+      Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+      return names;
+    }
+
+    /**
+     * The backend's refresh endpoint as the race sees it: the cookie jar is
+     * shared by every tab, each request carries the refresh cookie the jar held
+     * when it was SENT, and a used token is blacklisted (ROTATE_REFRESH_TOKENS +
+     * BLACKLIST_AFTER_ROTATION), so presenting it again answers 401. The
+     * backend half is proved against the real view in
+     * backend/apps/users/tests/test_refresh_rotation_race.py.
+     */
+    function rotatingServer() {
+      let jar = 'refresh-0';
+      let issued = 0;
+      const used = new Set<string>();
+      let inFlight = 0;
+      let maxInFlight = 0;
+      fetchMock.mockImplementation(async () => {
+        const sent = jar;
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight -= 1;
+        if (used.has(sent)) return { ok: false, status: 401, json: async () => ({}) };
+        used.add(sent);
+        issued += 1;
+        jar = `refresh-${issued}`;
+        return { ok: true, status: 200, json: async () => ({}) };
+      });
+      return { maxInFlight: () => maxInFlight };
+    }
+
+    it('reproduces the race without a lock: one of two overlapping tabs is refused', async () => {
+      delete (navigator as { locks?: unknown }).locks;
+      rotatingServer();
+
+      const outcomes = await Promise.all([refreshSession(), refreshSession()]);
+
+      expect(outcomes.sort()).toEqual(['ok', 'unauthorized']);
+    });
+
+    it('the fix: with Web Locks, two tabs refreshing at once both keep the session', async () => {
+      const names = installFakeLocks();
+      const server = rotatingServer();
+
+      const outcomes = await Promise.all([refreshSession(), refreshSession(), refreshSession()]);
+
+      expect(outcomes).toEqual(['ok', 'ok', 'ok']);
+      expect(server.maxInFlight()).toBe(1);
+      expect(new Set(names)).toEqual(new Set(['houseplant-md:token-refresh']));
+    });
+
+    it('refreshAccessToken goes through the same lock (the live socket calls it)', async () => {
+      installFakeLocks();
+      const server = rotatingServer();
+
+      const results = await Promise.all([refreshAccessToken(), refreshSession()]);
+
+      expect(results).toEqual([true, 'ok']);
+      expect(server.maxInFlight()).toBe(1);
+    });
+
+    it.each([
+      [401, 'unauthorized'],
+      [400, 'unauthorized'],
+      [500, 'unavailable'],
+      [502, 'unavailable'],
+      [503, 'unavailable'],
+      [429, 'unavailable'],
+    ])('a %i from refresh is %s', async (status, outcome) => {
+      fetchMock.mockResolvedValueOnce({ ok: false, status, json: async () => ({}) });
+      await expect(refreshSession()).resolves.toBe(outcome);
+    });
+
+    it('a 403 clears the CSRF cache and retries once; the retry decides', async () => {
+      fetchMock
+        .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({}) })
+        .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) });
+      await expect(refreshSession()).resolves.toBe('ok');
+      const refreshCalls = fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes('/auth/token/refresh/')
+      );
+      expect(refreshCalls).toHaveLength(2);
+    });
+
+    it('a 403 twice in a row ends the session (unauthorized), as on main', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 403, json: async () => ({}) });
+      await expect(refreshSession()).resolves.toBe('unauthorized');
+    });
+
+    it('never aborts the refresh POST: a slow rotation still lands', async () => {
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) });
+      await expect(refreshSession()).resolves.toBe('ok');
+      const call = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes('/auth/token/refresh/')
+      );
+      expect((call?.[1] as RequestInit | undefined)?.signal).toBeUndefined();
+    });
+
+    it('a hung CSRF fetch releases the lock after 15 s without sending the refresh', async () => {
+      const names = installFakeLocks();
+      // No meta tag and an empty cache, as in production: getCsrfToken fetches /api/csrf/.
+      document.head.querySelector('meta[name="csrf-token"]')?.remove();
+      clearCsrfToken();
+      vi.useFakeTimers();
+      try {
+        fetchMock.mockImplementation((url: unknown) =>
+          String(url).includes('/auth/token/refresh/')
+            ? Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+            : new Promise(() => {})
+        );
+        const first = refreshSession();
+        await vi.advanceTimersByTimeAsync(15_000);
+        await expect(first).resolves.toBe('unavailable');
+        expect(
+          fetchMock.mock.calls.some(([url]) => String(url).includes('/auth/token/refresh/'))
+        ).toBe(false);
+        expect(names).toContain('houseplant-md:token-refresh');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('a network error is unavailable, not a logout', async () => {
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      await expect(refreshSession()).resolves.toBe('unavailable');
+    });
+
+    it('refreshes anyway when the lock itself fails', async () => {
+      Object.defineProperty(navigator, 'locks', {
+        value: { request: () => Promise.reject(new DOMException('denied', 'SecurityError')) },
+        configurable: true,
+      });
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) });
+      await expect(refreshSession()).resolves.toBe('ok');
     });
   });
 });

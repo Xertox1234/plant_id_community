@@ -49,7 +49,7 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
             request: Django HTTP request object
             sociallogin: SocialLogin instance containing OAuth provider data
         """
-        if sociallogin.account.provider not in ("google", "github"):
+        if sociallogin.account.provider != "google":
             return
 
         email = sociallogin.account.extra_data.get("email")
@@ -189,7 +189,7 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
     def populate_user(
         self, request: HttpRequest, sociallogin: SocialLogin, data: dict[str, Any]
     ) -> User:
-        """Drop the provider's username (GitHub sends the login) so the
+        """Drop any provider-supplied username so the
         account adapter's ``populate_username`` gives a random one: the forum
         serves ``username`` publicly."""
         user: User = super().populate_user(request, sociallogin, data)
@@ -202,10 +202,9 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
 
         allauth populates ``sociallogin.email_addresses`` (``EmailAddress``
         instances with a ``.verified`` flag) from the provider's own signal —
-        for Google that mirrors the ``email_verified`` claim; for GitHub it
-        reflects the verified-emails API. Fail closed: an email the provider
-        did not return as verified (or did not enumerate) is treated as
-        unverified.
+        for Google that mirrors the ``email_verified`` claim. Fail closed: an
+        email the provider did not return as verified (or did not enumerate) is
+        treated as unverified.
         """
         target = email.lower()
         for addr in sociallogin.email_addresses:
@@ -238,22 +237,6 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
                 user.first_name = extra_data.get("given_name", "")[:30]
             if not user.last_name and extra_data.get("family_name"):
                 user.last_name = extra_data.get("family_name", "")[:150]
-
-        elif sociallogin.account.provider == "github":
-            # Update from GitHub profile
-            if not user.first_name and extra_data.get("name"):
-                name_parts = extra_data.get("name", "").split(" ", 1)
-                user.first_name = name_parts[0][:30] if name_parts else ""
-                if len(name_parts) > 1:
-                    user.last_name = name_parts[1][:150]
-
-            # Set bio from GitHub bio if available
-            if not user.bio and extra_data.get("bio"):
-                user.bio = extra_data.get("bio", "")[:500]
-
-            # Set website from GitHub blog if available
-            if not user.website and extra_data.get("blog"):
-                user.website = extra_data.get("blog", "")[:200]
 
         user.save()
         logger.info(

@@ -112,9 +112,12 @@ class BlogSeriesSerializer(serializers.ModelSerializer):
 
 @extend_schema_serializer(component_name="BlogAuthorUser")
 class UserSerializer(serializers.ModelSerializer):
-    """Basic user serializer for blog authors."""
+    """Public author of a blog post or comment. Every use is public (comments
+    are listed to anonymous readers), so it carries no ``first_name`` /
+    ``last_name``, and ``display_name`` is ``User.public_name``: the chosen
+    display name, else the username, never the legal name (todo 731)."""
 
-    display_name = serializers.ReadOnlyField()
+    display_name = serializers.SerializerMethodField()
     avatar_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -122,11 +125,12 @@ class UserSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "username",
-            "first_name",
-            "last_name",
             "display_name",
             "avatar_url",
         ]
+
+    def get_display_name(self, obj) -> str:
+        return str(obj.public_name)
 
     def get_avatar_url(self, obj) -> Optional[str]:
         """Get avatar URL if available."""

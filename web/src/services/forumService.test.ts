@@ -36,6 +36,7 @@ import {
   fetchLinkPreview,
   askPlantCare,
   reportPlantCareAnswer,
+  reportPost,
   RagError,
   ComposeAssistError,
   fetchTopicSummary,
@@ -751,6 +752,20 @@ describe('forumService (wagtail_forum API contract)', () => {
     });
   });
 
+  it("createPost and updatePost carry the server's refusal of a quote (audit F3)", async () => {
+    const message = 'A quote must match the post it quotes.';
+    const refusal = () =>
+      ({
+        ok: false,
+        status: 400,
+        json: async () => ({ error: true, message, errors: { body: [message] } }),
+      }) as Response;
+    const body = [{ type: 'post_quote' as const, value: { post: 7, text: 'invented' } }];
+    fetchMock.mockResolvedValueOnce(refusal()).mockResolvedValueOnce(refusal());
+    await expect(createPost({ thread: 12, body })).rejects.toThrow(message);
+    await expect(updatePost('55', { body })).rejects.toThrow(message);
+  });
+
   it('createThread nests an identification snapshot when one is attached (M6)', async () => {
     fetchMock.mockResolvedValueOnce(okJson({ id: 12, slug: 'what-is-this', status: 'published' }));
     const identification = {
@@ -1182,6 +1197,14 @@ describe('forumService (wagtail_forum API contract)', () => {
   it('askPlantCare rejects an envelope without a known status', async () => {
     fetchMock.mockResolvedValueOnce(okJson({ status: 'surprise' }));
     await expect(askPlantCare('q')).rejects.toBeInstanceOf(RagError);
+  });
+
+  it('reportPost omits an empty detail, which the server refuses (audit F142)', async () => {
+    fetchMock.mockResolvedValue(okJson({ reported: true }));
+    await reportPost('5', 'spam');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ reason: 'spam' });
+    await reportPost('5', 'spam', 'rude');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ reason: 'spam', detail: 'rude' });
   });
 
   it('reportPlantCareAnswer posts the detail to the answer route', async () => {

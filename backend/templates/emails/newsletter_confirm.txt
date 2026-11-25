@@ -1,4 +1,4 @@
-{% autoescape off %}Confirm your {{ site_name }} newsletter subscription
+{% load email_sender %}{% autoescape off %}Confirm your {{ site_name }} newsletter subscription
 
 Someone asked to send the {{ site_name }} weekly newsletter to this address.
 If it was you, confirm here:
@@ -7,4 +7,4 @@ If it was you, confirm here:
 
 The link works for {{ confirm_days }} days. If you didn't ask for this,
 ignore this email: nothing will be sent unless the link is used.
-{% endautoescape %}
+{% email_sender_footer_text %}{% endautoescape %}

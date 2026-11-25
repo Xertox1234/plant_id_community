@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ..models import UserBlock
+from .serializers import forum_display_name
 from .versioning import UnversionedForumAPIMixin
 from .views import PrivateForumReadCacheMixin, _should_filter_blocks, extend_schema
 
@@ -86,16 +87,17 @@ class UserMentionSearchView(
                     )
                 )
             )
-        users = users.order_by("username")[:MAX_RESULTS]
-        # get_full_name()/get_username() — not a `.display_name` property,
-        # which is specific to THIS host's User model and breaks the
-        # package's host-agnostic contract (mirrors serialize_forum_author's
-        # display_name resolution in serializers.py).
+        users = users.select_related("wagtail_forum_profile").order_by("username")[
+            :MAX_RESULTS
+        ]
+        # The author block's rule (forum_display_name): the forum display
+        # name, else the username, never get_full_name() (audit 2026-11-21
+        # H1/M6). Not a host `.display_name` property: host-agnostic.
         return Response(
             [
                 {
                     "username": u.get_username(),
-                    "display_name": u.get_full_name() or u.get_username(),
+                    "display_name": forum_display_name(u),
                 }
                 for u in users
             ]

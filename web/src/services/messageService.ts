@@ -199,6 +199,7 @@ export async function reportMessage(
 ): Promise<void> {
   await authenticatedFetch<{ reported: boolean }>(`${FORUM_BASE}/messages/${messageId}/report/`, {
     method: 'POST',
-    body: JSON.stringify({ reason, detail: detail ?? '' }),
+    // The server refuses a blank detail: omit it (audit F142).
+    body: JSON.stringify({ reason, ...(detail && { detail }) }),
   });
 }

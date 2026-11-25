@@ -588,7 +588,10 @@ def test_delete_query_count_is_pinned():
     # forum request (api/presence.py).
     # 35 -> 34 (todo 665): boards are Forum rows, so the
     # PageViewRestriction query behind the page-era `.public()` is gone.
-    assert len(ctx.captured_queries) == 34, len(ctx.captured_queries)
+    # 34 -> 35 (audit 2026-11-21 M2): the move guard's pre_save reads the
+    # row's stored topic_id (one indexed pk SELECT) so a /cms/ move can
+    # recount the topic it left.
+    assert len(ctx.captured_queries) == 35, len(ctx.captured_queries)
 
 
 def test_edit_query_count_is_pinned():
@@ -639,7 +642,9 @@ def test_edit_query_count_is_pinned():
     # UserMute.exists() when no author_is_muted annotation is present.
     # 74 -> 73 (todo 665): boards are Forum rows, so the
     # PageViewRestriction query behind the page-era `.public()` is gone.
-    assert len(ctx.captured_queries) == 73, len(ctx.captured_queries)
+    # 73 -> 74 (audit 2026-11-21 M2): the move guard's pre_save reads the
+    # row's stored topic_id (one indexed pk SELECT), as in the delete pin.
+    assert len(ctx.captured_queries) == 74, len(ctx.captured_queries)
 
 
 def test_patch_retry_with_idempotency_key_writes_one_revision():

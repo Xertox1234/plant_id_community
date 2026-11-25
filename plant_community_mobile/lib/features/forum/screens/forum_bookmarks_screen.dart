@@ -7,6 +7,7 @@ import '../../../core/constants/app_spacing.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
 import '../widgets/topic_card.dart';
+import '../widgets/forum_style.dart';
 import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
 /// The viewer's bookmarked topics (todo 341), most recently bookmarked
@@ -64,27 +65,11 @@ class _BookmarksList extends StatelessWidget {
   Widget build(BuildContext context) {
     if (paged.items.isEmpty) {
       return ListView(
-        children: [
-          const SizedBox(height: 120),
-          Center(
-            child: Column(
-              children: [
-                Icon(
-                  LucideIcons.bookmark,
-                  size: 40,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                const Text('No bookmarks yet.'),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  'Tap the bookmark icon on a topic to save it here.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
+        children: const [
+          ForumEmptyState(
+            icon: LucideIcons.bookmark,
+            title: 'No bookmarks yet.',
+            body: 'Tap the bookmark icon on a topic to save it here.',
           ),
         ],
       );

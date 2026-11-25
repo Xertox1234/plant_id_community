@@ -5,7 +5,8 @@ import copy
 import importlib
 import inspect
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 from io import StringIO
 
 import pytest
@@ -14,6 +15,7 @@ from django.core import mail
 from django.core.management import call_command
 from django.test import override_settings
 from django.utils import timezone
+from freezegun import freeze_time
 from wagtail.models import Page
 from wagtail_forum.digest import build_digest, is_due, render_digest, since_for
 from wagtail_forum.models import (
@@ -49,6 +51,13 @@ def _private_cache():
         }
     ):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _no_host_recipient_filter(settings):
+    """The package's own rules, whatever this host's filter adds (a verified
+    address, audit 2026-11-24 F211). The filter tests below set their own."""
+    settings.WAGTAILFORUM_DIGEST_RECIPIENT_FILTER = None
 
 
 def test_the_run_lock_tests_never_touch_the_shared_cache():
@@ -1337,3 +1346,251 @@ def test_a_member_the_host_filter_drops_mid_run_is_not_claimed_or_mailed(
     assert "sent=0 failed=0" in out.getvalue()
     profile.refresh_from_db()
     assert profile.last_digest_sent_at is None
+
+
+# --- quiet hours (todo 728) ----------------------------------------------------
+#
+# Owner decision 2026-11-21: the weekly digest is held until a member's quiet
+# window ends, like the other optional forum email. The beat fires the digest
+# on Monday 09:00 UTC, which is 03:00 in America/Denver.
+
+# Monday 2026-06-01 09:00 UTC = 03:00 MDT: inside Denver's 22:00-07:00.
+MONDAY_RUN = datetime(2026, 6, 1, 9, 0, tzinfo=dt_timezone.utc)
+# 07:00 MDT, when that window ends.
+DENVER_DAWN = datetime(2026, 6, 1, 13, 0, tzinfo=dt_timezone.utc)
+DIGEST_SITE = {"SITE_URL": "https://forum.example"}
+
+
+def _digest_member(username, *, quiet=False, zone="America/Denver"):
+    user = User.objects.create_user(username=username, email=f"{username}@example.com")
+    profile = _opt_in(user)
+    profile.quiet_hours_enabled = quiet
+    profile.time_zone = zone
+    profile.save(update_fields=["quiet_hours_enabled", "time_zone"])
+    return user
+
+
+def _run_digest(at, **options):
+    """One run of the command at ``at``; returns its summary line."""
+    out = StringIO()
+    with freeze_time(at):
+        call_command("send_forum_digest", frequency="weekly", stdout=out, **options)
+    return out.getvalue()
+
+
+def _digests_to(user):
+    return [message for message in mail.outbox if message.to == [user.email]]
+
+
+def _quiet_scene():
+    """A topic with a reply three members were notified of: one asleep in
+    Denver, one with quiet hours off, one with quiet hours on in a zone where
+    Monday 09:00 UTC is the afternoon."""
+    with freeze_time(MONDAY_RUN):
+        board = _board(_index(), "quiet-general")
+        friend = User.objects.create_user(username="dq-poster")
+        topic = _topic(board, friend, "Quiet monstera", replies=3)
+        sleeper = _digest_member("dq-sleeper", quiet=True)
+        off = _digest_member("dq-off")
+        tokyo = _digest_member("dq-tokyo", quiet=True, zone="Asia/Tokyo")
+        for member in (sleeper, off, tokyo):
+            _reply_note(member, friend, topic)
+    return sleeper, off, tokyo, friend, topic
+
+
+@pytest.mark.django_db
+@override_settings(**DIGEST_SITE)
+def test_a_member_inside_their_quiet_window_gets_the_digest_once_it_ends():
+    sleeper, _off, _tokyo, _friend, _topic_row = _quiet_scene()
+
+    # The main run: the member is asleep. Held, not failed, and still due.
+    summary = _run_digest(MONDAY_RUN)
+    assert _digests_to(sleeper) == []
+    assert "held=1" in summary and "failed=0" in summary
+    assert ForumProfile.objects.get(user=sleeper).last_digest_sent_at is None
+
+    # The hourly follow-up runs while the window is still open: nothing.
+    for hour in (9, 10, 11, 12):
+        at = MONDAY_RUN.replace(hour=hour, minute=30)
+        summary = _run_digest(at, quiet_hours_only=True)
+        assert "held=1" in summary and "sent=0" in summary, at
+    assert _digests_to(sleeper) == []
+
+    # 13:30 UTC is 07:30 in Denver: the window ended at 07:00. Exactly one.
+    after = DENVER_DAWN.replace(minute=30)
+    summary = _run_digest(after, quiet_hours_only=True)
+    assert "held=0" in summary and "sent=1" in summary
+    (message,) = _digests_to(sleeper)
+    assert "Quiet monstera" in message.body
+    assert ForumProfile.objects.get(user=sleeper).last_digest_sent_at == after
+
+
+@pytest.mark.django_db
+@override_settings(**DIGEST_SITE)
+def test_members_with_quiet_hours_off_or_outside_their_window_are_unaffected():
+    sleeper, off, tokyo, _friend, _topic_row = _quiet_scene()
+
+    summary = _run_digest(MONDAY_RUN)
+
+    # Quiet hours off, and quiet hours on but 18:00 in Tokyo: both get the
+    # digest in the main run, at the run's own time, as before.
+    assert len(_digests_to(off)) == 1
+    assert len(_digests_to(tokyo)) == 1
+    assert "recipients=3 due=3 empty=0 sent=2 failed=0" in summary
+    for member in (off, tokyo):
+        assert ForumProfile.objects.get(user=member).last_digest_sent_at == MONDAY_RUN
+    assert _digests_to(sleeper) == []
+
+
+@pytest.mark.django_db
+@override_settings(**DIGEST_SITE)
+def test_no_member_gets_two_digests_in_one_period_across_the_follow_up_runs():
+    sleeper, off, tokyo, friend, topic = _quiet_scene()
+
+    # The whole schedule: the 09:00 run, then every follow-up run from 09:30
+    # Monday to 09:30 Tuesday (settings.CELERY_BEAT_SCHEDULE).
+    _run_digest(MONDAY_RUN)
+    for step in range(25):
+        _run_digest(
+            MONDAY_RUN + timedelta(minutes=30) + timedelta(hours=step),
+            quiet_hours_only=True,
+        )
+    # ...and a second full run the same day (a recovery run, a manual one).
+    _run_digest(MONDAY_RUN + timedelta(hours=8))
+
+    assert [len(_digests_to(member)) for member in (sleeper, off, tokyo)] == [1, 1, 1]
+
+    # The next period: the member sent late on Monday (13:30) is due again
+    # the following Monday, is held at 09:00 again, and gets one more after
+    # their window, never a skipped week and never a second one.
+    mail.outbox.clear()
+    next_monday = MONDAY_RUN + timedelta(days=7)
+    with freeze_time(next_monday - timedelta(hours=1)):
+        for member in (sleeper, off, tokyo):
+            _reply_note(member, friend, topic)
+    _run_digest(next_monday)
+    assert [len(_digests_to(member)) for member in (sleeper, off, tokyo)] == [0, 1, 1]
+    for step in range(25):
+        _run_digest(
+            next_monday + timedelta(minutes=30) + timedelta(hours=step),
+            quiet_hours_only=True,
+        )
+    assert [len(_digests_to(member)) for member in (sleeper, off, tokyo)] == [1, 1, 1]
+
+
+@pytest.mark.django_db
+@override_settings(**DIGEST_SITE)
+def test_the_follow_up_run_skips_a_member_the_main_run_did_not_hold():
+    """Review round 1 (todo 728): quiet hours on, but 18:00 in Tokyo at the
+    main run, so that run read the member and did not hold them. A follow-up
+    run told when the main run was must leave them for next week's run, and
+    still send to the member it did hold."""
+    from django.core.cache import cache
+
+    cache.clear()
+    sleeper, _off, tokyo, _friend, _topic_row = _quiet_scene()
+
+    summary = _run_digest(
+        DENVER_DAWN.replace(minute=30),
+        quiet_hours_only=True,
+        held_at=MONDAY_RUN.isoformat(),
+    )
+
+    assert _digests_to(tokyo) == []
+    assert len(_digests_to(sleeper)) == 1
+    assert "recipients=1 due=1" in summary and "sent=1" in summary
+
+
+@pytest.mark.django_db
+@override_settings(**DIGEST_SITE)
+def test_a_member_held_by_a_later_run_is_still_sent_by_a_follow_up_run():
+    """Review round 2 (todo 728): Tokyo's window (22:00-07:00 there) opens at
+    13:00 UTC, after the 09:00 run. A recovery run that reaches them at 13:30
+    holds them; the window did not cover 09:00, so only the recorded hold
+    lets a follow-up run send once the window has ended."""
+    from django.core.cache import cache
+
+    cache.clear()
+    _sleeper, _off, tokyo, _friend, _topic_row = _quiet_scene()
+    held_at = MONDAY_RUN.isoformat()
+
+    # No 09:00 send reached them (it failed); a recovery run does at 13:30.
+    summary = _run_digest(MONDAY_RUN.replace(hour=13, minute=30))
+    assert _digests_to(tokyo) == []
+    assert "held=1" in summary
+
+    # Still inside the window: held again, nothing sent.
+    _run_digest(
+        MONDAY_RUN.replace(hour=14, minute=30), quiet_hours_only=True, held_at=held_at
+    )
+    assert _digests_to(tokyo) == []
+
+    # 22:30 UTC is 07:30 in Tokyo: the window has ended. Exactly one.
+    for hour in (22, 23):
+        _run_digest(
+            MONDAY_RUN.replace(hour=hour, minute=30),
+            quiet_hours_only=True,
+            held_at=held_at,
+        )
+    assert len(_digests_to(tokyo)) == 1
+
+
+@pytest.mark.django_db
+@override_settings(**DIGEST_SITE)
+def test_a_dry_run_records_no_hold():
+    from django.core.cache import cache
+    from wagtail_forum.management.commands.send_forum_digest import _was_held
+
+    cache.clear()
+    sleeper, _off, _tokyo, _friend, _topic_row = _quiet_scene()
+
+    # Read at the run's own time: the marker expires on the frozen clock.
+    _run_digest(MONDAY_RUN, dry_run=True)
+    with freeze_time(MONDAY_RUN):
+        assert _was_held("weekly", sleeper.pk) is False
+
+    _run_digest(MONDAY_RUN)
+    with freeze_time(MONDAY_RUN):
+        assert _was_held("weekly", sleeper.pk) is True
+    with freeze_time(MONDAY_RUN + timedelta(hours=27)):
+        assert _was_held("weekly", sleeper.pk) is False
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"held_at": "2026-06-01T09:00:00+00:00"},
+        {"quiet_hours_only": True, "held_at": "monday"},
+        {"quiet_hours_only": True, "held_at": "2026-06-01T09:00:00"},
+    ],
+)
+def test_a_held_at_the_command_cannot_use_is_refused(options):
+    from django.core.management.base import CommandError
+
+    with pytest.raises(CommandError):
+        _run_digest(MONDAY_RUN, **options)
+
+
+@pytest.mark.django_db
+@override_settings(**DIGEST_SITE)
+def test_the_follow_up_run_looks_only_at_members_with_quiet_hours_on():
+    _sleeper, _off, _tokyo, _friend, _topic_row = _quiet_scene()
+
+    summary = _run_digest(MONDAY_RUN, quiet_hours_only=True)
+
+    # The member with quiet hours off is not even read: the follow-up run
+    # is for those an earlier run held.
+    assert "recipients=2 due=2" in summary
+
+
+@pytest.mark.django_db
+@override_settings(**DIGEST_SITE)
+def test_a_dry_run_reports_the_held_members_and_writes_nothing():
+    sleeper, _off, _tokyo, _friend, _topic_row = _quiet_scene()
+
+    summary = _run_digest(MONDAY_RUN, dry_run=True)
+
+    assert "would send=2" in summary and "held=1" in summary
+    assert mail.outbox == []
+    assert ForumProfile.objects.get(user=sleeper).last_digest_sent_at is None

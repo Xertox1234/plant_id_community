@@ -368,6 +368,40 @@ def test_report_message_reuses_report_model():
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("body", "expected_status", "stored"),
+    [
+        ({}, 200, ""),
+        ({"detail": ""}, 200, ""),  # what the web client sends
+        ({"detail": "x" * 280}, 200, "x" * 280),
+        ({"detail": "x" * 281}, 400, None),
+    ],
+)
+def test_message_report_detail_is_optional_and_may_be_blank(
+    body, expected_status, stored
+):
+    """F142/F206: JSON on purpose. A multipart blank reads as "not sent"."""
+    sender = User.objects.create_user(username="sender-blank")
+    recipient = User.objects.create_user(username="recipient-blank")
+    conversation = Conversation.between(sender, recipient)
+    message = Message.objects.create(
+        conversation=conversation, sender=sender, body="spam-ish"
+    )
+    client = APIClient()
+    client.force_authenticate(recipient)
+
+    resp = client.post(
+        f"/forum/messages/{message.pk}/report/",
+        {"reason": Report.SPAM, **body},
+        format="json",
+    )
+
+    assert resp.status_code == expected_status
+    details = list(Report.objects.values_list("detail", flat=True))
+    assert details == ([] if stored is None else [stored])
+
+
+@pytest.mark.django_db
 def test_cannot_report_own_message():
     sender = User.objects.create_user(username="sender-selfreport")
     recipient = User.objects.create_user(username="recipient-selfreport")
@@ -769,3 +803,106 @@ def test_migration_0032_backfills_last_message_at_from_the_newest_message():
     empty.refresh_from_db()
     assert with_messages.last_message_at == newest.created_at
     assert empty.last_message_at == empty.created_at
+
+
+# --- the inbox does not scan message history (todo 730, audit L18) -------------
+
+
+@pytest.mark.django_db
+def test_inbox_query_count_and_shape_do_not_grow_with_message_history():
+    """``unread_count`` was ``Count("messages", filter=...)``: a join and a
+    GROUP BY over every message of every conversation, before the cursor
+    LIMIT. It is a correlated subquery now, evaluated for the page's rows."""
+    from wagtail_forum.api.direct_messages import _inbox_queryset
+
+    cache.clear()
+    me = User.objects.create_user(username="hist-me")
+    others = [User.objects.create_user(username=f"hist-other-{i}") for i in range(3)]
+    for other in others:
+        _send(other, me, "hi")
+    client = APIClient()
+    client.force_authenticate(me)
+
+    with CaptureQueriesContext(connection) as short:
+        resp = client.get("/forum/conversations/")
+    assert [row["unread_count"] for row in resp.data["results"]] == [1, 1, 1]
+
+    # A long history in every conversation: 40 more unread from the other
+    # side, and 5 of my own (which are never unread to me).
+    for conversation in Conversation.objects.all():
+        other = next(u for u in others if u.pk in conversation.participant_ids())
+        Message.objects.bulk_create(
+            [
+                Message(conversation=conversation, sender=other, body=f"more {n}")
+                for n in range(40)
+            ]
+            + [
+                Message(conversation=conversation, sender=me, body=f"mine {n}")
+                for n in range(5)
+            ]
+        )
+    cache.clear()
+
+    with CaptureQueriesContext(connection) as long:
+        resp = client.get("/forum/conversations/")
+
+    assert [row["unread_count"] for row in resp.data["results"]] == [41, 41, 41]
+    assert len(long.captured_queries) == len(short.captured_queries)
+    # The shape, from the query itself rather than its rendered text: no
+    # GROUP BY on the conversation rows and no join to the message table,
+    # so nothing in the outer query scales with history.
+    query = _inbox_queryset(me).query
+    assert query.group_by is None
+    assert Message._meta.db_table not in {
+        join.table_name for join in query.alias_map.values()
+    }
+
+
+@pytest.mark.django_db
+def test_a_conversation_with_nothing_unread_reports_zero_not_null():
+    me = User.objects.create_user(username="zero-me")
+    other = User.objects.create_user(username="zero-other")
+    _send(me, other, "only my own message")
+    client = APIClient()
+    client.force_authenticate(me)
+
+    rows = client.get("/forum/conversations/").data["results"]
+
+    assert [row["unread_count"] for row in rows] == [0]
+
+
+@pytest.mark.django_db
+def test_members_see_a_placeholder_for_a_message_a_moderator_removed():
+    from django.utils import timezone
+
+    sender = User.objects.create_user(username="rm-sender")
+    reader = User.objects.create_user(username="rm-reader")
+    conversation = Conversation.between(sender, reader)
+    kept = Message.objects.create(
+        conversation=conversation, sender=sender, body="kept words"
+    )
+    removed = Message.objects.create(
+        conversation=conversation,
+        sender=sender,
+        body="vile words",
+        removed_at=timezone.now(),
+    )
+    Conversation.objects.filter(pk=conversation.pk).update(
+        last_message_at=removed.created_at
+    )
+
+    for user in (sender, reader):
+        client = APIClient()
+        client.force_authenticate(user)
+        rows = client.get(f"/forum/conversations/{conversation.pk}/messages/")
+        bodies = {m["id"]: m["body"] for m in rows.data["results"]}
+        assert bodies == {kept.pk: "kept words", removed.pk: "[removed by a moderator]"}
+        inbox = client.get("/forum/conversations/")
+        last = inbox.data["results"][0]["last_message"]
+        assert last["body"] == "[removed by a moderator]"
+        lookup = client.get(
+            "/forum/conversations/with/"
+            f"{(reader if user == sender else sender).username}/"
+        )
+        for response in (rows, inbox, lookup):
+            assert b"vile" not in response.content

@@ -20,14 +20,14 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.13'
           cache: 'pip'
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/requirements-dev.txt
 
       - name: Install dependencies
         run: |
@@ -38,7 +38,8 @@ jobs:
       - name: Run pip-audit (JSON report)
         run: |
           cd backend
-          pip-audit -r requirements.txt --format json --output pip-audit-report.json || true
+          # The dev lock holds every production pin plus the dev tools (todo 708).
+          pip-audit -r requirements-dev.txt --format json --output pip-audit-report.json || true
         continue-on-error: true
 
       # Suppressions live in .github/security-suppressions.yml as DATA, and the
@@ -59,7 +60,7 @@ jobs:
           IGNORE_FLAGS: ${{ steps.suppressions.outputs.flags }}
         run: |
           cd backend
-          pip-audit -r requirements.txt $IGNORE_FLAGS
+          pip-audit -r requirements-dev.txt $IGNORE_FLAGS
         continue-on-error: true
 
       # PR runs are advisory-only: a fixable CVE with no code change yet shouldn't block
@@ -94,7 +95,7 @@ jobs:
 
       - name: Upload pip-audit report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: pip-audit-report
           path: backend/pip-audit-report.json
@@ -102,14 +103,14 @@ jobs:
 
       - name: Comment PR with vulnerabilities (if any)
         if: steps.audit.outcome == 'failure' && github.event_name == 'pull_request'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '⚠️ **Security vulnerabilities detected in Python dependencies (advisory only — not blocking this PR)**\n\nA dependency has a known vulnerability with an available fix. This does not block merge, but will start failing the weekly scheduled scan until resolved.\n\nPlease check the pip-audit report in the workflow artifacts for details.\n\nRun locally: `cd backend && pip-audit -r requirements.txt`'
+              body: '⚠️ **Security vulnerabilities detected in Python dependencies (advisory only — not blocking this PR)**\n\nA dependency has a known vulnerability with an available fix. This does not block merge, but will start failing the weekly scheduled scan until resolved.\n\nPlease check the pip-audit report in the workflow artifacts for details.\n\nRun locally: `cd backend && pip-audit -r requirements-dev.txt`'
             })
 
   frontend-security:
@@ -120,10 +121,10 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
 
@@ -240,7 +241,7 @@ jobs:
 
       - name: Upload npm audit report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: npm-audit-report
           path: npm-audit-reports/
@@ -248,7 +249,7 @@ jobs:
 
       - name: Comment PR with vulnerabilities (if any)
         if: steps.audit.outcome == 'failure' && github.event_name == 'pull_request'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             github.rest.issues.createComment({
@@ -263,7 +264,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -275,7 +276,7 @@ jobs:
           cache: true
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
@@ -296,7 +297,7 @@ jobs:
 
       - name: Upload SBOM
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: flutter-sbom
           path: plant_community_mobile/sbom.json
@@ -304,7 +305,7 @@ jobs:
 
       - name: Upload Flutter outdated report (if exists)
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: flutter-outdated-report
           path: plant_community_mobile/flutter-outdated.json
@@ -313,7 +314,7 @@ jobs:
 
       - name: Comment PR with outdated packages (if any)
         if: failure() && github.event_name == 'pull_request'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             github.rest.issues.createComment({
@@ -345,7 +346,7 @@ jobs:
       # fetch-depth: 0 is load-bearing. At the default depth 1 the base commit
       # is absent, `git show $BASE:file` fails, and a gate that cannot read its
       # own baseline would pass unconditionally.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -376,7 +377,7 @@ jobs:
 
       - name: Set up Python
         if: steps.scope.outputs.pip == 'true'
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
@@ -388,7 +389,12 @@ jobs:
           set -euo pipefail
           pip install pip-audit
           mkdir -p /tmp/gate
-          git show "$BASE_SHA:backend/requirements.txt" > /tmp/gate/base-requirements.txt
+          # Both base locks, under their own names in one directory: the
+          # dev lock may `-r requirements.txt` (it did before todo 708), and
+          # pip resolves that against the including file's directory.
+          mkdir -p /tmp/gate/base
+          git show "$BASE_SHA:backend/requirements.txt" > /tmp/gate/base/requirements.txt
+          git show "$BASE_SHA:backend/requirements-dev.txt" > /tmp/gate/base/requirements-dev.txt
           # `cd backend` is load-bearing. requirements.txt ends with
           # `-e ./packages/wagtail_forum`, a path relative to THAT directory, and
           # pip resolves relative requirement paths against the CURRENT WORKING
@@ -401,9 +407,11 @@ jobs:
           cd backend
           # `|| true`: pip-audit exits non-zero merely because advisories exist.
           # The report is the artefact we want; the diff decides pass/fail.
-          pip-audit -r /tmp/gate/base-requirements.txt --format json \
+          # The dev lock on each side: production pins plus the dev tools
+          # (todo 708), so a dev-only change is audited too.
+          pip-audit -r /tmp/gate/base/requirements-dev.txt --format json \
             --output /tmp/gate/base-pip.json || true
-          pip-audit -r requirements.txt --format json \
+          pip-audit -r requirements-dev.txt --format json \
             --output /tmp/gate/head-pip.json || true
           # That `|| true` cannot tell "advisories found" from "pip-audit crashed",
           # which is exactly how the cwd bug stayed invisible. Assert the artefacts
@@ -418,7 +426,7 @@ jobs:
 
       - name: Set up Node.js
         if: steps.scope.outputs.npm_dirs != ''
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
 
@@ -513,7 +521,7 @@ jobs:
       issues: write
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # Three steps, not one. The verdict has to be computed BEFORE the alarm
       # runs and the gate fails: the previous single step ended in `exit 1`,

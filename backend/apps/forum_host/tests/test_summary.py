@@ -26,7 +26,7 @@ User = get_user_model()
 # Lazy imports inside the task bind these names fresh from their source modules
 # on each call, so patch at the SOURCE (not as re-exported into tasks.py).
 GEN = "apps.blog.wagtail_ai_v3_integration.generate_ai_text"
-BUDGET = "apps.blog.services.ai_rate_limiter.AIRateLimiter.check_global_limit"
+BUDGET = "apps.blog.services.ai_rate_limiter.AIRateLimiter.peek_budget"
 DELAY = "apps.forum_host.summary.generate_topic_summary.delay"
 
 
@@ -229,7 +229,7 @@ def test_task_is_noop_when_already_cached():
 
 
 @pytest.mark.django_db
-def test_task_skips_when_global_budget_exhausted():
+def test_task_skips_when_summary_budget_exhausted():
     from apps.forum_host.tasks import generate_topic_summary
 
     topic = _topic_with_posts(3)
@@ -285,6 +285,108 @@ def test_task_retries_on_transient_provider_error_with_backoff():
     assert mock_retry.call_args.kwargs["countdown"] == constants.SUMMARY_RETRY_DELAY * (
         2**prior_retries
     )
+
+
+GLOBAL_KEY = "ai_rate_limit:global"
+SUMMARY_KEY = constants.SUMMARY_BUDGET_CACHE_KEY
+
+
+def test_summaries_have_their_own_budget_key():
+    """Owner decision 2026-11-22 (audit 2026-11-21 R3): never the blog
+    editor's shared key."""
+    assert SUMMARY_KEY != GLOBAL_KEY
+
+
+@pytest.mark.django_db
+def test_a_failed_provider_call_does_not_spend_the_summary_budget():
+    """Peek, then consume only after the provider returned: a retried outage
+    must not bill the budget (audit 2026-11-21 M4)."""
+    from apps.forum_host.tasks import generate_topic_summary
+
+    topic = _topic_with_posts(3)
+    with patch(GEN, side_effect=RuntimeError("provider down")), patch.object(
+        generate_topic_summary, "retry", side_effect=Retry("retried")
+    ):
+        for _ in range(constants.SUMMARY_MAX_RETRIES + 1):
+            with pytest.raises(Retry):
+                generate_topic_summary.run(topic.id)
+
+    assert cache.get(SUMMARY_KEY, 0) == 0
+
+
+@pytest.mark.django_db
+def test_a_returned_provider_call_spends_one_slot_of_the_summary_budget_only():
+    from apps.forum_host.tasks import generate_topic_summary
+
+    topic = _topic_with_posts(3)
+    with patch(GEN, return_value="A summary."):
+        generate_topic_summary(topic.id)
+
+    assert cache.get(SUMMARY_KEY, 0) == 1
+    assert cache.get(GLOBAL_KEY, 0) == 0  # the blog editor's bucket is untouched
+
+
+@pytest.mark.django_db
+def test_a_full_blog_budget_does_not_block_summaries():
+    from apps.blog.services.ai_rate_limiter import AIRateLimiter
+    from apps.forum_host.tasks import generate_topic_summary
+
+    cache.set(GLOBAL_KEY, AIRateLimiter.GLOBAL_LIMIT, 3600)
+    topic = _topic_with_posts(3)
+    with patch(GEN, return_value="A summary.") as mock_gen:
+        generate_topic_summary(topic.id)
+
+    mock_gen.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_a_budget_skip_frees_the_pending_lock():
+    from apps.forum_host.summary import _pending_lock_key
+    from apps.forum_host.tasks import generate_topic_summary
+
+    topic = _topic_with_posts(3)
+    lock = _pending_lock_key(build_summary_source(topic)[0])
+    cache.set(lock, 1, constants.SUMMARY_PENDING_LOCK_TTL)
+    with patch(BUDGET, return_value=False), patch(GEN):
+        generate_topic_summary(topic.id)
+
+    assert cache.get(lock) is None
+
+
+@pytest.mark.django_db
+def test_the_last_failed_attempt_frees_the_pending_lock_and_earlier_ones_keep_it():
+    from apps.forum_host.summary import _pending_lock_key
+    from apps.forum_host.tasks import generate_topic_summary
+
+    topic = _topic_with_posts(3)
+    lock = _pending_lock_key(build_summary_source(topic)[0])
+    cache.set(lock, 1, constants.SUMMARY_PENDING_LOCK_TTL)
+    for retries in range(constants.SUMMARY_MAX_RETRIES + 1):
+        with patch(GEN, side_effect=RuntimeError("down")), patch.object(
+            generate_topic_summary, "retry", side_effect=Retry("retried")
+        ):
+            generate_topic_summary.push_request(retries=retries)
+            try:
+                with pytest.raises(Retry):
+                    generate_topic_summary.run(topic.id)
+            finally:
+                generate_topic_summary.pop_request()
+        last = retries == constants.SUMMARY_MAX_RETRIES
+        assert (cache.get(lock) is None) is last
+
+
+def test_pending_lock_outlives_the_worst_case_retry_window():
+    """Every attempt can run to the hard time limit, plus each backoff; a
+    shorter lock lets a poll enqueue a second task mid-retry (M4)."""
+    from django.conf import settings
+
+    attempts = constants.SUMMARY_MAX_RETRIES + 1
+    backoff = sum(
+        constants.SUMMARY_RETRY_DELAY * 2**n
+        for n in range(constants.SUMMARY_MAX_RETRIES)
+    )
+    worst = attempts * settings.CELERY_TASK_TIME_LIMIT + backoff
+    assert constants.SUMMARY_PENDING_LOCK_TTL >= worst
 
 
 # --------------------------------------------------------------------------- #

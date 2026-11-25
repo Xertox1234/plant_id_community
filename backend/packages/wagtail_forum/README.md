@@ -238,9 +238,24 @@ Wrong passwords are counted per member per forum
 and answer 429 past the limit. While locked, the forum's row on
 `/forum/categories/` carries `is_locked: true`, no `last_post_at` and no unread
 mark; its topic list is 403 `forum_locked` and its topics are 404; search,
-notifications and the digest leave it out. The flat `/forum/boards/` list (the
-Flutter app's) leaves a locked forum out until the app has an unlock screen.
+notifications and the digest leave it out. The flat `/forum/boards/` list
+leaves a forum out while it is locked for the request (a session or token
+unlock includes it).
+The mobile app reads `/forum/categories/` and no longer calls `/forum/boards/`;
+installed app builds from before the category index still do, so its shape
+must not change.
 Staff and moderators bypass the password.
+
+A client with no session (the mobile app) keeps a forum unlocked with a token:
+the unlock answers `{"unlocked": true, "unlock_token": "..."}` (`unlock_token`
+is null when there was nothing to unlock), and the client sends the token back
+in an `X-Forum-Unlock` header, comma-separated for several forums (only the
+first 20 are read). A token opens its forum only for the member it was made for,
+only while the forum keeps the password it was made against, and only for
+`WAGTAILFORUM_FORUM_UNLOCK_TOKEN_MAX_AGE_SECONDS`. The server keeps no list of
+tokens: changing the password ends every one of them. A bad, expired or foreign
+token is ignored, and anonymous requests ignore the header, so their responses
+stay publicly cacheable.
 
 **Display settings** (todo 669; the *Display* and *Rules* tabs). `is_closed`
 (phpBB "locked"; named so because `is_locked` above already means an
@@ -324,6 +339,13 @@ at-least-once), and `--dry-run` reports recipient/due/empty
 counts without sending or writing. Links use `EMAIL_SITE_URL` (or the
 host's `SITE_URL`) and the manage link points at `DIGEST_SETTINGS_PATH`.
 
+The digest respects quiet hours: a due member whose quiet window covers the
+run is skipped and stays due (the summary line counts them as `held=N`).
+The host must run the command again after the main run so they get it once
+their window ends: `--quiet-hours-only` limits a run to members with quiet
+hours on, and running it hourly for the 24 hours after the main run covers
+every window. `last_digest_sent_at` keeps those runs from sending twice.
+
 ### Direct messages: the inbox contract
 
 `GET conversations/` is an inbox: most recent activity first
@@ -392,7 +414,7 @@ The reference implementation is the host's `apps/forum_host/forum_settings.py`
 | `WAGTAILFORUM_SPAM_BACKEND` | `"wagtail_forum.spam.heuristic.HeuristicSpamBackend"` | Dotted path to the spam backend (see [Spam backends](#spam-backends)). |
 | `WAGTAILFORUM_TRUST_AUTOPUBLISH_LEVEL` | `2` (`TrustLevel.MEMBER`) | Minimum author trust level that publishes without moderation. |
 | `WAGTAILFORUM_MODERATION_BYPASS_PERMISSION` | `"wagtail_forum.publish_post"` | Authors who publish without moderation at any trust level: active superusers, plus any author holding this permission (grant it to your forum moderator group). Checked on the **author** at request time, never stored as `trust_level`, and applied to create, edit and DM screening alike. `None` = superusers only. Plain `is_staff` is not enough (todo 423). |
-| `WAGTAILFORUM_TRUST_THRESHOLDS` | `{1: 1, 2: 5, 3: 50, 4: 200}` | `trust_level -> minimum visible post_count`. Trust is re-derived in **both** directions, so trust funded by posts later removed as spam is revoked. Keys may be strings (JSON/env-friendly). |
+| `WAGTAILFORUM_TRUST_THRESHOLDS` | `{1: 1, 2: 5, 3: 50, 4: 200}` | `trust_level -> minimum visible post_count`. Trust is re-derived in **both** directions, so trust funded by posts later removed as spam is revoked. Keys may be strings (JSON/env-friendly). A level staff set on the profile in the admin (`trust_level_override`) stays in force until it is cleared. |
 | `WAGTAILFORUM_SPAM_MAX_LINKS` | `5` | Heuristic backend: max `http(s)://` occurrences before rejection. |
 | `WAGTAILFORUM_SPAM_BANNED_WORDS` | `[]` | Heuristic backend: case-insensitive substring blocklist. |
 | `WAGTAILFORUM_REPORT_AUTO_HIDE_THRESHOLD` | `3` | Distinct open reports on one post before it is auto-unpublished pending review. |
@@ -482,7 +504,13 @@ as `forum_host/bootstrap.py`'s "Forum Moderators" group does. The queue is a
 listing only: every row links to the `Report` snippet inspect view, where
 actioning/dismissing already lives. Note the read scope: message (DM)
 reports show the sender and a body excerpt to anyone who can open the
-queue, exactly as the Report snippet listing already does.
+queue, exactly as the Report snippet listing already does. The inspect view
+shows the whole reported message, that one only, to a holder of `view_report`
+or `change_report`, and logs each read; a holder of `change_report` can also
+remove it there (a confirm page, logged). A removed message keeps its row: the
+API answers `[removed by a moderator]` as its `body` to every member, and the
+open reports on it become `actioned`. A report's message cannot be changed in
+the admin.
 
 ### Inline image uploads
 
@@ -561,13 +589,17 @@ Things worth knowing before changing this:
 | `WAGTAILFORUM_TOPIC_READ_DEDUP_SECONDS` | `900` (15 min) | Read-marker dedup window. Deliberately **separate** from the view-count window — they gate unrelated concerns and only happen to share a default. |
 | `WAGTAILFORUM_FORUM_UNLOCK_MAX_FAILURES` | `5` | Wrong passwords one member may try on one password forum per window before `POST boards/{slug}/unlock/` answers 429 (todo 680). Only a wrong password counts; the right one clears the count. |
 | `WAGTAILFORUM_FORUM_UNLOCK_WINDOW_SECONDS` | `900` (15 min) | The window of the count above, from the first wrong password; also the 429's `Retry-After`. |
+| `WAGTAILFORUM_FORUM_UNLOCK_TOKEN_MAX_AGE_SECONDS` | `2592000` (30 days) | How long an `unlock_token` from `POST boards/{slug}/unlock/` opens its forum when sent back in `X-Forum-Unlock`. A new password ends every token sooner. |
 | `WAGTAILFORUM_PUBLIC_READ_CACHE_SECONDS` | `60` | Shared-cache TTL for **anonymous** board list, topic list, search, recent topics, experts rails, and the event hero only, so a CDN can offload public reads. Authenticated responses are always `private, no-store`. Topic detail and post list are never shared-cached (view counting; moderated-away content must stop serving immediately). Tradeoff: a just-removed topic can linger in the anon-cached *list* for up to this TTL. |
 | `WAGTAILFORUM_RECENT_TOPICS_DEFAULT_LIMIT` | `5` | Default row count for `GET topics/recent/` (the landing "Active now" rail) when `?limit=` is omitted. |
 | `WAGTAILFORUM_RECENT_TOPICS_MAX_LIMIT` | `20` | Cap on `?limit=` for `GET topics/recent/`. Bounded because each row may resolve a thumbnail rendition. |
+| `WAGTAILFORUM_RECENT_TOPICS_THUMBNAILS` | `3` | Max `thumbnail_urls` per row in `GET topics/recent/`: the opening post's pictures in body order, a fill-160x160 crop for an uploaded image and the cached preview image for a link card. |
+| `WAGTAILFORUM_RECENT_TOPICS_REPLIERS` | `3` | Max `repliers` per row in `GET topics/recent/`: authors of live replies, most recent first. Members the viewer blocked or muted, and deleted accounts, are left out. |
 | `WAGTAILFORUM_LATEST_REPLIES_LIMIT` | `3` | Items in `GET topics/<id>/latest-replies/` (the expanded home activity card). The accepted answer, when shown, counts toward it. |
 | `WAGTAILFORUM_LATEST_REPLIES_EXCERPT_CHARS` | `160` | Length of each plain-text reply excerpt in `GET topics/<id>/latest-replies/`. |
 | `WAGTAILFORUM_LATEST_REPLIES_PARTICIPANTS` | `5` | Max `participants` (most recent poster first) in `GET topics/<id>/latest-replies/`. |
 | `WAGTAILFORUM_EXPERTS_LIMIT` | `4` | Max row count for `GET users/experts/` (the "Community experts" / "Experts online" landing rail). |
+| `WAGTAILFORUM_BOARD_CONTRIBUTORS_LIMIT` | `5` | Max row count for `GET boards/<slug>/contributors/` (a forum's "Top contributors": members ranked by live posts in that forum). |
 | `WAGTAILFORUM_EXPERTS_MIN_TRUST_LEVEL` | `3` | Minimum trust level to appear in `GET users/experts/`. (3 = TrustLevel.REGULAR) |
 | `WAGTAILFORUM_COMMUNITY_STATS_CACHE_SECONDS` | `60` | Server-side TTL of the site-wide counts in `GET community/stats/` (the "Who's online" panel), cached as one shared value for every viewer. The online sample and newest member are built per request and never cached; the response itself is always `private, no-store`. |
 | `WAGTAILFORUM_COMMUNITY_ONLINE_SAMPLE` | `5` | Max `online_sample` rows (most recently seen first) in `GET community/stats/`. |
@@ -600,11 +632,13 @@ Things worth knowing before changing this:
 | `WAGTAILFORUM_DIGEST_SETTINGS_PATH` | `"/settings"` | Path (under the site origin) the digest's "change or turn it off" link points to. |
 | `WAGTAILFORUM_DIGEST_UNSUBSCRIBE` | `None` | Dotted path to a host callable `(user) -> {"url": str, "headers": dict} \| None`. `url` is an absolute, signed unsubscribe page shown in the digest; `headers` (e.g. `List-Unsubscribe`, `List-Unsubscribe-Post`) are added to the message. The package never mints tokens itself. |
 | `WAGTAILFORUM_DIGEST_RECIPIENT_FILTER` | `None` | Dotted path to a host callable `() -> Q` over the user model. Set, a member gets a digest only while their account matches it, checked when the run selects recipients and again when it claims each member, so an account switched off mid-run is not mailed. Use it for an account-wide email policy the package cannot know, such as a master "no optional email" switch. |
+| `WAGTAILFORUM_AUTHOR_AVATAR_FALLBACK` | `None` | Dotted path to a host callable `(user) -> str \| None`: the URL (absolute or site-relative) of the account's own photo. Asked only for an author whose forum profile has no avatar, so every author object (topics, posts, messages, experts) shows that photo instead of `null`. It runs once per author per row, so it must read fields already loaded on the user and never query. A hook that raises is logged and treated as no photo. |
+| `WAGTAILFORUM_VIEW_COUNT_CLIENT_RESOLVER` | `None` | Dotted path to a host callable `(request) -> str` naming an anonymous reader for the topic view-count dedup. `None` keys on `REMOTE_ADDR`, which behind a reverse proxy is the proxy's address, so anonymous views undercount; a host behind one names its trusted client-address resolver here. A hook that raises falls back to `REMOTE_ADDR`. |
 | `WAGTAILFORUM_DM_GROUP_MAX_PARTICIPANTS` | `8` | Members per group conversation INCLUDING the creator (todo 350). Creation and `participants/` adds reject beyond it. |
 | `WAGTAILFORUM_NOTIFICATION_DEFAULTS` | reply push+email on; mention/quote/solution push on | Per-event `{push, email?}` matrix a member gets until they change a cell (todo 343). Only cells with a delivery path exist (email for replies only; the tray-silent moderation push is not a preference). In-app is always on. Stored overrides on `me/profile/` (`notification_preferences`, partial PATCH) win; a cell the host omits falls back to the package default. |
 | `WAGTAILFORUM_EMAIL_SITE_URL` | `None` | Absolute origin for links in package emails; `None` falls back to the host's `SITE_URL`. |
 | `WAGTAILFORUM_QUOTES_MAX_PER_POST` | `3` | Distinct posts one body may quote with the structured `post_quote` block (todo 342). |
-| `WAGTAILFORUM_QUOTE_MAX_CHARS` | `1000` | Max characters of a `post_quote` block's text; longer is a 400, never silently truncated. |
+| `WAGTAILFORUM_QUOTE_MAX_CHARS` | `1000` | Max characters of a `post_quote` block's text; longer is a 400, never silently truncated. The text must also be one piece of the quoted post's own text (`quotes.quote_matches`), else 400. |
 | `WAGTAILFORUM_MAX_EMBED_URLS_PER_BODY` | `5` | Distinct embed URLs one body may carry (they resolve concurrently, so this bounds pool pressure per write and iframes per post, not wall time). |
 | `WAGTAILFORUM_LINK_PREVIEW_FETCHER` | `None` | Dotted path to the host callable that fetches a linked page's metadata for a `link_preview` card (see [Link previews](#link-previews)). `None` = no cards; links stay links. |
 | `WAGTAILFORUM_LINK_PREVIEW_FETCH_TIMEOUT_SECONDS` | `5` | One window for ALL of a body's page fetches at write time (they run concurrently). A fetch still running when it closes leaves that link a link. |

@@ -33,7 +33,7 @@ permissions:
 jobs:
   backend-checks:
     name: Install dependencies and run Django checks
-    # Python 3.13.9 has no Ubuntu 26.04 build; keep the runner compatible with .python-version.
+    # Pinned runner: .python-version's patch must have an actions/python-versions build for it (3.13.9 had none for 26.04).
     runs-on: ubuntu-24.04
 
     defaults:
@@ -48,28 +48,40 @@ jobs:
       JWT_SECRET_KEY: 'ci-jwt-key-for-backend-checks-abcdefghijklmnopqrstuvwxyz1234567890-different'
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/requirements-dev.txt
 
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          # The dev lock holds every production pin plus the test, type and
+          # lint tools (todo 708); the image installs requirements.txt alone.
+          python -m pip install -r requirements-dev.txt
 
       - name: Check installed dependency consistency
         run: python -m pip check
+
+      - name: Check the locks are what the .in files compile to
+        # requirements.txt and requirements-dev.txt are written only by
+        # bin/compile-requirements.sh (pip-tools, todo 708). Re-running it
+        # keeps every pin that still satisfies the .in files, so any diff
+        # means a lock was edited by hand, or an .in file changed without a
+        # recompile. pip-tools comes from requirements-dev.txt.
+        run: |
+          bash bin/compile-requirements.sh
+          git diff --exit-code -- requirements.txt requirements-dev.txt
 
       - name: Run Django system checks
         run: python manage.py check
 
       - name: Restore pre-commit hook environments
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-lint-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
@@ -157,10 +169,12 @@ jobs:
         # settings.py accepts DATABASE_URL for pytest and validates that it is
         # PostgreSQL; local pytest without a URL uses the TEST_DB_* PostgreSQL
         # defaults. pytest-django creates `test_plant_community` from this service.
-        # pgvector image (Postgres 16 + the `vector` extension preinstalled) so
+        # pgvector image (Postgres + the `vector` extension preinstalled) so
         # the forum similar-topics `CREATE EXTENSION vector` migration applies in
-        # CI (todo 255 slice 4 / H15). Stock postgres:16 lacks the extension.
-        image: pgvector/pgvector:pg16
+        # CI (todo 255 slice 4 / H15). Stock postgres images lack the extension.
+        # Major matches production: Railway runs Postgres 18
+        # (ghcr.io/railwayapp-templates/postgres-ssl:18, read 2026-11-18, todo 709).
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres  # pragma: allowlist secret
@@ -173,7 +187,8 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       redis:
-        image: redis:7
+        # Major matches production: Railway runs redis:8.2.9 (read 2026-11-18, todo 709).
+        image: redis:8
         ports:
           - 6379:6379
         options: >-
@@ -204,19 +219,21 @@ jobs:
       TREFLE_API_KEY: 'ci-placeholder-trefle-key-00000000000000'  # pragma: allowlist secret
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/requirements-dev.txt
 
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          # The dev lock holds every production pin plus the test, type and
+          # lint tools (todo 708); the image installs requirements.txt alone.
+          python -m pip install -r requirements-dev.txt
 
       - name: Run backend test suite (pytest)
         # Runner is pytest (config in backend/pytest.ini), which ignores

@@ -281,6 +281,19 @@ class User(AbstractUser):  # type: ignore[django-manager-missing]
         return self.username
 
     @property
+    def public_name(self) -> str:
+        """The name other people see: the member's chosen (forum) display
+        name, else their username. Never ``get_full_name()``: sign in with
+        Apple, Google or Firebase copies the provider's name into
+        ``first_name``, and blog comments and bylines reach anonymous readers
+        (owner decisions 2026-11-21 and 2026-11-22, todo 731). ``display_name``
+        above stays for the member's own profile. No query when the caller
+        select_related-joined ``wagtail_forum_profile``."""
+        from wagtail_forum.api.serializers import forum_display_name
+
+        return str(forum_display_name(self))
+
+    @property
     def follower_count(self) -> int:
         """Return the number of followers."""
         return self.followers.count()
@@ -846,3 +859,27 @@ class DeletedAccount(models.Model):
 
     def __str__(self):
         return f"DeletedAccount {self.user_id} ({self.reason}, {self.status})"
+
+
+class RotatedRefreshToken(models.Model):
+    """A refresh token that ``token_refresh`` blacklisted by rotating it.
+
+    Only rotation writes this row, in the transaction that blacklists the
+    token; logout, a refused refresh and a session revocation do not. Reuse
+    detection (``refresh_sessions.end_sessions_on_reuse``) counts only
+    a token with this row, so a token another path blacklisted coming back is
+    a plain 401 and never ends the account's other sessions (todo 705 repair).
+    Detection deletes the row, so it fires once per token. The row goes with
+    its token when ``flushexpiredtokens`` deletes it.
+    """
+
+    token = models.OneToOneField(
+        "token_blacklist.OutstandingToken",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="rotation",
+    )
+    rotated_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"RotatedRefreshToken {self.token_id}"

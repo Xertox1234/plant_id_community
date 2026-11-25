@@ -397,7 +397,6 @@ What is single-sourced is this policy.
 | Path | Where it lives | Verification signal | Enforcement on failure |
 |------|----------------|---------------------|------------------------|
 | Google (web) | `oauth_views._handle_google_callback` | `verified_email` (v2 userinfo) or `email_verified` (OIDC); absent → unverified | strip `email` from the profile so `_find_or_create_user` fails closed |
-| GitHub (web) | `oauth_views._handle_github_callback` | an email object that is both `primary` **and** `verified` | `email` is only set when a primary+verified address exists |
 | allauth (web) | `oauth_adapters.pre_social_login` / `_provider_email_verified` | `sociallogin.email_addresses[].verified` (case-folded match) | raise `ImmediateHttpResponse` → `?error=unverified_email`; never auto-link or fall through to auto-signup |
 | Firebase (mobile) | `firebase_auth_views` | `email_verified` claim, or `sign_in_provider` in the trusted federated set (Google, Apple) | 403 at token exchange; `ValueError` before binding a UID onto an existing account |
 
@@ -411,7 +410,7 @@ email-matching paths refuse unless `email_verification.is_email_verified(user)`:
 
 | Path | Where it lives | Enforcement on an unverified local account |
 |------|----------------|--------------------------------------------|
-| Google/GitHub (web) | `oauth_views._find_or_create_user` | raise `UnverifiedLocalAccount` → `?error=account_unverified` |
+| Google (web) | `oauth_views._find_or_create_user` | raise `UnverifiedLocalAccount` → `?error=account_unverified` |
 | allauth (web) | `oauth_adapters.pre_social_login` | `ImmediateHttpResponse` → `?error=account_unverified` |
 | Firebase (mobile) | `get_or_create_user_from_firebase` email fallback | `ValueError` → 409 |
 
@@ -466,7 +465,7 @@ HTTP (`apps/users/tests/test_allauth_surface.py`):
 - **Resolve a provider sign-in by its stable account id before its email**
   (todo 447 slice B). Web OAuth reads the `SocialAccount` row for
   `(provider, id)` first (`oauth_views._linked_account`), as allauth does. A
-  GitHub or Google email can change; matching by email first found a
+  provider's email can change; matching by email first found a
   different account (or none) for an identity already linked, and refused it
   forever as "linked elsewhere".
 - **The first provider link to a password account revokes and notifies**

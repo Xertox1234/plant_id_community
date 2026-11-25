@@ -287,25 +287,27 @@ class ManifestDriftTests(unittest.TestCase):
             "versa) — every scanner that loops over that constant is now blind to it",
         )
 
-    def test_requirements_dev_carries_no_pins(self):
-        """`pip_changed` is broader than the file the audit reads; this is why that is safe.
+    def test_the_gate_audits_the_dev_lock(self):
+        """`pip_changed` scopes in every backend lock; the audit must read the superset.
 
-        backend/requirements-dev.txt is a pinless `-r requirements.txt` overlay,
-        so a dev-only change has the same answer as requirements.txt by
-        construction. The day it gains a pin of its own, that stops being true
-        and the gate would report on the wrong tree — the todo-356 shape.
+        Since todo 708 backend/requirements-dev.txt is a pip-compile lock that
+        holds every production pin plus the dev tools. Auditing only
+        requirements.txt would leave a dev-only change in scope but unread --
+        a false green, the todo-356 shape. So both pip-audit calls of the gate
+        must read the dev lock, and the dev lock must still carry the
+        production pins.
         """
-        lines = [
+        workflow = (REPO_ROOT / ".github" / "workflows" / "security-scan.yml").read_text()
+        self.assertIn("pip-audit -r /tmp/gate/base/requirements-dev.txt", workflow)
+        self.assertIn("pip-audit -r requirements-dev.txt --format json", workflow)
+        dev_lock = (REPO_ROOT / "backend" / "requirements-dev.txt").read_text()
+        prod_pins = [
             line.strip()
-            for line in (REPO_ROOT / "backend" / "requirements-dev.txt").read_text().splitlines()
-            if line.strip() and not line.strip().startswith("#")
+            for line in (REPO_ROOT / "backend" / "requirements.txt").read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
         ]
-        self.assertEqual(
-            lines,
-            ["-r requirements.txt"],
-            "requirements-dev.txt is no longer a pure overlay — either audit it "
-            "directly in new-vuln-gate or narrow pip_changed()",
-        )
+        missing = [pin for pin in prod_pins if pin not in dev_lock.splitlines()]
+        self.assertEqual(missing, [], "requirements-dev.txt lost production pins")
 
 
 class MultiManifestCompareTests(unittest.TestCase):

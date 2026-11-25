@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 from apps.core import email_feedback
 from apps.core.constants import EMAIL_TRACKED_LINK_KEYS
 from apps.core.utils.pii_safe_logging import log_safe_email, log_safe_user_context
+from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import EmailMultiAlternatives, send_mail
@@ -126,6 +127,7 @@ class EmailOutcome:
 # outbox's own words (``DeliveryIntent.last_error``).
 SUPPRESSED_PREFERENCE = "preference_off"
 SUPPRESSED_ADDRESS = "address_suppressed"
+SUPPRESSED_UNVERIFIED = "email_unverified"
 
 
 # An RFC 3463 enhanced status code at the start of an SMTP reply's text,
@@ -225,6 +227,18 @@ SYSTEM_EMAIL_TYPES = frozenset(
 )
 
 
+# Optional mail about the forum: sent only to a verified address.
+FORUM_EMAIL_TYPES = frozenset(
+    {
+        EmailType.FORUM_REPLY,
+        EmailType.FORUM_MENTION,
+        EmailType.FORUM_QUOTE,
+        EmailType.FORUM_SOLUTION,
+        EmailType.FORUM_DIGEST,
+    }
+)
+
+
 # Email type -> the list its unsubscribe link leaves (a key of
 # apps.users.email_unsubscribe.LISTS). A type with no entry carries no link.
 UNSUBSCRIBE_LISTS = {
@@ -250,7 +264,8 @@ class EmailService:
         # The EmailOutcome of the last send_email call (todo 619).
         self.last_outcome: Optional[str] = None
         # Why it was SUPPRESSED, for an outbox to record (todo 625):
-        # SUPPRESSED_PREFERENCE or SUPPRESSED_ADDRESS, else None.
+        # SUPPRESSED_PREFERENCE, SUPPRESSED_ADDRESS or SUPPRESSED_UNVERIFIED,
+        # else None.
         self.last_suppression_reason: Optional[str] = None
 
     def send_email(
@@ -314,6 +329,22 @@ class EmailService:
             self.last_suppression_reason = SUPPRESSED_PREFERENCE
             return False
 
+        # Forum mail goes only to an address its account proved it owns: an
+        # account can be registered with anyone's (audit 2026-11-24 F211).
+        if (
+            respect_preferences
+            and user
+            and email_type in FORUM_EMAIL_TYPES
+            and not self._address_verified(user)
+        ):
+            logger.info(
+                "[EMAIL] Forum email to user %s not sent: address not verified",
+                user.pk,
+            )
+            self.last_outcome = EmailOutcome.SUPPRESSED
+            self.last_suppression_reason = SUPPRESSED_UNVERIFIED
+            return False
+
         # The provider reported this address as undeliverable, or its owner
         # as complaining (todo 625). Terminal: retrying cannot help.
         if email_feedback.is_suppressed(
@@ -357,6 +388,8 @@ class EmailService:
             )
             self.last_outcome = EmailOutcome.PERMANENT
             return False
+        except SoftTimeLimitExceeded:
+            raise  # the task's deadline, never a render failure (audit M3)
         except Exception as e:
             # The type only: a template error can quote a context value, such
             # as the signed unsubscribe link (todo 649 finding 1).
@@ -373,6 +406,8 @@ class EmailService:
             # Expected for the legacy .html-only templates — derive plain text
             # from the HTML that already rendered.
             text_content = html_to_text(html_content)
+        except SoftTimeLimitExceeded:
+            raise  # the task's deadline, never a render failure (audit M3)
         except Exception as e:
             # A genuine .txt render bug shouldn't drop an email whose .html is
             # fine; fall back to the stripped HTML but surface the bug in logs.
@@ -444,10 +479,12 @@ class EmailService:
             self.last_outcome = EmailOutcome.SENT
             return True
 
-        except Warning:
+        except (Warning, SoftTimeLimitExceeded):
             # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
             # and Warning subclasses Exception: never log it as a failed send
-            # (todo 454).
+            # (todo 454). Nor the Celery soft time limit: swallowed as a
+            # transient send failure it let a batch run on to the hard kill
+            # (audit 2026-11-21 M3); the calling task decides what it means.
             raise
         except ConnectionError as e:
             logger.error(
@@ -505,9 +542,9 @@ class EmailService:
                     results["sent"] += 1
                 else:
                     results["failed"] += 1
-            except Warning:
-                # Re-raised by send_email (todo 454): never count it as one
-                # recipient's failure.
+            except (Warning, SoftTimeLimitExceeded):
+                # Re-raised by send_email (todo 454, audit M3): never count it
+                # as one recipient's failure.
                 raise
             except Exception as e:
                 # recipient could be email or User object - handle both cases
@@ -560,6 +597,13 @@ class EmailService:
 
         # Check specific preference or default to True
         return email_preference_map.get(email_type, True)
+
+    @staticmethod
+    def _address_verified(user: User) -> bool:
+        # Imported late: that module imports this one.
+        from apps.users.email_verification import is_email_verified
+
+        return is_email_verified(user)
 
     def _get_base_context(
         self, user: Optional[User], email_type: str
@@ -650,6 +694,8 @@ class EmailService:
                 sent_at=timezone.now(),
                 status=EmailNotification.STATUS_SENT,
             )
+        except SoftTimeLimitExceeded:
+            raise  # the task's deadline, never a tracking failure (audit M3)
         except (ImportError, Exception) as e:
             # Log but don't fail email sending if tracking fails
             logger.warning(f"[EMAIL] Failed to track email: {e}")
@@ -715,10 +761,12 @@ class EmailService:
             )
             self.last_outcome = EmailOutcome.SENT
             return True
-        except Warning:
+        except (Warning, SoftTimeLimitExceeded):
             # A RemovedInDjango70Warning is an error under pytest.ini (todo 364)
             # and Warning subclasses Exception: never log it as a failed send
-            # (todo 454).
+            # (todo 454). Nor the Celery soft time limit: swallowed as a
+            # transient send failure it let a batch run on to the hard kill
+            # (audit 2026-11-21 M3); the calling task decides what it means.
             raise
         except Exception as e:
             logger.error(
@@ -736,9 +784,16 @@ class EmailService:
         Returns:
             bool: True if email was sent successfully
         """
+        from apps.users.email_unsubscribe import ALL_OPTIONAL, unsubscribe_url
+
         context = {
             "user": user,
             "user_first_name": user.first_name or user.username,
+            # It promotes features, so it carries a signed-out way to stop
+            # all optional email, not only the sign-in-gated Settings link
+            # (todo 703). Passed here, not through UNSUBSCRIBE_LISTS: the
+            # welcome is sent as ACCOUNT_VERIFICATION, which has no list.
+            "unsubscribe_url": unsubscribe_url(user, ALL_OPTIONAL),
         }
 
         return self.send_email(

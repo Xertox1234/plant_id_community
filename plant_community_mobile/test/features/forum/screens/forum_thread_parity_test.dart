@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_thread_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_edit_history_sheet.dart';
+import 'package:plant_community_mobile/features/forum/widgets/post_card.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -25,6 +27,171 @@ Widget _wrap(FakeForumApi api, {bool loggedIn = true}) => ProviderScope(
 Finder _menu() => find.byIcon(LucideIcons.ellipsisVertical);
 
 void main() {
+  group('Thread title heading (F303)', () {
+    const title =
+        'Every Calathea leaf on the north windowsill is curling and going '
+        'brown at the tips even though the humidifier runs all day';
+
+    Future<void> pumpTitle(
+      WidgetTester tester, {
+      double scale = 1,
+      List<ForumPost>? items,
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(360, 780));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      tester.platformDispatcher.textScaleFactorTestValue = scale;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail(id: 10, title: title)
+        ..posts = CursorPage(items: items ?? [post(id: 1)]);
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+    }
+
+    final heading = find.byKey(const ValueKey('thread-title'));
+
+    for (final scale in [1.0, 2.0]) {
+      testWidgets('the whole title wraps above the first post at ${scale}x', (
+        tester,
+      ) async {
+        await pumpTitle(tester, scale: scale);
+        expect(tester.takeException(), isNull);
+        expect(tester.widget<Text>(heading).data, title);
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(of: heading, matching: find.byType(RichText)),
+        );
+        expect(paragraph.didExceedMaxLines, isFalse);
+        expect(paragraph.softWrap, isTrue);
+        expect(
+          tester.getBottomLeft(heading).dy,
+          lessThanOrEqualTo(tester.getTopLeft(find.byType(PostCard)).dy),
+        );
+        expect(
+          tester.getSemantics(heading),
+          isSemantics(label: title, isHeader: true),
+        );
+      });
+    }
+
+    testWidgets('shows with no posts, too', (tester) async {
+      await pumpTitle(tester, items: const []);
+      expect(heading, findsOneWidget);
+      expect(find.text('No posts yet.'), findsOneWidget);
+    });
+  });
+
+  group('Thread mute (F47)', () {
+    testWidgets('mutes from the post menu and unmutes from the placeholder', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail(id: 10)
+        ..posts = CursorPage(
+          items: [
+            post(
+              id: 2,
+              authorOverride: author(username: 'alice'),
+              canMute: true,
+            ),
+          ],
+        );
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+      await tester.tap(_menu());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mute member'));
+      await tester.pumpAndSettle();
+      expect(api.muteCalls, ['alice']);
+      expect(find.text("You've muted alice."), findsOneWidget);
+
+      api.failMuteWith = ApiException('slow down', statusCode: 429);
+      await tester.tap(find.text('Unmute'));
+      await tester.pumpAndSettle();
+      expect(find.text('Too fast — try again in a minute'), findsOneWidget);
+      expect(find.text("You've muted alice."), findsOneWidget);
+
+      api.failMuteWith = null;
+      await tester.tap(find.text('Unmute'));
+      await tester.pumpAndSettle();
+      expect(api.unmuteCalls, ['alice', 'alice']);
+      expect(find.text("You've muted alice."), findsNothing);
+    });
+
+    testWidgets('a signed-out reader gets no mute action', (tester) async {
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail(id: 10)
+        ..posts = CursorPage(items: [post(id: 2, canMute: true)]);
+      await tester.pumpWidget(_wrap(api, loggedIn: false));
+      await tester.pumpAndSettle();
+      expect(_menu(), findsNothing);
+    });
+  });
+
+  group('Thread pin toggle (moderators)', () {
+    testWidgets('a moderator pins, then unpins, and is told each time', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail(id: 10, canPin: true)
+        ..posts = CursorPage(items: [post(id: 1)]);
+
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Pin topic'));
+      await tester.pumpAndSettle();
+      expect(api.pinCalls, [(10, true)]);
+      expect(find.text('Pinned to the top of the forum.'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Unpin topic'));
+      await tester.pumpAndSettle();
+      expect(api.pinCalls, [(10, true), (10, false)]);
+      expect(find.byTooltip('Pin topic'), findsOneWidget);
+    });
+
+    testWidgets('an already pinned topic offers Unpin', (tester) async {
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail(id: 10, canPin: true, isPinned: true)
+        ..posts = CursorPage(items: [post(id: 1)]);
+
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Unpin topic'), findsOneWidget);
+      expect(find.byTooltip('Pin topic'), findsNothing);
+    });
+
+    testWidgets('a member who cannot pin sees no pin button', (tester) async {
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail(id: 10)
+        ..posts = CursorPage(items: [post(id: 1)]);
+
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Pin topic'), findsNothing);
+      expect(find.byTooltip('Unpin topic'), findsNothing);
+    });
+
+    testWidgets('a refused pin leaves the button as it was and says why', (
+      tester,
+    ) async {
+      final api = FakeForumApi()
+        ..topicDetail = topicDetail(id: 10, canPin: true)
+        ..posts = CursorPage(items: [post(id: 1)])
+        ..failPinWith = ApiException('Nope', statusCode: 500);
+
+      await tester.pumpWidget(_wrap(api));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Pin topic'));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Pin topic'), findsOneWidget);
+      expect(find.text('Pinned to the top of the forum.'), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+    });
+  });
+
   group('Thread bookmark toggle (todo 341)', () {
     testWidgets('reflects isBookmarked and flips on tap', (tester) async {
       final api = FakeForumApi()

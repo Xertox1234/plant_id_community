@@ -2,6 +2,8 @@
 Custom OAuth views for handling social authentication with JWT token generation.
 """
 
+import base64
+import hashlib
 import logging
 import re
 import secrets
@@ -32,6 +34,8 @@ from .consent import (
     record_policy_acceptance,
 )
 from .constants import (
+    ACCOUNT_DISABLED_CODE,
+    ACCOUNT_DISABLED_MESSAGE,
     OAUTH_PENDING_SIGNUP_TTL_SECONDS,
     OAUTH_PENDING_SIGNUP_USER_DATA_KEYS,
     OAUTH_PROVIDER_TIMEOUT_SECONDS,
@@ -64,7 +68,7 @@ def _provider_settings(provider: str) -> dict[str, Any]:
 # `str` converter matches anything except `/` — so `?` and `#` get through and
 # reshape the query/fragment of the frontend URL we redirect to. Validating up
 # front makes that unreachable rather than merely harmless.
-SUPPORTED_PROVIDERS = frozenset({"google", "github"})
+SUPPORTED_PROVIDERS = frozenset({"google"})
 
 # RFC 6749 §4.1.2.1 error codes are `*( %x20-21 / %x23-5B / %x5D-7E )`; this is
 # the conservative subset every real provider uses, plus a length cap.
@@ -76,6 +80,41 @@ _OAUTH_ERROR_CODE = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 # OAUTH_PENDING_SIGNUP_KEY until they accept on the web app's /signup/finish.
 OAUTH_ACCEPTED_TERMS_KEY = "oauth_accepted_terms"
 OAUTH_PENDING_SIGNUP_KEY = "oauth_pending_signup"
+# PKCE (RFC 7636) verifier of the attempt in flight (todo 705 L6). Its S256
+# challenge goes to the provider with the authorisation request; the verifier
+# goes with the code exchange, so a code intercepted on the way back is
+# useless to anyone without this session.
+OAUTH_PKCE_VERIFIER_KEY = "oauth_pkce_verifier"
+
+
+class OAuthNotConfigured(Exception):
+    """The fixed callback origin is not set (API_PUBLIC_URL)."""
+
+
+def _oauth_callback_uri(provider: str) -> str:
+    """The provider callback, from configuration, never from the request.
+
+    Todo 705 L6: it was built from the Host header, so the redirect_uri sent
+    to the provider followed whatever host a request named. Development keeps
+    its fixed localhost URL; elsewhere it is ``API_PUBLIC_URL`` (this API's
+    public origin, via ``OAUTH_CALLBACK_ORIGIN``), and with that unset OAuth
+    refuses to start rather than fall back to the Host header.
+    """
+    path = f"/api/auth/oauth/{provider}/callback/"
+    if settings.DEBUG:
+        return f"http://localhost:8000{path}"
+    origin = (getattr(settings, "OAUTH_CALLBACK_ORIGIN", "") or "").rstrip("/")
+    if not origin:
+        raise OAuthNotConfigured
+    return f"{origin}{path}"
+
+
+def _pkce_pair() -> tuple[str, str]:
+    """A fresh (verifier, S256 challenge) pair."""
+    verifier = secrets.token_urlsafe(64)
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    return verifier, challenge
 
 
 def _frontend_base():
@@ -120,8 +159,18 @@ def oauth_login(request, provider):
         request.session.pop(OAUTH_ACCEPTED_TERMS_KEY, None)
 
     try:
+        try:
+            redirect_uri = _oauth_callback_uri(provider)
+        except OAuthNotConfigured:
+            logger.error("[AUTH] OAuth refused: API_PUBLIC_URL is not set")
+            return Response(
+                {"error": "OAuth not configured"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         state = secrets.token_urlsafe(32)
         request.session["oauth_state"] = state
+        code_verifier, code_challenge = _pkce_pair()
+        request.session[OAUTH_PKCE_VERIFIER_KEY] = code_verifier
 
         if provider == "google":
             # Build Google OAuth URL
@@ -132,12 +181,6 @@ def oauth_login(request, provider):
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
 
-            # Use backend URL (port 8000) for redirect URI to match OAuth app configuration
-            # In development, requests come through proxy (port 3000) but OAuth needs backend URL
-            if settings.DEBUG:
-                redirect_uri = "http://localhost:8000/api/auth/oauth/google/callback/"
-            else:
-                redirect_uri = f"{request.build_absolute_uri('/').rstrip('/')}/api/auth/oauth/google/callback/"
             scope = "+".join(_provider_settings("google")["SCOPE"])
 
             oauth_url = (
@@ -148,33 +191,9 @@ def oauth_login(request, provider):
                 f"response_type=code&"
                 f"access_type=online&"
                 f"prompt=select_account&"
-                f"state={state}"
-            )
-
-        elif provider == "github":
-            # Build GitHub OAuth URL
-            client_id = _provider_settings("github")["APP"]["client_id"]
-            if not client_id:
-                return Response(
-                    {"error": "GitHub OAuth not configured"},
-                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
-                )
-
-            # Use backend URL (port 8000) for redirect URI to match OAuth app configuration
-            # In development, requests come through proxy (port 3000) but OAuth needs backend URL
-            if settings.DEBUG:
-                redirect_uri = "http://localhost:8000/api/auth/oauth/github/callback/"
-            else:
-                redirect_uri = f"{request.build_absolute_uri('/').rstrip('/')}/api/auth/oauth/github/callback/"
-            scope = "+".join(_provider_settings("github")["SCOPE"])
-
-            oauth_url = (
-                f"https://github.com/login/oauth/authorize?"
-                f"client_id={client_id}&"
-                f"redirect_uri={redirect_uri}&"
-                f"scope={scope}&"
-                f"response_type=code&"
-                f"state={state}"
+                f"state={state}&"
+                f"code_challenge={code_challenge}&"
+                f"code_challenge_method=S256"
             )
 
         else:  # pragma: no cover - unreachable, guarded above
@@ -213,6 +232,9 @@ def oauth_callback(request, provider):
 
     # Read once, whatever the outcome: the flag belongs to this one attempt.
     accepted_terms = request.session.pop(OAUTH_ACCEPTED_TERMS_KEY, None) is True
+    # Likewise the PKCE verifier. A missing one is sent as nothing: the
+    # provider, which holds the challenge, then refuses the code exchange.
+    code_verifier = request.session.pop(OAUTH_PKCE_VERIFIER_KEY, None)
 
     try:
         # Get authorization code from query params
@@ -254,9 +276,7 @@ def oauth_callback(request, provider):
 
         # Exchange code for access token and get user info
         if provider == "google":
-            user_data = _handle_google_callback(request, code)
-        elif provider == "github":
-            user_data = _handle_github_callback(request, code)
+            user_data = _handle_google_callback(request, code, code_verifier)
         else:  # pragma: no cover - unreachable, guarded above
             logger.error("[AUTH] Unsupported provider reached the callback dispatch")
             frontend_url = get_oauth_redirect_url(provider)
@@ -296,6 +316,16 @@ def oauth_callback(request, provider):
             logger.error(f"[AUTH] Failed to create/find user for {provider}")
             frontend_url = get_oauth_redirect_url(provider)
             return HttpResponseRedirect(f"{frontend_url}?error=user_creation_failed")
+
+        # A disabled account gets no session and no tokens (todo 705 M6),
+        # as the Firebase exchange and the refresh already refuse it.
+        if not user.is_active:
+            logger.warning(
+                f"[SECURITY] {provider} sign-in refused for a disabled account "
+                f"{log_safe_user_context(user)}"
+            )
+            frontend_url = get_oauth_redirect_url(provider)
+            return HttpResponseRedirect(f"{frontend_url}?error={ACCOUNT_DISABLED_CODE}")
 
         # An existing account that has not accepted the current policy
         # version waits at the same finish step as a new one (todo 701):
@@ -416,6 +446,16 @@ def oauth_finish_signup(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    if not user.is_active:
+        logger.warning(
+            f"[SECURITY] {provider} sign-up finish refused for a disabled account "
+            f"{log_safe_user_context(user)}"
+        )
+        return Response(
+            {"error": ACCOUNT_DISABLED_MESSAGE, "code": ACCOUNT_DISABLED_CODE},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
     # A no-op for the account just created; stamps an existing account that
     # was parked here to accept the current version (todo 701).
     confirm_current_policy(user, True)
@@ -429,7 +469,7 @@ def oauth_finish_signup(request):
     return response
 
 
-def _handle_google_callback(request, code):
+def _handle_google_callback(request, code, code_verifier=None):
     """
     Handle Google OAuth callback and return user data.
     """
@@ -438,19 +478,16 @@ def _handle_google_callback(request, code):
     try:
         # Exchange code for access token
         token_url = "https://oauth2.googleapis.com/token"
-        # Use backend URL (port 8000) for redirect URI to match OAuth app configuration
-        if settings.DEBUG:
-            redirect_uri = "http://localhost:8000/api/auth/oauth/google/callback/"
-        else:
-            redirect_uri = f"{request.build_absolute_uri('/').rstrip('/')}/api/auth/oauth/google/callback/"
-
+        # The same fixed callback the authorisation request named (L6).
         token_data = {
             "client_id": _provider_settings("google")["APP"]["client_id"],
             "client_secret": _provider_settings("google")["APP"]["secret"],
             "code": code,
             "grant_type": "authorization_code",
-            "redirect_uri": redirect_uri,
+            "redirect_uri": _oauth_callback_uri("google"),
         }
+        if code_verifier:
+            token_data["code_verifier"] = code_verifier
 
         token_response = requests.post(
             token_url, data=token_data, timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS
@@ -504,82 +541,6 @@ def _handle_google_callback(request, code):
     except Exception as e:
         # The exception type only: its text can quote a URL or a reply body.
         logger.error("[AUTH] Google OAuth handling error: %s", type(e).__name__)
-        return None
-
-
-def _handle_github_callback(request, code):
-    """
-    Handle GitHub OAuth callback and return user data.
-    """
-    import requests
-
-    try:
-        # Exchange code for access token
-        token_url = "https://github.com/login/oauth/access_token"
-
-        token_data = {
-            "client_id": _provider_settings("github")["APP"]["client_id"],
-            "client_secret": _provider_settings("github")["APP"]["secret"],
-            "code": code,
-        }
-
-        token_response = requests.post(
-            token_url,
-            data=token_data,
-            headers={"Accept": "application/json"},
-            timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS,
-        )
-        token_json = token_response.json()
-
-        if "access_token" not in token_json:
-            logger.error(
-                "[AUTH] GitHub token exchange failed: %s", token_json.get("error")
-            )
-            return None
-
-        # Get user profile
-        profile_url = "https://api.github.com/user"
-        headers = {
-            "Authorization": f"token {token_json['access_token']}",
-            "Accept": "application/vnd.github.v3+json",
-        }
-
-        profile_response = requests.get(
-            profile_url, headers=headers, timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS
-        )
-
-        if profile_response.status_code != 200:
-            logger.error(
-                "[AUTH] GitHub profile fetch failed: HTTP %s",
-                profile_response.status_code,
-            )
-            return None
-
-        user_data = profile_response.json()
-
-        # Get user email if not public
-        if not user_data.get("email"):
-            email_url = "https://api.github.com/user/emails"
-            email_response = requests.get(
-                email_url, headers=headers, timeout=OAUTH_PROVIDER_TIMEOUT_SECONDS
-            )
-            if email_response.status_code == 200:
-                emails = email_response.json()
-                # Verified-email invariant (canonical: docs/patterns/security/
-                # authentication.md → "Trust only provider-verified emails").
-                # Require BOTH primary and verified — matching a Django account by
-                # an unverified email is an account-takeover vector.
-                primary_email = next(
-                    (e for e in emails if e.get("primary") and e.get("verified")),
-                    None,
-                )
-                if primary_email:
-                    user_data["email"] = primary_email["email"]
-
-        return user_data
-
-    except Exception as e:
-        logger.error("[AUTH] GitHub OAuth handling error: %s", type(e).__name__)
         return None
 
 
@@ -691,7 +652,7 @@ def _find_or_create_user(provider, user_data, accepted_terms: bool = False):
 
         # A provider identity already linked to an account signs in to that
         # account, whatever email the provider reports now: the id is stable,
-        # the email is not (a GitHub primary email can change). Matching by
+        # the email is not (a provider's email can change). Matching by
         # email first would refuse the identity as "linked elsewhere".
         linked = _linked_account(provider, user_data)
         if linked is not None:
@@ -749,11 +710,6 @@ def _find_or_create_user(provider, user_data, accepted_terms: bool = False):
         if provider == "google":
             first_name = user_data.get("given_name", "")[:30]
             last_name = user_data.get("family_name", "")[:150]
-        elif provider == "github":
-            name = user_data.get("name", "")
-            name_parts = name.split(" ", 1) if name else ["", ""]
-            first_name = name_parts[0][:30]
-            last_name = name_parts[1][:150] if len(name_parts) > 1 else ""
         else:
             first_name = ""
             last_name = ""
@@ -779,16 +735,6 @@ def _find_or_create_user(provider, user_data, accepted_terms: bool = False):
         # Shared signup side-effects
         create_default_plant_collection(user)
         join_forum_members_group(user)
-
-        # Update additional fields for GitHub
-        if provider == "github":
-            if user_data.get("bio"):
-                user.bio = user_data.get("bio", "")[:500]
-            if user_data.get("blog"):
-                user.website = user_data.get("blog", "")[:200]
-            if user_data.get("location"):
-                user.location = user_data.get("location", "")[:100]
-            user.save()
 
         logger.info(f"[AUTH] Created new {log_safe_user_context(user)} via {provider}")
         return user

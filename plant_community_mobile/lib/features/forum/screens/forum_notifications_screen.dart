@@ -10,6 +10,7 @@ import '../../../shared/widgets/canopy_surfaces.dart';
 import '../forum_format.dart';
 import '../models/models.dart';
 import '../providers/forum_providers.dart';
+import '../widgets/forum_style.dart';
 import '../widgets/author_identity.dart';
 import 'package:plant_community_mobile/core/routing/main_shell.dart';
 
@@ -211,7 +212,8 @@ class _SectionLabel extends StatelessWidget {
           text.toUpperCase(),
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
             letterSpacing: 0.06 * 11,
-            color: context.canopy.ink3,
+            // ink2: this label sits on the bare ground, where ink3 is 3.3:1.
+            color: context.canopy.ink2,
           ),
         ),
       ),
@@ -289,12 +291,7 @@ class _NotificationCard extends StatelessWidget {
                   ),
                   if (meta.isNotEmpty) ...[
                     const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      meta,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: ext.ink3,
-                      ),
-                    ),
+                    Text(meta, style: forumMeta(context)),
                   ],
                 ],
               ),
@@ -322,11 +319,11 @@ class _NotificationCard extends StatelessWidget {
   }
 }
 
-/// The actor's avatar with the verb's tile tone as a badge on its corner.
-/// With no avatar image the disc is the actor's initial on a tile gradient
-/// picked from their username, so a person keeps one colour down the list —
-/// the shared [AuthorAvatar] fallback is a small grey initial, too quiet at
-/// this size.
+/// The actor's avatar with the verb's tile tone as a round badge on its
+/// corner. With no avatar image the square is the actor's initial on a tile
+/// gradient picked from their username, so a person keeps one colour down
+/// the list — louder than the shared [AuthorAvatar]'s tinted fill, which is
+/// too quiet at this size.
 class _ActorAvatar extends StatelessWidget {
   const _ActorAvatar({
     required this.actor,
@@ -362,7 +359,7 @@ class _ActorAvatar extends StatelessWidget {
         height: _size,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          shape: BoxShape.circle,
+          borderRadius: forumAvatarRadius(_size),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -527,7 +524,7 @@ class _EmptyState extends StatelessWidget {
             Text(
               'Replies, mentions and answers to your posts will show up here.',
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(color: ext.ink3),
+              style: theme.textTheme.bodySmall?.copyWith(color: ext.ink2),
             ),
           ],
         ),

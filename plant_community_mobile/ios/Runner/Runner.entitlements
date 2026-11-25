@@ -20,5 +20,10 @@
 <dict>
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- Sign in with Apple (todo 717), enabled on the App ID. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
 </dict>
 </plist>

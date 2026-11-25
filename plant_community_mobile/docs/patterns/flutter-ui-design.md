@@ -97,7 +97,9 @@ Cause analysis below is from the code (`lib/core/routing/main_shell.dart` etc.),
    greens. The Canopy accents (pollen/bloom/orchid, and `leaf`/`sky`/`berry`/`clay` on
    `GreenThumbExtension`) are essentially unused, and the web's accent `Tile` icon squares,
    `StatCard`, status `Chip`s and `HeroCard` have no Flutter equivalent in use. The five
-   forum boards are five identical text rows. Fix direction: build the missing primitives
+   forum boards were five identical text rows (since 2026-11 the forum tab draws a
+   category index: one grouped card per category, a row with an accent tile per forum,
+   link and password forums, collapsible headers). Fix direction: build the missing primitives
    (`CanopyTile`, `CanopyChip`, `CanopyStatCard`, `CanopyHeroCard`, progress meter) mirroring
    `web/src/components/ui/`, then give each board/category/care-type its own accent tile.
 3. **No brand presence.** Only the splash/home shows the logo. Fix direction: `BrandMark`
@@ -106,6 +108,13 @@ Cause analysis below is from the code (`lib/core/routing/main_shell.dart` etc.),
    "0 PLANTS IDENTIFIED" eyebrow and meta text use `ink3` at small sizes on `surface2`;
    verify against 4.5:1. Dates render as raw ISO (`2026-09-24`) — use relative time in
    Geist Mono. Thread meta rows truncate names ("William T...") — rebalance the row.
+   **FORUM DONE (2026-11-18).** The forum's shared look lives in
+   `lib/features/forum/widgets/forum_style.dart`: `forumItemTitle` (Geist 15/600),
+   `forumMeta` (Geist 12.5 on `ink2`, tabular figures) for every count and date,
+   `ForumSectionHeader`, `ForumListRow`, `ForumEmptyState`, 20pt chevrons. Geist Mono is
+   for the uppercase eyebrow only, NOT for counts or dates (this supersedes "relative
+   time in Geist Mono" above). `forumRelativeTime` returns "Aug 16" past a week, never
+   ISO. A new forum screen uses these instead of picking its own styles.
 5. **Layout inconsistencies.** Profile stat tiles have different widths/heights
    ("Plants Identified" wraps and makes tile 1 wider); settings rows let long copy run
    under the toggle. Fix direction: equal-flex tiles with a fixed minimum height, text in

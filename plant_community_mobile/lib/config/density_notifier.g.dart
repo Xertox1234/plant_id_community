@@ -76,7 +76,7 @@ abstract class _$DensityNotifier extends $Notifier<AppDensity> {
   AppDensity build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<AppDensity, AppDensity>;
     final element =
         ref.element
@@ -86,6 +86,6 @@ abstract class _$DensityNotifier extends $Notifier<AppDensity> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }

@@ -1,0 +1,38 @@
+# Development and test tools. Not installed in the production image.
+#
+# requirements-dev.txt is COMPILED from this file. It reads the production
+# LOCK (the -r line), so it holds every production pin at the same version plus
+# the tools below: CI and local venvs install it alone,
+#   pip install -r requirements-dev.txt
+# and the image installs requirements.txt alone. Run
+# `bash bin/compile-requirements.sh` from backend/ after changing either .in
+# file. (A `-c` constraint would be the usual form, but pip refuses an editable
+# line as a constraint, and the production lock carries one.)
+-r requirements.txt
+
+# Tests
+pytest
+pytest-django
+pytest-cov
+factory-boy
+faker
+freezegun
+
+# Type checking (the mypy gate in backend-ci.yml)
+mypy
+django-stubs
+types-requests
+types-pyyaml
+
+# Lint. Pin must equal the ruff-pre-commit rev in .pre-commit-config.yaml;
+# Dependabot ignores ruff, so bump both by hand, together.
+ruff==0.15.17
+
+# Local development (only added to INSTALLED_APPS when DEBUG is on, and only
+# when installed: settings.py checks for them)
+django-debug-toolbar
+django-extensions
+ipython
+
+# The lock check (bin/compile-requirements.sh, run by backend-checks)
+pip-tools

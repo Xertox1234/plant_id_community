@@ -1,4 +1,4 @@
-<!-- version: 2026-11-11 -->
+<!-- version: 2026-11-24 -->
 
 # Terms of Service
 
@@ -80,4 +80,4 @@ Email: [[CONTACT_EMAIL]]
 
 ## Effective date
 
-This version takes effect on 2026-11-11.
+This version takes effect on 2026-11-24.

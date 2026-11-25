@@ -10,6 +10,20 @@ the window a no-op, and a member with nothing new gets no email.
 without sending or writing anything — run it against production data before
 the first real send.
 
+Quiet hours (todo 728, owner decision 2026-11-21): a due member whose
+quiet window covers the run is skipped and stays due, exactly like the other
+optional forum email. Nothing is written for them, so the claim below is
+untouched. The host runs the command again with `--quiet-hours-only` every
+hour for the day after the main run; the first of those runs after the
+member's window ends sends their digest, and `last_digest_sent_at` then
+keeps every later run from sending another.
+`--held-at` gives those runs the main run's time, and they then consider only
+members a run held: each hold leaves a cache marker for 26 hours, and a member
+whose quiet window covered the main run's time counts as held even if the
+marker was lost. Without it, a member with quiet hours on whom no run held
+(nothing new at the time) would be mailed by the first hourly run after
+something new appeared.
+
 Overlap safety is a cache run lock held for `DIGEST_RUN_LOCK_SECONDS`, plus a
 conditional per-member claim. The claim and the send share one transaction,
 so the claim is durable only once the email has been handed over (todo 548,
@@ -17,6 +31,7 @@ mirroring send_blog_newsletter after todo 534).
 """
 
 import logging
+from datetime import datetime
 from uuid import uuid4
 
 from django.core.cache import cache
@@ -35,8 +50,37 @@ from ...digest import (
     since_for,
 )
 from ...models import DigestFrequency, ForumProfile
+from ...quiet_hours import profile_release
 
 logger = logging.getLogger("wagtail_forum")
+
+
+# A hold outlives the day of hourly follow-up runs (the last one fires 24.5
+# hours after the main run) and is long gone before the next weekly run.
+HELD_MARKER_SECONDS = 26 * 60 * 60
+
+
+def _held_key(frequency: str, user_id: int) -> str:
+    return f"wagtail_forum:digest-held:{frequency}:{user_id}"
+
+
+def _mark_held(frequency: str, user_id: int) -> None:
+    """Remember that a run held this member's digest for quiet hours, so a
+    follow-up run sends to them whichever run it was (a late main run, a
+    continuation or a recovery run can hold a member whose window opened
+    after the main run's start). Never raises: without the marker the
+    follow-up falls back to the window test at ``--held-at``."""
+    try:
+        cache.set(_held_key(frequency, user_id), True, HELD_MARKER_SECONDS)
+    except Exception:
+        logger.warning("[EMAIL] forum digest: could not record a quiet-hours hold")
+
+
+def _was_held(frequency: str, user_id: int) -> bool:
+    try:
+        return bool(cache.get(_held_key(frequency, user_id)))
+    except Exception:
+        return False
 
 
 class Command(BaseCommand):
@@ -60,9 +104,39 @@ class Command(BaseCommand):
             help="Activity window (default: WAGTAILFORUM_DIGEST_WINDOW_DAYS).",
         )
 
+        parser.add_argument(
+            "--quiet-hours-only",
+            action="store_true",
+            help=(
+                "Consider only members with quiet hours on: the follow-up run "
+                "for those an earlier run held."
+            ),
+        )
+
+        parser.add_argument(
+            "--held-at",
+            help=(
+                "With --quiet-hours-only: the earlier run's time (ISO 8601, "
+                "with an offset). Only members whose quiet window covered "
+                "that moment are considered, so a member that run did not "
+                "hold is never mailed off the schedule."
+            ),
+        )
+
     def handle(self, *args, **options):
         frequency = options["frequency"]
         dry_run = options["dry_run"]
+        quiet_only = options.get("quiet_hours_only", False)
+        held_at = None
+        if options.get("held_at"):
+            if not quiet_only:
+                raise CommandError("--held-at needs --quiet-hours-only")
+            try:
+                held_at = datetime.fromisoformat(options["held_at"])
+            except ValueError as exc:
+                raise CommandError("--held-at must be an ISO 8601 time") from exc
+            if held_at.tzinfo is None:
+                raise CommandError("--held-at must carry a UTC offset")
         window_days = options["window_days"] or get_setting("DIGEST_WINDOW_DAYS")
         if window_days < 2:
             raise CommandError("--window-days must be at least 2")
@@ -102,7 +176,9 @@ class Command(BaseCommand):
                     frequency,
                 )
         try:
-            totals = self._run(frequency, dry_run, window_days, now)
+            totals = self._run(
+                frequency, dry_run, window_days, now, quiet_only, held_at
+            )
         finally:
             # Release only a lock this run took. After an outage (add
             # answered None) the cache may recover mid-run and another fire
@@ -132,11 +208,13 @@ class Command(BaseCommand):
             f"[EMAIL] digest frequency={frequency} window_days={window_days} "
             f"recipients={totals['recipients']} due={totals['due']} "
             f"empty={totals['empty']} {label}={totals['sent']} failed={totals['failed']} "
-            f"suppressed={totals['suppressed']}"
+            f"suppressed={totals['suppressed']} held={totals['held']}"
             + (" (dry run — nothing sent, nothing written)" if dry_run else "")
         )
 
-    def _run(self, frequency, dry_run, window_days, now):
+    def _run(
+        self, frequency, dry_run, window_days, now, quiet_only=False, held_at=None
+    ):
         totals = {
             "recipients": 0,
             "due": 0,
@@ -144,12 +222,42 @@ class Command(BaseCommand):
             "sent": 0,
             "failed": 0,
             "suppressed": 0,
+            "held": 0,
         }
-        for profile in digest_recipients(frequency).iterator(chunk_size=200):
+        recipients = digest_recipients(frequency)
+        if quiet_only:
+            recipients = recipients.filter(quiet_hours_enabled=True)
+        for profile in recipients.iterator(chunk_size=200):
+            if held_at is not None and not (
+                _was_held(frequency, profile.user_id)
+                or profile_release(profile, held_at) is not None
+            ):
+                # The follow-up run is for members an earlier run held: each
+                # hold leaves a cache marker (below). A member no run held
+                # was read then (sent, or nothing new) and waits for the next
+                # scheduled run, like every member without quiet hours. The
+                # window test at ``held_at`` is the fallback for a marker
+                # the cache lost.
+                continue
             totals["recipients"] += 1
             if not is_due(profile, now, window_days):
                 continue
             totals["due"] += 1
+            # Quiet hours (todo 728): checked on the row already loaded and
+            # against the clock as it is now, not the run's start (a run can
+            # last minutes). Held, not failed: the member stays due, nothing
+            # is written, and a later run sends once their window has ended.
+            release = profile_release(profile, timezone.now())
+            if release is not None:
+                totals["held"] += 1
+                if not dry_run:
+                    _mark_held(frequency, profile.user_id)
+                logger.debug(
+                    "[EMAIL] forum digest held for quiet hours: user=%s until %s",
+                    profile.user_id,
+                    release.isoformat(),
+                )
+                continue
             try:
                 digest = build_digest(
                     profile.user, since_for(profile, now, window_days), profile

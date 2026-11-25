@@ -556,3 +556,15 @@ Compact checklist auto-injected before edits. Long-form: `backend/docs/patterns/
 - **Never `user.delete()` directly** — call `request_account_deletion` (`apps/users/deletion.py`); only `expire_unverified_accounts` is exempt.
 - **A password is never altered between the keyboard and the hash.** No HTML sanitizer on a password input, and `trim_whitespace=False` on every DRF password `CharField` (DRF trims by default). Sign-up stored the altered copy while login read the raw one, so the account could not sign in (audit 2026-11-10, H6).
 - **A Firebase Admin call can raise `google.auth.exceptions.GoogleAuthError`, which is not a `FirebaseError`.** Any call that reaches Google (`verify_id_token(check_revoked=True)`, `get_user`) catches both where an outage must answer 503 (audit 2026-11-10, M6).
+- **A WebSocket's `scope["user"]` is resolved once, at the handshake, and never
+  again** (Channels `AuthMiddleware`; our JWT middleware likewise). A periodic
+  re-check must reload the user by pk and require `is_active` (close 4401), and
+  pass the reloaded user to the visibility check, or a banned or deactivated
+  account keeps its open socket (`forum_host/consumers.py`, audit 2026-11-21 L1).
+- **A search or vector index's stored text is a copy, never a source.** Re-read the
+  live row before showing it or sending it to a model, and purge every copy
+  (index, embedding cache, stored sources) on edit, takedown and account erasure
+  (`apps/forum_host/topic_copies.py`, audit 2026-11-24, F64).
+- **`strip_tags` can raise (`SuspiciousOperation`) on member text.** In code that
+  reads stored posts use `wagtail_forum.plain_text.safe_strip_tags`: one post must
+  not fail a listing or stop an erasure (audit 2026-11-24).

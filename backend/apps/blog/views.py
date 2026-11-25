@@ -82,7 +82,7 @@ class BlogPostPageViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = (
             BlogPostPage.objects.live()
             .public()
-            .select_related("author")
+            .select_related("author", "author__wagtail_forum_profile")
             .prefetch_related(
                 Prefetch(
                     "categories",
@@ -196,12 +196,12 @@ class BlogPostPageViewSet(viewsets.ReadOnlyModelViewSet):
         visible = models_q_visible_to(request.user)
         comments = (
             BlogComment.objects.filter(visible, post=post, parent=None)
-            .select_related("author")
+            .select_related("author", "author__wagtail_forum_profile")
             .prefetch_related(
                 Prefetch(
                     "replies",
                     queryset=BlogComment.objects.filter(visible)
-                    .select_related("author")
+                    .select_related("author", "author__wagtail_forum_profile")
                     .order_by("created_at"),
                     to_attr="visible_replies",
                 )
@@ -314,7 +314,7 @@ class BlogCategoryViewSet(viewsets.ReadOnlyModelViewSet):
             BlogPostPage.objects.live()
             .public()
             .filter(categories=category)
-            .select_related("author")
+            .select_related("author", "author__wagtail_forum_profile")
             .order_by("-first_published_at")
         )
 
@@ -357,7 +357,7 @@ class BlogSeriesViewSet(viewsets.ReadOnlyModelViewSet):
             BlogPostPage.objects.live()
             .public()
             .filter(series=series)
-            .select_related("author")
+            .select_related("author", "author__wagtail_forum_profile")
             .order_by("series_order", "first_published_at")
         )
 
@@ -380,7 +380,7 @@ class BlogAuthorViewSet(viewsets.ReadOnlyModelViewSet):
         """Get authors who have published posts."""
         return (
             BlogAuthorPage.objects.filter(author__blogpostpage__live=True)
-            .select_related("author")
+            .select_related("author", "author__wagtail_forum_profile")
             .prefetch_related("expertise_areas")
             .annotate(
                 _post_count=Count(
@@ -401,7 +401,7 @@ class BlogAuthorViewSet(viewsets.ReadOnlyModelViewSet):
             BlogPostPage.objects.live()
             .public()
             .filter(author=author_page.author)
-            .select_related("author")
+            .select_related("author", "author__wagtail_forum_profile")
             .prefetch_related("categories")
             .order_by("-first_published_at")
         )
@@ -445,11 +445,13 @@ class BlogCommentViewSet(viewsets.ReadOnlyModelViewSet):
         else:
             base = BlogComment.objects.filter(is_approved=True)
             reply_visibility = Q(is_approved=True)
-        return base.select_related("author", "post").prefetch_related(
+        return base.select_related(
+            "author", "author__wagtail_forum_profile", "post"
+        ).prefetch_related(
             Prefetch(
                 "replies",
                 queryset=BlogComment.objects.filter(reply_visibility)
-                .select_related("author")
+                .select_related("author", "author__wagtail_forum_profile")
                 .order_by("created_at"),
                 to_attr="visible_replies",
             )
@@ -590,7 +592,7 @@ def blog_search(request):
             | Q(tags__name__icontains=query)
         )
         .distinct()
-        .select_related("author")
+        .select_related("author", "author__wagtail_forum_profile")
         .prefetch_related("categories")[:20]
     )
 

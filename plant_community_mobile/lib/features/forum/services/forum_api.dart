@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../services/api_service.dart';
 import '../models/models.dart';
+import 'forum_link_launcher.dart' show openableForumLink;
 
 /// HTTP contract for the Wagtail forum REST API (`/api/v1/forum/...`).
 ///
@@ -11,13 +12,29 @@ import '../models/models.dart';
 /// to override the provider, not mock the transport). [HttpForumApi] is the
 /// dio-backed production implementation.
 abstract class ForumApi {
-  Future<List<ForumBoard>> fetchBoards();
+  /// The category-grouped forum index (`GET /forum/categories/`).
+  Future<List<ForumCategory>> fetchCategories();
+
+  /// Where a link forum opens. Untracked: its `link_url`. Tracked: the
+  /// `Location` of `GET /forum/links/{id}/go/` (the server counts the click
+  /// and answers 302), falling back to `link_url` on any failure. Always
+  /// null unless the result is an absolute http(s) address.
+  Future<Uri?> resolveLink(ForumLink link);
+
+  /// Unlock a password forum (`POST /forum/boards/{slug}/unlock/`). Returns
+  /// the server's unlock token, or null when there was nothing to unlock
+  /// (the member already has it open, or moderates it). A wrong password is
+  /// an [ApiException]. The password is the request body only: never log it.
+  Future<String?> unlockBoard(String slug, String password);
 
   /// First page (when [cursorUrl] is null) or a subsequent page (pass the
-  /// absolute `next` URL from a prior [CursorPage]).
+  /// absolute `next` URL from a prior [CursorPage]). [sort] is one of the
+  /// server's `?sort=` values and [tag] an exact tag name (`?tag=`); a
+  /// cursor URL already carries both.
   Future<CursorPage<ForumTopicListItem>> fetchTopics({
     required String boardSlug,
     String? sort,
+    String? tag,
     String? cursorUrl,
   });
 
@@ -53,6 +70,7 @@ abstract class ForumApi {
     required String slug,
     required List<Map<String, dynamic>> body,
     required String idempotencyKey,
+    Map<String, dynamic>? poll,
   });
 
   Future<CreateReplyResult> createReply({
@@ -272,6 +290,12 @@ abstract class ForumApi {
   Future<bool> blockUser(String username);
   Future<bool> unblockUser(String username);
 
+  /// Mute / unmute a member (todo 347): hides their content for the caller
+  /// only; messages still arrive. Both idempotent and key-less; return the
+  /// resulting `muted` state. 400 on self-mute.
+  Future<bool> muteUser(String username);
+  Future<bool> unmuteUser(String username);
+
   // --- Thread experience (todo 341 wave 2) ---------------------------------
 
   /// Accept [postId] as [topicId]'s answer (`POST /forum/topics/{id}/
@@ -294,6 +318,15 @@ abstract class ForumApi {
   /// `Idempotency-Key`); returns the resulting `bookmarked` state.
   Future<bool> bookmarkTopic(int topicId);
   Future<bool> unbookmarkTopic(int topicId);
+
+  /// Pin ([pinned] true) or unpin a topic in its forum; moderators only
+  /// (`POST`/`DELETE /forum/topics/{id}/pin/`). Idempotent server-side and
+  /// key-less; returns the resulting `is_pinned`.
+  Future<bool> setTopicPinned(int topicId, {required bool pinned});
+
+  /// The members with the most posts in one forum, most first
+  /// (`GET /forum/boards/{slug}/contributors/`).
+  Future<List<ForumContributor>> fetchBoardContributors(String boardSlug);
 
   /// The caller's bookmarked topics, most recently bookmarked first
   /// (`GET /forum/me/bookmarks/`, `TopicListSerializer` rows). First page
@@ -379,6 +412,15 @@ abstract class ForumApi {
     String? quietHoursEnd,
     String? timeZone,
   });
+
+  /// The ids of the categories the member has collapsed on the forum index
+  /// (`collapsed_categories` on `GET /forum/me/profile/`, auth required). A
+  /// missing or malformed list reads as none; a failed request throws.
+  Future<List<int>> fetchCollapsedCategories();
+
+  /// Replace the member's whole collapsed list
+  /// (`PUT /forum/me/collapsed-categories/`).
+  Future<void> saveCollapsedCategories(List<int> ids);
 }
 
 /// A report reason the backend accepts (`Report.REASON_CHOICES`), with its
@@ -407,9 +449,16 @@ const List<String> forumReactionTypes = ['like', 'love', 'helpful', 'thanks'];
 /// except the naturally-idempotent ones (see [subscribeToTopic]/
 /// [unsubscribeFromTopic]/[markNotificationsRead]'s own docs).
 class HttpForumApi implements ForumApi {
-  HttpForumApi(this._api);
+  HttpForumApi(this._api, {this.linkGoTimeout = defaultLinkGoTimeout});
 
   final ApiService _api;
+
+  /// How long a tracked link tap waits for the server before opening the
+  /// link's own address. Far shorter than the transport's timeouts and 5xx
+  /// retries: the address is already known, and nothing shows while waiting.
+  static const Duration defaultLinkGoTimeout = Duration(seconds: 3);
+
+  final Duration linkGoTimeout;
 
   static const String _idempotencyHeader = 'Idempotency-Key';
 
@@ -417,26 +466,64 @@ class HttpForumApi implements ForumApi {
       Options(headers: {_idempotencyHeader: key});
 
   @override
-  Future<List<ForumBoard>> fetchBoards() async {
-    final resp = await _api.get('/forum/boards/');
+  Future<List<ForumCategory>> fetchCategories() async {
+    final resp = await _api.get('/forum/categories/');
     final data = resp.data as Map<String, dynamic>;
     return (data['results'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>()
-        .map(ForumBoard.fromJson)
+        .map(ForumCategory.fromJson)
         .toList(growable: false);
+  }
+
+  @override
+  Future<Uri?> resolveLink(ForumLink link) async {
+    final fallback = openableForumLink(link.linkUrl);
+    if (!link.trackClicks) return fallback;
+    try {
+      // The request is not cancelled when the wait runs out, so a slow
+      // server still counts the click.
+      final resp = await _api
+          .get(
+            '/forum/links/${link.id}/go/',
+            options: Options(
+              followRedirects: false,
+              validateStatus: (s) => s == 302,
+            ),
+          )
+          .timeout(linkGoTimeout);
+      final location = resp.headers.value('location');
+      final target = location == null ? null : openableForumLink(location);
+      return target ?? fallback;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[FORUM] link click not counted: $e');
+      return fallback;
+    }
+  }
+
+  @override
+  Future<String?> unlockBoard(String slug, String password) async {
+    final resp = await _api.post(
+      '/forum/boards/$slug/unlock/',
+      data: {'password': password},
+    );
+    final data = resp.data;
+    final token = data is Map<String, dynamic> ? data['unlock_token'] : null;
+    return token is String && token.isNotEmpty ? token : null;
   }
 
   @override
   Future<CursorPage<ForumTopicListItem>> fetchTopics({
     required String boardSlug,
     String? sort,
+    String? tag,
     String? cursorUrl,
   }) async {
+    final query = {'sort': ?sort, 'tag': ?tag};
     final resp = cursorUrl != null
         ? await _api.get(cursorUrl)
         : await _api.get(
             '/forum/boards/$boardSlug/topics/',
-            queryParameters: sort != null ? {'sort': sort} : null,
+            queryParameters: query.isEmpty ? null : query,
           );
     return CursorPage.fromJson(
       resp.data as Map<String, dynamic>,
@@ -511,10 +598,11 @@ class HttpForumApi implements ForumApi {
     required String slug,
     required List<Map<String, dynamic>> body,
     required String idempotencyKey,
+    Map<String, dynamic>? poll,
   }) async {
     final resp = await _api.post(
       '/forum/boards/$boardSlug/topics/',
-      data: {'title': title, 'slug': slug, 'body': body},
+      data: {'title': title, 'slug': slug, 'body': body, 'poll': ?poll},
       options: _idempotent(idempotencyKey),
     );
     return CreateTopicResult.fromJson(resp.data as Map<String, dynamic>);
@@ -829,6 +917,18 @@ class HttpForumApi implements ForumApi {
   }
 
   @override
+  Future<bool> muteUser(String username) async {
+    final resp = await _api.post('/forum/users/$username/mute/');
+    return (resp.data as Map<String, dynamic>)['muted'] as bool? ?? true;
+  }
+
+  @override
+  Future<bool> unmuteUser(String username) async {
+    final resp = await _api.delete('/forum/users/$username/mute/');
+    return (resp.data as Map<String, dynamic>)['muted'] as bool? ?? false;
+  }
+
+  @override
   Future<ForumSolutionResult> markSolution({
     required int topicId,
     required int postId,
@@ -858,6 +958,27 @@ class HttpForumApi implements ForumApi {
   Future<bool> unbookmarkTopic(int topicId) async {
     final resp = await _api.delete('/forum/topics/$topicId/bookmark/');
     return (resp.data as Map<String, dynamic>)['bookmarked'] as bool? ?? false;
+  }
+
+  @override
+  Future<bool> setTopicPinned(int topicId, {required bool pinned}) async {
+    final path = '/forum/topics/$topicId/pin/';
+    final resp = pinned ? await _api.post(path) : await _api.delete(path);
+    return (resp.data as Map<String, dynamic>)['is_pinned'] as bool? ?? pinned;
+  }
+
+  @override
+  Future<List<ForumContributor>> fetchBoardContributors(
+    String boardSlug,
+  ) async {
+    final resp = await _api.get('/forum/boards/$boardSlug/contributors/');
+    final results =
+        (resp.data as Map<String, dynamic>)['results'] as List<dynamic>? ??
+        const [];
+    return [
+      for (final row in results)
+        ForumContributor.fromJson(row as Map<String, dynamic>),
+    ];
   }
 
   @override
@@ -1019,6 +1140,27 @@ class HttpForumApi implements ForumApi {
     );
     return ForumNotificationSettings.fromJson(
       resp.data as Map<String, dynamic>,
+    );
+  }
+
+  @override
+  Future<List<int>> fetchCollapsedCategories() async {
+    final resp = await _api.get('/forum/me/profile/');
+    final data = resp.data;
+    final ids = data is Map<String, dynamic>
+        ? data['collapsed_categories']
+        : null;
+    if (ids is! List) return const [];
+    return ids.whereType<int>().toList(growable: false);
+  }
+
+  @override
+  Future<void> saveCollapsedCategories(List<int> ids) async {
+    // A PUT sets the whole list, so it is naturally idempotent: no
+    // Idempotency-Key.
+    await _api.put(
+      '/forum/me/collapsed-categories/',
+      data: {'collapsed_categories': ids},
     );
   }
 }

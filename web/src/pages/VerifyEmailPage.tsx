@@ -11,11 +11,12 @@
  *   resend button for the signed-in user.
  */
 import { useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import PageMeta from '../components/PageMeta';
 import { useAuth } from '../contexts/AuthContext';
+import { useOneTimeSearchParam } from '../hooks/useOneTimeSearchParam';
 import {
   VerificationError,
   confirmEmailVerification,
@@ -188,8 +189,10 @@ function ConfirmKey({ verificationKey }: { verificationKey: string }) {
 }
 
 export default function VerifyEmailPage() {
-  const [params] = useSearchParams();
-  const key = params.get('key') ?? '';
+  // Held in state and stripped from the address bar once read (todo 706 M7).
+  // A signed-out visitor is told to open the email link again, so nothing
+  // here needs the key back in the URL.
+  const key = useOneTimeSearchParam('key');
 
   return (
     <div className="mx-auto max-w-xl px-4 py-16">

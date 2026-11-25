@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
 import '../models/plant.dart';
 
 part 'firestore_service.g.dart';
@@ -41,6 +42,16 @@ Future<void> clearFirestoreOfflineCache(FirebaseFirestore firestore) async {
 final firestoreOfflineCacheClearerProvider = Provider<Future<void> Function()>(
   (ref) =>
       () => clearFirestoreOfflineCache(ref.read(firebaseFirestoreProvider)),
+);
+
+/// Seam for [FirebaseFirestore.waitForPendingWrites] on the app's Firestore:
+/// resolves once the signed-in user's queued writes are acknowledged by the
+/// backend. Only meaningful while that user is still signed in, because the
+/// queue is per user (todo 704 review). Throws when Firebase is not
+/// initialised, which the caller treats as "not flushed".
+final firestorePendingWritesFlusherProvider = Provider<Future<void> Function()>(
+  (ref) =>
+      () => ref.read(firebaseFirestoreProvider).waitForPendingWrites(),
 );
 
 /// Firestore service for offline data persistence and cross-device sync
@@ -208,7 +219,11 @@ class FirestoreService extends _$FirestoreService {
         .doc(userId)
         .collection('identified_plants')
         .orderBy('timestamp', descending: true)
-        .snapshots()
+        // Metadata changes are asked for because the sync badge reads
+        // isFromCache and hasPendingWrites. Without them, a server answer
+        // that matches the cached list sends no second event, and the badge
+        // stays on "Offline" for good.
+        .snapshots(includeMetadataChanges: true)
         .map((snapshot) {
           if (kDebugMode) {
             debugPrint(

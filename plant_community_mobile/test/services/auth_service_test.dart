@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -11,12 +12,16 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_unlock_store.dart';
 import 'package:plant_community_mobile/models/user_profile.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
+import 'package:plant_community_mobile/services/firestore_service.dart';
 import 'package:plant_community_mobile/services/push_registration_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
 
+import '../features/forum/support/forum_test_support.dart'
+    show FakeForumUnlockStore;
 import '../support/wait_until.dart';
 
 /// Unit harness for [AuthService] (todo 288).
@@ -687,6 +692,68 @@ void main() {
     });
   });
 
+  group('forum unlocks at sign-out (spec 7.4)', () {
+    Future<(_Harness, FakeForumUnlockStore)> signedInWithUnlocks() async {
+      final store = FakeForumUnlockStore(
+        const ForumUnlocks(uid: 'ada', tokens: {1: 't1', 2: 't2'}),
+      );
+      final harness = _Harness(
+        overrides: [forumUnlockStoreProvider.overrideWithValue(store)],
+      );
+      harness.container.read(authServiceProvider);
+      await harness.signIn(_FakeUser(uid: 'ada'));
+      expect(await harness.container.read(forumUnlocksProvider.future), {
+        1: 't1',
+        2: 't2',
+      });
+      expect(harness.api.forumUnlockTokens, ['t2', 't1']);
+      return (harness, store);
+    }
+
+    test('sign-out clears the tokens and the header', () async {
+      final (harness, store) = await signedInWithUnlocks();
+      addTearDown(harness.dispose);
+
+      await harness.container.read(authServiceProvider.notifier).signOut();
+      await pumpEventQueue();
+
+      expect(store.stored, isNull);
+      expect(harness.api.forumUnlockTokens, isEmpty);
+      expect(
+        await harness.container.read(forumUnlocksProvider.future),
+        isEmpty,
+      );
+    });
+
+    test(
+      'an unlock change while sign-out runs is neither sent nor saved',
+      () async {
+        final (harness, store) = await signedInWithUnlocks();
+        addTearDown(harness.dispose);
+        final unlocks = harness.container.read(forumUnlocksProvider.notifier);
+        store.clearGate = Completer<void>();
+        final savesBefore = store.saveCalls;
+
+        final signingOut = harness.container
+            .read(authServiceProvider.notifier)
+            .signOut();
+        await pumpEventQueue();
+        // The member is still signed in on screen: a late unlock answer and a
+        // dead-token drop land now.
+        await unlocks.add(3, 't3', forUid: 'ada');
+        await unlocks.drop(1);
+        expect(harness.api.forumUnlockTokens, isEmpty);
+
+        store.clearGate!.complete();
+        await signingOut;
+        await pumpEventQueue();
+        expect(store.saveCalls, savesBefore);
+        expect(store.stored, isNull);
+        expect(harness.api.forumUnlockTokens, isEmpty);
+      },
+    );
+  });
+
   group('ordering', () {
     test('clearOnLogout runs BEFORE Firebase sign-out', () async {
       // The clear PATCH authenticates with the Django JWT, which sign-out
@@ -963,7 +1030,7 @@ void main() {
       watching.pause();
       await pumpEventQueue();
       expect(
-        harness.container.exists(userProfileServiceProvider),
+        harness.container.read(userProfileServiceProvider.exists),
         isTrue,
         reason: 'a paused listener still keeps an autoDispose provider',
       );
@@ -1068,7 +1135,10 @@ void main() {
         'django-jwt',
       );
       expect(builds.count, 0);
-      expect(harness.container.exists(userProfileServiceProvider), isFalse);
+      expect(
+        harness.container.read(userProfileServiceProvider.exists),
+        isFalse,
+      );
     });
   });
 
@@ -1969,6 +2039,58 @@ void main() {
     );
   });
 
+  group('todo 715 (audit M14)', () {
+    test('tokens are kept after first unlock, on this device only', () {
+      expect(
+        AuthService.authTokenStorage.iOptions.accessibility,
+        KeychainAccessibility.first_unlock_this_device,
+      );
+    });
+
+    test('the exchange stores the access token and never the refresh '
+        'token', () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      expect(harness.container.read(authServiceProvider).jwtToken, isNotNull);
+      const storage = FlutterSecureStorage();
+      expect(await storage.read(key: 'django_jwt_token'), isNotNull);
+      expect(await storage.read(key: 'django_refresh_token'), isNull);
+    });
+
+    test('a refresh stores the new access token and never the refresh '
+        'token', () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      expect(await harness.api.accessTokenRefresher!(), isNotNull);
+      const storage = FlutterSecureStorage();
+      expect(await storage.read(key: 'django_jwt_token'), isNotNull);
+      expect(await storage.read(key: 'django_refresh_token'), isNull);
+    });
+
+    test('an older build\'s stored refresh token is deleted at launch, '
+        'and the user stays signed in', () async {
+      FlutterSecureStorage.setMockInitialValues({
+        'django_jwt_token': 'old-jwt',
+        'django_refresh_token': 'old-refresh',
+      });
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      await pumpEventQueue();
+
+      const storage = FlutterSecureStorage();
+      expect(await storage.read(key: 'django_refresh_token'), isNull);
+      expect(await storage.read(key: 'django_jwt_token'), isNotNull);
+      expect(
+        harness.container.read(authServiceProvider).isAuthenticated,
+        isTrue,
+      );
+    });
+  });
+
   group('todo 587', () {
     test(
       'item 2: a refresh 409 overtaken mid-clear keeps the newer tokens',
@@ -2059,6 +2181,368 @@ void main() {
         expect(harness.container.read(authServiceProvider).error, isNull);
       });
     }
+  });
+
+  group('sign-out clears the device (todo 704, audit M13)', () {
+    _Harness deviceHarness(
+      _CachingFirestore firestore, {
+      User? currentUser,
+      GoogleSignIn? googleSignIn,
+    }) => _Harness(
+      currentUser: currentUser,
+      useRealPushService: true,
+      googleSignIn: googleSignIn,
+      overrides: [firebaseFirestoreProvider.overrideWithValue(firestore)],
+    );
+
+    test('after a forced session expiry, the push token is unregistered and '
+        'the Firestore cache is empty', () async {
+      final firestore = _CachingFirestore();
+      final harness = deviceHarness(firestore);
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      await harness.signIn(_FakeUser(uid: 'ada'));
+      await waitUntil(
+        () => harness.realPush!.lastSyncedToken != null,
+        'the login registered a push token',
+      );
+      expect(harness.realPush!.lastSyncedToken, 'device-token-1');
+      expect(firestore.cachedDocs, isNotEmpty);
+
+      // The 401 whose refresh was refused: no JWT is left to unregister
+      // with, so the token is deleted on the device.
+      await harness.api.sessionExpiredHandler!();
+      await pumpEventQueue();
+
+      expect(harness.messaging!.deleteTokenCalls, 1);
+      expect(harness.realPush!.lastSyncedToken, isNull);
+      expect(firestore.cachedDocs, isEmpty);
+      expect(firestore.calls, ['terminate', 'clearPersistence']);
+      final state = harness.container.read(authServiceProvider);
+      expect(state.error, 'Your session expired. Please sign in again.');
+    });
+
+    test('a sign-out Firebase reports (a revoked token) deletes the push '
+        'token but keeps the cache: its queued writes cannot be flushed once '
+        'the user is gone, and sync at the next sign-in', () async {
+      final firestore = _CachingFirestore();
+      final harness = deviceHarness(firestore);
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      await harness.signIn(_FakeUser(uid: 'ada'));
+
+      await harness.emitAuthState(null);
+
+      expect(harness.messaging!.deleteTokenCalls, 1);
+      expect(firestore.calls, isEmpty);
+      expect(firestore.cachedDocs, isNotEmpty);
+    });
+
+    test('signOut() and a session expiry flush the queued writes while '
+        'Firebase is still signed in', () async {
+      for (final expire in [false, true]) {
+        final firestore = _CachingFirestore();
+        final harness = deviceHarness(firestore);
+        firestore.events = harness.events;
+        harness.container.read(authServiceProvider);
+        await harness.signIn(_FakeUser(uid: 'ada'));
+
+        if (expire) {
+          await harness.api.sessionExpiredHandler!();
+        } else {
+          await harness.container.read(authServiceProvider.notifier).signOut();
+        }
+        await harness.emitAuthState(null);
+
+        final flushAt = harness.events.indexOf(
+          'firestore.waitForPendingWrites',
+        );
+        expect(flushAt, isNonNegative, reason: 'expire=$expire');
+        expect(
+          flushAt,
+          lessThan(harness.events.indexOf('firebase.signOut')),
+          reason: 'expire=$expire',
+        );
+        expect(firestore.waitForPendingWritesCalls, 1);
+        expect(firestore.calls, ['terminate', 'clearPersistence']);
+        harness.dispose();
+      }
+    });
+
+    test('a queued write that never reaches the backend keeps the cache: '
+        'the session still ends and the push token still goes', () async {
+      final firestore = _CachingFirestore()
+        ..pendingWritesGate = Completer<void>();
+      final harness = deviceHarness(firestore);
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      await harness.signIn(_FakeUser(uid: 'ada'));
+      (harness.container.read(authServiceProvider.notifier)
+              as _TestableAuthService)
+          .pendingWritesFlushTimeout = const Duration(
+        milliseconds: 10,
+      );
+
+      await harness.api.sessionExpiredHandler!();
+      await pumpEventQueue();
+
+      expect(firestore.waitForPendingWritesCalls, 1);
+      expect(harness.events, contains('firebase.signOut'));
+      expect(harness.messaging!.deleteTokenCalls, 1);
+      expect(firestore.calls, isEmpty);
+      expect(firestore.cachedDocs, isNotEmpty);
+      expect(
+        harness.container.read(authServiceProvider).error,
+        'Your session expired. Please sign in again.',
+      );
+    });
+
+    test('signOut() unregisters with the server first, then clears the '
+        'device once, and signs out of Google', () async {
+      final firestore = _CachingFirestore();
+      final google = _FakeGoogleSignIn();
+      final harness = deviceHarness(
+        firestore,
+        currentUser: _FakeUser(uid: 'ada', providerIds: const ['google.com']),
+        googleSignIn: google,
+      );
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      await pumpEventQueue();
+      await harness.realPush!.registerToken('device-token-1');
+
+      await harness.container.read(authServiceProvider.notifier).signOut();
+      // In the app, Firebase's sign-out also reaches the listener.
+      await harness.emitAuthState(null);
+
+      expect(
+        harness.api.postCalls.where(
+          (c) => c.path == '/push-devices/unregister/',
+        ),
+        hasLength(1),
+      );
+      expect(harness.messaging!.deleteTokenCalls, 1);
+      expect(firestore.calls, ['terminate', 'clearPersistence']);
+      expect(firestore.cachedDocs, isEmpty);
+      // A session restored at launch: initialised, then signed out.
+      expect(google.initializeCalls, 1);
+      expect(google.signOutCalls, 1);
+    });
+
+    test('a launch with nobody signed in clears nothing', () async {
+      final firestore = _CachingFirestore();
+      final harness = deviceHarness(firestore);
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+
+      await harness.emitAuthState(null);
+
+      expect(harness.messaging!.deleteTokenCalls, 0);
+      expect(firestore.calls, isEmpty);
+    });
+  });
+
+  group('fixed error messages (todo 704, audit L8)', () {
+    test('a non-Firebase sign-in failure shows a fixed message', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      harness.firebaseAuth.rawSignInError = StateError('PlatformException(x)');
+
+      await expectLater(
+        harness.container
+            .read(authServiceProvider.notifier)
+            .signInWithEmailPassword('ada@example.com', _password),
+        throwsA(
+          isA<AuthException>().having(
+            (e) => e.message,
+            'message',
+            signInFailedMessage,
+          ),
+        ),
+      );
+      expect(
+        harness.container.read(authServiceProvider).error,
+        signInFailedMessage,
+      );
+    });
+
+    test(
+      'an unmapped Firebase code shows a fixed message, not its text',
+      () async {
+        final harness = _Harness();
+        addTearDown(harness.dispose);
+        harness.container.read(authServiceProvider);
+        harness.firebaseAuth.signInError = FirebaseAuthException(
+          code: 'internal-error',
+          message: 'An internal error has occurred. [ RAW_SERVER_DETAIL ]',
+        );
+
+        final error = await harness.container
+            .read(authServiceProvider.notifier)
+            .signInWithEmailPassword('ada@example.com', _password)
+            .then<Object?>((_) => null, onError: (Object e) => e);
+
+        expect(error, isA<AuthException>());
+        final message = (error! as AuthException).message;
+        expect(message, authFailedMessage);
+        expect(message, isNot(contains('RAW_SERVER_DETAIL')));
+      },
+    );
+
+    test('a failed registration shows a fixed message', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      harness.firebaseAuth.rawCreateError = StateError('channel-error detail');
+
+      await expectLater(
+        harness.container
+            .read(authServiceProvider.notifier)
+            .registerWithEmailPassword(
+              email: 'ada@example.com',
+              password: _password,
+              displayName: 'Ada',
+            ),
+        throwsA(
+          isA<AuthException>().having(
+            (e) => e.message,
+            'message',
+            registrationFailedMessage,
+          ),
+        ),
+      );
+    });
+
+    for (final code in [
+      'password-does-not-meet-requirements',
+      'weak-password',
+    ]) {
+      test('a "$code" sign-up refusal names the $minPasswordLength-character '
+          'minimum (todo 715)', () async {
+        final harness = _Harness();
+        addTearDown(harness.dispose);
+        harness.container.read(authServiceProvider);
+        harness.firebaseAuth.rawCreateError = FirebaseAuthException(code: code);
+
+        await expectLater(
+          harness.container
+              .read(authServiceProvider.notifier)
+              .registerWithEmailPassword(
+                email: 'ada@example.com',
+                password: _password,
+                displayName: 'Ada',
+              ),
+          throwsA(
+            isA<AuthException>().having(
+              (e) => e.message,
+              'message',
+              'Password is too weak. Use at least 14 characters.',
+            ),
+          ),
+        );
+      });
+    }
+
+    test('a Google sign-in failure shows a fixed message, not the plugin\'s '
+        'description', () async {
+      final harness = _Harness(
+        googleSignIn: _FakeGoogleSignIn(
+          error: const GoogleSignInException(
+            code: GoogleSignInExceptionCode.unknownError,
+            description: 'PlatformException(sign_in_failed, ApiException: 10)',
+          ),
+        ),
+      );
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+
+      await expectLater(
+        harness.container.read(authServiceProvider.notifier).signInWithGoogle(),
+        throwsA(
+          isA<AuthException>().having(
+            (e) => e.message,
+            'message',
+            googleSignInFailedMessage,
+          ),
+        ),
+      );
+      expect(
+        harness.container.read(authServiceProvider).error,
+        googleSignInFailedMessage,
+      );
+    });
+
+    test('a failed sign-out shows a fixed message', () async {
+      final harness = _Harness(currentUser: _FakeUser(uid: 'ada'));
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      await pumpEventQueue();
+      harness.firebaseAuth.signOutError = StateError('keychain error -34018');
+
+      await expectLater(
+        harness.container.read(authServiceProvider.notifier).signOut(),
+        throwsA(
+          isA<AuthException>().having(
+            (e) => e.message,
+            'message',
+            signOutFailedMessage,
+          ),
+        ),
+      );
+    });
+  });
+
+  group('password reset (todo 704, audit H7)', () {
+    test('sends the reset mail to the trimmed address', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+
+      await harness.container
+          .read(authServiceProvider.notifier)
+          .sendPasswordResetEmail('  ada@example.com ');
+
+      expect(harness.firebaseAuth.passwordResetEmails, ['ada@example.com']);
+    });
+
+    test('an unknown address answers like a known one', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      harness.firebaseAuth.passwordResetError = FirebaseAuthException(
+        code: 'user-not-found',
+      );
+
+      await harness.container
+          .read(authServiceProvider.notifier)
+          .sendPasswordResetEmail('nobody@example.com');
+
+      expect(harness.container.read(authServiceProvider).error, isNull);
+    });
+
+    test('an unmapped failure throws a fixed message', () async {
+      final harness = _Harness();
+      addTearDown(harness.dispose);
+      harness.container.read(authServiceProvider);
+      harness.firebaseAuth.passwordResetError = FirebaseAuthException(
+        code: 'internal-error',
+        message: 'RAW_DETAIL',
+      );
+
+      await expectLater(
+        harness.container
+            .read(authServiceProvider.notifier)
+            .sendPasswordResetEmail('ada@example.com'),
+        throwsA(
+          isA<AuthException>().having(
+            (e) => e.message,
+            'message',
+            passwordResetFailedMessage,
+          ),
+        ),
+      );
+    });
   });
 
   group('session-expiry exemption', () {
@@ -2263,6 +2747,9 @@ class _TestableAuthService extends AuthService {
   /// fails on the real plugin, as before.
   @override
   GoogleSignIn get googleSignIn => _googleSignIn ?? super.googleSignIn;
+
+  @override
+  Duration pendingWritesFlushTimeout = const Duration(seconds: 5);
 }
 
 /// Plays back one `authenticate()` outcome (Plan B task 10).
@@ -2293,6 +2780,11 @@ class _FakeGoogleSignIn implements GoogleSignIn {
     if (e != null) throw e;
     return _FakeGoogleAccount(idToken);
   }
+
+  int signOutCalls = 0;
+
+  @override
+  Future<void> signOut() async => signOutCalls++;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -2553,12 +3045,36 @@ class _FakeFirebaseAuth implements FirebaseAuth {
   /// session expiry's start and its auth flip.
   Completer<void>? signOutGate;
 
+  /// Thrown by `signOut()` when set (todo 704, L8).
+  Object? signOutError;
+
   @override
   Future<void> signOut() async {
     _events.add('firebase.signOut');
     final gate = signOutGate;
     if (gate != null) await gate.future;
+    final error = signOutError;
+    if (error != null) throw error;
     _currentUser = null;
+  }
+
+  /// Thrown by the sign-in / create calls when set: a failure that is not
+  /// a [FirebaseAuthException] (todo 704, L8).
+  Object? rawSignInError;
+  Object? rawCreateError;
+
+  /// Every address `sendPasswordResetEmail` was given, and what it throws.
+  final List<String> passwordResetEmails = [];
+  FirebaseAuthException? passwordResetError;
+
+  @override
+  Future<void> sendPasswordResetEmail({
+    required String email,
+    ActionCodeSettings? actionCodeSettings,
+  }) async {
+    passwordResetEmails.add(email);
+    final error = passwordResetError;
+    if (error != null) throw error;
   }
 
   /// The user `signInWithEmailAndPassword` signs in (todo 660).
@@ -2578,6 +3094,8 @@ class _FakeFirebaseAuth implements FirebaseAuth {
     _events.add('firebase.signInWithEmailAndPassword');
     final error = signInError;
     if (error != null) throw error;
+    final raw = rawSignInError;
+    if (raw != null) throw raw;
     _currentUser = signInUser;
     return _FakeUserCredential(signInUser);
   }
@@ -2588,6 +3106,8 @@ class _FakeFirebaseAuth implements FirebaseAuth {
     required String password,
   }) async {
     _events.add('firebase.createUserWithEmailAndPassword');
+    final raw = rawCreateError;
+    if (raw != null) throw raw;
     _currentUser = createdUser;
     return _FakeUserCredential(createdUser);
   }
@@ -2793,6 +3313,11 @@ class _FakeMessaging implements FirebaseMessaging {
   @override
   Stream<String> get onTokenRefresh => tokenRefreshController.stream;
 
+  int deleteTokenCalls = 0;
+
+  @override
+  Future<void> deleteToken() async => deleteTokenCalls++;
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -2803,4 +3328,43 @@ class _FakeSettings implements NotificationSettings {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// The Firestore calls a sign-out makes, over a stand-in for the on-device
+/// cache. Like the SDK, `clearPersistence` refuses a started instance.
+class _CachingFirestore extends Fake implements FirebaseFirestore {
+  final List<String> calls = [];
+  final Set<String> cachedDocs = {'users/ada/identified_plants/p1'};
+  bool _terminated = false;
+
+  /// The harness's event log, so a test can place the flush against
+  /// `firebase.signOut`. Kept out of [calls].
+  List<String>? events;
+
+  /// Held open: the queued writes never reach the backend (offline).
+  Completer<void>? pendingWritesGate;
+  int waitForPendingWritesCalls = 0;
+
+  @override
+  Future<void> waitForPendingWrites() async {
+    waitForPendingWritesCalls++;
+    events?.add('firestore.waitForPendingWrites');
+    final gate = pendingWritesGate;
+    if (gate != null) await gate.future;
+  }
+
+  @override
+  Future<void> terminate() async {
+    calls.add('terminate');
+    _terminated = true;
+  }
+
+  @override
+  Future<void> clearPersistence() async {
+    calls.add('clearPersistence');
+    if (!_terminated) {
+      throw FirebaseException(plugin: 'cloud_firestore', code: 'started');
+    }
+    cachedDocs.clear();
+  }
 }

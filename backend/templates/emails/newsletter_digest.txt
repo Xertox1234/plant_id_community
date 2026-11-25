@@ -1,4 +1,4 @@
-{% autoescape off %}New on the {{ site_name }} blog
+{% load email_sender %}{% autoescape off %}New on the {{ site_name }} blog
 {% for post in posts %}
 {{ post.title }} ({{ post.published_at|date:"j F Y" }})
 {{ post.url }}{% if post.excerpt %}
@@ -8,4 +8,4 @@ Everything on the blog: {{ blog_url }}
 
 You get this weekly because you confirmed a newsletter subscription.
 Unsubscribe: {{ unsubscribe_url }}
-{% endautoescape %}
+{% email_sender_footer_text %}{% endautoescape %}

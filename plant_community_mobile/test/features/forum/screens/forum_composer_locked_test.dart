@@ -22,7 +22,7 @@ Future<ProviderContainer> _pump(WidgetTester tester, FakeForumApi api) async {
   );
   addTearDown(container.dispose);
   // The thread beneath the composer keeps the topic alive.
-  container.listen(topicDetailProvider(10), (_, _) {});
+  container.listen(topicDetailProvider(10, ''), (_, _) {});
   await tester.pumpWidget(
     UncontrolledProviderScope(
       container: container,
@@ -49,7 +49,7 @@ void main() {
     expect(find.text(_locked), findsNothing);
 
     container
-        .read(topicDetailProvider(10).notifier)
+        .read(topicDetailProvider(10, '').notifier)
         .applyPeek(topicDetail(locked: true));
     await tester.pump();
 
@@ -76,6 +76,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(_locked), findsOneWidget);
+    // Beside the Post that was just refused, not at the top (audit F115).
+    expect(
+      tester.getTopLeft(find.text(_locked)).dy,
+      greaterThan(tester.getBottomLeft(find.byType(TextField).last).dy),
+    );
     expect(find.textContaining('Still processing'), findsNothing);
     expect(find.text('Too late'), findsOneWidget);
     expect(_postButton(tester).onPressed, isNull);

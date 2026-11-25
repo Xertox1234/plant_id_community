@@ -85,6 +85,17 @@ describe('ForumCard', () => {
     expect(link).toHaveAttribute('href', '/forum/cat-1-plant-care');
   });
 
+  it('marks the board link with the test id the e2e lifecycle test uses (todo 725)', () => {
+    const category = createMockForum({ id: 'cat-1', slug: 'plant-care' });
+
+    renderCategoryCard(category);
+
+    expect(screen.getByTestId('forum-board-link')).toHaveAttribute(
+      'href',
+      '/forum/cat-1-plant-care'
+    );
+  });
+
   it('renders subcategories when present', () => {
     const category = createMockForum({
       children: [

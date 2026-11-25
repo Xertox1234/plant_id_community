@@ -1,0 +1,215 @@
+# Dependabot VERSION updates. Security updates are a repository setting and run
+# with or without this file.
+#
+# A previous config was removed on 2026-05-07 (e447347e) because it was noisy:
+# four or five groups per ecosystem and up to 10 open PRs each. This one is
+# built to stay quiet:
+#
+#   - ONE grouped PR per ecosystem per week for every minor and patch update.
+#   - Major updates arrive one PR each, are held back 30 days after release
+#     (where the ecosystem reports SemVer) and are capped by
+#     `open-pull-requests-limit`. Close one with `@dependabot ignore this major
+#     version` to decline it for good.
+#   - Nothing newer than 7 days is proposed (`cooldown`), so a release that is
+#     yanked or found malicious in its first week never reaches a PR.
+#   - No BLANKET `ignore` rule filters by update type: an ignore rule must never
+#     be able to hold back a security fix that happens to be a major bump
+#     (soupsieve 2.9 -> 4.0, #1302). The only update-type ignores below name
+#     one build tool, the TypeScript compiler (a dev tool), one types package
+#     and the base image, each a decision
+#     already taken; none of them ships in the running app's request path
+#     except the base image, whose patch releases still arrive by rebuild.
+#
+# Runs Tuesday, the day after the weekly security scan (Monday 09:00 UTC).
+#
+# ruff is excluded everywhere: its pin in backend/requirements-dev.in must equal
+# the ruff-pre-commit rev in .pre-commit-config.yaml, and Dependabot would bump
+# the two in separate PRs. Bump both by hand, together.
+
+version: 2
+
+updates:
+  # Backend. requirements.txt and requirements-dev.txt are pip-compile locks
+  # of requirements.in and requirements-dev.in (todo 708). Dependabot is
+  # expected to detect pip-compile from the lock headers and update the locks
+  # with it, so it should no longer propose a transitive bump a parent
+  # forbids; its first PR after the todo 711 AI SDK bump checks that (todo
+  # 721). The AI SDK holds were lifted in todo 711; the hold left below is a
+  # Wagtail resolver cap.
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "python"]
+    commit-message:
+      prefix: "chore(deps)"
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    ignore:
+      - dependency-name: "ruff"
+      # Wagtail 8.0 AND 8.1 both require django-treebeard<6.0 (#1317 could
+      # not install). Remove when a Wagtail release lifts the cap.
+      - dependency-name: "django-treebeard"
+        versions: [">=6"]
+    groups:
+      backend-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Web app and the repo-root Cloudflare Workers deploy tree.
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/web"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "javascript"]
+    commit-message:
+      prefix: "chore(deps)"
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    ignore:
+      # @types/node follows the Node version in .nvmrc (24), not npm's latest.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # TypeScript 7 cannot install: typescript-eslint requires typescript
+      # <6.1.0, so #1330 failed `npm ci` (2026-11-16). Still true of 8.74.0 and
+      # its canary on 2026-11-23 (declined in todo 722, archived). Re-check
+      # typescript-eslint's typescript peer range, and remove this entry when
+      # it accepts 7: nothing else tracks it.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+    groups:
+      # vitest, @vitest/ui and @vitest/coverage-v8 peer-pin each other to
+      # the exact same version, so they only install together: #1311 and
+      # #1312 each bumped one and both failed `npm ci` with ERESOLVE. One PR
+      # for the set, any update size (Vitest 5 landed in todo 712).
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+      npm-minor-patch:
+        patterns: ["*"]
+        exclude-patterns:
+          - "vitest"
+          - "@vitest/*"
+        update-types: ["minor", "patch"]
+
+  # Flutter app.
+  - package-ecosystem: "pub"
+    directory: "/plant_community_mobile"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "area: mobile"]
+    commit-message:
+      prefix: "chore(deps)"
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    groups:
+      # Every FlutterFire package, any update size, in ONE PR of its own.
+      # They share firebase_core and only resolve together, and a "minor"
+      # bump of one can force a major of the rest: #1321, titled minor/patch,
+      # carried firebase_core 5, firebase_auth 7, cloud_firestore 7 and
+      # firebase_messaging 17 because firebase_messaging_platform_interface
+      # 4.11 needs them. A Firebase PR always needs a device check (todo 713).
+      firebase:
+        patterns:
+          - "firebase_*"
+          - "cloud_firestore*"
+          - "fake_cloud_firestore"
+      pub-minor-patch:
+        patterns: ["*"]
+        exclude-patterns:
+          - "firebase_*"
+          - "cloud_firestore*"
+          - "fake_cloud_firestore"
+        update-types: ["minor", "patch"]
+
+  # Android build plugins (AGP, Kotlin, google-services).
+  - package-ecosystem: "gradle"
+    directory: "/plant_community_mobile/android"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+    open-pull-requests-limit: 2
+    labels: ["dependencies", "area: mobile"]
+    commit-message:
+      prefix: "chore(deps)"
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    groups:
+      gradle-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Workflow actions: one PR for all of them, majors included.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+    open-pull-requests-limit: 2
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "chore(ci)"
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # backend/Dockerfile base image (python:3.13.N-slim, a patch pin: todo 709).
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+    open-pull-requests-limit: 2
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "chore(deps)"
+    cooldown:
+      default-days: 7
+    ignore:
+      # Stay on the 3.13 line: a new Python line (3.13 -> 3.14 is a "minor"
+      # here) is a planned upgrade across the image, .python-version and CI,
+      # not a Dependabot bump. Runtime pins are tracked in todo 709.
+      - dependency-name: "python"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+
+  # .pre-commit-config.yaml hook revs: one PR for all of them.
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+    open-pull-requests-limit: 2
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "chore(dev)"
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*ruff*"
+    groups:
+      pre-commit-hooks:
+        patterns: ["*"]

@@ -8,6 +8,7 @@ import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/providers/forum_providers.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_unlock_store.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_latest_replies_view.dart';
 import 'package:plant_community_mobile/features/forum/widgets/home/forum_season_card.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
@@ -29,15 +30,17 @@ ForumRecentTopic _topic(int id) => ForumRecentTopic(
 );
 
 FakeForumApi _api() => FakeForumApi()
-  ..boards = const [
-    ForumBoard(
-      id: 1,
-      title: 'Care',
-      slug: 'care',
-      description: 'Light, water, soil.',
-      topicCount: 1,
-      postCount: 1,
-    ),
+  ..categories = [
+    categoryOf(const [
+      ForumBoard(
+        id: 1,
+        title: 'Care',
+        slug: 'care',
+        description: 'Light, water, soil.',
+        topicCount: 1,
+        postCount: 1,
+      ),
+    ]),
   ]
   ..recentTopics = [_topic(1), _topic(2)]
   ..experts = [expert(username: 'fern', online: true)]
@@ -71,6 +74,9 @@ Future<ProviderContainer> _pump(
     overrides: [
       forumApiProvider.overrideWithValue(api),
       forumSyncStoreProvider.overrideWithValue(InMemoryForumSyncStore()),
+      // Secure storage answers on real time, which a widget test never
+      // advances: a signed-in feed would wait on it for ever.
+      forumUnlockStoreProvider.overrideWithValue(FakeForumUnlockStore()),
       authServiceProvider.overrideWith(
         () => FakeAuthService(loggedIn: false, initial: auth),
       ),
@@ -127,6 +133,7 @@ void main() {
       await _openCard(tester, 'Topic 1');
       expect(find.byType(ForumLatestRepliesView), findsOneWidget);
       final before = _counts(api);
+      final feedBefore = api.fetchCategoriesCalls;
 
       container
           .read(authorBlockChangesProvider.notifier)
@@ -134,6 +141,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final after = _counts(api);
+      expect(api.fetchCategoriesCalls, feedBefore + 1);
       expect(after.topics, before.topics + 1);
       expect(after.stats, before.stats + 1);
       expect(after.experts, before.experts + 1);
@@ -145,6 +153,22 @@ void main() {
       expect(api.latestRepliesCalls(1), 2);
     });
 
+    testWidgets('a mute refetches the home (F47)', (tester) async {
+      final api = _api();
+      final container = await _pump(
+        tester,
+        api,
+        auth: const AuthState(jwtToken: 'jwt'),
+      );
+      final before = _counts(api);
+      container
+          .read(authorMuteChangesProvider.notifier)
+          .emit(username: 'fern', muted: true);
+      await tester.pumpAndSettle();
+      expect(_counts(api).topics, before.topics + 1);
+      expect(_counts(api).experts, before.experts + 1);
+    });
+
     testWidgets('a sign-in refetches the home and shows the season', (
       tester,
     ) async {
@@ -153,11 +177,13 @@ void main() {
       expect(find.byType(ForumSeasonCard), findsNothing);
       await _openCard(tester, 'Topic 2');
       final before = _counts(api);
+      final feedBefore = api.fetchCategoriesCalls;
 
       _auth(container).setAuth(const AuthState(jwtToken: 'jwt'));
       await tester.pumpAndSettle();
 
       final after = _counts(api);
+      expect(api.fetchCategoriesCalls, feedBefore + 1);
       expect(after.topics, before.topics + 1);
       expect(after.stats, before.stats + 1);
       expect(after.experts, before.experts + 1);
@@ -176,11 +202,13 @@ void main() {
       );
       await _openCard(tester, 'Topic 1');
       final before = _counts(api);
+      final feedBefore = api.fetchCategoriesCalls;
 
       _auth(container).setAuth(const AuthState());
       await tester.pumpAndSettle();
 
       final after = _counts(api);
+      expect(api.fetchCategoriesCalls, feedBefore + 1);
       expect(after.topics, before.topics + 1);
       expect(after.stats, before.stats + 1);
       expect(after.experts, before.experts + 1);
@@ -199,6 +227,7 @@ void main() {
         auth: AuthState(jwtToken: 'a1', firebaseUser: _FakeUser('ada')),
       );
       final start = _counts(api);
+      final feedStart = api.fetchCategoriesCalls;
 
       // Same member, new token: nothing changes for the viewer.
       _auth(
@@ -206,16 +235,84 @@ void main() {
       ).setAuth(AuthState(jwtToken: 'a2', firebaseUser: _FakeUser('ada')));
       await tester.pumpAndSettle();
       expect(_counts(api), start);
+      expect(api.fetchCategoriesCalls, feedStart);
 
       _auth(
         container,
       ).setAuth(AuthState(jwtToken: 'b1', firebaseUser: _FakeUser('bob')));
       await tester.pumpAndSettle();
       final after = _counts(api);
+      expect(api.fetchCategoriesCalls, feedStart + 1);
       expect(after.topics, start.topics + 1);
       expect(after.stats, start.stats + 1);
       expect(after.me, start.me + 1);
     });
+  });
+
+  group('a new viewer never sees the previous viewer\'s forums', () {
+    for (final (label, next) in [
+      (
+        'a different member',
+        AuthState(jwtToken: 'b1', firebaseUser: _FakeUser('bob')),
+      ),
+      ('a sign-out', const AuthState()),
+    ]) {
+      testWidgets('$label whose refetch fails shows the error, not the old '
+          'forums', (tester) async {
+        final api = _api()
+          ..categories = [
+            categoryOf(const [
+              ForumBoard(
+                id: 7,
+                title: 'Members corner',
+                slug: 'members-corner',
+                description: '',
+                topicCount: 1,
+                postCount: 1,
+              ),
+            ]),
+          ];
+        final container = await _pump(
+          tester,
+          api,
+          auth: AuthState(jwtToken: 'a1', firebaseUser: _FakeUser('ada')),
+        );
+        expect(find.text('Members corner'), findsOneWidget);
+
+        api.categoriesError = ApiException('down', statusCode: 503);
+        _auth(container).setAuth(next);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(find.text('Members corner'), findsNothing);
+        expect(find.text('Could not load forums.'), findsOneWidget);
+        await _drainRetries(tester);
+      });
+
+      testWidgets('$label whose refetch fails shows the error, not the old '
+          'recent topics', (tester) async {
+        // Recent activity honours a member's forum unlocks, so its titles
+        // are that member's too.
+        final api = _api();
+        final container = await _pump(
+          tester,
+          api,
+          auth: AuthState(jwtToken: 'a1', firebaseUser: _FakeUser('ada')),
+        );
+        expect(find.text('Topic 1'), findsOneWidget);
+
+        api.recentTopicsError = ApiException('down', statusCode: 503);
+        _auth(container).setAuth(next);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(find.text('Topic 1'), findsNothing);
+        expect(find.text('Could not load recent topics.'), findsOneWidget);
+        await _drainRetries(tester);
+      });
+    }
   });
 
   group('latest replies live as long as the home', () {
@@ -230,7 +327,7 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       await _openCard(tester, 'Topic 1');
       expect(api.latestRepliesCalls(1), 1);
-      expect(container.exists(latestRepliesProvider(1)), isTrue);
+      expect(container.read(latestRepliesProvider(1).exists), isTrue);
 
       // The home goes away: its peeks go with it.
       await tester.pumpWidget(
@@ -240,7 +337,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(container.exists(latestRepliesProvider(1)), isFalse);
+      expect(container.read(latestRepliesProvider(1).exists), isFalse);
     });
   });
 
@@ -251,7 +348,7 @@ void main() {
     ]) {
       testWidgets('boards, recent activity and season: $label', (tester) async {
         final api = _api()
-          ..boardsError = error
+          ..categoriesError = error
           ..recentTopicsError = error
           ..failMyStatsWith = error;
         await _pump(
@@ -265,22 +362,22 @@ void main() {
         await tester.pump(const Duration(milliseconds: 50));
         await tester.pump(const Duration(milliseconds: 500));
 
-        expect(find.text('Could not load boards.'), findsOneWidget);
+        expect(find.text('Could not load forums.'), findsOneWidget);
         expect(find.text('Could not load recent topics.'), findsOneWidget);
         expect(find.text('Could not load your stats.'), findsOneWidget);
-        expect(find.bySemanticsLabel('Loading boards'), findsNothing);
+        expect(find.bySemanticsLabel('Loading forums'), findsNothing);
         expect(find.bySemanticsLabel('Loading recent topics'), findsNothing);
         expect(find.bySemanticsLabel('Loading your stats'), findsNothing);
 
         // Riverpod is still retrying behind the error.
         await tester.pump(const Duration(seconds: 3));
-        expect(api.fetchBoardsCalls, greaterThan(1));
+        expect(api.fetchCategoriesCalls, greaterThan(1));
         expect(api.recentTopicsLimits.length, greaterThan(1));
-        expect(find.text('Could not load boards.'), findsOneWidget);
+        expect(find.text('Could not load forums.'), findsOneWidget);
 
         // Retry works once the network is back.
         api
-          ..boardsError = null
+          ..categoriesError = null
           ..recentTopicsError = null
           ..failMyStatsWith = null;
         final retries = find.text('Retry').evaluate().length;
@@ -290,7 +387,7 @@ void main() {
         }
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
-        expect(find.text('Could not load boards.'), findsNothing);
+        expect(find.text('Could not load forums.'), findsNothing);
         expect(find.text('Could not load recent topics.'), findsNothing);
         expect(find.text('Could not load your stats.'), findsNothing);
         expect(find.text('Care'), findsWidgets);

@@ -47,6 +47,9 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+# Forum email goes only to a verified address (audit 2026-11-24 F211).
+pytestmark = pytest.mark.usefixtures("verified_accounts")
+
 User = get_user_model()
 
 # An obviously fake signing secret: 24 "x" bytes, base64.
@@ -480,6 +483,72 @@ class TestEventsAndCorrelation:
         _post(_event(email_feedback.EVENT_SUPPRESSED))
         assert _suppression("reader@example.com").reason == Reason.HARD_BOUNCE
 
+    def test_the_reported_message_id_is_stored_on_every_event(self):
+        """Todo 726: what Resend reports as ``data.message_id`` is kept as
+        sent, on events the app ignores too (``email.sent`` comes first), so
+        a prod read can see what form it takes."""
+        row, message_id = self._send()
+        _post(_event("email.sent", message_id=message_id), svix_id="s1")
+        _post(
+            _event(EVENT_DELIVERED, message_id="  <Other.Id@Resend.dev> "), svix_id="d1"
+        )
+        _post(_event(EVENT_DELIVERED), svix_id="d2")
+        stored = dict(EmailProviderEvent.objects.values_list("svix_id", "message_id"))
+        assert stored == {"s1": message_id, "d1": "<Other.Id@Resend.dev>", "d2": ""}
+
+    def test_a_message_id_quoting_the_recipient_is_not_stored(self):
+        _post(
+            _event(
+                EVENT_DELIVERED,
+                "Reader@Example.com",
+                message_id="<x.reader@example.com@relay.example.net>",
+            )
+        )
+        assert (
+            EmailProviderEvent.objects.get().message_id
+            == email_feedback.MESSAGE_ID_REDACTED
+        )
+
+    def test_a_message_id_quoting_another_address_is_kept(self):
+        """Only the event's own recipients are checked: an id naming some
+        other address is stored as sent."""
+        _post(
+            _event(
+                EVENT_DELIVERED,
+                "reader@example.com",
+                message_id="<x.other@example.com@relay.example.net>",
+            )
+        )
+        assert (
+            EmailProviderEvent.objects.get().message_id
+            == "<x.other@example.com@relay.example.net>"
+        )
+
+    def test_a_recipient_parseaddr_cannot_read_is_still_checked(self):
+        event = email_feedback.ParsedEvent(
+            event_type=EVENT_DELIVERED,
+            occurred_at=timezone.now(),
+            email_id="",
+            message_id="<x.Reader@Example.com>@relay>",
+            recipients=("reader@example.com>",),
+            bounce_type="",
+            bounce_subtype="",
+        )
+        assert (
+            email_feedback._storable_message_id(event)
+            == email_feedback.MESSAGE_ID_REDACTED
+        )
+
+    @pytest.mark.parametrize("event_type", ["email.sent", EVENT_DELIVERED])
+    @pytest.mark.parametrize("bad", ["\x00", "\ud800"])
+    def test_a_message_id_postgres_would_refuse_is_cleaned(self, event_type, bad):
+        """NUL and a lone surrogate both pass ``json.loads``. Uncleaned, the
+        lookup (handled types) or the insert (every type) fails and the
+        webhook answers 500."""
+        response = _post(_event(event_type, message_id=f"<a{bad}b@resend.dev>"))
+        assert response.status_code == 200
+        assert EmailProviderEvent.objects.get().message_id == "<ab@resend.dev>"
+
     def test_no_address_is_stored(self):
         _hard_bounce("Reader@Example.com")
         stored = json.dumps(
@@ -610,6 +679,7 @@ class TestAccountSecurityUnchanged:
     def test_verification_for_a_bounced_address_is_terminal_and_changes_nothing_else(
         self, django_capture_on_commit_callbacks
     ):
+        from allauth.account.models import EmailAddress
         from apps.users import tasks
         from apps.users.email_verification import is_email_verified
 
@@ -618,6 +688,7 @@ class TestAccountSecurityUnchanged:
             email="ada@example.com",
             password="x-Pass-123!",  # pragma: allowlist secret
         )
+        EmailAddress.objects.filter(user=user).update(verified=False)
         _suppress("ada@example.com", Reason.HARD_BOUNCE)
         client = APIClient()
         client.force_authenticate(user=user)

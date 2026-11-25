@@ -8,6 +8,9 @@ from wagtail_forum.models import ForumProfile
 
 from .test_tasks import _make_reply
 
+# Forum email goes only to a verified address (audit 2026-11-24 F211).
+pytestmark = pytest.mark.usefixtures("verified_accounts")
+
 User = get_user_model()
 
 

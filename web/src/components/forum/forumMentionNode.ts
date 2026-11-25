@@ -146,6 +146,11 @@ export const ForumMention = Mention.configure({
           if (!shouldRender(props)) {
             dropdown?.remove();
             dropdown = null;
+            // A hidden list must not answer keys: `currentCommand` is bound to
+            // the previous keystroke's range, so Enter would insert an old
+            // suggestion over the wrong text (audit F16).
+            currentItems = [];
+            currentCommand = null;
             return;
           }
           selectedIndex = 0;

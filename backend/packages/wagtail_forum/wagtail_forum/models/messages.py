@@ -11,6 +11,8 @@ MESSAGE_BODY_MAX_CHARS = 4000
 MESSAGE_PREVIEW_CHARS = 140
 # Group conversation title (todo 350) — shared with the create serializer.
 GROUP_TITLE_MAX_CHARS = 80
+# What every member, the sender included, reads in place of a removed message.
+MESSAGE_REMOVED_TEXT = _("[removed by a moderator]")
 # Raw length bound on a group-create invite list, checked BEFORE per-item
 # validation (the cap on members is DM_GROUP_MAX_PARTICIPANTS, a setting).
 MAX_GROUP_INVITE_ITEMS = 50
@@ -218,6 +220,10 @@ class Message(models.Model):
     )
     body = models.TextField(max_length=MESSAGE_BODY_MAX_CHARS)
     created_at = models.DateTimeField(auto_now_add=True)
+    # When a moderator removed it from a report (`Report.remove_message`).
+    # The row stays, and the reports on it (`Report.message` is CASCADE);
+    # members are shown `visible_body`, never `body`.
+    removed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["created_at", "id"]
@@ -227,6 +233,11 @@ class Message(models.Model):
                 name="wf_message_conv_created_idx",
             )
         ]
+
+    @property
+    def visible_body(self) -> str:
+        """The text a member may read."""
+        return self.body if self.removed_at is None else str(MESSAGE_REMOVED_TEXT)
 
     def __str__(self):
         return f"message {self.pk} in conversation {self.conversation_id}"

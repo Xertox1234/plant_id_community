@@ -107,7 +107,7 @@ abstract class _$CaptureSession extends $Notifier<CaptureSessionState> {
   CaptureSessionState build(ScanMode initialMode);
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<CaptureSessionState, CaptureSessionState>;
     final element =
         ref.element
@@ -117,6 +117,6 @@ abstract class _$CaptureSession extends $Notifier<CaptureSessionState> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args));
   }
 }

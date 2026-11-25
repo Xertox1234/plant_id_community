@@ -30,6 +30,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 _BACKEND = Path(__file__).parent
 
 
@@ -142,7 +144,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         # the reader to inspect a clean environment and discount a true
         # warning.
         terminalreporter.write_line(
-            f"{sys.prefix} does not match backend/requirements.txt — these "
+            f"{sys.prefix} does not match backend/requirements-dev.txt — these "
             "results describe a tree CI does not run."
         )
         for line in lines:
@@ -151,6 +153,25 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
             terminalreporter.write_line(hint)
     except Exception:  # noqa: BLE001 - includes env_integrity being None
         return
+
+
+@pytest.fixture
+def verified_accounts():
+    """Every account created during the test has verified its address (and a
+    new one saved with ``update_fields=["email"]``), as a member who confirmed
+    it has. Optional forum email goes to nobody else
+    (audit 2026-11-24 F211), so tests about its other rules start here."""
+    from apps.users.email_verification import mark_email_verified
+    from django.contrib.auth import get_user_model
+    from django.db.models.signals import post_save
+
+    def verify(sender, instance, created, update_fields=None, raw=False, **kwargs):
+        if not raw and (created or "email" in (update_fields or ())):
+            mark_email_verified(instance)
+
+    post_save.connect(verify, sender=get_user_model(), weak=False)
+    yield
+    post_save.disconnect(verify, sender=get_user_model())
 
 
 # --- Package tests: plain session authentication (todo 701) ---------------
@@ -165,8 +186,6 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 # (``test_reusability.py``), so for them the authenticator is the plain DRF
 # one. The gate itself is tested by the host in
 # ``apps/users/tests/test_policy_session_paths.py``.
-
-import pytest  # noqa: E402
 
 _PACKAGES = _BACKEND / "packages"
 

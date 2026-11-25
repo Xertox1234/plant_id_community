@@ -13,6 +13,9 @@ from django.contrib.auth import get_user_model
 from wagtail_forum.models import ForumProfile, Post, Topic
 from wagtail_forum.tests.factories import make_forum
 
+# Forum email goes only to a verified address (audit 2026-11-24 F211).
+pytestmark = pytest.mark.usefixtures("verified_accounts")
+
 User = get_user_model()
 
 
@@ -290,6 +293,45 @@ def test_send_forum_push_retries_transient_errors_until_exhausted():
     assert mock_fcm.send.call_count == 4  # initial attempt + max_retries=3
     assert result.status == "FAILURE"
     assert isinstance(result.result, fb_exceptions.UnavailableError)
+
+
+@pytest.mark.django_db
+def test_send_forum_push_retries_a_db_blip_before_any_send():
+    """A transient DB error in the reads before any send retries the task
+    instead of losing the push (audit 2026-11-21 L8). Reads only: nothing has
+    been sent, so the retry cannot duplicate one."""
+    from django.db import OperationalError
+
+    user = User.objects.create_user(username="dbblip")
+    profile = ForumProfile.for_user(user)
+    profile.fcm_token = "live-token"
+    profile.save()
+    mock_fcm = MagicMock()
+    mock_fcm.send.return_value = "ok"
+    reads = iter([OperationalError("connection reset")])
+
+    def flaky_recheck(*args, **kwargs):
+        exc = next(reads, None)
+        if exc is not None:
+            raise exc
+        return real_recheck(*args, **kwargs)
+
+    from apps.forum_host import tasks as forum_tasks
+
+    real_recheck = forum_tasks.recheck
+    with patch(
+        "apps.core.firebase_config.is_firebase_available", return_value=True
+    ), patch(
+        "apps.core.firebase_config.get_fcm_client", return_value=mock_fcm
+    ), patch.object(
+        forum_tasks, "recheck", side_effect=flaky_recheck
+    ):
+        result = forum_tasks.send_forum_push.apply(
+            args=("reply_added", user.pk, {"topic_id": "1"})
+        )
+
+    assert result.status == "SUCCESS"
+    assert mock_fcm.send.call_count == 1  # retried once, sent once
 
 
 @pytest.mark.django_db
@@ -1190,6 +1232,192 @@ def test_weekly_digest_task_re_enqueues_itself_after_a_soft_time_limit():
             tasks.send_forum_weekly_digest.apply()
 
     again.assert_called_once_with(countdown=tasks.DIGEST_CONTINUATION_DELAY)
+
+
+def test_the_quiet_hours_follow_up_runs_cover_the_day_after_the_weekly_digest():
+    """Todo 728: a member whose quiet window covered the 09:00 run is still
+    due. Hourly follow-up runs, limited to members with quiet hours on, send
+    once the window has ended. A window is shorter than a day, so the 24
+    hours after the main run cover every member."""
+    from apps.forum_host import tasks
+    from django.conf import settings
+
+    monday = settings.CELERY_BEAT_SCHEDULE["forum-weekly-digest-quiet-release-monday"]
+    tuesday = settings.CELERY_BEAT_SCHEDULE["forum-weekly-digest-quiet-release-tuesday"]
+    for entry in (monday, tuesday):
+        assert entry["task"] == tasks.send_forum_weekly_digest.name
+        assert entry["kwargs"] == {"quiet_only": True}
+        assert entry["schedule"].minute == {30}
+    assert monday["schedule"].day_of_week == {1}
+    assert monday["schedule"].hour == set(range(9, 24))
+    assert tuesday["schedule"].day_of_week == {2}
+    assert tuesday["schedule"].hour == set(range(0, 10))
+    # 25 runs, an hour apart, from 09:30 Monday to 09:30 Tuesday: the last
+    # one is after the latest moment a window open at 09:00 Monday can end.
+    assert len(monday["schedule"].hour) + len(tuesday["schedule"].hour) == 25
+
+
+def test_the_follow_up_run_passes_the_quiet_hours_scope_to_the_command():
+    from apps.forum_host import tasks
+
+    seen: list = []
+
+    def fake_command(name, **options):
+        seen.append((name, {k: v for k, v in options.items() if k != "stdout"}))
+
+    from freezegun import freeze_time
+
+    # Tuesday 09:30 UTC, the last follow-up run: the main run it follows is
+    # Monday 09:00, read from the beat entry.
+    with freeze_time("2026-06-02 09:30:00"):
+        with patch("django.core.management.call_command", side_effect=fake_command):
+            tasks.send_forum_weekly_digest.apply(kwargs={"quiet_only": True})
+            tasks.send_forum_weekly_digest.apply()
+
+    assert seen == [
+        (
+            "send_forum_digest",
+            {
+                "frequency": "weekly",
+                "quiet_hours_only": True,
+                "held_at": "2026-06-01T09:00:00+00:00",
+            },
+        ),
+        ("send_forum_digest", {"frequency": "weekly"}),
+    ]
+
+
+@pytest.mark.parametrize(
+    "now, expected",
+    [
+        ("2026-06-01 09:00:00", "2026-06-01T09:00:00+00:00"),
+        ("2026-06-01 09:30:00", "2026-06-01T09:00:00+00:00"),
+        ("2026-06-01 08:59:00", "2026-05-25T09:00:00+00:00"),
+        ("2026-06-07 23:00:00", "2026-06-01T09:00:00+00:00"),
+    ],
+)
+def test_the_main_digest_run_a_follow_up_run_follows(now, expected):
+    from datetime import datetime, timezone
+
+    from apps.forum_host import tasks
+
+    at = datetime.fromisoformat(now).replace(tzinfo=timezone.utc)
+    assert tasks._last_main_digest_run(at).isoformat() == expected
+
+
+@pytest.mark.parametrize("quiet_only, scheduled", [(True, 0), (False, 1)])
+def test_a_follow_up_run_with_a_failed_send_schedules_no_full_recovery_run(
+    quiet_only, scheduled
+):
+    """Review round 2 (todo 728): a recovery run is a full, unscoped run.
+    After a follow-up run it would mail, mid-week, members the main run
+    found with nothing new. The next hourly follow-up run is the retry."""
+    from apps.forum_host import tasks
+
+    def fake_command(name, **options):
+        options["stdout"].write("[EMAIL] digest frequency=weekly sent=0 failed=1\n")
+
+    kwargs = {"quiet_only": True} if quiet_only else {}
+    with patch("django.core.management.call_command", side_effect=fake_command):
+        with patch("apps.core.delivery.schedule_weekly_recovery") as recovery:
+            tasks.send_forum_weekly_digest.apply(kwargs=kwargs)
+
+    assert recovery.call_count == scheduled
+
+
+def test_a_follow_up_run_cut_off_by_the_soft_limit_continues_in_the_same_scope():
+    from apps.forum_host import tasks
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    with patch(
+        "django.core.management.call_command", side_effect=SoftTimeLimitExceeded()
+    ):
+        with patch.object(tasks.send_forum_weekly_digest, "apply_async") as again:
+            tasks.send_forum_weekly_digest.apply(kwargs={"quiet_only": True})
+
+    again.assert_called_once_with(
+        countdown=tasks.DIGEST_CONTINUATION_DELAY, kwargs={"quiet_only": True}
+    )
+
+
+def _digest_run_with_the_lock_held(**task_kwargs):
+    """Run the task against the REAL command while another run holds the
+    run lock, and return the patched ``apply_async``. The real command, so a
+    change to its "holds the lock" line fails these tests. A private cache:
+    the default one is the shared Redis in dev and sweep runs."""
+    from apps.forum_host import tasks
+    from django.core.cache import cache
+    from django.test import override_settings
+
+    with override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "todo-728-digest-lock-held",
+            }
+        }
+    ):
+        cache.set("wagtail_forum:digest-run:weekly", "a-quiet-hours-run", 60)
+        try:
+            with patch.object(tasks.send_forum_weekly_digest, "apply_async") as again:
+                tasks.send_forum_weekly_digest.apply(kwargs=task_kwargs)
+        finally:
+            cache.delete("wagtail_forum:digest-run:weekly")
+    return again
+
+
+@pytest.mark.django_db
+def test_a_recovery_run_turned_away_by_the_run_lock_tries_again():
+    """Round-1 review of todo 728: the hourly quiet-hours runs share the
+    digest run lock and can be mid-send when a recovery run fires. The
+    command then exits with no summary line; reading that as "nothing
+    failed" ended the retry chain. The recovery run keeps its count and
+    comes back after the lock."""
+    from apps.forum_host import tasks
+
+    again = _digest_run_with_the_lock_held(recovery=1)
+
+    again.assert_called_once_with(
+        kwargs={"recovery": 1, "lock_wait": 1},
+        countdown=tasks.DIGEST_LOCK_WAIT_DELAY,
+    )
+
+    again = _digest_run_with_the_lock_held(recovery=2, lock_wait=3)
+
+    again.assert_called_once_with(
+        kwargs={"recovery": 2, "lock_wait": 4},
+        countdown=tasks.DIGEST_LOCK_WAIT_DELAY,
+    )
+
+
+@pytest.mark.django_db
+def test_a_recovery_run_stops_waiting_for_the_run_lock_after_its_bound():
+    from apps.forum_host import tasks
+
+    with patch.object(tasks.logger, "error") as error:
+        again = _digest_run_with_the_lock_held(
+            recovery=1, lock_wait=tasks.DIGEST_LOCK_WAIT_MAX_RUNS
+        )
+
+    again.assert_not_called()
+    assert error.call_count == 1
+    assert "still found the run lock held" in error.call_args.args[0]
+    # The waits outlast the longest a dead holder's lock can stay.
+    from wagtail_forum.conf import get_setting
+
+    assert (
+        tasks.DIGEST_LOCK_WAIT_DELAY * tasks.DIGEST_LOCK_WAIT_MAX_RUNS
+        >= get_setting("DIGEST_RUN_LOCK_SECONDS")
+    )
+
+
+@pytest.mark.django_db
+def test_a_scheduled_run_turned_away_by_the_run_lock_is_left_alone():
+    """Only a recovery run waits: a beat run that finds the lock held is an
+    overlap, and the run holding the lock (or the next hourly one) is doing
+    its work."""
+    assert _digest_run_with_the_lock_held().call_count == 0
+    assert _digest_run_with_the_lock_held(quiet_only=True).call_count == 0
 
 
 # The relay loop's own format string: it marks exactly the relayed lines,

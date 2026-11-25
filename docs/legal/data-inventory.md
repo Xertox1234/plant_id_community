@@ -1,18 +1,18 @@
 # Data inventory
 
-<!-- version: 2026-11-11 -->
+<!-- version: 2026-11-24 -->
 
 This is the source of truth the Privacy Policy is written from
 (`web/src/content/legal/privacy.{en,fr,es}.md`). When the code changes what it
 collects, where it sends it or how long it keeps it, update this file first,
 then the three policy texts. Taken on 2026-11-06; brought level with policy
-version 2026-11-11 on 2026-11-11.
+version 2026-11-24 on 2026-11-24.
 
 ## What is collected
 
 - **Account.** Email, username, first and last name, bio, free-text location,
-  website, avatar (public storage, EXIF removed), Firebase UID, Google or
-  GitHub sign-in, and the policy version accepted (with the time of
+  website, avatar (public storage, EXIF removed), Firebase UID, Google
+  sign-in, and the policy version accepted (with the time of
   acceptance, recorded by the server at sign-up).
 - **Scans.** Photos are stored privately and re-encoded without EXIF.
   Undecided scans are deleted after 24 h; kept ones stay until removed or the
@@ -36,6 +36,8 @@ version 2026-11-11 on 2026-11-11.
 - **Forum.** Posts, topics, private messages, reports, blocks and mutes.
   A post shows the member's forum display name or, when none is set, their
   first and last name.
+  A private message a moderator removed keeps its text, for moderators only,
+  for 90 days (nightly prune).
 - **Automated spam screen.** Posts and private messages from members who are
   new or not yet trusted can be sent to OpenAI while the screen is on
   (`WAGTAILFORUM_SPAM_BACKEND`). A refused private message is not kept.

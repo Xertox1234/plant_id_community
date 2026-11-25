@@ -216,6 +216,27 @@ describe('ForumMention suggestion render() lifecycle', () => {
     );
   });
 
+  it('a hidden dropdown owns no keys: Enter neither inserts nor is swallowed (audit F16)', () => {
+    // The plugin reports every keystroke as `items: []` while its search is
+    // loading, and a query nobody matches the same way.
+    const r = renderer();
+    const { command, props } = makeProps();
+    r.onStart(props);
+    r.onUpdate(makeProps({ items: [] }).props);
+    expect(dropdown()).toBeNull();
+
+    for (const key of ['Enter', 'ArrowDown', 'ArrowUp']) {
+      expect(r.onKeyDown({ event: new KeyboardEvent('keydown', { key }) } as never)).toBe(false);
+    }
+    expect(command).not.toHaveBeenCalled();
+
+    // Results arriving later own the keys again, with the NEW range's command.
+    const next = makeProps({ items: [items[1]] });
+    r.onUpdate(next.props);
+    r.onKeyDown({ event: new KeyboardEvent('keydown', { key: 'Enter' }) } as never);
+    expect(next.command).toHaveBeenCalledWith(items[1]);
+  });
+
   it('never creates a dropdown for an empty list or a torn-down editor, and removes one on update', () => {
     const r = renderer();
     r.onStart(makeProps({ items: [] }).props);

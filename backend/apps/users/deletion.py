@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import uuid
 from collections.abc import Callable, Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
@@ -34,7 +35,10 @@ from .constants import (
     DELETED_ACCOUNT_REASON_UNDER_13,
     DELETED_ACCOUNT_STATUS_DONE,
     DELETED_ACCOUNT_STATUS_PENDING,
+    DELETED_POLL_OPTION,
+    DELETED_POLL_QUESTION,
     DELETED_QUOTE_TEXT,
+    DELETED_TOPIC_SLUG_PREFIX,
     DELETED_TOPIC_TITLE,
     ERASE_FORUM_POST_CHUNK_SIZE,
     ERASE_LOGENTRY_CHUNK_SIZE,
@@ -53,7 +57,7 @@ from .models import DeletedAccount
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
-    from wagtail_forum.models import Post
+    from wagtail_forum.models import Post, Topic
 
     from .models import User
 
@@ -445,11 +449,21 @@ def erase_post(post: Post) -> None:
     references any more, empties the body, clears the author and the
     ``erase_after`` hold, and deletes the post's revisions. The post is saved
     with a plain ``save()``, which creates no revision.
+
+    An opening post takes the rest of its own topic with it (``erase_topic``),
+    unless the topic is somebody else's. That is also how a held opening
+    post's topic is erased, when the hold is released.
     """
+    from apps.forum_host.topic_copies import forget_post_copies
     from wagtail.images import get_image_model
+    from wagtail_forum.models import Topic
 
     image_ids = _body_image_ids(post)
+    author_id = post.author_id
     with transaction.atomic():
+        if post.is_opening_post:
+            # Before the revisions go: they say what else was ever indexed.
+            forget_post_copies(Topic.objects.get(pk=post.topic_id), post)
         post.revisions.all().delete()
         post.latest_revision = None
         post.live_revision = None
@@ -462,6 +476,76 @@ def erase_post(post: Post) -> None:
         _delete_unreferenced_images(
             get_image_model().objects.filter(pk__in=image_ids), clear_uploader=False
         )
+        if post.is_opening_post:
+            topic = Topic.objects.get(pk=post.topic_id)
+            # NULL once the account is gone: a hold released later.
+            if topic.author_id is None or topic.author_id == author_id:
+                erase_topic(topic)
+
+
+def erase_topic(topic: Topic) -> None:
+    """Erase what an author wrote into a topic besides its posts: the title,
+    revisions, slug, poll text, tags and attached identification, plus every
+    redirect that spells out one of the topic's slugs.
+
+    Poll votes and option rows stay, so the counts other members made still
+    add up. The identification's photo is not touched here: the author's
+    uploads are swept in ``_erase_forum``. Idempotent.
+    """
+    from apps.forum_host.redirects import delete_topic_redirects
+    from wagtail_forum.models import (
+        ForumIdentificationAttachment,
+        Poll,
+        PollOption,
+        Topic,
+    )
+
+    with transaction.atomic():
+        # An UPDATE, before the save below: a save that changed the slug would
+        # write a redirect from the old one.
+        topic.slug = _neutral_slug(topic)
+        Topic.objects.filter(pk=topic.pk).update(slug=topic.slug)
+        delete_topic_redirects(topic.pk)
+        _retitle_topic(topic)
+
+        topic.tags.clear()
+        ForumIdentificationAttachment.objects.filter(topic=topic).update(
+            provider="", candidates=[], identification_result_id=""
+        )
+        Poll.objects.filter(topic=topic).update(question=DELETED_POLL_QUESTION)
+        options = list(
+            PollOption.objects.filter(poll__topic=topic).order_by("order", "pk")
+        )
+        for number, option in enumerate(options, start=1):
+            option.text = DELETED_POLL_OPTION.format(n=number)
+        PollOption.objects.bulk_update(options, ["text"])
+
+
+def _retitle_topic(topic: Topic) -> None:
+    """Replace ``topic``'s title and delete its revisions (each holds it),
+    with the copies the AI features stored of it and its opening post."""
+    from apps.forum_host.topic_copies import forget_post_copies, redact_topic_sources
+
+    forget_post_copies(topic, topic.posts.filter(is_opening_post=True).first())
+    topic.revisions.all().delete()
+    topic.latest_revision = None
+    topic.live_revision = None
+    topic.title = DELETED_TOPIC_TITLE
+    topic.save()
+    redact_topic_sources(
+        topic.pk,
+        title=DELETED_TOPIC_TITLE,
+        slug=f"{DELETED_TOPIC_SLUG_PREFIX}-{topic.pk}",
+    )
+
+
+def _neutral_slug(topic: Topic) -> str:
+    """A slug that says nothing, unique in the topic's forum."""
+    slug = f"{DELETED_TOPIC_SLUG_PREFIX}-{topic.pk}"
+    siblings = type(topic).objects.filter(board_id=topic.board_id)
+    if siblings.filter(slug=slug).exclude(pk=topic.pk).exists():
+        slug = f"{slug}-{uuid.uuid4().hex[:8]}"
+    return slug
 
 
 def _delete_unreferenced_images(images: QuerySet[Any], *, clear_uploader: bool) -> None:
@@ -545,9 +629,11 @@ def _erase_forum(user: User, under_13: bool = False) -> None:
 
     A post with a report still in the moderation queue (open or
     auto-hidden) is held for ``FORUM_HELD_POST_DAYS`` with its body and
-    images intact; every other post is erased now. Topics are retitled and
-    lose their revisions, the user's uploaded images go (except those a
-    held post shows), and notifications the user caused are deleted.
+    images intact; every other post is erased now. Topics are erased too
+    (``erase_topic``), except that one whose opening post is held only loses
+    its title and revisions for now: its poll, tags, identification and slug
+    are evidence until the hold ends. The user's uploaded images go (except
+    those a held post shows), and notifications the user caused are deleted.
 
     With ``under_13`` no post is held, quotes of their posts lose the quoted
     words, and the detail they typed into a report is blanked (the report
@@ -581,11 +667,10 @@ def _erase_forum(user: User, under_13: bool = False) -> None:
         profile.save()
 
     for topic in Topic.objects.filter(author=user).order_by("pk"):
-        topic.revisions.all().delete()
-        topic.latest_revision = None
-        topic.live_revision = None
-        topic.title = DELETED_TOPIC_TITLE
-        topic.save()
+        if topic.posts.filter(is_opening_post=True, erase_after__isnull=False).exists():
+            _retitle_topic(topic)
+        else:
+            erase_topic(topic)
 
     # The user's own erased posts no longer reference anything (their bodies
     # are empty and re-indexed above), so an upload still referenced now is

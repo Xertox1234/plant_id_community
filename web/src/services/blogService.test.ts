@@ -65,9 +65,10 @@ describe('blogService', () => {
       url: 'https://example.com/image.jpg',
     },
     publish_date: '2025-01-01',
+    // The server sends no first_name/last_name since todo 731.
     author: {
-      first_name: 'John',
-      last_name: 'Doe',
+      username: 'jdoe',
+      display_name: 'jdoe',
     },
     tags: ['plants', 'care'],
     categories: [{ name: 'Plant Care' }],

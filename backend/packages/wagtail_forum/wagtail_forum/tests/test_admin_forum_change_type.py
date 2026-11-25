@@ -313,3 +313,46 @@ def test_a_change_only_user_can_still_move_the_topics(client):
     assert Topic.objects.get(pk=topic.pk).board_id == target.pk
     forum.refresh_from_db()
     assert forum.forum_type == Forum.CATEGORY
+
+
+# --- todo 729: a type change is logged ---
+
+
+def test_a_type_change_writes_a_log_entry_naming_the_acting_user(admin_client):
+    from wagtail.models import ModelLogEntry
+
+    make_category(name="First", slug="first")
+    forum = make_forum(name="Ferns", slug="ferns")
+    target = make_forum(name="Pests", slug="pests")
+    _topic(forum, "a")
+
+    resp = admin_client.post(
+        _url("change_type", forum.pk),
+        {"topics_action": forum_structure.MOVE, "target": target.pk},
+    )
+
+    assert resp.status_code == 302, resp.content.decode()[:2000]
+    entry = ModelLogEntry.objects.get(
+        content_type__model="forum", object_id=str(forum.pk)
+    )
+    assert entry.action == "wagtail_forum.forum.change_type"
+    assert entry.user == User.objects.get(username="root")
+    assert entry.data == {
+        "from_type": Forum.FORUM,
+        "to_type": Forum.CATEGORY,
+        "topic_count": 1,
+        "topics_action": forum_structure.MOVE,
+        "topics_moved_to": {"id": target.pk, "name": "Pests"},
+    }
+
+
+def test_a_refused_type_change_writes_no_log_entry(admin_client):
+    from wagtail.models import ModelLogEntry
+
+    forum = make_forum(name="Ferns", slug="ferns")
+    _topic(forum, "a")
+
+    resp = admin_client.post(_url("change_type", forum.pk), {})
+
+    assert resp.status_code == 200
+    assert not ModelLogEntry.objects.filter(content_type__model="forum").exists()

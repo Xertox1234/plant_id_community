@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:firebase_auth/firebase_auth.dart' show User;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:plant_community_mobile/features/forum/live/forum_live_channel.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
+import 'package:plant_community_mobile/features/forum/providers/collapsed_categories.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_image_picker.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_unlock_store.dart';
 import 'package:plant_community_mobile/models/user_profile.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
@@ -86,11 +89,106 @@ class FakeUserProfileService extends UserProfileService {
   }
 }
 
+/// A Firebase [User] with only a uid, for an [AuthState] that names its
+/// member (the forum unlocks key on it).
+class FakeFirebaseUser implements User {
+  FakeFirebaseUser(this.uid);
+
+  @override
+  final String uid;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Signed in as [uid].
+AuthState signedInAs(String uid) =>
+    AuthState(jwtToken: 'jwt-$uid', firebaseUser: FakeFirebaseUser(uid));
+
+/// In-memory [ForumUnlockStore]. [loadGate] holds [load] in flight.
+class FakeForumUnlockStore implements ForumUnlockStore {
+  FakeForumUnlockStore([this.stored]);
+
+  ForumUnlocks? stored;
+  Completer<void>? loadGate;
+
+  /// When set, [clear] waits for it before it clears: holds a sign-out
+  /// between "forget the unlocks" and the auth state flip.
+  Completer<void>? clearGate;
+  int loadCalls = 0;
+  int saveCalls = 0;
+  int clearCalls = 0;
+
+  @override
+  Future<ForumUnlocks?> load() async {
+    loadCalls++;
+    await loadGate?.future;
+    return stored;
+  }
+
+  @override
+  Future<void> save(ForumUnlocks unlocks) async {
+    saveCalls++;
+    stored = ForumUnlocks(uid: unlocks.uid, tokens: Map.of(unlocks.tokens));
+  }
+
+  @override
+  Future<void> clear() async {
+    clearCalls++;
+    await clearGate?.future;
+    stored = null;
+  }
+}
+
+/// In-memory [CollapsedCategoriesStore], keyed like the real one: one guest
+/// copy and one member copy tagged with its uid. [loadGate] holds [load]
+/// in flight.
+class FakeCollapsedCategoriesStore implements CollapsedCategoriesStore {
+  Set<int>? guest;
+  ({String uid, Set<int> ids})? member;
+  Completer<void>? loadGate;
+  int saveCalls = 0;
+
+  @override
+  Future<Set<int>?> load(String? viewer) async {
+    await loadGate?.future;
+    if (viewer == null) return guest == null ? null : Set.of(guest!);
+    final m = member;
+    return m != null && m.uid == viewer ? Set.of(m.ids) : null;
+  }
+
+  @override
+  Future<void> save(String? viewer, Set<int> ids) async {
+    saveCalls++;
+    if (viewer == null) {
+      guest = Set.of(ids);
+    } else {
+      member = (uid: viewer, ids: Set.of(ids));
+    }
+  }
+}
+
+/// One category holding [boards]: the shape most tests need for the feed.
+ForumCategory categoryOf(
+  List<ForumBoard> boards, {
+  int id = 1,
+  String title = 'General',
+}) => ForumCategory(
+  id: id,
+  title: title,
+  slug: title.toLowerCase(),
+  description: '',
+  icon: '',
+  colour: '',
+  hasUnread: false,
+  forums: boards,
+  links: const [],
+);
+
 /// Configurable fake [ForumApi] for forum tests. Read fixtures are set as
 /// fields; writes record the `Idempotency-Key` they received and can be made
 /// to fail a fixed number of times to exercise retry/idempotency.
 class FakeForumApi implements ForumApi {
-  List<ForumBoard> boards = const [];
   ForumTopicDetail? topicDetail;
   CursorPage<ForumTopicListItem> topics = const CursorPage(items: []);
   CursorPage<ForumPost> posts = const CursorPage(items: []);
@@ -115,6 +213,7 @@ class FakeForumApi implements ForumApi {
   final List<String> createTopicKeys = [];
   final List<String> createReplyKeys = [];
   final List<List<Map<String, dynamic>>> createTopicBodies = [];
+  final List<Map<String, dynamic>?> createTopicPolls = [];
   final List<List<Map<String, dynamic>>> createReplyBodies = [];
   final List<String> reactionKeys = [];
 
@@ -309,6 +408,14 @@ class FakeForumApi implements ForumApi {
   ApiException? failReportPostWith;
   final List<String> blockCalls = [];
   final List<String> unblockCalls = [];
+  final List<String> muteCalls = [];
+  final List<String> unmuteCalls = [];
+
+  /// When set, [muteUser] and [unmuteUser] throw this.
+  Object? failMuteWith;
+
+  /// When set, [muteUser] waits for it.
+  Completer<void>? muteGate;
   ApiException? failBlockWith;
 
   /// Thread-experience fixtures (todo 341 wave 2). [solutionResult] is
@@ -394,15 +501,102 @@ class FakeForumApi implements ForumApi {
   final List<Map<String, Object?>> notificationSettingsUpdates = [];
   ApiException? failNotificationSettingsUpdateWith;
 
-  Object? boardsError;
-  int fetchBoardsCalls = 0;
+  List<ForumCategory> categories = [];
+  Object? categoriesError;
+  int fetchCategoriesCalls = 0;
+
+  /// What [resolveLink] answers (null = "can't be opened"), and the ids it
+  /// was asked about.
+  Uri? resolvedLink;
+  final List<int> resolveLinkCalls = [];
+
+  /// When set, [resolveLink] waits for it: holds a link open in flight.
+  Completer<void>? resolveLinkGate;
 
   @override
-  Future<List<ForumBoard>> fetchBoards() async {
-    fetchBoardsCalls++;
-    final err = boardsError;
+  Future<Uri?> resolveLink(ForumLink link) async {
+    resolveLinkCalls.add(link.id);
+    await resolveLinkGate?.future;
+    return resolvedLink;
+  }
+
+  /// What [unlockBoard] answers, and the slugs it was asked about (never
+  /// the password).
+  String? unlockToken = 'unlock-token';
+  Object? unlockError;
+  final List<String> unlockBoardCalls = [];
+
+  /// When set, [unlockBoard] waits for it: the answer still on its way.
+  Completer<void>? unlockGate;
+
+  @override
+  Future<String?> unlockBoard(String slug, String password) async {
+    unlockBoardCalls.add(slug);
+    await unlockGate?.future;
+    final err = unlockError;
     if (err != null) throw err;
-    return boards;
+    return unlockToken;
+  }
+
+  /// The member's stored collapsed list ([fetchCollapsedCategories]); a
+  /// successful [saveCollapsedCategories] replaces it, as the server does.
+  List<int> collapsedCategories = [];
+  Object? collapsedFetchError;
+  int fetchCollapsedCalls = 0;
+
+  /// When set, [fetchCollapsedCategories] waits for it.
+  Completer<void>? collapsedFetchGate;
+
+  /// Every [saveCollapsedCategories] body, in order.
+  final List<List<int>> collapsedSaves = [];
+  Object? collapsedSaveError;
+
+  /// When non-empty, each save waits for the next gate (first in, first
+  /// out): holds that save in flight.
+  final List<Completer<void>> collapsedSaveGates = [];
+  int _collapsedSavesInFlight = 0;
+
+  /// The most saves ever in flight at once.
+  int maxCollapsedSavesInFlight = 0;
+
+  @override
+  Future<List<int>> fetchCollapsedCategories() async {
+    fetchCollapsedCalls++;
+    await collapsedFetchGate?.future;
+    final err = collapsedFetchError;
+    if (err != null) throw err;
+    return List.of(collapsedCategories);
+  }
+
+  @override
+  Future<void> saveCollapsedCategories(List<int> ids) async {
+    collapsedSaves.add(List.of(ids));
+    _collapsedSavesInFlight++;
+    if (_collapsedSavesInFlight > maxCollapsedSavesInFlight) {
+      maxCollapsedSavesInFlight = _collapsedSavesInFlight;
+    }
+    try {
+      if (collapsedSaveGates.isNotEmpty) {
+        await collapsedSaveGates.removeAt(0).future;
+      }
+      final err = collapsedSaveError;
+      if (err != null) throw err;
+      collapsedCategories = List.of(ids);
+    } finally {
+      _collapsedSavesInFlight--;
+    }
+  }
+
+  /// When set, [fetchCategories] waits for it: holds the feed in flight.
+  Completer<void>? fetchCategoriesGate;
+
+  @override
+  Future<List<ForumCategory>> fetchCategories() async {
+    fetchCategoriesCalls++;
+    await fetchCategoriesGate?.future;
+    final err = categoriesError;
+    if (err != null) throw err;
+    return categories;
   }
 
   int fetchTopicDetailCalls = 0;
@@ -450,12 +644,26 @@ class FakeForumApi implements ForumApi {
     return postsById[postId];
   }
 
+  /// When set, [fetchTopics] throws it.
+  Object? topicsError;
+  int fetchTopicsCalls = 0;
+
+  /// The `(sort, tag)` of each [fetchTopics] call, in order.
+  final List<(String?, String?)> fetchTopicsFilters = [];
+
   @override
   Future<CursorPage<ForumTopicListItem>> fetchTopics({
     required String boardSlug,
     String? sort,
+    String? tag,
     String? cursorUrl,
-  }) async => topics;
+  }) async {
+    fetchTopicsCalls++;
+    fetchTopicsFilters.add((sort, tag));
+    final err = topicsError;
+    if (err != null) throw err;
+    return topics;
+  }
 
   @override
   Future<ForumProfile> fetchProfile(String username) async {
@@ -511,9 +719,11 @@ class FakeForumApi implements ForumApi {
     required String slug,
     required List<Map<String, dynamic>> body,
     required String idempotencyKey,
+    Map<String, dynamic>? poll,
   }) async {
     createTopicKeys.add(idempotencyKey);
     createTopicBodies.add(body);
+    createTopicPolls.add(poll);
     return CreateTopicResult(id: 1, slug: slug, status: topicStatus);
   }
 
@@ -889,6 +1099,23 @@ class FakeForumApi implements ForumApi {
   }
 
   @override
+  Future<bool> muteUser(String username) async {
+    muteCalls.add(username);
+    await muteGate?.future;
+    final fail = failMuteWith;
+    if (fail != null) throw fail;
+    return true;
+  }
+
+  @override
+  Future<bool> unmuteUser(String username) async {
+    unmuteCalls.add(username);
+    final fail = failMuteWith;
+    if (fail != null) throw fail;
+    return false;
+  }
+
+  @override
   Future<ForumSolutionResult> markSolution({
     required int topicId,
     required int postId,
@@ -924,6 +1151,31 @@ class FakeForumApi implements ForumApi {
     final fail = failBookmarkWith;
     if (fail != null) throw fail;
     return false;
+  }
+
+  /// The `(topicId, pinned)` of each [setTopicPinned] call, in order.
+  final List<(int, bool)> pinCalls = [];
+  ApiException? failPinWith;
+
+  @override
+  Future<bool> setTopicPinned(int topicId, {required bool pinned}) async {
+    pinCalls.add((topicId, pinned));
+    final fail = failPinWith;
+    if (fail != null) throw fail;
+    return pinned;
+  }
+
+  /// [fetchBoardContributors] fixture; [contributorsError] makes it throw.
+  List<ForumContributor> contributors = const [];
+  Object? contributorsError;
+
+  @override
+  Future<List<ForumContributor>> fetchBoardContributors(
+    String boardSlug,
+  ) async {
+    final err = contributorsError;
+    if (err != null) throw err;
+    return contributors;
   }
 
   @override
@@ -1421,6 +1673,25 @@ class FakeAuthService extends AuthService {
     state = const AuthState(jwtToken: 'test-jwt');
   }
 
+  /// Taps on "Continue with Apple", recorded rather than performed: the
+  /// inherited implementation reaches firebase_auth's platform channel. Each
+  /// call's `acceptedTerms` is kept in [appleSignInAcceptedTerms].
+  int appleSignInCalls = 0;
+  final List<bool> appleSignInAcceptedTerms = [];
+
+  /// Set to make the next [signInWithApple] fail, for error-path tests.
+  AuthException? appleSignInError;
+
+  @override
+  Future<bool> signInWithApple({bool acceptedTerms = false}) async {
+    appleSignInCalls++;
+    appleSignInAcceptedTerms.add(acceptedTerms);
+    final error = appleSignInError;
+    if (error != null) throw error;
+    state = const AuthState(jwtToken: 'test-jwt');
+    return true;
+  }
+
   /// Consent-sheet answers, recorded rather than performed: the inherited
   /// ones reach Firebase and secure storage.
   int acceptTermsCalls = 0;
@@ -1480,6 +1751,8 @@ ForumPost post({
   bool canReport = false,
   bool isBlocked = false,
   bool canBlock = false,
+  bool isMuted = false,
+  bool canMute = false,
   DateTime? editedAt,
 }) {
   return ForumPost(
@@ -1498,6 +1771,8 @@ ForumPost post({
     canReport: canReport,
     isBlocked: isBlocked,
     canBlock: canBlock,
+    isMuted: isMuted,
+    canMute: canMute,
   );
 }
 
@@ -1507,13 +1782,15 @@ ForumTopicListItem topic({
   int id = 10,
   String title = 'Sample topic',
   ForumAuthor? authorOverride,
+  List<String> tags = const [],
+  bool isPinned = false,
 }) {
   return ForumTopicListItem(
     id: id,
     title: title,
     slug: 'sample-topic',
     author: authorOverride ?? author(),
-    isPinned: false,
+    isPinned: isPinned,
     isClosed: false,
     locked: false,
     replyCount: 3,
@@ -1521,6 +1798,7 @@ ForumTopicListItem topic({
     lastPostAt: DateTime(2026, 1, 2),
     lastPostAuthor: author(),
     isUnread: false,
+    tags: tags,
   );
 }
 
@@ -1531,6 +1809,8 @@ ForumTopicDetail topicDetail({
   bool isBookmarked = false,
   int? solvedPostId,
   bool canMarkSolution = false,
+  bool canPin = false,
+  bool isPinned = false,
   bool locked = false,
   bool isClosed = false,
   int replyCount = 3,
@@ -1543,7 +1823,7 @@ ForumTopicDetail topicDetail({
     slug: 'sample-topic',
     board: const ForumTopicBoardRef(id: 1, slug: 'general', title: 'General'),
     author: author(),
-    isPinned: false,
+    isPinned: isPinned,
     isClosed: isClosed,
     locked: locked,
     replyCount: replyCount,
@@ -1556,6 +1836,7 @@ ForumTopicDetail topicDetail({
     isBookmarked: isBookmarked,
     solvedPostId: solvedPostId,
     canMarkSolution: canMarkSolution,
+    canPin: canPin,
     poll: poll,
     identification: identification,
   );
@@ -1664,6 +1945,8 @@ ForumProfile profile({
   List<Map<String, dynamic>> recentPosts = const [],
   bool isBlocked = false,
   bool canBlock = false,
+  bool isMuted = false,
+  bool canMute = false,
   List<Map<String, dynamic>> badges = const [],
 }) {
   return ForumProfile.fromJson({
@@ -1680,6 +1963,8 @@ ForumProfile profile({
     'recent_posts': recentPosts,
     'is_blocked': isBlocked,
     'can_block': canBlock,
+    'is_muted': isMuted,
+    'can_mute': canMute,
     'badges': badges,
   });
 }

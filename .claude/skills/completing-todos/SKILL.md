@@ -35,7 +35,9 @@ run once in REPO. Run scripts from REPO with absolute paths. Use `/usr/bin/git`
 from REPO, never from inside a PR's worktree. When the checks have already passed, `--auto` merges at once, and
 without `--repo` gh then deletes the local branch and tries to remove the worktree that has it checked out. The
 sandbox stopped that part-way on PR #904 and left 358 tracked files deleted. With `--repo`, gh leaves local git
-alone; it still deletes the remote branch.
+alone; it still deletes the remote branch. CodeQL is in the merge gate through ruleset 9138781 at the critical
+threshold (todo 718): it is configured to stop auto-merge on a new critical CodeQL alert, but a new high still merges,
+so when an armed PR's CodeQL check reports new alerts, read them and report any high to the owner.
 
 ## Sandbox
 

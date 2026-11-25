@@ -1,5 +1,7 @@
 import hashlib
+import html
 import logging
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -33,7 +35,7 @@ from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-from django.utils.html import strip_tags
+from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
 from rest_framework import generics
 from rest_framework import status as http_status
@@ -115,7 +117,8 @@ from ..models import (
 )
 from ..models.posts import BLOCK_FORBIDDEN
 from ..models.subscriptions import COUNTED_LEVELS
-from ..quotes import quoted_post_ids
+from ..plain_text import safe_strip_tags
+from ..quotes import stored_quotes
 from ..services.forum_permissions import (
     ATTACH,
     POLL,
@@ -166,7 +169,7 @@ from .serializers import (
     serialize_forum_body,
     serialize_image_for_api,
 )
-from .upload_validation import validate_image_upload
+from .upload_validation import normalize_image_upload, validate_image_upload
 from .versioning import UnversionedForumAPIMixin
 
 logger = logging.getLogger("wagtail_forum")
@@ -288,6 +291,26 @@ def _enforce_forum_write(request, board, *flags):
     for flag in flags:
         if not user_can(user, board, flag):
             raise _FLAG_DENIED[flag]()
+
+
+def _anonymous_viewer_key(request) -> str:
+    """Who an anonymous reader is for the view-count dedup: the host's
+    ``VIEW_COUNT_CLIENT_RESOLVER`` answer, else ``REMOTE_ADDR`` (todo 730, audit
+    2026-11-21 L15). Behind a proxy ``REMOTE_ADDR`` is the proxy's address,
+    so every anonymous reader would share one key and count as one view."""
+    fallback = str(request.META.get("REMOTE_ADDR") or "anon")
+    path = get_setting("VIEW_COUNT_CLIENT_RESOLVER")
+    if not path:
+        return fallback
+    try:
+        answer = str(import_string(path)(request) or fallback)
+    except Exception:
+        # Analytics only: a broken hook must never fail the topic read.
+        logger.exception("[FORUM] VIEW_COUNT_CLIENT_RESOLVER failed")
+        return fallback
+    # Hashed: the resolver's answer is the reader's real address, and the
+    # dedup key puts it next to a topic id in the cache.
+    return hashlib.sha256(answer.encode("utf-8", "replace")).hexdigest()[:32]
 
 
 def _image_block_ids(body):
@@ -733,7 +756,10 @@ def _board_last_post_subquery():
         "List the forum's categories in `position` order, each with its "
         "visible forums nested under `forums` (same row shape as "
         "`/forum/boards/`). A category's `topic_count`, `post_count` and "
-        "`last_post_at` are summed from its visible forums at read time; a "
+        "`last_post_at` are summed from its visible forums at read time. A "
+        "password forum the reader has not unlocked (`is_locked`) reports "
+        "`topic_count` and `post_count` 0 and adds nothing to its category's "
+        "totals. A "
         "category with no visible forum or link is omitted. Each forum row and "
         "each category carries `has_unread` (always false when anonymous); "
         "link rows are under `links`, with `click_count` when tracked. Flat "
@@ -799,6 +825,12 @@ class CategoryListView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
             ]
             for row in visible:
                 if row.is_locked:
+                    # Owner decision 2026-11-22 (todo 730, audit L19): a
+                    # locked forum's topic and post counts are not public.
+                    # They are zeroed here and left out of the category's
+                    # totals below; unlocking shows the real numbers.
+                    row.topic_count = 0
+                    row.post_count = 0
                     row.last_post_at = None
                     row.has_unread = False
                     row.unread_count = None
@@ -826,6 +858,8 @@ class CategoryListView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                     "icon": category.icon,
                     "colour": category.colour,
                     "position": category.position,
+                    # Locked rows were zeroed above, so the totals count
+                    # only the forums this reader can open.
                     "topic_count": sum(f.topic_count for f in visible),
                     "post_count": sum(f.post_count for f in visible),
                     "last_post_at": max(stamps) if stamps else None,
@@ -996,11 +1030,17 @@ class TopicListView(
         if replayed is not None:
             return replayed
 
+        # The forum and the right to post in it come BEFORE the body is
+        # validated (todo 730, audit 2026-11-21 L14): validating sanitises
+        # the body, which fetches its link previews, and a member who may
+        # not post here must not be able to make the server fetch. The
+        # flags that depend on the body (poll, attach) are checked after.
+        board = _get_board(slug, request)
+        _enforce_forum_write(request, board, POST)
         serializer = TopicCreateSerializer(
             data=request.data, context={"request": request}
         )
         serializer.is_valid(raise_exception=True)
-        board = _get_board(slug, request)
         validated = serializer.validated_data
         flags = [POST]
         if validated.get("poll"):
@@ -1236,7 +1276,8 @@ class TopicDetailView(
         #
         # The cache key is scoped per (topic, viewer) — authenticated users key on
         # their pk; anonymous requests key on the client IP so a single browser
-        # session doesn't multi-count. The TTL is host-configurable via
+        # session doesn't multi-count (the host's VIEW_COUNT_CLIENT_RESOLVER
+        # resolver when set, else REMOTE_ADDR: todo 730, audit L15). The TTL is host-configurable via
         # WAGTAILFORUM_VIEW_COUNT_DEDUP_SECONDS (default 15 min).
         from ..conf import get_setting
 
@@ -1244,7 +1285,7 @@ class TopicDetailView(
         viewer = (
             request.user.pk
             if request.user.is_authenticated
-            else request.META.get("REMOTE_ADDR", "anon")
+            else _anonymous_viewer_key(request)
         )
         dedup_key = f"forum:vc:{topic_id}:{viewer}"
         ttl = get_setting("VIEW_COUNT_DEDUP_SECONDS")
@@ -1405,6 +1446,10 @@ class PostListView(
         )
         if topic.is_closed or topic.locked:
             raise Conflict(_("Topic is closed to replies."))
+        # Before the body is validated, as in topic create (todo 730, audit
+        # L14): no link-preview fetch for a member who may not reply here.
+        # `attach` depends on the body and is checked after.
+        _enforce_forum_write(request, topic.board, REPLY)
         serializer = ReplyCreateSerializer(
             data=request.data, context={"request": request}
         )
@@ -1585,8 +1630,9 @@ class PostWriteView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIVie
                 "request": request,
                 "existing_author_id": post.author_id,
                 # Quotes the stored body already carries stay editable even
-                # if their target has since gone away (django review, 342).
-                "existing_quote_ids": quoted_post_ids(post.body.raw_data),
+                # if their target has since changed or gone away (django
+                # review, 342; audit 2026-11-24 F3).
+                "existing_quotes": stored_quotes(post.body.raw_data),
                 # A link card the author keeps is reused as stored — no
                 # refetch, and no change because the page changed (428).
                 "existing_link_previews": link_preview_snapshots(post.body.raw_data),
@@ -1973,6 +2019,8 @@ class PostImageUploadView(UnversionedForumAPIMixin, APIView):
         if replayed is not None:
             return replayed
 
+        # After the fingerprint, which is of the bytes the client sent.
+        image_file = normalize_image_upload(image_file)
         reserve(cache_key)  # 409 if a same-key twin is mid-flight (atomic add)
         image = get_image_model().objects.create(
             title=(image_file.name or "forum-image")[:255],
@@ -2442,6 +2490,22 @@ class PublicProfileView(UnversionedForumAPIMixin, APIView):
         )
 
 
+# Block and line tags in rich-text HTML. `strip_tags` puts nothing in a tag's
+# place, so without this "<p>one</p><p>two</p>" reads "onetwo".
+_RICH_TEXT_BREAK_RE = re.compile(
+    r"</?(?:p|div|li|ul|ol|h[1-6]|blockquote|pre|br|hr)\b[^>]*>", re.IGNORECASE
+)
+
+
+def _rich_text_to_plain(raw: str) -> str:
+    """Rich-text HTML as one line of plain text: a space per block or line
+    break, tags stripped, THEN entities decoded (in that order, so escaped
+    markup the author typed stays as text). Not a sanitizer: consumers escape
+    it like any other plain text."""
+    spaced = _RICH_TEXT_BREAK_RE.sub(" ", raw)
+    return " ".join(html.unescape(safe_strip_tags(spaced)).split())
+
+
 def plain_text_excerpt(stream_value, limit: int) -> str:
     """Plain-text excerpt from a post body via ``raw_data``.
 
@@ -2454,13 +2518,18 @@ def plain_text_excerpt(stream_value, limit: int) -> str:
     ``code`` nor ``text`` and so falls through — the alt text is deliberately
     NOT excerpted, because an excerpt is a preview of what the author wrote in
     prose, not a transcript of the accessibility metadata.
+
+    Only a paragraph is HTML. Heading, quote and code text is plain by
+    contract, so an entity in one is what the author typed and stays as it is.
     """
     parts: list[str] = []
     total = 0
     for raw in stream_value.raw_data:
         value = raw.get("value")
-        if isinstance(value, str):
-            text = strip_tags(value).strip()
+        if isinstance(value, str) and raw.get("type") == "paragraph":
+            text = _rich_text_to_plain(value)
+        elif isinstance(value, str):
+            text = safe_strip_tags(value).strip()
         elif isinstance(value, dict) and isinstance(value.get("code"), str):
             text = value["code"].strip()
         elif isinstance(value, dict) and isinstance(value.get("text"), str):
@@ -2504,6 +2573,8 @@ RECENT_TOPICS_SCHEMA = {
                     "is_pinned": {"type": "boolean"},
                     "thumbnail_url": {"type": "string", "nullable": True},
                     "image_url": {"type": "string", "nullable": True},
+                    "thumbnail_urls": {"type": "array", "items": {"type": "string"}},
+                    "repliers": {"type": "array", "items": AUTHOR_SCHEMA},
                     "is_solved": {"type": "boolean"},
                     "is_unread": {"type": "boolean"},
                 },
@@ -2527,6 +2598,16 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
     first link card's cached preview image), plus `is_solved` (accepted answer
     set) and `is_unread` (per-viewer; always False for anonymous — safe
     because authenticated responses are served private/no-store).
+
+    For the collapsed mobile card each row also carries `thumbnail_urls` (up
+    to RECENT_TOPICS_THUMBNAILS pictures of the opening post in body order:
+    a fill-160x160 crop for an uploaded image, the cached preview image for a
+    link card; with no image block the identification attachment leads) and
+    `repliers` (up to RECENT_TOPICS_REPLIERS authors of live
+    replies, most recent first). Repliers follow the feed's own HIDE rule: a
+    member the viewer blocked or muted is left out, and so is a deleted
+    account. Both are batched: one query for every topic's reply authors and
+    one for the users, whatever the page size.
     """
 
     permission_classes = [AllowAny]
@@ -2575,21 +2656,38 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         # to it when the topic has no uploaded image (owner decision
         # 2026-11-03). link_preview_envelope only ever yields our own storage's
         # URL for a name our image cache wrote, never a third-party address.
-        image_id_by_topic = {}
-        preview_url_by_topic = {}
+        max_thumbs = get_setting("RECENT_TOPICS_THUMBNAILS")
+        image_id_by_topic: dict[int, int] = {}
+        # Every picture of the opening post, in body order (capped): the
+        # collapsed card's thumbnail stack. An int is an image block's pk, a
+        # str is a link card's cached image URL: a card's picture is a
+        # picture too, so two cards stack like two uploads (owner report
+        # 2026-11-17).
+        stack_by_topic: dict[int, list[int | str]] = {}
+        preview_url_by_topic: dict[int, str] = {}
         for post in Post.objects.filter(
             topic_id__in=topic_ids, is_opening_post=True, live=True
         ).only("topic_id", "body"):
             for block in post.body.raw_data:
-                if (
-                    block.get("type") == "link_preview"
-                    and post.topic_id not in preview_url_by_topic
-                ):
-                    preview_url = link_preview_envelope(block.get("value"), request)[
-                        "image_url"
-                    ]
+                if block.get("type") == "link_preview":
+                    # None for a stored URL that fails is_card_url (a CMS
+                    # edit or an import): skip the card, never 500 the list.
+                    # A card is decoration, so even an unexpected error costs
+                    # only its thumbnail (owner decision, audit 2026-11-21 M1).
+                    try:
+                        envelope = link_preview_envelope(block.get("value"), request)
+                    except Exception:
+                        logger.exception(
+                            "[FORUM] link card thumbnail failed for topic=%s",
+                            post.topic_id,
+                        )
+                        envelope = None
+                    preview_url = envelope["image_url"] if envelope else None
                     if preview_url:
-                        preview_url_by_topic[post.topic_id] = preview_url
+                        preview_url_by_topic.setdefault(post.topic_id, preview_url)
+                        stack = stack_by_topic.setdefault(post.topic_id, [])
+                        if preview_url not in stack and len(stack) < max_thumbs:
+                            stack.append(preview_url)
                 if block.get("type") != "image":
                     continue
                 # image_block_pk, not the raw value: since 0037 the value is an
@@ -2599,13 +2697,57 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                 # attachment fallback right after seeds real ints into the same
                 # map, so this has to yield an int, not merely be hashable.
                 pk = image_block_pk(block.get("value"))
-                if pk is not None:
-                    image_id_by_topic[post.topic_id] = pk
-                    break
+                if pk is None:
+                    continue
+                image_id_by_topic.setdefault(post.topic_id, pk)
+                stack = stack_by_topic.setdefault(post.topic_id, [])
+                if pk not in stack and len(stack) < max_thumbs:
+                    stack.append(pk)
         for att in ForumIdentificationAttachment.objects.filter(
             topic_id__in=topic_ids, image_id__isnull=False
         ).only("topic_id", "image_id"):
-            image_id_by_topic.setdefault(att.topic_id, att.image_id)
+            if att.image_id is None:  # the filter's guarantee, spelled for mypy
+                continue
+            # The attachment stands in only for a post with no image block,
+            # and then it leads the stack, ahead of any link card's picture.
+            if att.topic_id not in image_id_by_topic:
+                image_id_by_topic[att.topic_id] = att.image_id
+                stack = stack_by_topic.setdefault(att.topic_id, [])
+                stack.insert(0, att.image_id)
+                del stack[max_thumbs:]
+
+        # Who replied, newest first: ONE grouped query for the whole page,
+        # cut to the cap per topic in Python (a per-topic LIMIT would be a
+        # query per topic). Same visibility as the latest-replies peek: live
+        # replies only, no deleted accounts, and nobody the viewer hid.
+        max_repliers = get_setting("RECENT_TOPICS_REPLIERS")
+        replier_ids_by_topic: dict[int, list[int]] = {}
+        reply_authors = (
+            _exclude_blocked_authors(
+                Post.objects.filter(
+                    topic_id__in=topic_ids,
+                    live=True,
+                    is_opening_post=False,
+                    author_id__isnull=False,
+                ),
+                request.user,
+            )
+            .values("topic_id", "author_id")
+            .annotate(last_post=Max("created_at"))
+            .order_by("topic_id", "-last_post", "-author_id")
+        )
+        for row in reply_authors:
+            ids = replier_ids_by_topic.setdefault(row["topic_id"], [])
+            if len(ids) < max_repliers:
+                ids.append(row["author_id"])
+        replier_ids = {pk for ids in replier_ids_by_topic.values() for pk in ids}
+        repliers_by_id = (
+            get_user_model()
+            .objects.select_related("wagtail_forum_profile__avatar")
+            .in_bulk(replier_ids)
+            if replier_ids
+            else {}
+        )
 
         from wagtail.images import get_image_model
 
@@ -2619,12 +2761,22 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
         # then iterates the queryset, which preserves prefetch_related.
         images = (
             get_image_model()
-            .objects.prefetch_renditions("fill-80x80", "fill-720x400")
-            .in_bulk(set(image_id_by_topic.values()))
+            .objects.prefetch_renditions("fill-80x80", "fill-720x400", "fill-160x160")
+            .in_bulk(
+                set(image_id_by_topic.values())
+                | {
+                    entry
+                    for stack in stack_by_topic.values()
+                    for entry in stack
+                    if isinstance(entry, int)
+                }
+            )
         )
 
-        def rendition_url(topic, spec):
-            image = images.get(image_id_by_topic.get(topic.pk))
+        def rendition_url(topic, spec, image_id=None):
+            image = images.get(
+                image_id if image_id is not None else image_id_by_topic.get(topic.pk)
+            )
             if image is None:
                 return None
             try:
@@ -2652,6 +2804,26 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                 topic.pk
             )
 
+        def thumbs(topic):
+            return [
+                url
+                for entry in stack_by_topic.get(topic.pk, ())
+                if (
+                    url := (
+                        entry
+                        if isinstance(entry, str)
+                        else rendition_url(topic, "fill-160x160", entry)
+                    )
+                )
+            ]
+
+        def repliers(topic):
+            return [
+                serialize_forum_author(repliers_by_id[pk], request)
+                for pk in replier_ids_by_topic.get(topic.pk, ())
+                if pk in repliers_by_id
+            ]
+
         return Response(
             {
                 "results": [
@@ -2669,6 +2841,8 @@ class RecentTopicsView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIV
                         "is_pinned": t.is_pinned,
                         "thumbnail_url": thumb(t),
                         "image_url": wide(t),
+                        "thumbnail_urls": thumbs(t),
+                        "repliers": repliers(t),
                         "is_solved": t.solved_post_id is not None,
                         "is_unread": t.is_unread,
                     }
@@ -3296,11 +3470,23 @@ class SyncView(UnversionedForumAPIMixin, APIView):
         if since:
             from ..models.tombstones import TopicDeletedLog
 
-            deleted = list(
-                TopicDeletedLog.objects.filter(deleted_at__gt=since).values(
-                    "topic_id", "board_id"
-                )
+            tombstones = TopicDeletedLog.objects.filter(deleted_at__gt=since)
+            # Never the ids of a forum this reader cannot see; a forum that
+            # no longer exists still evicts (board_id has no FK), and
+            # ``?board=`` scopes them like the topics (audit 2026-11-21 L13).
+            tombstones = tombstones.exclude(
+                board_id__in=Forum.objects.exclude(
+                    pk__in=_visible_boards(request=request).values("pk")
+                ).values("pk")
             )
+            if board_slug:
+                # A deleted forum's slug resolves to nothing, so its tombstones
+                # are kept whatever ``?board=`` says, or they never evict.
+                tombstones = tombstones.filter(
+                    Q(board_id__in=Forum.objects.filter(slug=board_slug).values("pk"))
+                    | ~Q(board_id__in=Forum.objects.values("pk"))
+                )
+            deleted = list(tombstones.values("topic_id", "board_id"))
         return Response(
             {
                 "topics": topics,

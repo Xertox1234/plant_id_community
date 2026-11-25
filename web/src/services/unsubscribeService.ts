@@ -68,3 +68,14 @@ export function checkUnsubscribe(token: string): Promise<EmailListState> {
 export function confirmUnsubscribe(token: string): Promise<EmailListState> {
   return post(`${UNSUBSCRIBE_BASE}/`, token);
 }
+
+/** The list id of "all optional email" (todo 703). */
+export const ALL_OPTIONAL_LIST = 'all_optional';
+
+/**
+ * Stop all optional email to the link's account in one step, whichever list
+ * the link names (todo 703). Answers with the all-optional list's state.
+ */
+export function stopAllOptionalEmail(token: string): Promise<EmailListState> {
+  return post(`${UNSUBSCRIBE_BASE}/all/`, token);
+}

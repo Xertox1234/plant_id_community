@@ -2,13 +2,31 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../core/constants/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/green_thumb_extension.dart';
+import '../../../shared/widgets/canopy_accents.dart';
 import '../../../shared/widgets/canopy_surfaces.dart';
 import '../forum_format.dart';
 import '../models/models.dart';
 import 'author_identity.dart';
+import 'forum_style.dart';
 
-/// A topic row in a board listing: title, author, reply/view stats, and
-/// pinned/locked/unread markers.
+/// Padding of one topic row, shared by [TopicCard] and [TopicRow] so both
+/// put the avatar and the title on the same edges.
+const EdgeInsets _rowPadding = EdgeInsets.symmetric(
+  horizontal: AppSpacing.md,
+  vertical: 12,
+);
+
+/// Most tags one row shows; the rest are on the topic itself.
+const int _maxRowTags = 3;
+
+/// Radius of the leading avatar; with [_avatarGap] it sets the text edge.
+const double _avatarRadius = 17;
+const double _avatarGap = 12;
+
+/// A topic as a card of its own (bookmarks). The same row as [TopicRow], on
+/// its own surface.
 class TopicCard extends StatelessWidget {
   const TopicCard({
     super.key,
@@ -20,138 +38,256 @@ class TopicCard extends StatelessWidget {
   final ForumTopicListItem topic;
   final VoidCallback? onTap;
 
-  /// Called when the author identity is tapped — the caller navigates to
+  /// Called when the author's name is tapped — the caller navigates to
   /// the author's public profile. `null` (or a deleted author) renders no
   /// tap affordance at all (see [AuthorIdentity]).
   final VoidCallback? onAuthorTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return CanopyCard(
       onTap: onTap,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (topic.isPinned)
-                Padding(
-                  padding: const EdgeInsets.only(right: AppSpacing.xs),
-                  child: Icon(
-                    LucideIcons.pin,
-                    size: 15,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              if (topic.isLocked)
-                Padding(
-                  padding: const EdgeInsets.only(right: AppSpacing.xs),
-                  child: Icon(
-                    LucideIcons.lock,
-                    size: 15,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              if (topic.isSolved)
-                Padding(
-                  padding: const EdgeInsets.only(right: AppSpacing.xs),
-                  child: Icon(
-                    LucideIcons.circleCheck,
-                    size: 15,
-                    color: theme.colorScheme.secondary,
-                    semanticLabel: 'Solved',
-                  ),
-                ),
-              Expanded(
-                child: Text(
-                  topic.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              if (topic.isUnread) ...[
-                const SizedBox(width: AppSpacing.xs),
-                _UnreadBadge(),
-              ],
-            ],
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Row(
-            children: [
-              Flexible(
-                child: AuthorIdentity(
-                  author: topic.author,
-                  onTap: onAuthorTap,
-                  avatarRadius: 12,
-                  showTrustBadge: false,
-                  nameStyle: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              _Stat(icon: LucideIcons.messageCircle, value: topic.replyCount),
-              const SizedBox(width: AppSpacing.sm),
-              _Stat(icon: LucideIcons.eye, value: topic.viewCount),
-              const Spacer(),
-              if (forumRelativeTime(topic.lastPostAt).isNotEmpty)
-                Text(
-                  forumRelativeTime(topic.lastPostAt),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
+      padding: _rowPadding,
+      child: _TopicRowContent(topic: topic, onAuthorTap: onAuthorTap),
     );
   }
 }
 
-class _Stat extends StatelessWidget {
-  const _Stat({required this.icon, required this.value});
-  final IconData icon;
-  final int value;
+/// A topic as one row of a grouped list (a board's topics): no surface of
+/// its own, a `surface3` highlight while pressed.
+class TopicRow extends StatelessWidget {
+  const TopicRow({
+    super.key,
+    required this.topic,
+    this.onTap,
+    this.onAuthorTap,
+  });
+
+  final ForumTopicListItem topic;
+  final VoidCallback? onTap;
+  final VoidCallback? onAuthorTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = theme.colorScheme.onSurfaceVariant;
+    final row = CanopyPressable(
+      onTap: onTap,
+      style: CanopyPressStyle.highlight,
+      child: Padding(
+        padding: _rowPadding,
+        child: _TopicRowContent(topic: topic, onAuthorTap: onAuthorTap),
+      ),
+    );
+    if (!topic.isPinned) return row;
+    // A pinned topic sits on a wash of the pin's own colour, so the top of
+    // the list reads as set apart before the "Pinned" word is read.
+    return ColoredBox(
+      color: context.canopy.clay.withValues(alpha: 0.10),
+      child: row,
+    );
+  }
+}
+
+/// The layout every topic row shares. Three fixed edges, whatever the topic's
+/// state: the avatar, the text (title, then author and status beneath it) and
+/// a trailing column (time over reply count). Status never sits in front of
+/// the title, so every title starts on the same edge.
+class _TopicRowContent extends StatelessWidget {
+  const _TopicRowContent({required this.topic, this.onAuthorTap});
+
+  final ForumTopicListItem topic;
+  final VoidCallback? onAuthorTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final canopy = context.canopy;
+    final time = forumListTime(topic.lastPostAt);
+    final meta = forumMeta(context);
     return Row(
-      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 14, color: color),
-        const SizedBox(width: 2),
-        Text(
-          '$value',
-          style: theme.textTheme.labelSmall?.copyWith(color: color),
+        // The name beside it is the label, so the disc is silent to a screen
+        // reader; a tap on it opens the author like a tap on the name.
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: topic.author.isDeleted ? null : onAuthorTap,
+          child: ExcludeSemantics(
+            child: AuthorAvatar(author: topic.author, radius: _avatarRadius),
+          ),
+        ),
+        const SizedBox(width: _avatarGap),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                topic.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: forumItemTitle(context),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              // A Wrap: at large text the status drops below the name
+              // instead of squeezing it.
+              Wrap(
+                spacing: 10,
+                runSpacing: 2,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  AuthorIdentity(
+                    author: topic.author,
+                    onTap: onAuthorTap,
+                    showAvatar: false,
+                    showTrustBadge: false,
+                    nameStyle: AppTypography.bodySm.copyWith(
+                      color: canopy.ink2,
+                    ),
+                  ),
+                  if (topic.isPinned)
+                    _Status(
+                      icon: LucideIcons.pin,
+                      label: 'Pinned',
+                      color: canopy.clay,
+                    ),
+                  if (topic.isLocked)
+                    _Status(
+                      icon: LucideIcons.lock,
+                      label: 'Locked',
+                      color: canopy.ink2,
+                    ),
+                  if (topic.isSolved)
+                    _Status(
+                      icon: LucideIcons.circleCheck,
+                      label: 'Solved',
+                      color: canopy.leaf,
+                    ),
+                ],
+              ),
+              if (topic.tags.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: [
+                    for (final tag in topic.tags.take(_maxRowTags))
+                      _TagLabel(tag),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(width: _avatarGap),
+        // Dense chrome: capped so a long date at a large text size cannot
+        // take the title's width.
+        MediaQuery.withClampedTextScaling(
+          maxScaleFactor: 1.3,
+          child: Padding(
+            // Sits the detail text on the title's first line.
+            padding: const EdgeInsets.only(top: 3),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (topic.isUnread) ...[
+                      Semantics(
+                        label: 'Unread',
+                        child: SizedBox.square(
+                          dimension: 8,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: canopy.clay,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (time.isNotEmpty) const SizedBox(width: 6),
+                    ],
+                    if (time.isNotEmpty) Text(time, style: meta),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Semantics(
+                  label:
+                      '${topic.replyCount} '
+                      '${topic.replyCount == 1 ? 'reply' : 'replies'}',
+                  child: ExcludeSemantics(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          LucideIcons.messageCircle,
+                          size: 14,
+                          color: canopy.ink2,
+                        ),
+                        const SizedBox(width: 4),
+                        Text('${topic.replyCount}', style: meta),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ],
     );
   }
 }
 
-class _UnreadBadge extends StatelessWidget {
+/// A status word with its icon, in the meta line ("Solved", "Pinned").
+class _Status extends StatelessWidget {
+  const _Status({required this.icon, required this.label, required this.color});
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ExcludeSemantics(child: Icon(icon, size: 13, color: color)),
+        const SizedBox(width: 4),
+        // Flexible: in a very narrow column the word wraps, never clips.
+        Flexible(
+          child: Text(
+            label,
+            style: AppTypography.micro.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One of a topic's tags, as a quiet label under the author line.
+class _TagLabel extends StatelessWidget {
+  const _TagLabel(this.tag);
+
+  final String tag;
+
+  @override
+  Widget build(BuildContext context) {
+    final canopy = context.canopy;
+    return DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.colorScheme.primary,
+        color: canopy.surface3,
         borderRadius: BorderRadius.circular(AppSpacing.rXs),
       ),
-      child: Text(
-        'New',
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: theme.colorScheme.onPrimary,
-          fontWeight: FontWeight.w700,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        child: Text(
+          '#$tag',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTypography.micro.copyWith(color: canopy.ink2),
         ),
       ),
     );

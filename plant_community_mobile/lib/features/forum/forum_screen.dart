@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -11,16 +13,21 @@ import '../../services/auth_service.dart';
 import '../../shared/widgets/brand_mark.dart';
 import '../../shared/widgets/canopy_accents.dart';
 import '../../shared/widgets/canopy_surfaces.dart';
+import 'models/models.dart';
+import 'providers/collapsed_categories.dart';
 import 'providers/forum_providers.dart';
+import 'services/forum_api.dart';
+import 'services/forum_link_launcher.dart';
 import 'widgets/forum_experts_strip.dart';
 import 'widgets/home/forum_activity_card.dart';
-import 'widgets/home/forum_boards_section.dart';
+import 'widgets/home/forum_categories_section.dart';
 import 'widgets/home/forum_home_footer.dart';
+import 'widgets/forum_style.dart';
 import 'widgets/home/forum_season_card.dart';
 import 'widgets/home/forum_whos_online.dart';
 
 /// Gap between home sections (design: 30pt; nearest token).
-const double _sectionGap = AppSpacing.xl;
+const double _sectionGap = forumSectionGap;
 
 /// First-visit entrance (spec §8.2): each section fades in and rises 8pt,
 /// 40 ms after the one above it.
@@ -29,8 +36,9 @@ const Duration _sectionFade = Duration(milliseconds: 200);
 const int _slotCount = 6;
 const double _rise = 8;
 
-/// Community forum home (spec 2026-11-02 §5): your season, experts, boards,
-/// recent activity, who's online and the footer, top to bottom.
+/// Community forum home (spec 2026-11-02 §5): your season,
+/// experts, the forums by category, recent activity, who's online and the
+/// footer, top to bottom.
 class ForumScreen extends ConsumerStatefulWidget {
   const ForumScreen({super.key});
 
@@ -56,7 +64,9 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
 
   Future<void> _refresh(bool isAuthenticated) async {
     ref.read(expandedActivityTopicProvider.notifier).collapse();
-    ref.invalidate(boardsProvider);
+    ref.invalidate(categoriesProvider);
+    // Alongside the categories, never before them (spec §7.5).
+    unawaited(ref.read(collapsedCategoriesProvider.notifier).refresh());
     ref.invalidate(homeRecentTopicsProvider);
     ref.invalidate(latestRepliesProvider);
     ref.invalidate(communityStatsProvider);
@@ -68,11 +78,20 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
 
   /// A block or a new viewer (sign-in, sign-out, account switch) changes
   /// what the home may show: who is online, unread dots, the open peek
-  /// (spec §4). Drop the per-viewer data; boards and the offline mirror are
-  /// the same for everyone and stay.
-  void _resetForViewer() {
+  /// (spec §4). Drop the per-viewer data. The forum feed is per member too
+  /// (unread dots, locked forums), so it goes with it; only the offline mirror
+  /// is the same for everyone and stays.
+  ///
+  /// The forum feed and recent activity are keyed on the viewer
+  /// ([forumViewerProvider]): a [newViewer] reads fresh elements of both, so
+  /// they are only invalidated for a block. Invalidating them for a new
+  /// viewer would fetch once more for the viewer who just left.
+  void _resetForViewer({bool newViewer = false}) {
     ref.read(expandedActivityTopicProvider.notifier).collapse();
-    ref.invalidate(homeRecentTopicsProvider);
+    if (!newViewer) {
+      ref.invalidate(categoriesProvider);
+      ref.invalidate(homeRecentTopicsProvider);
+    }
     ref.invalidate(latestRepliesProvider);
     ref.invalidate(communityStatsProvider);
     ref.invalidate(expertsProvider);
@@ -90,6 +109,7 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
     // The open peeks live as long as this screen (spec §6.4).
     ref.watch(forumHomeScopeProvider);
     ref.listen(authorBlockChangesProvider, (_, _) => _resetForViewer());
+    ref.listen(authorMuteChangesProvider, (_, _) => _resetForViewer());
     // The signed-in member, by uid: a token refresh is not a new viewer, and
     // a Firebase user still waiting on its JWT is not signed in yet.
     ref.listen(
@@ -97,7 +117,7 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
         (s) =>
             (s.isAuthenticated, s.isAuthenticated ? s.firebaseUser?.uid : null),
       ),
-      (_, _) => _resetForViewer(),
+      (_, _) => _resetForViewer(newViewer: true),
     );
     final isAuthenticated = ref.watch(
       authServiceProvider.select((s) => s.isAuthenticated),
@@ -168,7 +188,7 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
                     2,
                     const Padding(
                       padding: EdgeInsets.only(bottom: _sectionGap),
-                      child: _BoardsSection(),
+                      child: _ForumsSection(),
                     ),
                   ),
                   slot(
@@ -312,50 +332,130 @@ class _ExpertsSection extends ConsumerWidget {
   }
 }
 
-class _BoardsSection extends ConsumerWidget {
-  const _BoardsSection();
+/// The forums by category: each category a header over one card of forums.
+class _ForumsSection extends ConsumerStatefulWidget {
+  const _ForumsSection();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final boardsAsync = ref.watch(boardsProvider);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const _SectionHeader('Boards'),
-        _sectionState(
-          boardsAsync,
-          loading: const _BoardsSkeleton(),
-          error: _SectionError(
-            message: 'Could not load boards.',
-            onRetry: () => ref.invalidate(boardsProvider),
-          ),
-          data: (boards) => boards.isEmpty
-              ? const _EmptyLine('No boards yet.')
-              : ForumBoardsSection(
-                  boards: boards,
-                  onTap: (board) => context.pushNamed(
-                    'forumBoard',
-                    pathParameters: {'slug': board.slug},
-                    extra: board.title,
-                  ),
-                ),
-        ),
-      ],
+  ConsumerState<_ForumsSection> createState() => _ForumsSectionState();
+}
+
+class _ForumsSectionState extends ConsumerState<_ForumsSection> {
+  /// True while a link is being resolved and opened: a second tap would
+  /// count the click twice and open the browser twice.
+  bool _opening = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final categoriesAsync = ref.watch(viewerCategoriesProvider);
+    final collapsed = ref.watch(collapsedCategoriesProvider);
+    return _sectionState(
+      categoriesAsync,
+      loading: const _ForumsSkeleton(),
+      error: _SectionError(
+        message: 'Could not load forums.',
+        onRetry: () {
+          ref.invalidate(categoriesProvider);
+          unawaited(ref.read(collapsedCategoriesProvider.notifier).refresh());
+        },
+      ),
+      data: (categories) =>
+          categories.every((c) => c.forums.isEmpty && c.links.isEmpty)
+          ? const _EmptyLine('No forums yet.')
+          : ForumCategoriesSection(
+              categories: categories,
+              onForumTap: (board) => context.pushNamed(
+                'forumBoard',
+                pathParameters: {'slug': board.slug},
+                extra: board.title,
+              ),
+              onLockedTap: _openLocked,
+              onLinkTap: _openLink,
+              collapsed: collapsed,
+              onToggleCollapse: _toggleCollapse,
+            ),
     );
+  }
+
+  Future<void> _toggleCollapse(ForumCategory category) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final saved = await ref
+        .read(collapsedCategoriesProvider.notifier)
+        .toggle(category.id);
+    if (!saved && mounted) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text("Couldn't save. Try again.")),
+      );
+    }
+  }
+
+  /// A password forum: a guest is asked to sign in, as other member-only
+  /// actions do; a member gets the unlock screen (spec §7.4).
+  void _openLocked(ForumBoard forum) {
+    if (!ref.read(authServiceProvider).isAuthenticated) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign in to open this forum.')),
+      );
+      return;
+    }
+    context.pushNamed(
+      'forumUnlock',
+      pathParameters: {'slug': forum.slug},
+      extra: forum.title,
+    );
+  }
+
+  Future<void> _openLink(ForumLink link) async {
+    if (_opening) return;
+    _opening = true;
+    try {
+      await _resolveAndOpen(link);
+    } finally {
+      _opening = false;
+    }
+  }
+
+  Future<void> _resolveAndOpen(ForumLink link) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final launch = ref.read(forumExternalLinkLauncherProvider);
+    final uri = await ref.read(forumApiProvider).resolveLink(link);
+    // The reader moved on while the link resolved (another screen on top, or
+    // another tab: go_router puts an inactive shell branch under
+    // TickerMode(enabled: false)). Opening a browser now would be a surprise.
+    if (!mounted ||
+        !TickerMode.valuesOf(context).enabled ||
+        !(ModalRoute.isCurrentOf(context) ?? true)) {
+      return;
+    }
+    var opened = false;
+    if (uri != null) {
+      try {
+        opened = await launch(uri);
+      } catch (_) {
+        opened = false;
+      }
+    }
+    if (!opened) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text("This link can't be opened.")),
+      );
+    }
   }
 }
 
-/// Recent activity: up to ten cards from `GET forum/topics/recent/`. No
+/// Recent activity: the three latest cards from `GET forum/topics/recent/`. No
 /// "View all": forum search cannot sort by latest activity yet, so there is
 /// no list for it to open.
 class _RecentActivitySection extends ConsumerWidget {
   const _RecentActivitySection();
 
-  static const int _maxTopics = 10;
+  static const int _maxTopics = kHomeRecentTopicsLimit;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final recentAsync = ref.watch(homeRecentTopicsProvider);
+    final recentAsync = ref.watch(
+      homeRecentTopicsProvider(ref.watch(forumViewerProvider)),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -443,18 +543,7 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Semantics(
-        header: true,
-        child: Text(
-          title,
-          style: AppTypography.h3.copyWith(
-            color: Theme.of(context).colorScheme.onSurface,
-          ),
-        ),
-      ),
-    );
+    return ForumSectionHeader(title);
   }
 }
 
@@ -524,8 +613,8 @@ class _SeasonSkeleton extends StatelessWidget {
 }
 
 /// Three rows shaped like board rows: a 40pt tile and two lines.
-class _BoardsSkeleton extends StatelessWidget {
-  const _BoardsSkeleton();
+class _ForumsSkeleton extends StatelessWidget {
+  const _ForumsSkeleton();
 
   @override
   Widget build(BuildContext context) {
@@ -561,7 +650,7 @@ class _BoardsSkeleton extends StatelessWidget {
       ),
     );
     return _Skeleton(
-      label: 'Loading boards',
+      label: 'Loading forums',
       child: CanopyGroupedCard(rows: [row(0.7), row(0.5), row(0.6)]),
     );
   }

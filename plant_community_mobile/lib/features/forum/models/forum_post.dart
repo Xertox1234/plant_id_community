@@ -24,6 +24,8 @@ class ForumPost {
     required this.canReport,
     this.isBlocked = false,
     this.canBlock = false,
+    this.isMuted = false,
+    this.canMute = false,
   });
 
   final int id;
@@ -59,6 +61,13 @@ class ForumPost {
   /// posts, a deleted author, or an anonymous viewer) — server authority.
   final bool canBlock;
 
+  /// `true` when the VIEWER has muted this post's author (todo 347): the same
+  /// collapse as [isBlocked], which outranks it.
+  final bool isMuted;
+
+  /// Whether the viewer may mute this post's author — server authority.
+  final bool canMute;
+
   bool get isEdited => editedAt != null;
 
   factory ForumPost.fromJson(Map<String, dynamic> json) {
@@ -81,6 +90,8 @@ class ForumPost {
       canReport: json['can_report'] as bool? ?? false,
       isBlocked: json['is_blocked'] as bool? ?? false,
       canBlock: json['can_block'] as bool? ?? false,
+      isMuted: json['is_muted'] as bool? ?? false,
+      canMute: json['can_mute'] as bool? ?? false,
     );
   }
 
@@ -97,10 +108,15 @@ class ForumPost {
   /// blocks/unblocks this post's author from their profile, todo 341).
   ForumPost withBlocked(bool isBlocked) => copyWith(isBlocked: isBlocked);
 
+  /// Returns a copy with [isMuted] replaced (local splice after a mute or
+  /// unmute of this post's author).
+  ForumPost withMuted(bool isMuted) => copyWith(isMuted: isMuted);
+
   ForumPost copyWith({
     Map<String, int>? reactionCounts,
     List<String>? reacted,
     bool? isBlocked,
+    bool? isMuted,
   }) {
     return ForumPost(
       id: id,
@@ -119,6 +135,8 @@ class ForumPost {
       canReport: canReport,
       isBlocked: isBlocked ?? this.isBlocked,
       canBlock: canBlock,
+      isMuted: isMuted ?? this.isMuted,
+      canMute: canMute,
     );
   }
 

@@ -41,6 +41,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         # Sample decoded token data
         self.decoded_token = {
             "uid": "test-firebase-uid-123",
+            "firebase": {"sign_in_provider": "password"},
             "email": "test@example.com",
             "email_verified": True,
         }
@@ -99,6 +100,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         # which then hits MultipleObjectsReturned.
         mock_verify.return_value = {
             "uid": "brand-new-uid-999",
+            "firebase": {"sign_in_provider": "password"},
             "email": "dup@example.com",
             "email_verified": True,
         }
@@ -128,6 +130,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         )
         mock_verify.return_value = {
             "uid": "owner-uid",
+            "firebase": {"sign_in_provider": "password"},
             "email": "owner@example.com",
             "email_verified": True,
         }
@@ -152,6 +155,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         mark_email_verified(bound)
         mock_verify.return_value = {
             "uid": "uid-stranger",
+            "firebase": {"sign_in_provider": "password"},
             "email": "bound@example.com",
             "email_verified": True,
         }
@@ -172,6 +176,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         User.objects.filter(pk=holder.pk).update(email="holder-now@example.com")
         mock_verify.return_value = {
             "uid": "uid-newcomer",
+            "firebase": {"sign_in_provider": "password"},
             "email": "moved@example.com",
             "email_verified": True,
         }
@@ -751,6 +756,23 @@ class FirebaseProjectIdOnlyInitTestCase(TestCase):
     @override_settings(
         FIREBASE_CREDENTIALS_PATH=None, FIREBASE_PROJECT_ID="plant-community-prod"
     )
+    def test_the_project_id_only_app_carries_the_http_timeout(self):
+        """Todo 727: the FCM sender adopts whichever default app exists, so
+        this init path must bound Admin SDK HTTP calls as the shared
+        bootstrap does. Runs the real init, not the options helper alone."""
+        import apps.users.firebase_auth_views as views
+        import firebase_admin
+        from apps.core.constants import FIREBASE_HTTP_TIMEOUT_SECONDS
+
+        views._ensure_firebase_initialized()
+
+        app = firebase_admin.get_app()
+        self.assertEqual(app.options.get("httpTimeout"), FIREBASE_HTTP_TIMEOUT_SECONDS)
+        self.assertEqual(app.project_id, "plant-community-prod")
+
+    @override_settings(
+        FIREBASE_CREDENTIALS_PATH=None, FIREBASE_PROJECT_ID="plant-community-prod"
+    )
     def test_verification_does_not_require_application_default_credentials(self):
         """The bug: this raised DefaultCredentialsError instead of a token error.
 
@@ -1225,6 +1247,7 @@ class FirebaseTokenExchangeRateLimitTestCase(TestCase):
         carries the rate through the @api_view stack)."""
         mock_verify.return_value = {
             "uid": "rate-limit-uid",
+            "firebase": {"sign_in_provider": "password"},
             "email": "ratelimit@example.com",
             "email_verified": True,
             "name": "Rate Limited",
@@ -1254,6 +1277,7 @@ class FirebaseTokenExchangeRateLimitTestCase(TestCase):
         """A second IP has its own counter — the limit is keyed by IP."""
         mock_verify.return_value = {
             "uid": "per-ip-uid",
+            "firebase": {"sign_in_provider": "password"},
             "email": "perip@example.com",
             "email_verified": True,
             "name": "Per IP",
@@ -1327,6 +1351,7 @@ class FirebaseExchangeConsentTestCase(TestCase):
         cache.clear()
         self.decoded = {
             "uid": "consent-uid-1",
+            "firebase": {"sign_in_provider": "password"},
             "email": "consent@example.com",
             "email_verified": True,
         }
@@ -1362,7 +1387,7 @@ class FirebaseExchangeConsentTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         user = User.objects.get(firebase_uid="consent-uid-1")
-        self.assertEqual(user.policy_version_accepted, "2026-11-11")
+        self.assertEqual(user.policy_version_accepted, "2026-11-24")
         self.assertIsNotNone(user.policy_accepted_at)
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
@@ -1431,3 +1456,112 @@ class FirebaseExchangeConsentTestCase(TestCase):
                 response = self._post(mock_verify, accepted_terms=value)
                 self.assertEqual(response.status_code, 428)
         self.assertFalse(User.objects.filter(firebase_uid="consent-uid-1").exists())
+
+
+class FirebaseAppleSignInTestCase(TestCase):
+    """Sign in with Apple on iOS (todo 717).
+
+    Apple can hide the user's address behind a ``privaterelay.appleid.com``
+    relay, and sends the user's name only on the first sign-in: the app puts
+    it on the Firebase user, so the token's ``name`` claim carries it. The
+    exchange treats ``apple.com`` like Google: the same consent gate, one
+    account per Firebase uid, and the name read only from the verified token.
+    """
+
+    client: APIClient  # DRF test client; TestCase declares Django's Client
+
+    relay = "x7k2m9qp4z@privaterelay.appleid.com"
+
+    def setUp(self):
+        self.client = APIClient()
+        self.url = reverse("v1:users:firebase_token_exchange")
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def _decoded(self, **claims):
+        return {
+            "uid": "apple-uid-1",
+            "email": self.relay,
+            "email_verified": True,
+            "firebase": {"sign_in_provider": "apple.com"},
+            **claims,
+        }
+
+    def _post(self, mock_verify, decoded, **extra):
+        mock_verify.return_value = decoded
+        return self.client.post(
+            self.url, {"firebase_token": "tok", **extra}, format="json"
+        )
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_new_apple_relay_user_needs_consent_then_gets_one_account(
+        self, mock_verify
+    ):
+        first = self._decoded(name="Ada Lovelace")
+
+        refused = self._post(mock_verify, first)
+
+        self.assertEqual(refused.status_code, 428)
+        self.assertEqual(refused.data["code"], "consent_required")
+        self.assertFalse(User.objects.filter(email=self.relay).exists())
+
+        accepted = self._post(mock_verify, first, accepted_terms=True)
+
+        self.assertEqual(accepted.status_code, status.HTTP_200_OK)
+        self.assertIn("access_token", accepted.data)
+        user = User.objects.get(firebase_uid="apple-uid-1")
+        self.assertEqual(user.email, self.relay)
+        self.assertTrue(is_email_verified(user))
+        self.assertEqual(user.policy_version_accepted, LEGAL_POLICY_VERSION)
+        self.assertEqual(User.objects.filter(email=self.relay).count(), 1)
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_returning_apple_sign_in_reaches_the_same_account(self, mock_verify):
+        created = self._post(
+            mock_verify, self._decoded(name="Ada Lovelace"), accepted_terms=True
+        )
+        self.assertEqual(created.status_code, status.HTTP_200_OK)
+        user_id = created.data["user"]["id"]
+
+        # Apple sends no name after the first sign-in, and the app sends no
+        # consent for an existing account.
+        returning = self._post(mock_verify, self._decoded())
+
+        self.assertEqual(returning.status_code, status.HTTP_200_OK)
+        self.assertEqual(returning.data["user"]["id"], user_id)
+        self.assertEqual(User.objects.filter(firebase_uid="apple-uid-1").count(), 1)
+        self.assertEqual(User.objects.filter(email=self.relay).count(), 1)
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_apple_name_from_the_first_sign_in_is_stored(self, mock_verify):
+        response = self._post(
+            mock_verify, self._decoded(name="Ada Lovelace"), accepted_terms=True
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user = User.objects.get(firebase_uid="apple-uid-1")
+        self.assertEqual(user.get_full_name(), "Ada Lovelace")
+        self.assertEqual(response.data["user"]["display_name"], "Ada Lovelace")
+
+        # A later sign-in without the claim keeps it.
+        self._post(mock_verify, self._decoded())
+        user.refresh_from_db()
+        self.assertEqual(user.get_full_name(), "Ada Lovelace")
+
+    @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
+    def test_apple_name_is_read_from_the_token_not_the_request(self, mock_verify):
+        """Audit C8 holds for Apple: a body field names nobody."""
+        response = self._post(
+            mock_verify,
+            self._decoded(),
+            accepted_terms=True,
+            display_name="Someone Else",
+            given_name="Someone",
+            family_name="Else",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        user = User.objects.get(firebase_uid="apple-uid-1")
+        self.assertEqual(user.get_full_name(), "")

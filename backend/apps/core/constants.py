@@ -151,6 +151,12 @@ PUSH_DEVICE_TOKEN_MAX_LENGTH = 255
 PUSH_DEVICE_INSTALLATION_ID_MAX_LENGTH = 64
 PUSH_DEVICE_PLATFORMS = ("ios", "android")
 
+# The Firebase Admin SDK's HTTP timeout, in seconds (todo 727, owner decision
+# 2026-11-22). The SDK's own default is 120 s, longer than a task's soft time
+# limit, so one hung FCM send could outlast it. Passed as the app option
+# ``httpTimeout`` wherever the default app is initialized.
+FIREBASE_HTTP_TIMEOUT_SECONDS = 30
+
 # ============================================================================
 # Delivery outbox (todo 619, apps/core/delivery.py)
 # ============================================================================
@@ -162,7 +168,8 @@ DELIVERY_GRACE_SECONDS = 5 * 60
 FORUM_REACCEPT_COOLDOWN_SECONDS = 24 * 60 * 60
 # A claimed row whose worker has not reported back after this long is taken
 # to be interrupted and re-driven (the at-least-once window). Well above the
-# per-task hard time limit (CELERY_TASK_TIME_LIMIT, 120 s).
+# per-task hard time limits (CELERY_TASK_TIME_LIMIT, 120 s; the forum batch
+# tasks' own NOTIFICATION_BATCH_TIME_LIMIT, 5 min).
 DELIVERY_CLAIM_LEASE_SECONDS = 15 * 60
 # Attempts per delivery, counted at each claim. The last failure is terminal.
 DELIVERY_MAX_ATTEMPTS = 5
@@ -219,3 +226,36 @@ EMAIL_FEEDBACK_PRUNE_BATCH = 5000
 # content links of the forum notification emails. Never an unsubscribe,
 # preferences or account-security link.
 EMAIL_TRACKED_LINK_KEYS = ("post_url", "topic_url")
+
+# Admin sign-in hardening (todo 705 M22, audit 2026-11-10).
+#
+# Failed password sign-ins at the Wagtail (/cms/) and Django (/admin/) login
+# forms, counted per trusted client IP. After this many failures in the window
+# the form answers 429 until the window ends. Per IP, never per username: a
+# per-account lock would let anyone lock a known staff name out (L4).
+ADMIN_LOGIN_PATHS = frozenset({"/cms/login/", "/admin/login/"})
+ADMIN_LOGIN_FAILURE_RATE = "5/15m"
+ADMIN_LOGIN_RATELIMIT_GROUP = "admin_login_failures"
+# Every signed-in request under these prefixes needs a verified second factor
+# (django-otp TOTP, or a one-time static token for recovery).
+# /blog-admin/ is a set of @staff_member_required session pages (moderation,
+# settings, export), so it needs the same second factor as the admin.
+ADMIN_OTP_PATH_PREFIXES = ("/cms/", "/admin/", "/blog-admin/")
+ADMIN_OTP_SETUP_PATH = "/cms/otp/setup/"
+ADMIN_OTP_VERIFY_PATH = "/cms/otp/verify/"
+# Paths a signed-in but unverified user may still reach: the two-factor pages
+# themselves, and signing in or out.
+ADMIN_OTP_EXEMPT_PATHS = frozenset(
+    {
+        "/cms/login/",
+        "/cms/logout/",
+        "/admin/login/",
+        "/admin/logout/",
+        ADMIN_OTP_SETUP_PATH,
+        ADMIN_OTP_VERIFY_PATH,
+    }
+)
+# Code attempts at the two-factor pages, per signed-in user. TOTPDevice adds
+# its own growing delay after each wrong code (django-otp ThrottlingMixin).
+ADMIN_OTP_ATTEMPT_RATE = "10/15m"
+ADMIN_OTP_DEVICE_NAME = "Authenticator app"

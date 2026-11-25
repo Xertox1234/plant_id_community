@@ -97,7 +97,8 @@
 {% block extra_js %}
     {{ block.super }}
     {% if can_change %}
-        <script src="{% static 'wagtail_forum/js/vendor/Sortable.min.js' %}"></script>
-        <script src="{% static 'wagtail_forum/js/forum-structure.js' %}"></script>
+        {# defer: Wagtail renders this block before the page content, so a script that runs at once runs before #wf-structure exists (todo 683). #}
+        <script defer src="{% static 'wagtail_forum/js/vendor/Sortable.min.js' %}"></script>
+        <script defer src="{% static 'wagtail_forum/js/forum-structure.js' %}"></script>
     {% endif %}
 {% endblock %}

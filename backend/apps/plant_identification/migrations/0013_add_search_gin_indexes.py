@@ -16,41 +16,31 @@ def create_gin_indexes(apps, schema_editor):
 
     with schema_editor.connection.cursor() as cursor:
         # GIN indexes for full-text search
-        cursor.execute(
-            """
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_species_scientific_gin
             ON plant_identification_plantspecies
             USING gin(to_tsvector('english', scientific_name));
-        """
-        )
-        cursor.execute(
-            """
+        """)
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_species_common_gin
             ON plant_identification_plantspecies
             USING gin(to_tsvector('english', common_names));
-        """
-        )
-        cursor.execute(
-            """
+        """)
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_species_family_gin
             ON plant_identification_plantspecies
             USING gin(to_tsvector('english', family));
-        """
-        )
-        cursor.execute(
-            """
+        """)
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_species_scientific_trgm
             ON plant_identification_plantspecies
             USING gin(scientific_name gin_trgm_ops);
-        """
-        )
-        cursor.execute(
-            """
+        """)
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_species_common_trgm
             ON plant_identification_plantspecies
             USING gin(common_names gin_trgm_ops);
-        """
-        )
+        """)
 
 
 def drop_gin_indexes(apps, schema_editor):
@@ -71,28 +61,22 @@ def create_composite_indexes(apps, schema_editor):
     with schema_editor.connection.cursor() as cursor:
         # Composite index for user + status + date
         if is_postgresql():
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_request_user_status_date
                 ON plant_identification_plantidentificationrequest(user_id, status, created_at DESC);
-            """
-            )
+            """)
         else:
             # SQLite syntax (doesn't support DESC in index)
-            cursor.execute(
-                """
+            cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_request_user_status_date
                 ON plant_identification_plantidentificationrequest(user_id, status, created_at);
-            """
-            )
+            """)
 
         # FK optimization index
-        cursor.execute(
-            """
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_result_request_fk
             ON plant_identification_plantidentificationresult(request_id);
-        """
-        )
+        """)
 
 
 def drop_composite_indexes(apps, schema_editor):

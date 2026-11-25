@@ -5,6 +5,7 @@ export 'cursor_page.dart';
 export 'forum_author.dart';
 export 'forum_board.dart';
 export 'forum_body_block.dart';
+export 'forum_category.dart';
 export 'forum_conversation.dart';
 export 'forum_direct_message.dart';
 export 'forum_home.dart';

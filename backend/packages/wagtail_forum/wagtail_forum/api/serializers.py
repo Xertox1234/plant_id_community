@@ -1,7 +1,9 @@
+import logging
 import math
 from typing import Any
 
 from django.utils import timezone
+from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 from wagtail.blocks import RichTextBlock
@@ -35,6 +37,8 @@ from ..models.messages import (
     MESSAGE_PREVIEW_CHARS,
 )
 from .sanitize import image_block_pk, validate_forum_body
+
+logger = logging.getLogger(__name__)
 
 try:  # Schema annotations are optional — hosts without drf-spectacular still work.
     from drf_spectacular.types import OpenApiTypes
@@ -169,6 +173,34 @@ def _deleted_author():
     }
 
 
+def _fallback_avatar_url(user):
+    """The host's own photo for `user`, via ``AUTHOR_AVATAR_FALLBACK``, or
+    None. Only asked when the forum profile has no avatar."""
+    path = get_setting("AUTHOR_AVATAR_FALLBACK")
+    if not path:
+        return None
+    try:
+        return import_string(path)(user) or None
+    except Exception:
+        # A photo is decoration: a broken hook must cost the avatar, never
+        # the topic list it sits in.
+        logger.exception("[FORUM] AUTHOR_AVATAR_FALLBACK failed for user=%s", user.pk)
+        return None
+
+
+def forum_display_name(user) -> str:
+    """The member's public forum name: their forum display name, else their
+    username. Never ``get_full_name()``: sign in with Apple, Google or
+    Firebase copies the provider's name claim into ``first_name``, and forum
+    payloads reach anonymous readers (owner decision 2026-11-21, audit H1).
+    The same rule as ``ForumProfile.__str__``. No query when the view
+    select_related-joined ``wagtail_forum_profile``."""
+    profile = getattr(user, "wagtail_forum_profile", None)
+    if profile and profile.display_name:
+        return str(profile.display_name)
+    return str(user.get_username())
+
+
 def serialize_forum_author(user, request=None):
     """Unified author object for EVERY topic + post payload (H26): `author`,
     `last_post_author`, and a post's author all share this shape.
@@ -183,19 +215,17 @@ def serialize_forum_author(user, request=None):
     if user is None:
         return _deleted_author()
     profile = getattr(user, "wagtail_forum_profile", None)
-    display_name = (
-        (profile.display_name if profile and profile.display_name else None)
-        or user.get_full_name()
-        or user.get_username()
-    )
+    display_name = forum_display_name(user)
     avatar = None
     # `avatar_id` (the FK column) is already loaded — gate on it so we never
     # touch `.avatar` (a query if NOT select_related-joined) for the common
     # no-avatar case.
     if profile and profile.avatar_id and profile.avatar:
         avatar = profile.avatar.file.url
-        if request is not None:
-            avatar = request.build_absolute_uri(avatar)
+    else:
+        avatar = _fallback_avatar_url(user)
+    if avatar and request is not None:
+        avatar = request.build_absolute_uri(avatar)
     return {
         "username": user.get_username(),
         "display_name": display_name,
@@ -570,6 +600,9 @@ class TopicDetailSerializer(serializers.ModelSerializer):
     is_solved = serializers.SerializerMethodField()
     solved_post_id = serializers.IntegerField(read_only=True, allow_null=True)
     can_mark_solution = serializers.SerializerMethodField()
+    # Whether THIS viewer may pin/unpin the topic (moderators). DETAIL-ONLY:
+    # the action lives on the topic screen. See get_can_pin.
+    can_pin = serializers.SerializerMethodField()
     # The plant-ID snapshot the author attached at compose time (audit M6).
     # DETAIL-ONLY, deliberately: the card renders above the opening post and
     # nowhere else, so the topic list and both search hit-builders stay
@@ -609,6 +642,7 @@ class TopicDetailSerializer(serializers.ModelSerializer):
             "solved_post_id",
             "solved_at",
             "can_mark_solution",
+            "can_pin",
             "identification",
             "is_blocked",
             "is_muted",
@@ -696,6 +730,13 @@ class TopicDetailSerializer(serializers.ModelSerializer):
         # anonymous short-circuits inside solution_block.
         request = self.context.get("request")
         return obj.can_mark_solution_by(getattr(request, "user", None))
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_can_pin(self, obj):
+        # Single-sourced on the model so the affordance matches TopicPinView's
+        # write guard exactly. Anonymous short-circuits before any query.
+        request = self.context.get("request")
+        return obj.can_pin_by(getattr(request, "user", None))
 
     @extend_schema_field(IDENTIFICATION_SCHEMA)
     def get_identification(self, obj):
@@ -1247,7 +1288,7 @@ class _ForumBodyContract(serializers.Serializer):
             user=request.user if request else None,
             # Edit only: quotes the stored body already carries (set by the
             # edit call site, like `existing_author_id`).
-            existing_quote_ids=self.context.get("existing_quote_ids", ()),
+            existing_quotes=self.context.get("existing_quotes", ()),
             # Edit only: the stored body's link cards, reused without a fetch.
             existing_link_previews=self.context.get("existing_link_previews"),
             # A quote of a post in a password forum this session unlocked.
@@ -1515,7 +1556,10 @@ class ReactionSerializer(serializers.Serializer):
 
 class ReportSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(choices=Report.REASON_CHOICES)
-    detail = serializers.CharField(max_length=280, required=False, default="")
+    # Blank is "no detail", which the web client sends as "" (F142).
+    detail = serializers.CharField(
+        max_length=280, required=False, allow_blank=True, default=""
+    )
 
 
 class ConversationSerializer(serializers.Serializer):
@@ -1628,7 +1672,8 @@ class MessageSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     conversation_id = serializers.IntegerField()
     sender = serializers.SerializerMethodField()
-    body = serializers.CharField()
+    # Never `body`: a placeholder once a moderator removed the message.
+    body = serializers.CharField(source="visible_body")
     created_at = serializers.DateTimeField()
 
     @extend_schema_field(AUTHOR_SCHEMA)
