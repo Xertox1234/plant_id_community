@@ -38,10 +38,15 @@ export interface UserProfile {
    * Optional: a backend on another deploy may not send them. */
   email_notifications?: boolean;
   forum_notifications?: boolean;
+  /** Off stops new email click and blog view records for this account
+   * (todo 701). Optional for the same deploy-skew reason. */
+  usage_records?: boolean;
 }
 
-/** The two account-wide notification master switches (todo 620). */
-export type MasterNotificationSwitch = 'email_notifications' | 'forum_notifications';
+/** The account-wide switches on the Settings page: the two notification
+ * master switches (todo 620) and the usage-records switch (todo 701). */
+export type MasterNotificationSwitch =
+  'email_notifications' | 'forum_notifications' | 'usage_records';
 
 /**
  * The fields the web profile page may change via PATCH /api/v1/auth/user/update/.
@@ -97,6 +102,8 @@ export interface DashboardStats {
 export interface LoginCredentials {
   email: string;
   password: string;
+  /** Sent as true once the person ticks the box the server asked for (428). */
+  accepted_terms?: boolean;
 }
 
 /**
@@ -131,6 +138,8 @@ export enum AuthErrorCode {
   VALIDATION_ERROR = 'VALIDATION_ERROR',
   SESSION_EXPIRED = 'SESSION_EXPIRED',
   RATE_LIMITED = 'RATE_LIMITED',
+  /** The account must accept the current policy version before it gets a session. */
+  CONSENT_REQUIRED = 'CONSENT_REQUIRED',
   UNKNOWN = 'UNKNOWN',
 }
 

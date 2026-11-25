@@ -48,6 +48,10 @@ class UserProfile {
   /// Enable forum notifications
   final bool forumNotifications;
 
+  /// Record which email links this person opens and which blog posts
+  /// they read (todo 701). Off stops both
+  final bool usageRecords;
+
   /// Number of followers (read-only)
   final int followerCount;
 
@@ -88,6 +92,7 @@ class UserProfile {
     this.emailNotifications = true,
     this.plantIdNotifications = true,
     this.forumNotifications = true,
+    this.usageRecords = true,
     this.followerCount = 0,
     this.followingCount = 0,
     this.plantsIdentified = 0,
@@ -115,6 +120,7 @@ class UserProfile {
     bool? emailNotifications,
     bool? plantIdNotifications,
     bool? forumNotifications,
+    bool? usageRecords,
     int? followerCount,
     int? followingCount,
     int? plantsIdentified,
@@ -140,6 +146,7 @@ class UserProfile {
       emailNotifications: emailNotifications ?? this.emailNotifications,
       plantIdNotifications: plantIdNotifications ?? this.plantIdNotifications,
       forumNotifications: forumNotifications ?? this.forumNotifications,
+      usageRecords: usageRecords ?? this.usageRecords,
       followerCount: followerCount ?? this.followerCount,
       followingCount: followingCount ?? this.followingCount,
       plantsIdentified: plantsIdentified ?? this.plantsIdentified,
@@ -173,6 +180,7 @@ class UserProfile {
       emailNotifications: json['email_notifications'] as bool? ?? true,
       plantIdNotifications: json['plant_id_notifications'] as bool? ?? true,
       forumNotifications: json['forum_notifications'] as bool? ?? true,
+      usageRecords: json['usage_records'] as bool? ?? true,
       followerCount: json['follower_count'] as int? ?? 0,
       followingCount: json['following_count'] as int? ?? 0,
       plantsIdentified: json['plants_identified'] as int? ?? 0,
@@ -201,6 +209,7 @@ class UserProfile {
       'email_notifications': emailNotifications,
       'plant_id_notifications': plantIdNotifications,
       'forum_notifications': forumNotifications,
+      'usage_records': usageRecords,
     };
   }
 
@@ -252,6 +261,7 @@ class UserProfile {
         other.emailNotifications == emailNotifications &&
         other.plantIdNotifications == plantIdNotifications &&
         other.forumNotifications == forumNotifications &&
+        other.usageRecords == usageRecords &&
         other.followerCount == followerCount &&
         other.followingCount == followingCount &&
         other.plantsIdentified == plantsIdentified &&
@@ -279,6 +289,7 @@ class UserProfile {
     emailNotifications,
     plantIdNotifications,
     forumNotifications,
+    usageRecords,
     followerCount,
     followingCount,
     plantsIdentified,

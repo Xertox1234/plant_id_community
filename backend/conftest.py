@@ -172,3 +172,33 @@ def verified_accounts():
     post_save.connect(verify, sender=get_user_model(), weak=False)
     yield
     post_save.disconnect(verify, sender=get_user_model())
+
+
+# --- Package tests: plain session authentication (todo 701) ---------------
+#
+# Not in a ``packages/conftest.py``: under rootdir imports a second module named
+# ``conftest`` shadows this one, and ``test_env_integrity`` imports from it.
+#
+# The host's API session authenticator ignores a session whose account has not
+# accepted the current policy version, and a ``wagtail_forum`` test user is
+# created bare, with no version. Those tests sign in with real sessions (a
+# forum unlock lives in one) and the package must not import ``apps.*``
+# (``test_reusability.py``), so for them the authenticator is the plain DRF
+# one. The gate itself is tested by the host in
+# ``apps/users/tests/test_policy_session_paths.py``.
+
+_PACKAGES = _BACKEND / "packages"
+
+
+@pytest.fixture(autouse=True)
+def _plain_session_authentication_for_package_tests(request, monkeypatch):
+    if _PACKAGES not in Path(str(request.node.path)).parents:
+        return
+    from apps.users.authentication import PolicyCheckedSessionAuthentication
+    from rest_framework.authentication import SessionAuthentication
+
+    monkeypatch.setattr(
+        PolicyCheckedSessionAuthentication,
+        "authenticate",
+        SessionAuthentication.authenticate,
+    )

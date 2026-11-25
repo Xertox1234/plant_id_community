@@ -165,6 +165,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "forum_notifications",
             # Care-task push opt-out read by the reminder sweep (todo 410).
             "care_reminder_notifications",
+            # Off stops new email click and blog view records (todo 701).
+            "usage_records",
             "follower_count",
             "following_count",
             "plants_identified",

@@ -71,6 +71,7 @@ class _ThrottledUserProfileService extends UserProfileService {
     bool? emailNotifications,
     bool? plantIdNotifications,
     bool? forumNotifications,
+    bool? usageRecords,
   }) async {
     updates++;
     throw UserProfileException(

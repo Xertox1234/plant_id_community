@@ -9,6 +9,7 @@ from unittest.mock import patch
 from apps.users.constants import (
     ACCOUNT_DISABLED_CODE,
     FIREBASE_ALLOWED_SIGN_IN_PROVIDERS,
+    LEGAL_POLICY_VERSION,
 )
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -89,6 +90,7 @@ class InactiveUserExchangeTest(TestCase):
         self.client = APIClient()
         self.url = reverse("v1:users:firebase_token_exchange")
         self.user = User.objects.create_user(
+            policy_version_accepted=LEGAL_POLICY_VERSION,
             username="banned",
             email="banned@example.com",
             password="unused-Pa55word!",  # pragma: allowlist secret

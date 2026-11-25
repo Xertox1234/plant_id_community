@@ -19,6 +19,7 @@ from allauth.core import context
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from allauth.socialaccount.helpers import complete_social_login
 from allauth.socialaccount.models import SocialAccount, SocialLogin
+from apps.users.constants import LEGAL_POLICY_VERSION
 from apps.users.email_verification import (
     VERIFY_SALT,
     is_email_verified,
@@ -143,7 +144,12 @@ class AllauthSocialSignupConsentTest(TestCase):
         self.assertFalse(request.user.is_authenticated)
 
     def test_new_identity_for_an_existing_verified_user_connects_and_logs_in(self):
-        user = User.objects.create_user("owner", "owner@example.com", PASSWORD)
+        user = User.objects.create_user(
+            "owner",
+            "owner@example.com",
+            PASSWORD,
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+        )
         mark_email_verified(user)
         request = _social_request()
 
@@ -181,7 +187,12 @@ class SocialLoginRedirectTest(TestCase):
         self.assertNotIn("get_login_redirect_url", vars(CustomSocialAccountAdapter))
 
     def test_complete_social_login_redirects_to_the_account_adapters_url(self):
-        user = User.objects.create_user("social", "social@example.com", PASSWORD)
+        user = User.objects.create_user(
+            "social",
+            "social@example.com",
+            PASSWORD,
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+        )
         mark_email_verified(user)
         SocialAccount.objects.create(user=user, provider="google", uid="g-social")
         request = RequestFactory().get("/accounts/google/login/callback/")
@@ -288,7 +299,12 @@ class AllauthEmailManagementTest(TestCase):
         cache.clear()
 
     def test_verified_account_cannot_move_its_email(self):
-        user = User.objects.create_user("owner", "owner@example.com", PASSWORD)
+        user = User.objects.create_user(
+            "owner",
+            "owner@example.com",
+            PASSWORD,
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+        )
         mark_email_verified(user)
         client = Client()
         client.post("/accounts/login/", {"login": "owner", "password": PASSWORD})

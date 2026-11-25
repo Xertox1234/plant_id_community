@@ -8,6 +8,27 @@ import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/user_profile_service.dart';
 
 void main() {
+  // Todo 701: the switch for email click and blog view records.
+  group('usage_records', () {
+    const base = <String, dynamic>{
+      'id': 1,
+      'username': 'u',
+      'email': 'u@example.com',
+      'date_joined': '2026-01-01T00:00:00Z',
+    };
+
+    test('defaults to on when the server does not send it', () {
+      expect(UserProfile.fromJson(base).usageRecords, isTrue);
+    });
+
+    test('reads off, and writes it back', () {
+      final profile = UserProfile.fromJson({...base, 'usage_records': false});
+      expect(profile.usageRecords, isFalse);
+      expect(profile.toJson()['usage_records'], isFalse);
+      expect(profile.copyWith(usageRecords: true).usageRecords, isTrue);
+    });
+  });
+
   group('UserProfile Model', () {
     test('fromJson creates UserProfile correctly', () {
       // Create test JSON data matching Django backend response

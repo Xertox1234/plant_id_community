@@ -34,6 +34,11 @@ class JWTAuthMiddleware(BaseMiddleware):
             user = await self._user_for(raw)
             if user is not None:
                 scope = dict(scope, user=user)
+        if user is None and "user" in scope:
+            # A session sign-in, kept only if its account is on the current
+            # policy version, as the API's session authentication does
+            # (todo 701).
+            scope = dict(scope, user=await self._session_user(scope["user"]))
         logger.debug(
             "[AUTH] WS auth source=%s user_id=%s",
             source,
@@ -52,6 +57,15 @@ class JWTAuthMiddleware(BaseMiddleware):
         if token:
             return "cookie", token
         return "none", None
+
+    @database_sync_to_async
+    def _session_user(self, user):
+        from apps.users.consent import needs_policy_acceptance
+        from django.contrib.auth.models import AnonymousUser
+
+        if user.is_authenticated and needs_policy_acceptance(user):
+            return AnonymousUser()
+        return user
 
     @database_sync_to_async
     def _user_for(self, raw: str):

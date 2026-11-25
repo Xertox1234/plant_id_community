@@ -25,9 +25,9 @@ vi.mock('react-router-dom', async () => {
 
 import { OAuthFinishError } from '../../services/authService';
 
-function renderPage() {
+function renderPage(entry = '/signup/finish') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[entry]}>
       <FinishSignupPage />
     </MemoryRouter>
   );
@@ -107,5 +107,19 @@ describe('FinishSignupPage', () => {
     tick();
     finish();
     expect(await screen.findByText(/too many attempts/i)).toBeInTheDocument();
+  });
+
+  // Todo 701: an existing account parked here to accept a changed policy.
+  it('words the page as a policy update when the server says so', async () => {
+    mockFinish.mockResolvedValue(undefined);
+    mockRefreshUser.mockResolvedValue({ id: 1 });
+    renderPage('/signup/finish?reason=policy_updated');
+
+    expect(screen.getByRole('heading', { name: 'Our policies have changed' })).toBeInTheDocument();
+    expect(screen.queryByText(/finish creating your account/)).not.toBeInTheDocument();
+    tick();
+    fireEvent.click(screen.getByRole('button', { name: 'Accept and continue' }));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true }));
   });
 });

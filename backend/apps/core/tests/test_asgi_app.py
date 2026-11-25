@@ -226,11 +226,30 @@ def test_invalid_token_is_anonymous(django_user_model):
 def test_session_user_survives_without_token(client, django_user_model):
     """The session stack runs OUTSIDE the JWT middleware, so a session-only
     socket keeps its user (the old order always overwrote it)."""
-    user = _make_user(django_user_model, "ws-session")
+    from apps.users.constants import LEGAL_POLICY_VERSION
+
+    user = _make_user(
+        django_user_model, "ws-session", policy_version_accepted=LEGAL_POLICY_VERSION
+    )
+    assert async_to_sync(ws_echo_user)(_session_cookie(client, user)) == user.pk
+
+
+@pytest.mark.django_db
+def test_session_user_on_an_older_policy_version_is_anonymous(
+    client, django_user_model
+):
+    """Todo 701: a session sign-in counts only for an account on the current
+    policy version, as in the API's session authentication."""
+    user = _make_user(
+        django_user_model, "ws-session-old", policy_version_accepted="2026-11-06"
+    )
+    assert async_to_sync(ws_echo_user)(_session_cookie(client, user)) is None
+
+
+def _session_cookie(client, user):
     client.force_login(user)
     sessionid = client.cookies[settings.SESSION_COOKIE_NAME].value
-    cookie = f"{settings.SESSION_COOKIE_NAME}={sessionid}".encode()
-    assert async_to_sync(ws_echo_user)([(b"cookie", cookie)]) == user.pk
+    return [(b"cookie", f"{settings.SESSION_COOKIE_NAME}={sessionid}".encode())]
 
 
 def _origin(value):

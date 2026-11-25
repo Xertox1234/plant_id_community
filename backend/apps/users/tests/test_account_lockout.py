@@ -15,6 +15,7 @@ from unittest.mock import patch
 from apps.core.constants import ACCOUNT_LOCKOUT_DURATION, ACCOUNT_LOCKOUT_THRESHOLD
 from apps.core.security import SecurityMonitor
 from apps.core.utils.pii_safe_logging import log_safe_ip, log_safe_username
+from apps.users.constants import LEGAL_POLICY_VERSION
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.cache import cache
@@ -380,7 +381,10 @@ class AccountLockoutIntegrationTestCase(TestCase):
         """Set up test fixtures."""
         self.client = APIClient()
         self.user = User.objects.create_user(
-            username="testuser", email="test@example.com", password="TestPassword123!"
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            username="testuser",
+            email="test@example.com",
+            password="TestPassword123!",
         )
         cache.clear()
 

@@ -51,6 +51,12 @@ class AuthState {
   /// [copyWith], like the flags above.
   final bool consentRequired;
 
+  /// True with [consentRequired] when the 428 was `policy_update_required`:
+  /// the account exists and must accept a changed Privacy Policy and Terms.
+  /// The sheet words it as an update, and declining signs out without
+  /// deleting anything.
+  final bool policyUpdate;
+
   const AuthState({
     this.firebaseUser,
     this.jwtToken,
@@ -59,6 +65,7 @@ class AuthState {
     this.unverifiedAccountConflict = false,
     this.emailVerificationRequired = false,
     this.consentRequired = false,
+    this.policyUpdate = false,
   });
 
   bool get isAuthenticated => jwtToken != null;
@@ -298,6 +305,10 @@ class AuthService extends _$AuthService {
   /// user's Firebase account is deleted by [declineTerms]: the signed-in user
   /// may have changed since the sheet opened.
   String? _consentRefusedUid;
+
+  /// Whether that refusal was `policy_update_required`: an existing account,
+  /// whose Firebase login [declineTerms] must never delete.
+  bool _consentRefusedIsUpdate = false;
 
   /// [acceptTermsAndRetry] is running: a second tap sends nothing.
   bool _consentRetryInFlight = false;
@@ -1201,8 +1212,14 @@ class AuthService extends _$AuthService {
           e.statusCode == 403 && !e.unstructured && !blocked;
       // A new account without consent: the root's sheet asks for it, so no
       // error SnackBar goes under it.
-      final consent = _isConsentRefusal(e);
-      if (consent) _consentRefusedUid = user.uid;
+      // An existing account asked to accept a changed policy opens the same
+      // sheet, worded as an update.
+      final policyUpdate = _isPolicyUpdateRefusal(e);
+      final consent = _isConsentRefusal(e) || policyUpdate;
+      if (consent) {
+        _consentRefusedUid = user.uid;
+        _consentRefusedIsUpdate = policyUpdate;
+      }
       state = AuthState(
         firebaseUser: _firebaseAuth.currentUser,
         error: consent
@@ -1219,6 +1236,7 @@ class AuthService extends _$AuthService {
         unverifiedAccountConflict: unverified,
         emailVerificationRequired: emailUnverified,
         consentRequired: consent,
+        policyUpdate: policyUpdate,
       );
     } catch (e) {
       if (!_isCurrentExchange(user, exchangeGeneration)) {
@@ -1399,12 +1417,18 @@ class AuthService extends _$AuthService {
       if (e.statusCode == 409) {
         await _surfaceAccountConflict(user, generation, e);
       }
-      if (_isConsentRefusal(e)) {
+      final policyUpdate = _isPolicyUpdateRefusal(e);
+      if (_isConsentRefusal(e) || policyUpdate) {
         // As for a 409: stay signed in to Firebase, and let the root's
         // consent sheet ask. Transient for the request that asked.
         if (await _clearJWTWhileCurrent(user, generation)) {
           _consentRefusedUid = user.uid;
-          state = AuthState(firebaseUser: user, consentRequired: true);
+          _consentRefusedIsUpdate = policyUpdate;
+          state = AuthState(
+            firebaseUser: user,
+            consentRequired: true,
+            policyUpdate: policyUpdate,
+          );
         }
       }
       rethrow;
@@ -1477,10 +1501,16 @@ class AuthService extends _$AuthService {
     unverifiedAccountConflict: s.unverifiedAccountConflict,
     emailVerificationRequired: s.emailVerificationRequired,
     consentRequired: s.consentRequired,
+    policyUpdate: s.policyUpdate,
   );
 
   static bool _isConsentRefusal(ApiException e) =>
       e.statusCode == 428 && e.code == 'consent_required';
+
+  /// The 428 for an account that exists and has not accepted the current
+  /// policy version. Its own code, so [declineTerms] can tell it apart.
+  static bool _isPolicyUpdateRefusal(ApiException e) =>
+      e.statusCode == 428 && e.code == 'policy_update_required';
 
   Future<void> _forgetAcceptedTerms() async {
     try {
@@ -1522,16 +1552,29 @@ class AuthService extends _$AuthService {
     // An exchange still in flight must not sign this user in after all.
     _authGeneration++;
     final refusedUid = _consentRefusedUid;
+    final existingAccount = _consentRefusedIsUpdate;
     _consentRefusedUid = null;
+    _consentRefusedIsUpdate = false;
     // Only the user the 428 was for: never delete some other signed-in one.
+    // And never an account that already exists: declining a changed policy
+    // signs out and keeps the login.
     final current = _firebaseAuth.currentUser;
-    if (current != null && refusedUid != null && current.uid == refusedUid) {
+    if (!existingAccount &&
+        current != null &&
+        refusedUid != null &&
+        current.uid == refusedUid) {
       await _deleteDeclinedUser(current);
     }
-    // The declined account is deleted (or left to the orphan prune), so its
-    // queued writes have nowhere to sync: the cache goes unflushed. Before
-    // the sign-out, which the listener's null branch may finish first.
-    _offlineCacheSafeToClear = true;
+    // Before the sign-out, which the listener's null branch may finish first.
+    if (existingAccount) {
+      // The account stays, so its queued writes must reach the server or
+      // keep the cache, as in signOut().
+      await _flushPendingWrites();
+    } else {
+      // The declined account is deleted (or left to the orphan prune), so
+      // its queued writes have nowhere to sync: the cache goes unflushed.
+      _offlineCacheSafeToClear = true;
+    }
     try {
       await _firebaseAuth.signOut();
     } catch (e) {

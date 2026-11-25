@@ -13,6 +13,7 @@ from datetime import timedelta
 from apps.users.authentication import issue_refresh_token
 from apps.users.constants import (
     ACCOUNT_DISABLED_CODE,
+    LEGAL_POLICY_VERSION,
     REFRESH_REUSE_GRACE_SECONDS,
     REFRESH_SESSION_MAX_AGE_SECONDS,
     REFRESH_SESSION_START_CLAIM,
@@ -44,6 +45,7 @@ class RefreshSessionTestBase(TestCase):
         cache.clear()  # the refresh endpoint is IP rate limited
         self.client = APIClient()
         self.user = User.objects.create_user(
+            policy_version_accepted=LEGAL_POLICY_VERSION,
             username="sessions",
             email="sessions@example.com",
             password="Sessions-Pa55word!",  # pragma: allowlist secret

@@ -23,3 +23,13 @@ class CookieJWTScheme(OpenApiAuthenticationExtension):
         # The JWT access token is sent in the httpOnly `access_token` cookie
         # (CookieJWTAuthentication falls back to an Authorization: Bearer header).
         return {"type": "apiKey", "in": "cookie", "name": "access_token"}
+
+
+class PolicyCheckedSessionScheme(OpenApiAuthenticationExtension):
+    # The session authenticator (todo 701) documents as the built-in session
+    # scheme: same `sessionid` cookie, same name, so no second component.
+    target_class = "apps.users.authentication.PolicyCheckedSessionAuthentication"
+    name = "cookieAuth"
+
+    def get_security_definition(self, auto_schema):
+        return {"type": "apiKey", "in": "cookie", "name": "sessionid"}

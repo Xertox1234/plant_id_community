@@ -10,6 +10,7 @@ middleware for a request that reaches this origin, and by the redirects API
 
 import pytest
 from apps.forum_host.redirects import board_topic_prefix, redirect_board_topics
+from apps.users.constants import LEGAL_POLICY_VERSION
 from django.db import connection
 from django.db.models import F
 from django.test.utils import CaptureQueriesContext
@@ -218,7 +219,12 @@ def test_find_is_404_for_a_topic_moved_to_a_forum_the_caller_cannot_read(client)
     assert _find(client, old_path).status_code == 404
 
     client.force_login(
-        get_user_model().objects.create_superuser("boss", "boss@example.org", "x" * 16)
+        get_user_model().objects.create_superuser(
+            "boss",
+            "boss@example.org",
+            "x" * 16,
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+        )
     )
     resp = _find(client, old_path)
     assert resp.status_code == 200
@@ -262,7 +268,12 @@ def test_the_middleware_does_not_answer_with_a_path_the_caller_cannot_see(client
     assert "Location" not in resp
 
     client.force_login(
-        get_user_model().objects.create_superuser("boss", "boss@example.org", "x" * 16)
+        get_user_model().objects.create_superuser(
+            "boss",
+            "boss@example.org",
+            "x" * 16,
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+        )
     )
     resp = client.get(old_path + "/")
     assert (resp.status_code, resp["Location"]) == (301, topic.get_absolute_url())

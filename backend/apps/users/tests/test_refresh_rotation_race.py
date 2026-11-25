@@ -13,6 +13,7 @@ tabs, `refreshSession()` in web/src/services/authService.ts) makes B wait for
 A's response, so B sends the rotated cookie, which the last test shows works.
 """
 
+from apps.users.constants import LEGAL_POLICY_VERSION
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase
@@ -33,7 +34,10 @@ class RefreshRotationRaceTests(TestCase):
         cache.clear()
         self.client = APIClient(enforce_csrf_checks=True)
         User.objects.create_user(
-            username="racer", email="racer@example.com", password=PASSWORD
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            username="racer",
+            email="racer@example.com",
+            password=PASSWORD,
         )
         csrf = self.client.get("/api/v1/auth/csrf/").cookies["csrftoken"].value
         login = self.client.post(

@@ -28,6 +28,21 @@ import { isGoogleOAuthUrl, urlOrigin } from '../utils/oauthOrigin';
 // HTTPS in production is enforced where API_ORIGIN is defined (config/api.ts).
 
 /**
+ * The server refused a sign-in with 428 `policy_update_required`: this account has
+ * not accepted the current Privacy Policy and Terms. Sending the same
+ * credentials again with `accepted_terms: true` signs it in.
+ */
+export class PolicyConsentRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PolicyConsentRequiredError';
+  }
+}
+
+const POLICY_UPDATED_FALLBACK =
+  'The Privacy Policy and Terms of Service have changed. Please accept them to continue.';
+
+/**
  * Login user with email and password
  */
 export async function login(credentials: LoginCredentials): Promise<User> {
@@ -71,6 +86,12 @@ export async function login(credentials: LoginCredentials): Promise<User> {
           );
         }
         throw new Error(`Login failed with status ${response.status}`);
+      }
+
+      if (response.status === 428 && errorData.code === 'policy_update_required') {
+        throw new PolicyConsentRequiredError(
+          typeof errorData.error === 'string' ? errorData.error : POLICY_UPDATED_FALLBACK
+        );
       }
 
       logger.error('[authService] Login failed:', { status: response.status, error: errorData });
@@ -416,7 +437,9 @@ async function postRefresh(csrfRetried = false): Promise<RefreshOutcome> {
         }
         return 'unauthorized';
       }
-      return response.status === 400 || response.status === 401 ? 'unauthorized' : 'unavailable';
+      // 428: the account must accept a changed policy, which the sign-in page
+      // asks for. Ending the session sends the person there (todo 701).
+      return [400, 401, 428].includes(response.status) ? 'unauthorized' : 'unavailable';
     }
 
     // Token successfully refreshed (new tokens set in httpOnly cookies)

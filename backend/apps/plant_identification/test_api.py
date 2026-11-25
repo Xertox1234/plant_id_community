@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 from apps.plant_identification.models import PlantDiseaseRequest
+from apps.users.constants import LEGAL_POLICY_VERSION
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
@@ -106,7 +107,10 @@ class TestAPIAuthentication(APITestCase):
     def setUp(self):
         """Set up test data."""
         self.user = User.objects.create_user(
-            username="testuser", email="test@example.com", password="testpass123"
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            username="testuser",
+            email="test@example.com",
+            password="testpass123",
         )
 
     @pytest.mark.api

@@ -37,6 +37,7 @@ STRING (`apps/core/exceptions.py::_retry_after_seconds`, e.g. 15m -> 900), not
 from time remaining in the window, so it stays positive under a freeze.
 """
 
+from apps.users.constants import LEGAL_POLICY_VERSION
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase
@@ -57,7 +58,10 @@ class LoginRateLimitingTestCase(TestCase):
         """Set up test fixtures."""
         self.client = APIClient()
         self.user = User.objects.create_user(
-            username="testuser", email="test@example.com", password="TestPassword123!"
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            username="testuser",
+            email="test@example.com",
+            password="TestPassword123!",
         )
         # Clear cache before each test
         cache.clear()
@@ -290,7 +294,10 @@ class TokenRefreshRateLimitingTestCase(TestCase):
         """Set up test fixtures."""
         self.client = APIClient()
         self.user = User.objects.create_user(
-            username="testuser", email="test@example.com", password="TestPassword123!"
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            username="testuser",
+            email="test@example.com",
+            password="TestPassword123!",
         )
         cache.clear()
 

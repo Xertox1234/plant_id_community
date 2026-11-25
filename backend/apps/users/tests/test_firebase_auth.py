@@ -194,7 +194,10 @@ class FirebaseTokenExchangeTestCase(TestCase):
         """Test successful token exchange for an existing user."""
         # Create existing user
         existing_user = User.objects.create_user(
-            username="testuser", email="test@example.com", password="testpass123"
+            username="testuser",
+            email="test@example.com",
+            password="testpass123",
+            policy_version_accepted=LEGAL_POLICY_VERSION,
         )
         mark_email_verified(existing_user)  # it proved its email (todo 446)
 
@@ -561,6 +564,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         """Test that display name is updated for existing user if not set."""
         # Create user without first_name
         verified_local = User.objects.create_user(
+            policy_version_accepted=LEGAL_POLICY_VERSION,
             username="testuser",
             email="test@example.com",
             password="testpass123",
@@ -592,6 +596,7 @@ class FirebaseTokenExchangeTestCase(TestCase):
         """Test that existing display name is not overridden."""
         # Create user with first_name already set
         verified_local = User.objects.create_user(
+            policy_version_accepted=LEGAL_POLICY_VERSION,
             username="testuser",
             email="test@example.com",
             password="testpass123",
@@ -960,6 +965,7 @@ class FirebaseTrustedProviderTestCase(TestCase):
         and strand their forum history on the first.
         """
         existing = User.objects.create_user(
+            policy_version_accepted=LEGAL_POLICY_VERSION,
             username="webuser",
             email="webuser@example.com",
             password="unused-here",  # noqa: S106  # pragma: allowlist secret
@@ -1381,12 +1387,15 @@ class FirebaseExchangeConsentTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         user = User.objects.get(firebase_uid="consent-uid-1")
-        self.assertEqual(user.policy_version_accepted, "2026-11-10")
+        self.assertEqual(user.policy_version_accepted, "2026-11-25")
         self.assertIsNotNone(user.policy_accepted_at)
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
-    def test_existing_user_signs_in_without_flag(self, mock_verify):
+    def test_existing_user_on_the_current_version_signs_in_without_flag(
+        self, mock_verify
+    ):
         User.objects.create(
+            policy_version_accepted=LEGAL_POLICY_VERSION,
             username="existing1",
             email="consent@example.com",
             firebase_uid="consent-uid-1",
@@ -1396,12 +1405,13 @@ class FirebaseExchangeConsentTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         user = User.objects.get(firebase_uid="consent-uid-1")
-        self.assertIsNone(user.policy_version_accepted)
+        self.assertEqual(user.policy_version_accepted, LEGAL_POLICY_VERSION)
         self.assertIsNone(user.policy_accepted_at)
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
-    def test_existing_user_with_flag_is_not_restamped(self, mock_verify):
+    def test_existing_user_on_the_current_version_is_not_restamped(self, mock_verify):
         User.objects.create(
+            policy_version_accepted=LEGAL_POLICY_VERSION,
             username="existing2",
             email="consent@example.com",
             firebase_uid="consent-uid-1",
@@ -1411,13 +1421,17 @@ class FirebaseExchangeConsentTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         user = User.objects.get(firebase_uid="consent-uid-1")
-        self.assertIsNone(user.policy_version_accepted)
+        self.assertEqual(user.policy_version_accepted, LEGAL_POLICY_VERSION)
         self.assertIsNone(user.policy_accepted_at)
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_legacy_email_account_links_without_flag(self, mock_verify):
         """Linking an existing email account is not account creation."""
-        legacy = User.objects.create(username="legacy1", email="consent@example.com")
+        legacy = User.objects.create(
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            username="legacy1",
+            email="consent@example.com",
+        )
         mark_email_verified(legacy)
 
         response = self._post(mock_verify)
@@ -1425,7 +1439,7 @@ class FirebaseExchangeConsentTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         legacy.refresh_from_db()
         self.assertEqual(legacy.firebase_uid, "consent-uid-1")
-        self.assertIsNone(legacy.policy_version_accepted)
+        self.assertIsNone(legacy.policy_accepted_at)
 
     @patch("apps.users.firebase_auth_views.firebase_auth.verify_id_token")
     def test_unverified_email_still_403_before_consent(self, mock_verify):

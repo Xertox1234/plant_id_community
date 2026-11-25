@@ -104,6 +104,18 @@ const MASTER_SWITCHES: { field: MasterNotificationSwitch; label: string; detail:
     detail:
       'Off stops all forum push and forum email, the digest included. Your inbox on the site still shows everything.',
   },
+  {
+    field: 'usage_records',
+    label: 'Usage records',
+    detail:
+      'On, we record which links in our emails you open and which blog posts you read while signed in. Off stops both. Records already made are deleted after 90 days.',
+  },
+];
+
+/** The switches whose "off" holds back notification choices further down. */
+const NOTIFICATION_SWITCHES: MasterNotificationSwitch[] = [
+  'email_notifications',
+  'forum_notifications',
 ];
 
 /** The switch's stored value, or `undefined` when the backend did not send
@@ -211,7 +223,7 @@ export function AccountNotificationSwitchesSection() {
   const problem =
     loadError ??
     (profile !== null && switches.length === 0 ? 'Account switches are not available yet.' : null);
-  const anyOff = switches.some((s) => !s.value);
+  const anyOff = switches.some((s) => !s.value && NOTIFICATION_SWITCHES.includes(s.field));
 
   return (
     <section ref={sectionRef} className="p-screen">

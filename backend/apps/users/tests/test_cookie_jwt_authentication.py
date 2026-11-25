@@ -17,6 +17,7 @@ from apps.users.authentication import (
     clear_jwt_cookies,
     set_jwt_cookies,
 )
+from apps.users.constants import LEGAL_POLICY_VERSION
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -257,7 +258,10 @@ class LoginLogoutCookieFlowTestCase(TestCase):
         cache.clear()  # Prevent rate limiter state leaking from other test classes
         self.client = APIClient()
         self.user = User.objects.create_user(
-            username="testuser", email="test@example.com", password="TestPassword123!"
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            username="testuser",
+            email="test@example.com",
+            password="TestPassword123!",
         )
 
     def test_login_sets_cookies(self):
@@ -334,7 +338,10 @@ class CSRFProtectionTestCase(TestCase):
         cache.clear()  # Prevent rate limiter state leaking from other test classes
         self.client = APIClient(enforce_csrf_checks=True)
         self.user = User.objects.create_user(
-            username="testuser", email="test@example.com", password="TestPassword123!"
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            username="testuser",
+            email="test@example.com",
+            password="TestPassword123!",
         )
 
     def test_login_requires_csrf_token(self):

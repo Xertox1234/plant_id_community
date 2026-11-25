@@ -114,6 +114,7 @@ class UserProfileService extends _$UserProfileService {
     bool? emailNotifications,
     bool? plantIdNotifications,
     bool? forumNotifications,
+    bool? usageRecords,
   }) async {
     try {
       if (kDebugMode) {
@@ -140,6 +141,9 @@ class UserProfileService extends _$UserProfileService {
       }
       if (forumNotifications != null) {
         updateData['forum_notifications'] = forumNotifications;
+      }
+      if (usageRecords != null) {
+        updateData['usage_records'] = usageRecords;
       }
 
       final clears = _clears;

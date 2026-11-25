@@ -13,6 +13,7 @@ from apps.core.constants import (
     ADMIN_OTP_SETUP_PATH,
     ADMIN_OTP_VERIFY_PATH,
 )
+from apps.users.constants import LEGAL_POLICY_VERSION
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management import call_command
@@ -36,7 +37,10 @@ class AdminLoginThrottleTest(TestCase):
     def setUp(self):
         cache.clear()
         self.admin = User.objects.create_superuser(
-            username="boss", email="boss@example.com", password=PASSWORD
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            username="boss",
+            email="boss@example.com",
+            password=PASSWORD,
         )
 
     def _wrong(self, path):
@@ -91,7 +95,10 @@ class StaffSecondFactorTest(TestCase):
     def setUp(self):
         cache.clear()
         self.admin = User.objects.create_superuser(
-            username="boss", email="boss@example.com", password=PASSWORD
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            username="boss",
+            email="boss@example.com",
+            password=PASSWORD,
         )
 
     def _sign_in(self):
@@ -128,7 +135,10 @@ class StaffSecondFactorTest(TestCase):
 
     def test_a_non_staff_session_is_not_sent_to_enrol(self):
         member = User.objects.create_user(
-            username="member", email="member@example.com", password=PASSWORD
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            username="member",
+            email="member@example.com",
+            password=PASSWORD,
         )
         self.client.force_login(member)
         response = self.client.get("/cms/")
@@ -138,7 +148,10 @@ class StaffSecondFactorTest(TestCase):
         from django_otp.plugins.otp_totp.models import TOTPDevice
 
         member = User.objects.create_user(
-            username="member2", email="member2@example.com", password=PASSWORD
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            username="member2",
+            email="member2@example.com",
+            password=PASSWORD,
         )
         self.client.force_login(member)
         response = self.client.get(ADMIN_OTP_SETUP_PATH)
@@ -158,7 +171,10 @@ class StaffSecondFactorTest(TestCase):
             )
         )
         moderator = User.objects.create_user(
-            username="mod", email="mod@example.com", password=PASSWORD
+            policy_version_accepted=LEGAL_POLICY_VERSION,
+            username="mod",
+            email="mod@example.com",
+            password=PASSWORD,
         )
         moderator.groups.add(moderators)
         self.assertFalse(moderator.is_staff)

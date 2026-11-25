@@ -18,6 +18,7 @@ a clean state for testing.
 from argparse import ArgumentParser
 from typing import Any
 
+from apps.users.constants import LEGAL_POLICY_VERSION
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
@@ -66,6 +67,9 @@ class Command(BaseCommand):
             password=password,
             first_name=first_name,
             last_name=last_name,
+            # As a real sign-up would be: without it every login is refused
+            # with 428 policy_update_required (todo 701).
+            policy_version_accepted=LEGAL_POLICY_VERSION,
         )
 
         self.stdout.write(

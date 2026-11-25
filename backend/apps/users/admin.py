@@ -94,6 +94,7 @@ class UserAdmin(BaseUserAdmin):
                     "plant_id_notifications",
                     "forum_notifications",
                     "care_reminder_notifications",
+                    "usage_records",
                 )
             },
         ),
