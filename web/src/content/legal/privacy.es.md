@@ -1,4 +1,4 @@
-<!-- version: 2026-11-24 -->
+<!-- version: 2026-11-25 -->
 
 # Política de privacidad
 
@@ -366,6 +366,6 @@ vigor, le pediremos que la acepte antes de continuar.
 
 ## Fecha de entrada en vigor
 
-Esta versión entra en vigor el 2026-11-24.
+Esta versión entra en vigor el 2026-11-25.
 
 Consulte también nuestros [Términos de servicio](/terms).

@@ -1,4 +1,4 @@
-<!-- version: 2026-11-24 -->
+<!-- version: 2026-11-25 -->
 
 # Politique de confidentialité
 
@@ -303,6 +303,6 @@ continuer.
 
 ## Date d'entrée en vigueur
 
-Cette version entre en vigueur le 2026-11-24.
+Cette version entre en vigueur le 2026-11-25.
 
 Voir aussi nos [Conditions d'utilisation](/terms).

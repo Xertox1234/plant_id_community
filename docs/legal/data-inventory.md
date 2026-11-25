@@ -1,12 +1,12 @@
 # Data inventory
 
-<!-- version: 2026-11-24 -->
+<!-- version: 2026-11-25 -->
 
 This is the source of truth the Privacy Policy is written from
 (`web/src/content/legal/privacy.{en,fr,es}.md`). When the code changes what it
 collects, where it sends it or how long it keeps it, update this file first,
 then the three policy texts. Taken on 2026-11-06; brought level with policy
-version 2026-11-24 on 2026-11-24.
+version 2026-11-25 on 2026-11-25.
 
 ## What is collected
 

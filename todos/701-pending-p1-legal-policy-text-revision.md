@@ -238,6 +238,15 @@ per-person switch for email click records and blog view logging.
 - App: declining an update flushes the offline writes, as a sign-out does. A
   declined new account still drops them.
 
+### 2026-11-25 - Policy date, Android release sign-in
+
+- Policy version is now `2026-11-25`, the merge day.
+- Google sign-in failed in the release APK only: the resource shrinker removed
+  `default_web_client_id`, which google_sign_in_android reads by name. Kept with
+  `res/raw/keep.xml`; `aapt2 dump resources` shows the ID in the rebuilt APK.
+- The owner signed in on both phones with build 29, against the server as it was
+  before this merge.
+
 ## Notes
 
 P1 because consent is already being recorded against a draft. Not legal

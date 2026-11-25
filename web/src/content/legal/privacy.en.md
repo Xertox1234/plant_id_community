@@ -1,4 +1,4 @@
-<!-- version: 2026-11-24 -->
+<!-- version: 2026-11-25 -->
 
 # Privacy Policy
 
@@ -254,6 +254,6 @@ version takes effect, we ask you to accept it before you continue.
 
 ## Effective date
 
-This version takes effect on 2026-11-24.
+This version takes effect on 2026-11-25.
 
 See also our [Terms of Service](/terms).
