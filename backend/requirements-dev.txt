@@ -26,7 +26,7 @@ annotated-types==0.8.0
     # via
     #   -r requirements.txt
     #   pydantic
-anthropic==2.6.0
+anthropic==2.9.0
     # via
     #   -r requirements.txt
     #   any-llm-sdk
@@ -74,9 +74,9 @@ billiard==4.3.2
     #   celery
 bleach==6.4.0
     # via -r requirements.txt
-boto3==1.43.126
+boto3==1.44.4
     # via -r requirements.txt
-botocore==1.43.126
+botocore==1.44.10
     # via
     #   -r requirements.txt
     #   boto3
@@ -150,6 +150,7 @@ coverage==7.17.2
 cryptography==50.0.2
     # via
     #   -r requirements.txt
+    #   firebase-admin
     #   google-auth
     #   http-ece
     #   py-vapid
@@ -199,7 +200,7 @@ django-ai-core==0.1.7
     # via
     #   -r requirements.txt
     #   wagtail-ai
-django-allauth==65.21.1
+django-allauth==65.22.1
     # via -r requirements.txt
 django-appconf==1.2.0
     # via
@@ -291,7 +292,7 @@ executing==2.3.0
     # via stack-data
 factory-boy==3.3.3
     # via -r requirements-dev.in
-faker==40.44.0
+faker==40.54.0
     # via
     #   -r requirements-dev.in
     #   factory-boy
@@ -299,7 +300,7 @@ filetype==1.2.0
     # via
     #   -r requirements.txt
     #   willow
-firebase-admin==7.7.0
+firebase-admin==7.8.0
     # via -r requirements.txt
 freezegun==1.5.5
     # via -r requirements-dev.in
@@ -482,7 +483,7 @@ multidict==6.9.1
     #   -r requirements.txt
     #   aiohttp
     #   yarl
-mypy==2.4.0
+mypy==2.4.1
     # via -r requirements-dev.in
 mypy-extensions==1.2.0
     # via mypy
@@ -506,7 +507,7 @@ opentelemetry-api==1.45.2
     #   -r requirements.txt
     #   anthropic
     #   google-api-core
-packaging==25.0
+packaging==26.3
     # via
     #   -r requirements.txt
     #   build
@@ -593,7 +594,7 @@ pyasn1-modules==0.4.2
     #   google-auth
 pybreaker==1.4.1
     # via -r requirements.txt
-pycparser==2.23
+pycparser==3.11
     # via
     #   -r requirements.txt
     #   cffi
@@ -704,7 +705,7 @@ s3transfer==0.19.3
     # via
     #   -r requirements.txt
     #   boto3
-sentry-sdk==2.74.0
+sentry-sdk==2.75.0
     # via -r requirements.txt
 six==1.17.0
     # via

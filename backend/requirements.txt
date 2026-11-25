@@ -16,7 +16,7 @@ amqp==5.4.2
     # via kombu
 annotated-types==0.8.0
     # via pydantic
-anthropic==2.6.0
+anthropic==2.9.0
     # via
     #   -r requirements.in
     #   any-llm-sdk
@@ -49,9 +49,9 @@ billiard==4.3.2
     # via celery
 bleach==6.4.0
     # via -r requirements.in
-boto3==1.43.126
+boto3==1.44.4
     # via -r requirements.in
-botocore==1.43.126
+botocore==1.44.10
     # via
     #   boto3
     #   s3transfer
@@ -101,6 +101,7 @@ condense-json==1.1
     # via llm
 cryptography==50.0.2
     # via
+    #   firebase-admin
     #   google-auth
     #   http-ece
     #   py-vapid
@@ -145,7 +146,7 @@ django-ai-core==0.1.7
     # via
     #   -r requirements.in
     #   wagtail-ai
-django-allauth==65.21.1
+django-allauth==65.22.1
     # via -r requirements.in
 django-appconf==1.2.0
     # via django-imagekit
@@ -211,7 +212,7 @@ et-xmlfile==2.0.0
     # via openpyxl
 filetype==1.2.0
     # via willow
-firebase-admin==7.7.0
+firebase-admin==7.8.0
     # via -r requirements.in
 frozenlist==1.8.0
     # via
@@ -342,7 +343,7 @@ opentelemetry-api==1.45.2
     # via
     #   anthropic
     #   google-api-core
-packaging==25.0
+packaging==26.3
     # via django-csp
 pgvector==0.5.1
     # via -r requirements.in
@@ -389,7 +390,7 @@ pyasn1-modules==0.4.2
     # via google-auth
 pybreaker==1.4.1
     # via -r requirements.in
-pycparser==2.23
+pycparser==3.11
     # via cffi
 pydantic==2.14.3
     # via
@@ -465,7 +466,7 @@ rpds-py==2026.9.1
     #   referencing
 s3transfer==0.19.3
     # via boto3
-sentry-sdk==2.74.0
+sentry-sdk==2.75.0
     # via -r requirements.in
 six==1.17.0
     # via python-dateutil
