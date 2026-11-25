@@ -6,7 +6,7 @@ tags: [legal, privacy, policy, web, mobile]
 dependencies: []
 triage: blocked-owner
 blocked_on: operator details for the five blanks (owner, at launch)
-triaged: 2026-11-10
+triaged: 2026-11-25
 ---
 
 # Legal policy text: one revision closing the audit's policy findings
@@ -89,7 +89,8 @@ Source: `docs/audits/2026-11-10-auth-legal.md` (rows named below).
 - [x] The OpenAI and tracking sentences match what the code does (M12).
 - [x] `LEGAL_POLICY_VERSION` is bumped once and existing users are asked to
       accept the new version.
-- [ ] Each lawyer question above has a dated answer recorded in the Work Log.
+- [ ] Each legal question above has a dated owner decision recorded in the
+      Work Log (no lawyer, owner decision 2026-11-10).
 
 ## Work Log
 
@@ -246,6 +247,56 @@ per-person switch for email click records and blog view logging.
   `res/raw/keep.xml`; `aapt2 dump resources` shows the ID in the rebuilt APK.
 - The owner signed in on both phones with build 29, against the server as it was
   before this merge.
+
+### 2026-11-25 - Checked against main and the live site; minors' laws
+
+No policy text changed. The publish gate still exits 1: the five blanks and the
+DRAFT line are in all six documents.
+
+- **Website Sentry is on.** The 2026-11-12 entry is out of date: todo 716 set
+  `VITE_SENTRY_DSN`. The live bundle holds a DSN on `ingest.us.sentry.io`.
+- **Resend sourced.** Its docs: account data, email metadata, logs and API
+  records are stored in the United States whatever the sending region.
+- **Still not sourced:** OpenAI's default country, PlantNet's hosting, and R2
+  (the `WNAM` hint is best effort, not a guarantee). The policy already says
+  providers may process in other countries.
+- **Missing from the policy's provider list:** Google for website sign-in, and
+  the browser push services. Add both in the launch revision, so one version
+  bump covers them and the blanks.
+
+Owner decisions (2026-11-25): the minimum age stays 14 everywhere, with no 18+
+limit and the US included; the "under 18 needs a parent's permission" sentence
+comes out of the Terms (en, es, fr) in the launch revision; the store age
+signals are handled at launch.
+
+Read for ages 14 to 17 (a reading of the text, not legal advice):
+
+- No duty to collect a parent's permission found in COPPA (16 CFR 312.2,
+  312.5: under 13), PIPEDA s. 6.1 (no age; the OPC guidance says under 13),
+  Alberta PIPA s. 61(1)(b) (an under-18 who understands acts for themselves)
+  or Mexico's LFPDPPP (no mention of minors). Civil Code arts. 450, 635, 637
+  and 646: a minor's contract can be void, but only the minor or their
+  representative may claim that. Quebec P-39.1 s. 4.1 (under 14) is still from
+  the law-firm summary; Légis Québec refused the fetch again.
+- Mississippi HB 1126 (Act read) and Tenn. Code 47-18-5702 and 5703 (read in
+  the Sixth Circuit opinion of 2026-08-28) cover services with accounts and
+  posts, whatever the topic: an age check and a parent's consent under 18.
+  Mississippi has no size exemption; the full Tennessee definition was not
+  read. The Fifth Circuit vacated the Mississippi injunction on 2026-11-19;
+  the Sixth Circuit sent Tennessee's back.
+- Texas SB 2420 (Act read; reported enforceable while on appeal): the store
+  collects the consent; a developer checks the store's signal, rates the app
+  and reports significant changes. Reported to follow: Alabama and California
+  (Jan 2027), Utah (May 2027), Louisiana (July 2027).
+
+To do before launch: re-check these laws and the ones not read (Florida,
+Virginia, Georgia, Nebraska, Utah, Louisiana, Alabama, California); build the
+Apple Declared Age Range and Google Play Age Signals checks; then the owner
+decides on Mississippi and Tennessee (smallest fix seen: no forum, messages or
+public profile there, to be checked against both laws).
+
+Still open for the owner: the five blanks, the liability sentence, M16 (one
+English checkbox), the trade-name filing.
 
 ## Notes
 
