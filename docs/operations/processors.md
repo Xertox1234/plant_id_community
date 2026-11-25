@@ -129,6 +129,10 @@ Read on 2026-11-10.
 - Sentry retention periods:
   <https://docs.sentry.io/security-legal-pii/security/data-retention-periods/>;
   security page: <https://sentry.io/security>
+- Resend, regions (read 2026-11-25):
+  <https://resend.com/docs/dashboard/domains/regions>
+- Cloudflare R2, data location (read 2026-11-25):
+  <https://developers.cloudflare.com/r2/reference/data-location/>
 - Resend, message content storage:
   <https://resend.com/docs/knowledge-base/how-do-i-ensure-sensitive-data-isnt-stored-on-resend>
 
@@ -137,7 +141,9 @@ Read on 2026-11-10.
 - Agreement (data-processing terms) link for each processor: not collected.
 - Storage region, read 2026-11-11: Sentry ingests at `ingest.us.sentry.io`
   (United States); both R2 buckets are `WNAM` (western North America) with
-  jurisdiction `default`; Railway `us-west2`; Firestore `nam5`. Still not
-  sourced: Resend's sending region (a dashboard setting) and whether OpenAI
-  processes outside the United States.
+  jurisdiction `default`; Railway `us-west2`; Firestore `nam5`. Read
+  2026-11-25: Resend stores account data, email metadata, logs and API records
+  in the United States whatever the sending region; the R2 `WNAM` hint is best
+  effort, not a guarantee. Still not sourced: PlantNet's hosting country and
+  whether OpenAI processes outside the United States.
 - Every "unsourced" cell above.
