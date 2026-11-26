@@ -84,15 +84,20 @@ bool _italicIsRepresentable(dom.Element em) {
 /// character of any line (which [generateForumRichHtml] would otherwise
 /// treat as a list prefix). The backslash itself is escaped first so a
 /// character escaped by this pass is never re-escaped by a later one.
-String escapeMarkerChars(String text) {
+///
+/// Pass [atLineStart] `false` for text that continues a line — after other
+/// text or a mark, inside a mark, or inside a list item. Its leading `-` is
+/// then left alone: the generator only reads a `\-` at a real line start,
+/// so escaping one mid-line would leave a literal backslash (audit F23).
+String escapeMarkerChars(String text, {bool atLineStart = true}) {
   final backslashed = text.replaceAll('\\', '\\\\');
   final markersEscaped = backslashed.replaceAllMapped(
     RegExp(r'[*_`\[]'),
     (m) => '\\${m[0]}',
   );
   return markersEscaped.replaceAllMapped(
-    RegExp(r'^-', multiLine: true),
-    (m) => '\\-',
+    RegExp(atLineStart ? r'(^|\n)-' : r'(\n)-'),
+    (m) => '${m[1]}\\-',
   );
 }
 
@@ -264,7 +269,7 @@ String? _renderLineMarkup(List<dom.Node> nodes) {
   final buffer = StringBuffer();
   for (final node in nodes) {
     if (node is dom.Text) {
-      buffer.write(escapeMarkerChars(node.text));
+      buffer.write(escapeMarkerChars(node.text, atLineStart: false));
       continue;
     }
     if (node is! dom.Element) return null;
@@ -272,17 +277,17 @@ String? _renderLineMarkup(List<dom.Node> nodes) {
       case 'strong':
         final text = _plainTextOnly(node);
         if (text == null || text.isEmpty) return null;
-        buffer.write('**${escapeMarkerChars(text)}**');
+        buffer.write('**${escapeMarkerChars(text, atLineStart: false)}**');
       case 'em':
         final text = _plainTextOnly(node);
         if (text == null || text.isEmpty || !_italicIsRepresentable(node)) {
           return null;
         }
-        buffer.write('_${escapeMarkerChars(text)}_');
+        buffer.write('_${escapeMarkerChars(text, atLineStart: false)}_');
       case 'code':
         final text = _plainTextOnly(node);
         if (text == null || text.isEmpty || text.contains('`')) return null;
-        buffer.write('`${escapeMarkerChars(text)}`');
+        buffer.write('`${escapeMarkerChars(text, atLineStart: false)}`');
       case 'a':
         final text = _plainTextOnly(node);
         if (text == null || text.isEmpty) return null;
@@ -300,7 +305,7 @@ String? _renderLineMarkup(List<dom.Node> nodes) {
             (href.contains(')') && !_balancedHrefRe.hasMatch(href))) {
           return null;
         }
-        buffer.write('[${escapeMarkerChars(text)}]($href)');
+        buffer.write('[${escapeMarkerChars(text, atLineStart: false)}]($href)');
       default:
         return null;
     }
@@ -327,7 +332,7 @@ String? parseForumRichHtmlToMarkup(String html) {
 
   for (final node in nodes) {
     if (node is dom.Text) {
-      buffer.write(escapeMarkerChars(node.text));
+      buffer.write(escapeMarkerChars(node.text, atLineStart: buffer.isEmpty));
       justClosedList = false;
       continue;
     }

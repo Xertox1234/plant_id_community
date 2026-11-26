@@ -145,6 +145,28 @@ void main() {
     });
   });
 
+  group('a "-" that is not at a line start round-trips without a '
+      'backslash (F23)', () {
+    for (final html in const [
+      '<strong>a</strong>-b',
+      '<strong>-5</strong> degrees',
+      'x <em>-y</em> z',
+      '<code>-v</code>',
+      '<a href="https://example.com">-link</a>',
+      '<ul><li>-x</li><li><strong>b</strong>-c</li></ul>',
+    ]) {
+      test(html, () {
+        final markup = parseForumRichHtmlToMarkup(html)!;
+        expect(generateForumRichHtml(markup), html);
+      });
+    }
+
+    test('a "-" at a real line start is still escaped', () {
+      expect(parseForumRichHtmlToMarkup('a<br>- b'), 'a\n\\- b');
+      expect(generateForumRichHtml('a\n\\- b'), 'a<br>- b');
+    });
+  });
+
   group('parseForumRichHtmlToMarkup — success', () {
     test('bold', () {
       expect(

@@ -71,9 +71,17 @@ TextEditingValue insertMention(
 /// the keyboard is up — a popup anchored below a multi-line field would sit
 /// under the keyboard.
 class ForumMentionSuggestions extends ConsumerStatefulWidget {
-  const ForumMentionSuggestions({super.key, required this.controller});
+  const ForumMentionSuggestions({
+    super.key,
+    required this.controller,
+    this.enabled = true,
+  });
 
   final TextEditingController controller;
+
+  /// False makes the suggestions untappable (the composer, while a submit
+  /// is in flight).
+  final bool enabled;
 
   @override
   ConsumerState<ForumMentionSuggestions> createState() =>
@@ -147,7 +155,8 @@ class _ForumMentionSuggestionsState
                   subtitle: user.displayName != user.username
                       ? Text(user.displayName)
                       : null,
-                  onTap: () => _insert(user),
+                  enabled: widget.enabled,
+                  onTap: widget.enabled ? () => _insert(user) : null,
                 ),
             ],
           ),

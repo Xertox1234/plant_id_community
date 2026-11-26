@@ -88,6 +88,24 @@ void main() {
       expect(row.isUnread, isFalse);
     });
 
+    test('a topic detail parses tags, and a row built from it keeps them '
+        '(F140)', () {
+      final detail = ForumTopicDetail.fromJson({
+        'id': 7,
+        'tags': ['Monstera', 'root rot', ''],
+      });
+      expect(detail.tags, ['Monstera', 'root rot']);
+      expect(detail.copyWith(isBookmarked: true).tags, [
+        'Monstera',
+        'root rot',
+      ]);
+      expect(ForumTopicListItem.fromDetail(detail).tags, [
+        'Monstera',
+        'root rot',
+      ]);
+      expect(ForumTopicDetail.fromJson({'id': 8}).tags, isEmpty);
+    });
+
     test('a list row parses is_solved', () {
       expect(
         ForumTopicListItem.fromJson({'id': 1, 'is_solved': true}).isSolved,
