@@ -489,10 +489,12 @@ def erase_topic(topic: Topic) -> None:
     redirect that spells out one of the topic's slugs.
 
     Poll votes and option rows stay, so the counts other members made still
-    add up. The identification's photo is not touched here: the author's
-    uploads are swept in ``_erase_forum``. Idempotent.
+    add up. The identification's photo is unlinked and deleted unless
+    something else references it: on a hold's release the author is gone,
+    so ``_erase_forum``'s sweep of their uploads cannot reach it. Idempotent.
     """
     from apps.forum_host.redirects import delete_topic_redirects
+    from wagtail.images import get_image_model
     from wagtail_forum.models import (
         ForumIdentificationAttachment,
         Poll,
@@ -509,8 +511,15 @@ def erase_topic(topic: Topic) -> None:
         _retitle_topic(topic)
 
         topic.tags.clear()
-        ForumIdentificationAttachment.objects.filter(topic=topic).update(
-            provider="", candidates=[], identification_result_id=""
+        attachments = ForumIdentificationAttachment.objects.filter(topic=topic)
+        photo_ids = list(
+            attachments.filter(image__isnull=False).values_list("image_id", flat=True)
+        )
+        attachments.update(
+            provider="", candidates=[], identification_result_id="", image=None
+        )
+        _delete_unreferenced_images(
+            get_image_model().objects.filter(pk__in=photo_ids), clear_uploader=True
         )
         Poll.objects.filter(topic=topic).update(question=DELETED_POLL_QUESTION)
         options = list(
@@ -557,11 +566,19 @@ def _delete_unreferenced_images(images: QuerySet[Any], *, clear_uploader: bool) 
     default (no ``TASKS`` setting). A queued tasks backend would let the
     index lag behind a save, and this check could then delete an image that
     a just-saved object references.
+
+    An identification attachment's photo counts as a reference too: the
+    ReferenceIndex does not track that FK, and a held topic may share the
+    photo with a topic or post erased first (audit 2026-11-24 F311).
     """
     from wagtail.models import ReferenceIndex
+    from wagtail_forum.models import ForumIdentificationAttachment
 
     for image in images:
-        if not ReferenceIndex.get_references_to(image).exists():
+        if not (
+            ReferenceIndex.get_references_to(image).exists()
+            or ForumIdentificationAttachment.objects.filter(image=image).exists()
+        ):
             image.delete()
         elif clear_uploader and image.uploaded_by_user_id is not None:
             image.uploaded_by_user = None
@@ -668,6 +685,9 @@ def _erase_forum(user: User, under_13: bool = False) -> None:
 
     for topic in Topic.objects.filter(author=user).order_by("pk"):
         if topic.posts.filter(is_opening_post=True, erase_after__isnull=False).exists():
+            # Its identification photo stays: the attachment still references
+            # it (see _delete_unreferenced_images); erase_topic deletes it on
+            # release.
             _retitle_topic(topic)
         else:
             erase_topic(topic)
