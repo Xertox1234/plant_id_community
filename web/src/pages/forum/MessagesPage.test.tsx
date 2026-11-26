@@ -365,11 +365,15 @@ describe('MessagesPage groups (todo 350)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create group' }));
 
     expect(messageService.createGroupConversation).toHaveBeenCalledTimes(1);
-    expect(messageService.createGroupConversation).toHaveBeenCalledWith({
-      title: 'Seed swap committee',
-      usernames: ['ada', 'grace'],
-      body: 'hello all',
-    });
+    expect(messageService.createGroupConversation).toHaveBeenCalledWith(
+      {
+        title: 'Seed swap committee',
+        usernames: ['ada', 'grace'],
+        body: 'hello all',
+      },
+      // The form's Idempotency-Key (NewGroupConversationForm.test.tsx covers its rules).
+      expect.any(String)
+    );
     expect(await screen.findByText('group page 12')).toBeInTheDocument();
   });
 

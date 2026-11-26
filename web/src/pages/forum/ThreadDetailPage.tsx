@@ -83,6 +83,7 @@ import type { Thread, Post } from '@/types';
 import type { LiveEvent, LiveToastSpec } from '@/types/forumLive';
 import type { JSONContent } from '@tiptap/react';
 import type { PaginatedResponse } from '@/types/forum';
+import { sortsAfter } from '../../utils/postOrder';
 
 const EDITOR_LOAD_ERROR = 'The editor could not be loaded. Check your connection and try again.';
 
@@ -680,7 +681,10 @@ export default function ThreadDetailPage() {
               }
               // The reader scrolled up while it loaded: offer, never pull
               // them down (final review #9).
-              if (!isAtBottom()) {
+              // Or it belongs above the end (a restored reply, audit F44):
+              // the pill's walk loads it in place and highlights it there.
+              const last = postsRef.current[postsRef.current.length - 1];
+              if (!isAtBottom() || (last && !sortsAfter(fresh, last))) {
                 offer();
                 return;
               }
@@ -746,7 +750,9 @@ export default function ThreadDetailPage() {
     if (requestTopicId == null) return;
     const openStatusSeq = liveStatusSeqRef.current;
     const shownBefore = threadRef.current;
-    const totalBefore = totalPostsRef.current;
+    // Replies waiting in the pill are on the server but not in totalPosts:
+    // counted here, or every reconnect while the pill shows walks every page.
+    const totalBefore = totalPostsRef.current + newReplyCountRef.current;
     void checkForNewReplies(requestTopicId, () => true).then((fresh) => {
       if (!fresh) return;
       setThread(fresh);
