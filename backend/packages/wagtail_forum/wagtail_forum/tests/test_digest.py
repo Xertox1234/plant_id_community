@@ -1594,3 +1594,29 @@ def test_a_dry_run_reports_the_held_members_and_writes_nothing():
     assert "would send=2" in summary and "held=1" in summary
     assert mail.outbox == []
     assert ForumProfile.objects.get(user=sleeper).last_digest_sent_at is None
+
+
+@pytest.mark.django_db
+def test_a_removed_reply_leaves_the_watched_count():
+    """A reply taken down after its notification was made no longer counts
+    (audit F66); a note with no post (a system note) still does."""
+    from wagtail_forum.models import Post
+
+    index = _index()
+    public = _board(index, "removed-reply")
+    me = User.objects.create_user(username="dg-removed-me")
+    friend = User.objects.create_user(username="dg-removed-friend")
+    topic = _topic(public, friend, "Watched removed")
+    kept = Post.objects.create(topic=topic, author=friend, live=True)
+    removed = Post.objects.create(topic=topic, author=friend, live=True)
+    for post in (kept, removed):
+        note = _reply_note(me, friend, topic)
+        Notification.objects.filter(pk=note.pk).update(post=post)
+    _reply_note(me, friend, topic)  # no post
+    Post.objects.filter(pk=removed.pk).update(live=False)
+
+    digest = build_digest(me, timezone.now() - timedelta(days=7))
+
+    assert [(t.title, t.new_replies) for t in digest.watched] == [
+        ("Watched removed", 2)
+    ]

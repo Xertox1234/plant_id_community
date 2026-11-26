@@ -175,6 +175,31 @@ def test_notification_list_excludes_restricted_board_topic():
     assert count_resp.data == {"count": 0}
 
 
+@pytest.mark.django_db
+def test_notification_list_excludes_a_removed_post():
+    """A reply taken down (or hidden by reports) after its notification was
+    made must leave the bell and its count (audit F66). A note with no post
+    is kept: the clause is NULL-safe."""
+    recipient = User.objects.create_user(username="recipient-f66")
+    actor = User.objects.create_user(username="actor-f66")
+    board = _board("general-f66")
+    topic, post = _topic_and_post(board, recipient, actor, slug="t-f66")
+    _notify(recipient, actor, topic, post)
+    Post.objects.filter(pk=post.pk).update(live=False)
+    no_post = Notification.objects.create(
+        recipient=recipient, actor=actor, verb=NotificationVerb.REPLY, topic=topic
+    )
+
+    client = APIClient()
+    client.force_authenticate(recipient)
+
+    list_resp = client.get("/forum/notifications/")
+    assert [row["id"] for row in list_resp.data["results"]] == [no_post.pk]
+
+    count_resp = client.get("/forum/notifications/unread-count/")
+    assert count_resp.data == {"count": 1}
+
+
 # ---- unread-count --------------------------------------------------------------
 
 

@@ -29,7 +29,7 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ImproperlyConfigured
 from django.core.mail import EmailMultiAlternatives
-from django.db.models import Count, Exists, Max, OuterRef
+from django.db.models import Count, Exists, Max, OuterRef, Q
 from django.template.loader import render_to_string
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext as _
@@ -178,6 +178,11 @@ def build_digest(user, since: datetime, profile: ForumProfile | None = None) -> 
         read_at__isnull=True,
         created_at__gte=since,
         topic__in=visible_topics,
+    ).filter(
+        # A reply taken down since no longer counts (audit F66). NULL-safe:
+        # a note without a post keeps counting.
+        Q(post__isnull=True)
+        | Q(post__live=True)
     )
     notes = _exclude_blocked_authors(notes, user, author_field="actor_id")
     # The FULL set of followed topics with unread replies is what trending

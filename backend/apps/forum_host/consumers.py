@@ -61,13 +61,16 @@ class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
     async def __call__(self, scope, receive, send):
         # disconnect() runs only on a websocket.disconnect message. A consumer
         # that exits any other way (a handler raising on a send to a client
-        # that just dropped) must not leave its re-check timer running.
+        # that just dropped, accept or group_add raising mid-connect) must not
+        # leave its re-check timer running, its group joined, or its cap
+        # slots held (audit F45). Every step is idempotent after disconnect().
         try:
             return await super().__call__(scope, receive, send)
         finally:
             recheck_task = getattr(self, "_recheck_task", None)
             if recheck_task is not None:
                 recheck_task.cancel()
+            await self._release_on_exit()
 
     async def connect(self):
         self.topic_id = int(self.scope["url_route"]["kwargs"]["topic_id"])
@@ -102,6 +105,7 @@ class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
         self._cancel_recheck()
         if self.group_name is not None:
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
+            self.group_name = None
             logger.info(
                 "[FORUM_LIVE] disconnect user=%s topic=%s code=%s",
                 self.user_id,
@@ -109,6 +113,24 @@ class TopicLiveConsumer(AsyncJsonWebsocketConsumer):
                 code,
             )
         await self._give_back_slots()
+
+    async def _release_on_exit(self) -> None:
+        """Leave the group and return the slots on any exit. getattr-safe:
+        connect() sets these, and it may never have run. Never raises, so a
+        cleanup failure cannot replace the consumer's own exception."""
+        try:
+            group_name = getattr(self, "group_name", None)
+            if group_name is not None:
+                self.group_name = None
+                await self.channel_layer.group_discard(group_name, self.channel_name)
+        except Exception as exc:
+            logger.warning(
+                "[FORUM_LIVE] group cleanup failed topic=%s: %s",
+                getattr(self, "topic_id", None),
+                type(exc).__name__,
+            )
+        if getattr(self, "_counted_keys", None):
+            await self._give_back_slots()
 
     async def receive_json(self, content, **kwargs):
         if isinstance(content, dict) and content.get("type") == "ping":
