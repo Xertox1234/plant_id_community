@@ -333,6 +333,17 @@ describe('ConversationPage (todo 339)', () => {
     expect(screen.queryByLabelText('Report reason')).not.toBeInTheDocument();
   });
 
+  it('caps the report detail at the API limit of 280 characters (F87)', async () => {
+    vi.mocked(messageService.fetchMessages).mockResolvedValue(
+      newestPage([makeMessage({ id: 5, body: 'rude thing' })])
+    );
+    renderPage();
+    await screen.findByText('rude thing');
+
+    await userEvent.click(screen.getByRole('button', { name: /report/i }));
+    expect(screen.getByLabelText('Details (optional)')).toHaveAttribute('maxLength', '280');
+  });
+
   it('a failed report keeps the form open and surfaces the reason', async () => {
     vi.mocked(messageService.fetchMessages).mockResolvedValue(newestPage([makeMessage({ id: 5 })]));
     vi.mocked(messageService.reportMessage).mockRejectedValue(

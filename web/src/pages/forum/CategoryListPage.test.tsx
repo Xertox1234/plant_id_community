@@ -899,6 +899,121 @@ describe('CategoryListPage', () => {
       await waitFor(() => expect(screen.queryByText('Unread posts')).not.toBeInTheDocument());
     });
 
+    it('refetches the boards when the signed-in identity changes in place, dropping the previous account’s unread markers (F63)', async () => {
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+      vi.mocked(forumService.fetchMyStats).mockResolvedValue(null as unknown as ForumMyStats);
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({ id: '1', name: 'Plants', forums: [ferns], has_unread: true }),
+      ]);
+
+      const { rerender } = renderCategoryListPage();
+      await screen.findByText('Unread posts');
+
+      // Account B has read everything.
+      const readFerns = { ...ferns, has_unread: false };
+      vi.mocked(forumService.fetchForumIndex).mockResolvedValue(indexPayload([readFerns]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({ id: '1', name: 'Plants', forums: [readFerns], has_unread: false }),
+      ]);
+      vi.mocked(useAuth).mockReturnValue({
+        user: { id: 2 },
+        isAuthenticated: true,
+      } as unknown as ReturnType<typeof useAuth>);
+      rerender(
+        <BrowserRouter>
+          <CategoryListPage />
+        </BrowserRouter>
+      );
+
+      await waitFor(() => expect(forumService.fetchForumIndex).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.queryByText('Unread posts')).not.toBeInTheDocument());
+    });
+
+    it('refetches the boards when the member signs out in place, dropping their unread markers (F63)', async () => {
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+      vi.mocked(forumService.fetchMyStats).mockResolvedValue(null as unknown as ForumMyStats);
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({ id: '1', name: 'Plants', forums: [ferns], has_unread: true }),
+      ]);
+
+      const { rerender } = renderCategoryListPage();
+      await screen.findByText('Unread posts');
+
+      // A tab-focus revalidation finds the session gone: the guest view has
+      // no unread markers.
+      const guestFerns = { ...ferns, has_unread: false };
+      vi.mocked(forumService.fetchForumIndex).mockResolvedValue(indexPayload([guestFerns]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({ id: '1', name: 'Plants', forums: [guestFerns], has_unread: false }),
+      ]);
+      vi.mocked(useAuth).mockReturnValue(mockAuth(false));
+      rerender(
+        <BrowserRouter>
+          <CategoryListPage />
+        </BrowserRouter>
+      );
+
+      await waitFor(() => expect(forumService.fetchForumIndex).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.queryByText('Unread posts')).not.toBeInTheDocument());
+    });
+
+    it('refetches the boards when a guest signs in, showing their unread markers (F63)', async () => {
+      vi.mocked(forumService.fetchMyStats).mockResolvedValue(null as unknown as ForumMyStats);
+      const guestFerns = { ...ferns, has_unread: false };
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([guestFerns]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({ id: '1', name: 'Plants', forums: [guestFerns], has_unread: false }),
+      ]);
+
+      const { rerender } = renderCategoryListPage();
+      await screen.findByRole('heading', { level: 4, name: 'Ferns' });
+      expect(screen.queryByText('Unread posts')).not.toBeInTheDocument();
+
+      vi.mocked(forumService.fetchForumIndex).mockResolvedValue(indexPayload([ferns]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({ id: '1', name: 'Plants', forums: [ferns], has_unread: true }),
+      ]);
+      vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+      rerender(
+        <BrowserRouter>
+          <CategoryListPage />
+        </BrowserRouter>
+      );
+
+      await waitFor(() => expect(forumService.fetchForumIndex).toHaveBeenCalledTimes(2));
+      await screen.findByText('Unread posts');
+    });
+
+    it('fetches the boards once on first mount while auth settles (F63)', async () => {
+      vi.mocked(forumService.fetchMyStats).mockResolvedValue(null as unknown as ForumMyStats);
+      vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns]));
+      vi.mocked(forumService.fetchCategories).mockResolvedValue([
+        createMockCategory({ id: '1', name: 'Plants', forums: [ferns], has_unread: true }),
+      ]);
+      const authAt = (user: { id: number } | null, isLoading: boolean) =>
+        ({ user, isAuthenticated: !!user, isLoading }) as unknown as ReturnType<typeof useAuth>;
+      // A fresh element per render: React skips re-rendering an identical one.
+      const page = () => (
+        <BrowserRouter>
+          <CategoryListPage />
+        </BrowserRouter>
+      );
+
+      // AuthProvider's sequence: nothing yet, then the stored user, then the
+      // backend confirms the same user.
+      vi.mocked(useAuth).mockReturnValue(authAt(null, true));
+      const { rerender } = render(page());
+      vi.mocked(useAuth).mockReturnValue(authAt({ id: 1 }, true));
+      rerender(page());
+      vi.mocked(useAuth).mockReturnValue(authAt({ id: 1 }, false));
+      rerender(page());
+      await screen.findByText('Unread posts');
+
+      expect(forumService.fetchForumIndex).toHaveBeenCalledTimes(1);
+    });
+
     it('offers no "Mark all read" to a guest', async () => {
       vi.spyOn(forumService, 'fetchForumIndex').mockResolvedValue(indexPayload([ferns]));
       vi.mocked(forumService.fetchCategories).mockResolvedValue([

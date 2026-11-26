@@ -124,8 +124,9 @@ describe('forumBody serialization', () => {
     ]);
     const quoted = fromHtml('<p>https://www.youtube.com/watch?v=1"onerror="x</p>');
     expect(quoted[0]?.type).toBe('paragraph');
+    // A clean one is a lone link paragraph, which the server embeds (F208).
     const good = fromHtml('<p>https://youtu.be/abc123</p>');
-    expect(good).toEqual([{ type: 'embed', value: 'https://youtu.be/abc123' }]);
+    expect(good).toEqual([{ type: 'paragraph', value: '<p>https://youtu.be/abc123</p>' }]);
   });
 
   it('docToBodyBlocks splits interleaved text and images into separate blocks', () => {
@@ -313,15 +314,19 @@ describe('forumBody quote blocks (audit M1)', () => {
 });
 
 describe('forumBody embed blocks (todo 344)', () => {
-  it('turns a paragraph that is only a YouTube or Vimeo link into an embed block', () => {
+  it('sends a paragraph that is only a YouTube or Vimeo link as its own link paragraph, never an embed block (F208)', () => {
+    // The server turns it into an embed when the host has embeds on (todo
+    // 421) and keeps the link when they are off; an `embed` block from the
+    // client would be refused with embeds off.
     const blocks = fromHtml(
       '<p>Watch this:</p><p>https://youtu.be/dQw4w9WgXcQ</p><p><a href="https://vimeo.com/148751763">https://vimeo.com/148751763</a></p>'
     );
     expect(blocks).toEqual([
       { type: 'paragraph', value: '<p>Watch this:</p>' },
-      { type: 'embed', value: 'https://youtu.be/dQw4w9WgXcQ' },
-      { type: 'embed', value: 'https://vimeo.com/148751763' },
+      { type: 'paragraph', value: '<p>https://youtu.be/dQw4w9WgXcQ</p>' },
+      { type: 'paragraph', value: expect.stringContaining('>https://vimeo.com/148751763</a></p>') },
     ]);
+    expect(blocks.some((block) => block.type === 'embed')).toBe(false);
   });
 
   it('leaves a video link written as code as code, as the server does (todo 448 item 10)', () => {
@@ -337,9 +342,9 @@ describe('forumBody embed blocks (todo 344)', () => {
     expect(blocks).toHaveLength(1);
   });
 
-  it('accepts a youtube.com/live share link as an embed, and drops a persisted non-http(s) embed url on re-edit', () => {
+  it('keeps a youtube.com/live share link as its own paragraph, and drops a persisted non-http(s) embed url on re-edit', () => {
     expect(fromHtml('<p>https://www.youtube.com/live/abcDEF12345?feature=share</p>')).toEqual([
-      { type: 'embed', value: 'https://www.youtube.com/live/abcDEF12345?feature=share' },
+      { type: 'paragraph', value: '<p>https://www.youtube.com/live/abcDEF12345?feature=share</p>' },
     ]);
     expect(
       bodyBlocksToDoc([
@@ -357,7 +362,7 @@ describe('forumBody embed blocks (todo 344)', () => {
     ).toEqual(emptyDoc());
   });
 
-  it('builds an embed as a link paragraph NODE and reads it back as an embed block (todo 526)', () => {
+  it('builds an embed as a link paragraph NODE and reads it back as that link paragraph (todo 526, F208)', () => {
     const doc = bodyBlocksToDoc([
       {
         type: 'embed',
@@ -381,7 +386,12 @@ describe('forumBody embed blocks (todo 344)', () => {
       )
     );
     expect(docToBodyBlocks(doc)).toEqual([
-      { type: 'embed', value: 'https://youtu.be/dQw4w9WgXcQ' },
+      {
+        type: 'paragraph',
+        value: expect.stringMatching(
+          /^<p><a [^>]*href="https:\/\/youtu\.be\/dQw4w9WgXcQ"[^>]*>https:\/\/youtu\.be\/dQw4w9WgXcQ<\/a><\/p>$/
+        ),
+      },
     ]);
   });
 });
@@ -1006,15 +1016,14 @@ describe('providerVideoUrl matches the mobile twin (todo 654)', () => {
     expect(providerVideoUrl(text)).toBe(expected);
   });
 
-  it('is what turns a paragraph into an embed block', () => {
+  it('is what keeps a video link as its own paragraph block (F208: the server embeds it)', () => {
     for (const [text, expected] of table.cases) {
       if (!text.trim()) continue;
       const blocks = docToBodyBlocks(docOf(para({ type: 'text', text })));
-      expect(blocks[0]).toEqual(
-        expected
-          ? { type: 'embed', value: expected }
-          : expect.objectContaining({ type: 'paragraph' })
-      );
+      expect(blocks).toEqual([expect.objectContaining({ type: 'paragraph' })]);
+      if (expected) {
+        expect(blocks[0].value).toContain(expected.replace(/&/g, '&amp;'));
+      }
     }
   });
 });
@@ -1091,8 +1100,10 @@ describe('every stored block shape round-trips through the editor (todo 526)', (
       value: { image: 9, alt_text: 'Tom &amp; Jerry\r\nleaf', decorative: false },
     },
     { type: 'image', value: { image: 10, alt_text: '', decorative: true } },
-    { type: 'embed', value: 'https://youtu.be/dQw4w9WgXcQ' },
-    { type: 'embed', value: 'https://vimeo.com/148751763' },
+    // An embed goes back as its link paragraph, which the server embeds
+    // again (F208); the editor's Link attributes ride along, as for a card.
+    { type: 'paragraph', value: expect.stringContaining('>https://youtu.be/dQw4w9WgXcQ</a></p>') },
+    { type: 'paragraph', value: expect.stringContaining('>https://vimeo.com/148751763</a></p>') },
     { type: 'quote', value: 'line one\nline two\n\nthird' },
     { type: 'post_quote', value: { post: 5, text: 'a < b\n\nc & d' } },
     { type: 'post_quote', value: { post: 6, text: 'gone' } },

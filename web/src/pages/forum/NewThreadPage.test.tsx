@@ -976,6 +976,56 @@ describe('NewThreadPage', () => {
     });
   });
 
+  it('drops a half-filled poll, and says so, on a switch to a board without can_poll (F17)', async () => {
+    vi.spyOn(forumService, 'createThread').mockResolvedValue({
+      id: '12',
+      slug: 'my-topic',
+      status: 'published',
+    });
+    serveBoardFive();
+    vi.mocked(forumService.fetchForumRow).mockImplementation(async (id) => ({
+      id: String(id),
+      name: Number(id) === 5 ? 'Pests' : 'Plant Care',
+      slug: Number(id) === 5 ? 'pests' : 'plant-care',
+      created_at: '',
+      capabilities: {
+        can_post: true,
+        can_reply: true,
+        can_poll: Number(id) !== 5,
+        can_attach: true,
+      },
+    }));
+    const view = renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'Board A');
+    await userEvent.type(screen.getByLabelText('body'), 'hello');
+    // Enabled but left incomplete: no question, no options.
+    await userEvent.click(await screen.findByRole('checkbox', { name: /add a poll/i }));
+
+    vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+      new URLSearchParams('category=5-pests'),
+      vi.fn(),
+    ]);
+    view.rerender(
+      <MemoryRouter>
+        <AnnouncerProvider>
+          <NewThreadPage />
+        </AnnouncerProvider>
+      </MemoryRouter>
+    );
+    await screen.findByText('Pests');
+    await waitFor(() =>
+      expect(screen.queryByRole('checkbox', { name: /add a poll/i })).not.toBeInTheDocument()
+    );
+    expect(screen.getByText(/polls are not available in this forum/i)).toBeInTheDocument();
+
+    const post = screen.getByRole('button', { name: /post thread/i });
+    expect(post).toBeEnabled();
+    await userEvent.click(post);
+    await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
+    expect(vi.mocked(forumService.createThread).mock.calls[0][0]).not.toHaveProperty('poll');
+  });
+
   it.each([
     ['null', 'null', ''],
     ['a number', '5', ''],

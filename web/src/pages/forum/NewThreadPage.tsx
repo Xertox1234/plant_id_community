@@ -411,8 +411,12 @@ export default function NewThreadPage() {
   // gating Post from another control). The clamp is the single value the
   // select shows, the payload sends, and the server accepts.
   const effectiveMaxChoices = Math.min(pollMaxChoices, Math.max(1, filledPollOptions));
+  // A poll carried to a board without the poll flag (F17) is not sent, so it
+  // must not gate Post either. Its state stays (todo 615): switching back to
+  // a board that allows polls brings it back.
+  const pollActive = pollEnabled && pollAllowed;
   const pollValid =
-    !pollEnabled || (pollQuestion.trim() !== '' && filledPollOptions >= MIN_POLL_OPTIONS);
+    !pollActive || (pollQuestion.trim() !== '' && filledPollOptions >= MIN_POLL_OPTIONS);
 
   const canSubmit = !!category && title.trim() !== '' && !isBlankDoc(body) && pollValid;
 
@@ -716,6 +720,11 @@ export default function NewThreadPage() {
             can only be attached HERE: they are not editable afterwards, since
             changing a question once votes exist rewrites what they meant.
             Not offered where the member lacks the forum's poll flag (677). */}
+        {pollEnabled && !pollAllowed && (
+          <p className="text-sm text-ink-3">
+            Polls are not available in this forum, so your poll will not be posted with this topic.
+          </p>
+        )}
         {pollAllowed && (
           <div>
             <label className="flex items-center gap-2 text-sm font-medium text-ink-2">

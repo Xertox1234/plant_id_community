@@ -197,9 +197,10 @@ function quotedPostId(node: JSONContent): number | null {
 }
 
 /**
- * A pasted video link becomes an `embed` block (todo 344) when it is the
- * ONLY content of its paragraph. Mirrors the server's known-player set —
- * the server's finder allowlist is still the authority (400 otherwise).
+ * A pasted video link that is the ONLY content of its paragraph is sent as
+ * its own paragraph block, which the server turns into an `embed` block
+ * (todos 344, 421) when the host has embeds on (F208). Mirrors the server's
+ * known-player set — the server's finder allowlist is still the authority.
  */
 // `[^\s<>"'\`]+` rather than `\S+`: a pasted "link" carrying HTML
 // meta-characters is never a provider URL, so it stays an ordinary paragraph
@@ -342,11 +343,14 @@ export function docToBodyBlocks(doc: JSONContent | null | undefined): ForumBodyW
       const imageBlock = imageBlockFrom(node);
       if (imageBlock) blocks.push(imageBlock);
     } else if (embedUrl) {
-      // A paragraph that is just a video link → its own embed block; the
-      // server unfurls it (todo 344). Re-editing round-trips through
-      // bodyBlocksToDoc's link paragraph back to this branch.
+      // A paragraph that is just a video link → its own PARAGRAPH block,
+      // never an `embed` block (F208). The server makes it an embed when the
+      // host has embeds on (todo 421, `_convert_video_paragraphs`) and keeps
+      // the link when they are off; an `embed` block sent with embeds off is
+      // refused, and this client cannot see that flag. Kept as its own block
+      // so the server's "paragraph is only a link" test sees it alone.
       flush();
-      blocks.push({ type: 'embed', value: embedUrl });
+      blocks.push({ type: 'paragraph', value: nodesToHtml([node]).trim() });
     } else if (node.type === 'blockquote') {
       // A top-level blockquote becomes its OWN `quote` block, not inline markup
       // in a paragraph: the server's nh3 allowlist has no <blockquote>, so a
