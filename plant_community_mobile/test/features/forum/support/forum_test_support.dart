@@ -1782,13 +1782,14 @@ ForumPost post({
   bool isMuted = false,
   bool canMute = false,
   DateTime? editedAt,
+  DateTime? createdAt,
 }) {
   return ForumPost(
     id: id,
     topicId: topicId,
     author: authorOverride ?? author(),
     body: body,
-    createdAt: DateTime(2026, 1, 1),
+    createdAt: createdAt ?? DateTime(2026, 1, 1),
     editedAt: editedAt,
     isOpeningPost: id == 1,
     isPending: isPending,

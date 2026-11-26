@@ -100,7 +100,7 @@ final class TopicLiveProvider
   }
 }
 
-String _$topicLiveHash() => r'0a2d50ffbf7b0778ae4ab7292b2ffc1cc80a441b';
+String _$topicLiveHash() => r'86398887b856d499b5f587bda12466cb02d8b393';
 
 /// Live replies for one open topic. Owns the socket client and makes every
 /// decision about an event: insert, pill, splice, remove, refetch the
