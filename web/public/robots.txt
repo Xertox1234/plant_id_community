@@ -1,0 +1,5 @@
+# Forum sitemap is served by the API (forum audit F213).
+User-agent: *
+Allow: /
+
+Sitemap: https://api.houseplant-md.com/forum/sitemap.xml

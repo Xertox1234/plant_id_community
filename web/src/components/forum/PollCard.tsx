@@ -64,14 +64,18 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
   // effect every time `handleVote` below sets it, immediately overwriting a
   // just-applied vote result with the (still pre-vote) `poll` prop. Skipped
   // entirely while a vote is in flight so a mid-request refetch can't race
-  // the response that's about to replace `current` anyway.
+  // the response that's about to replace `current` anyway. A prop that
+  // arrives mid-vote is held, not dropped (F136): `pollRef` is the latest
+  // prop seen, `appliedPollRef` the last one applied or superseded. When the
+  // vote fails, the held prop is applied as `pending` clears; when it
+  // succeeds, the server's recomputed poll is newer and supersedes it.
   const pollRef = useRef(poll);
+  const appliedPollRef = useRef(poll);
   useEffect(() => {
-    if (poll !== pollRef.current) {
-      pollRef.current = poll;
-      if (pending === null) {
-        setCurrent(poll);
-      }
+    pollRef.current = poll;
+    if (pending === null && poll !== appliedPollRef.current) {
+      appliedPollRef.current = poll;
+      setCurrent(poll);
     }
   }, [poll, pending]);
 
@@ -98,7 +102,10 @@ export default function PollCard({ poll, onVote, canVote }: PollCardProps) {
         // reader sees, and the server can legitimately refuse (409 on a
         // second vote or a poll that closed while the page was open). Showing
         // a count that then has to be walked back is worse than a brief wait.
-        setCurrent(await onVote(optionIds));
+        const result = await onVote(optionIds);
+        // Any prop that arrived mid-vote predates this result.
+        appliedPollRef.current = pollRef.current;
+        setCurrent(result);
       } catch (err) {
         if (err instanceof ForumApiError && err.status === 409) {
           // Branch on the STATUS, never the message text (see

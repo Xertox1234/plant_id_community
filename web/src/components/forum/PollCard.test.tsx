@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PollCard from './PollCard';
 import { ForumApiError } from '../../services/forumService';
@@ -274,6 +274,67 @@ describe('PollCard', () => {
 
     expect(screen.getByText('your vote')).toBeInTheDocument();
     expect(screen.getByText(/2 votes/i)).toBeInTheDocument();
+  });
+
+  it('applies a refetch that arrived while a vote was in flight once that vote fails (F136)', async () => {
+    let rejectVote: (err: Error) => void = () => {};
+    const onVote = vi.fn(
+      () =>
+        new Promise<ThreadPoll>((_, reject) => {
+          rejectVote = reject;
+        })
+    );
+    const { rerender } = render(<PollCard poll={makePoll()} onVote={onVote} canVote />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Peat' }));
+    // A socket-reconnect refetch lands mid-vote with other members' votes.
+    const refetchedPoll = makePoll({
+      total_votes: 3,
+      options: [
+        { id: 10, text: 'Peat', order: 0, vote_count: 1 },
+        { id: 11, text: 'Coir', order: 1, vote_count: 2 },
+      ],
+    });
+    rerender(<PollCard poll={refetchedPoll} onVote={onVote} canVote />);
+    expect(screen.getByText(/0 votes/i)).toBeInTheDocument();
+
+    await act(async () => {
+      rejectVote(new Error('Network down'));
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/network down/i);
+    expect(screen.getByText(/3 votes/i)).toBeInTheDocument();
+  });
+
+  it('keeps a successful vote result over a pre-vote refetch that arrived mid-vote (F136)', async () => {
+    let resolveVote: (poll: ThreadPoll) => void = () => {};
+    const onVote = vi.fn(
+      () =>
+        new Promise<ThreadPoll>((resolve) => {
+          resolveVote = resolve;
+        })
+    );
+    const { rerender } = render(<PollCard poll={makePoll()} onVote={onVote} canVote />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Peat' }));
+    // Fetched before the vote committed, so it lacks this viewer's ballot.
+    rerender(<PollCard poll={makePoll({ total_votes: 0 })} onVote={onVote} canVote />);
+
+    await act(async () => {
+      resolveVote(
+        makePoll({
+          my_vote_option_ids: [10],
+          total_votes: 1,
+          options: [
+            { id: 10, text: 'Peat', order: 0, vote_count: 1 },
+            { id: 11, text: 'Coir', order: 1, vote_count: 0 },
+          ],
+        })
+      );
+    });
+
+    expect(screen.getByText('your vote')).toBeInTheDocument();
+    expect(screen.getByText(/1 vote\b/i)).toBeInTheDocument();
   });
 
   describe('multi-choice (todo 349)', () => {

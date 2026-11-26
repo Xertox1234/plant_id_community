@@ -33,7 +33,7 @@ import { AVATAR_BOX } from '../../components/ui/dimensions';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import InlineError from '../../components/forum/InlineError';
 import { SkeletonBlock, SkeletonStatus } from '../../components/forum/ForumSkeleton';
-import { REPORT_REASONS } from '../../components/forum/reportReasons';
+import { REPORT_DETAIL_MAX_LENGTH, REPORT_REASONS } from '../../components/forum/reportReasons';
 import type { Conversation, DirectMessage } from '../../types/forum';
 
 /** Shown for a 403 on send — either side has blocked the other. */
@@ -138,7 +138,7 @@ function MessageReportForm({ messageId, getEpoch, onSubmitted, onCancel }: Messa
         value={detail}
         onChange={(e) => setDetail(e.target.value)}
         disabled={submitting}
-        maxLength={500}
+        maxLength={REPORT_DETAIL_MAX_LENGTH}
         placeholder="Details (optional)"
         className="min-w-0 flex-1 text-sm border border-line rounded-sm px-2 py-1 bg-surface text-ink placeholder:text-ink-3"
       />

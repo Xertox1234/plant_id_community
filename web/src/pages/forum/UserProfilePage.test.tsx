@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import UserProfilePage from './UserProfilePage';
 import * as forumService from '../../services/forumService';
 import { useAuth } from '../../contexts/AuthContext';
@@ -18,6 +18,28 @@ const mockAuth = (isAuthenticated: boolean) =>
 function renderProfile(username = 'ada') {
   return render(
     <MemoryRouter initialEntries={[`/forum/users/${username}`]}>
+      <Routes>
+        <Route path="/forum/users/:username" element={<UserProfilePage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
+// Navigates in place (same mounted page, new :username), the way clicking
+// another author's name does.
+function NavigateTo({ to }: { to: string }) {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate(to)}>
+      go {to}
+    </button>
+  );
+}
+
+function renderProfileWithNav(username: string, to: string) {
+  return render(
+    <MemoryRouter initialEntries={[`/forum/users/${username}`]}>
+      <NavigateTo to={to} />
       <Routes>
         <Route path="/forum/users/:username" element={<UserProfilePage />} />
       </Routes>
@@ -364,5 +386,63 @@ describe('UserProfilePage', () => {
     expect(
       screen.queryByText("You've blocked this member — their recent activity is hidden.")
     ).not.toBeInTheDocument();
+  });
+
+  it('re-enables Block and Mute on the next profile when you navigate away mid-request (F14)', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile').mockImplementation(async (name: string) => ({
+      ...mockProfile,
+      username: name,
+      display_name: name === 'ada' ? 'Ada L.' : 'Bob B.',
+      can_block: true,
+      can_mute: true,
+      is_blocked: false,
+      is_muted: false,
+    }));
+    // Ada's block never settles while we are on Bob's profile.
+    vi.spyOn(forumService, 'blockUser').mockImplementation(() => new Promise<void>(() => {}));
+
+    renderProfileWithNav('ada', '/forum/users/bob');
+    await userEvent.click(await screen.findByRole('button', { name: /^block$/i }));
+    expect(screen.getByRole('button', { name: /^mute$/i })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'go /forum/users/bob' }));
+    await screen.findByRole('heading', { name: 'Bob B.' });
+
+    expect(screen.getByRole('button', { name: /^block$/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /^mute$/i })).not.toBeDisabled();
+  });
+
+  it('keeps the block when the write succeeds but the refetch fails, and says only the refresh failed (F61)', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile')
+      .mockResolvedValueOnce({ ...mockProfile, can_block: true, is_blocked: false })
+      .mockRejectedValueOnce(new Error('Network down'));
+    vi.spyOn(forumService, 'blockUser').mockResolvedValue(undefined);
+
+    renderProfile('ada');
+    await userEvent.click(await screen.findByRole('button', { name: /^block$/i }));
+
+    // The server applied the block: the UI must not roll back to "Block".
+    expect(await screen.findByText(/could not be refreshed/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^unblock$/i })).toBeInTheDocument();
+    expect(
+      screen.getByText("You've blocked this member — their recent activity is hidden.")
+    ).toBeInTheDocument();
+    // The server hides a blocked member's activity; the pre-block lists must go.
+    expect(screen.queryByRole('link', { name: 'Fern care' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Network down')).not.toBeInTheDocument();
+  });
+
+  it('keeps the mute when the write succeeds but the refetch fails (F61)', async () => {
+    vi.spyOn(forumService, 'fetchUserProfile')
+      .mockResolvedValueOnce({ ...mockProfile, can_mute: true, is_muted: false })
+      .mockRejectedValueOnce(new Error('Network down'));
+    vi.spyOn(forumService, 'muteUser').mockResolvedValue(undefined);
+
+    renderProfile('ada');
+    await userEvent.click(await screen.findByRole('button', { name: /^mute$/i }));
+
+    expect(await screen.findByText(/could not be refreshed/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^unmute$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Fern care' })).not.toBeInTheDocument();
   });
 });

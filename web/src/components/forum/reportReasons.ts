@@ -13,3 +13,10 @@ export const REPORT_REASONS = [
 ] as const;
 
 export type ReportReason = (typeof REPORT_REASONS)[number]['value'];
+
+/**
+ * The longest report `detail` the API accepts — wagtail_forum
+ * `ReportSerializer.detail` (max_length=280), shared by the post and the
+ * direct-message report endpoints (F87).
+ */
+export const REPORT_DETAIL_MAX_LENGTH = 280;

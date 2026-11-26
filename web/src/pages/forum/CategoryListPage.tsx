@@ -158,6 +158,23 @@ export default function CategoryListPage() {
     };
   }, [reloadKey]);
 
+  // The boards carry per-viewer data (unread markers), so any change of viewer
+  // re-runs the load above, like the error-state Retry (F63): an account swap,
+  // a sign-out seen on tab focus (id -> null) and a guest signing in
+  // (null -> id). Compared only once auth has settled, and the first settled
+  // viewer is the baseline, so AuthProvider's mount sequence (null, then the
+  // stored user, then the confirmed one) never fetches the boards twice.
+  const viewerId = user?.id ?? null;
+  const settledViewerRef = useRef<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (authLoading) return;
+    const previous = settledViewerRef.current;
+    settledViewerRef.current = viewerId;
+    if (previous !== undefined && previous !== viewerId) {
+      setReloadKey((k) => k + 1);
+    }
+  }, [authLoading, viewerId]);
+
   // "Your season" stats — a separate effect (and its own ignore guard) so an
   // unauthenticated visitor never triggers the auth-only request, and so a
   // failure here can never fail the board list above.

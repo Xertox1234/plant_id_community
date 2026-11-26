@@ -50,6 +50,10 @@ export default function UserProfilePage() {
     setProfile(null);
     setLoading(true);
     setError(null);
+    // A block/mute still in flight belongs to the previous profile; its
+    // `finally` is guarded by username and will not clear these (F14).
+    setIsBlockActionPending(false);
+    setIsMuteActionPending(false);
   }
 
   useEffect(() => {
@@ -83,6 +87,38 @@ export default function UserProfilePage() {
   // blocked), so the refetch is required for correctness, not just polish.
   // Rollback on failure only touches the flag — the lists were never
   // optimistically touched, so there's nothing to restore there.
+  // The write and the refresh fail separately (F61): once the write has
+  // succeeded the server holds the new flag, so a failed refetch keeps it and
+  // says only that the refresh failed. Blocking/muting empties the lists
+  // server-side, so they are cleared locally then; unblocking/unmuting leaves
+  // them as the [] the client already had.
+  const refreshAfterAction = async (
+    requestUsername: string,
+    hidesActivity: boolean,
+    setActionError: (message: string) => void
+  ) => {
+    try {
+      const fresh = await fetchUserProfile(requestUsername);
+      if (currentUsernameRef.current === requestUsername) {
+        setProfile(fresh);
+      }
+    } catch (err) {
+      logger.error('Error refreshing profile after block/mute', {
+        component: 'UserProfilePage',
+        error: err,
+        context: { username: requestUsername },
+      });
+      if (currentUsernameRef.current === requestUsername) {
+        if (hidesActivity) {
+          setProfile((prev) => (prev ? { ...prev, recent_topics: [], recent_posts: [] } : prev));
+        }
+        const message = 'Saved, but the profile could not be refreshed. Reload to see the latest.';
+        setActionError(message);
+        announce(message, 'polite');
+      }
+    }
+  };
+
   const handleToggleBlock = async () => {
     if (!profile) return;
     const requestUsername = username;
@@ -95,10 +131,6 @@ export default function UserProfilePage() {
         await unblockUser(requestUsername);
       } else {
         await blockUser(requestUsername);
-      }
-      const fresh = await fetchUserProfile(requestUsername);
-      if (currentUsernameRef.current === requestUsername) {
-        setProfile(fresh);
       }
     } catch (err) {
       logger.error('Error toggling user block', {
@@ -114,10 +146,15 @@ export default function UserProfilePage() {
         // on its own (audit 2026-09-04 M4).
         announce(message, 'assertive');
       }
-    } finally {
       if (currentUsernameRef.current === requestUsername) {
         setIsBlockActionPending(false);
       }
+      return;
+    }
+    // Never throws: a failed refresh is reported, not rolled back.
+    await refreshAfterAction(requestUsername, !wasBlocked, setBlockActionError);
+    if (currentUsernameRef.current === requestUsername) {
+      setIsBlockActionPending(false);
     }
   };
 
@@ -137,10 +174,6 @@ export default function UserProfilePage() {
       } else {
         await muteUser(requestUsername);
       }
-      const fresh = await fetchUserProfile(requestUsername);
-      if (currentUsernameRef.current === requestUsername) {
-        setProfile(fresh);
-      }
     } catch (err) {
       logger.error('Error toggling user mute', {
         component: 'UserProfilePage',
@@ -153,10 +186,15 @@ export default function UserProfilePage() {
         setMuteActionError(message);
         announce(message, 'assertive');
       }
-    } finally {
       if (currentUsernameRef.current === requestUsername) {
         setIsMuteActionPending(false);
       }
+      return;
+    }
+    // Never throws: a failed refresh is reported, not rolled back.
+    await refreshAfterAction(requestUsername, !wasMuted, setMuteActionError);
+    if (currentUsernameRef.current === requestUsername) {
+      setIsMuteActionPending(false);
     }
   };
 
