@@ -10,6 +10,7 @@ import {
 import { parseLeadingId, threadPath, categoryPath } from '../../utils/forumUrls';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import { useIdentitySwap } from '../../hooks/useIdentitySwap';
+import { useIdempotencyKey } from '../../hooks/useIdempotencyKey';
 import TipTapEditor from '../../components/forum/TipTapEditor';
 import ForumErrorState from '../../components/forum/ForumErrorState';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -242,7 +243,11 @@ export default function NewThreadPage() {
   // text on the next keystroke (code review, PR #629) — reset it and remount
   // the editor (TipTap takes its content at mount only).
   const [composerEpoch, setComposerEpoch] = useState<number>(0);
+  // The topic's Idempotency-Key (audit F144): reused when the same topic is
+  // submitted again after a failure, rotated when anything in it changes.
+  const topicKey = useIdempotencyKey();
   useIdentitySwap(user?.id, () => {
+    topicKey.reset();
     setTitle('');
     setBody(emptyDoc());
     setTagsInput('');
@@ -418,7 +423,7 @@ export default function NewThreadPage() {
       try {
         setSubmitting(true);
         setError(null);
-        const res = await createThread({
+        const input = {
           boardSlug: category.slug,
           title: title.trim(),
           body: docToBodyBlocks(body),
@@ -448,7 +453,8 @@ export default function NewThreadPage() {
                 },
               }
             : {}),
-        });
+        };
+        const res = await createThread(input, topicKey.keyFor(JSON.stringify(input)));
         clearDraft(newThreadDraftKey);
 
         // Defense-in-depth (todo 297): the write already happened under
@@ -460,6 +466,10 @@ export default function NewThreadPage() {
         // wrong user's moderation queue is the same failure either way.
         const actingUserId = user?.id ?? null;
         const current = await revalidateIdentity();
+        // Created: a new topic from here on is a new create. Only now: a
+        // rejected revalidation lands in the catch with the form still filled,
+        // and its resubmit must replay, not create a second topic.
+        topicKey.reset();
         const drifted = (current?.id ?? null) !== actingUserId;
 
         if (drifted) {
@@ -512,6 +522,7 @@ export default function NewThreadPage() {
       announce,
       user,
       revalidateIdentity,
+      topicKey,
     ]
   );
 

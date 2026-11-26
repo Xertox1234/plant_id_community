@@ -10,7 +10,7 @@
  *
  * Cookie-based JWT auth with CSRF on mutating requests.
  */
-import { getCsrfToken } from '../utils/csrf';
+import { csrfFetch } from '../utils/csrfFetch';
 import { readRetryAfter } from '../utils/retryAfter';
 import {
   isCapabilityUnavailable,
@@ -107,15 +107,22 @@ export class ForumApiError extends Error {
   }
 }
 
+/**
+ * The `Idempotency-Key` header for a write, or nothing (audit F144). The key
+ * belongs to the compose action (hooks/useIdempotencyKey): reused across a
+ * retry of the same payload so the backend replays instead of posting twice.
+ */
+export function idempotencyHeader(key?: string): Record<string, string> | undefined {
+  return key ? { 'Idempotency-Key': key } : undefined;
+}
+
 async function authenticatedFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const csrfToken = await getCsrfToken();
-  const response = await fetch(url, {
+  // CSRF token + one retry on a stale token (audit F143).
+  const response = await csrfFetch(url, {
     ...options,
-    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      ...(csrfToken && { 'X-CSRFToken': csrfToken }),
       ...options.headers,
     },
   });
@@ -356,7 +363,10 @@ export async function fetchThread(
   return mapTopicDetailToThread(data);
 }
 
-export async function createThread(data: CreateTopicInput): Promise<CreateTopicResult> {
+export async function createThread(
+  data: CreateTopicInput,
+  idempotencyKey?: string
+): Promise<CreateTopicResult> {
   const { boardSlug, title, body, tags, identification, poll } = data;
   const res = await authenticatedFetch<{
     id: number;
@@ -364,6 +374,7 @@ export async function createThread(data: CreateTopicInput): Promise<CreateTopicR
     status: 'published' | 'pending';
   }>(`${FORUM_BASE}/boards/${boardSlug}/topics/`, {
     method: 'POST',
+    headers: idempotencyHeader(idempotencyKey),
     body: JSON.stringify({
       title,
       slug: slugifyTitle(title),
@@ -623,20 +634,33 @@ export async function fetchLinkPreview(url: string, signal?: AbortSignal): Promi
   return authenticatedFetch<LinkPreview>(`${FORUM_BASE}/link-preview/?${params}`, { signal });
 }
 
-export async function createPost(data: CreateReplyInput): Promise<CreateReplyResult> {
+export async function createPost(
+  data: CreateReplyInput,
+  idempotencyKey?: string
+): Promise<CreateReplyResult> {
   const { thread, body } = data;
   const res = await authenticatedFetch<{ id: number; status: 'published' | 'pending' }>(
     `${FORUM_BASE}/topics/${thread}/posts/`,
-    { method: 'POST', body: JSON.stringify({ body }) }
+    { method: 'POST', headers: idempotencyHeader(idempotencyKey), body: JSON.stringify({ body }) }
   );
   return { id: String(res.id), status: res.status };
 }
 
-export async function updatePost(postId: string, data: UpdatePostInput): Promise<EditPostResult> {
+/**
+ * An edit cannot duplicate a row, but the backend still replays a keyed PATCH
+ * (M35): a retried edit must not write a second revision, re-run moderation
+ * and fire a second push. So the editor passes its own key too.
+ */
+export async function updatePost(
+  postId: string,
+  data: UpdatePostInput,
+  idempotencyKey?: string
+): Promise<EditPostResult> {
   const res = await authenticatedFetch<
     BackendPost & { moderation_status: 'published' | 'pending' }
   >(`${FORUM_BASE}/posts/${postId}/`, {
     method: 'PATCH',
+    headers: idempotencyHeader(idempotencyKey),
     body: JSON.stringify({ body: data.body }),
   });
   return { post: mapPostToPost(res, String(res.topic_id)), status: res.moderation_status };
@@ -755,19 +779,16 @@ export async function uploadPostImage(
    * Omitted (IdentifyPage), the upload is accepted as before. */
   forumId?: string | number
 ): Promise<UploadedImage> {
-  const csrfToken = await getCsrfToken();
   const formData = new FormData();
   formData.append('image', imageFile);
   const trimmedAlt = alt?.trim();
   if (trimmedAlt) formData.append('alt', trimmedAlt);
   if (forumId != null && forumId !== '') formData.append('forum_id', String(forumId));
-  const response = await fetch(`${FORUM_BASE}/images/`, {
+  const response = await csrfFetch(`${FORUM_BASE}/images/`, {
     method: 'POST',
-    credentials: 'include',
     headers: {
       Accept: 'application/json',
-      ...(csrfToken && { 'X-CSRFToken': csrfToken }),
-      ...(idempotencyKey && { 'Idempotency-Key': idempotencyKey }),
+      ...idempotencyHeader(idempotencyKey),
     },
     body: formData,
   });
@@ -984,14 +1005,11 @@ export function resetComposeAssistAvailability(): void {
  * than swallowed, so nobody is left clicking a silently dead button.
  */
 export async function improveDraft(draftHtml: string): Promise<string> {
-  const csrfToken = await getCsrfToken();
-  const response = await fetch(`${FORUM_BASE}/compose/assist/`, {
+  const response = await csrfFetch(`${FORUM_BASE}/compose/assist/`, {
     method: 'POST',
-    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      ...(csrfToken && { 'X-CSRFToken': csrfToken }),
     },
     body: JSON.stringify({ text: draftHtml }),
   });
@@ -1072,14 +1090,11 @@ const PLANT_CARE_STATUSES: ReadonlySet<string> = new Set([
  * 503s `code: "disabled"` until FORUM_RAG_ENABLED is set.
  */
 export async function askPlantCare(question: string): Promise<PlantCareAnswer> {
-  const csrfToken = await getCsrfToken();
-  const response = await fetch(`${FORUM_BASE}/care/ask/`, {
+  const response = await csrfFetch(`${FORUM_BASE}/care/ask/`, {
     method: 'POST',
-    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      ...(csrfToken && { 'X-CSRFToken': csrfToken }),
     },
     body: JSON.stringify({ question }),
   });

@@ -1007,10 +1007,13 @@ describe('ThreadDetailPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
 
     await waitFor(() => expect(screen.getByText('my reply')).toBeInTheDocument());
-    expect(forumService.createPost).toHaveBeenCalledWith({
-      thread: 12,
-      body: [{ type: 'paragraph', value: '<p>my reply</p>' }],
-    });
+    expect(forumService.createPost).toHaveBeenCalledWith(
+      {
+        thread: 12,
+        body: [{ type: 'paragraph', value: '<p>my reply</p>' }],
+      },
+      expect.any(String)
+    );
     expect(fetchPostsSpy).toHaveBeenCalledTimes(2);
     // The composer remounts (key bump) so it visibly clears after posting.
     expect(screen.getByLabelText('Write a reply...')).toHaveValue('');
@@ -1508,9 +1511,13 @@ describe('ThreadDetailPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /^Save$/i }));
 
     await waitFor(() =>
-      expect(forumService.updatePost).toHaveBeenCalledWith('5', {
-        body: [{ type: 'paragraph', value: '<p>new body</p>' }],
-      })
+      expect(forumService.updatePost).toHaveBeenCalledWith(
+        '5',
+        {
+          body: [{ type: 'paragraph', value: '<p>new body</p>' }],
+        },
+        expect.any(String)
+      )
     );
     await waitFor(() => expect(screen.getByText('new body')).toBeInTheDocument());
   });
@@ -2779,5 +2786,94 @@ describe('ThreadDetailPage stored draft (audit F110)', () => {
 
     expect(await screen.findByLabelText('Write a reply...')).toHaveValue('');
     expect(sessionStorage.getItem('forum-draft:reply:12')).toBeNull();
+  });
+});
+
+// Audit F144: the reply's Idempotency-Key belongs to the compose action, so a
+// retry after a lost response replays the first post instead of posting twice.
+describe('ThreadDetailPage reply Idempotency-Key (F144)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    vi.mocked(ReactRouter.useParams).mockReturnValue({
+      categorySlug: '3-plant-care',
+      threadSlug: '12-watering-tips',
+    });
+    vi.mocked(useAuth).mockReturnValue(mockAuth(true));
+    vi.mocked(forumService.fetchThreads).mockResolvedValue({
+      items: [],
+      meta: { next: null, count: 0 },
+    });
+    vi.mocked(blogService.fetchPopularPosts).mockResolvedValue([]);
+    vi.spyOn(forumService, 'fetchThread').mockResolvedValue(createMockThread({ post_count: 0 }));
+    vi.spyOn(forumService, 'fetchPosts').mockResolvedValue({
+      items: [],
+      meta: { count: 0, next: null, previous: null },
+    });
+  });
+
+  const keyOf = (n: number) => vi.mocked(forumService.createPost).mock.calls[n][1];
+
+  it('reuses the key for a retry of the same reply and rotates it after success', async () => {
+    vi.spyOn(forumService, 'createPost')
+      .mockRejectedValueOnce(new Error('Failed to fetch'))
+      .mockResolvedValueOnce({ id: '99', status: 'pending' })
+      .mockResolvedValueOnce({ id: '100', status: 'pending' });
+
+    renderThreadDetailPage();
+    // The composer waits for the stored-draft read (F110).
+    await userEvent.type(await screen.findByLabelText('Write a reply...'), 'my reply');
+    await userEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
+    await screen.findByText('Failed to fetch');
+    await userEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
+    await waitFor(() => expect(screen.getByLabelText('Write a reply...')).toHaveValue(''));
+    await userEvent.type(screen.getByLabelText('Write a reply...'), 'my reply');
+    await userEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
+    await waitFor(() => expect(forumService.createPost).toHaveBeenCalledTimes(3));
+
+    expect(typeof keyOf(0)).toBe('string');
+    expect(keyOf(1)).toBe(keyOf(0));
+    expect(keyOf(2)).not.toBe(keyOf(0));
+  });
+
+  it('keeps the key when the identity check after a posted reply fails', async () => {
+    // The reply posted, then revalidateIdentity rejected: the page reports a
+    // failure with the text still there, and the resubmit must replay it.
+    vi.mocked(useAuth).mockReturnValue({
+      ...mockAuth(true),
+      revalidateIdentity: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Network down'))
+        .mockResolvedValue({ id: 1 }),
+    } as unknown as ReturnType<typeof useAuth>);
+    vi.spyOn(forumService, 'createPost').mockResolvedValue({ id: '99', status: 'pending' });
+
+    renderThreadDetailPage();
+    await userEvent.type(await screen.findByLabelText('Write a reply...'), 'my reply');
+    await userEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
+    await screen.findByText('Network down');
+    await userEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
+    await waitFor(() => expect(forumService.createPost).toHaveBeenCalledTimes(2));
+
+    expect(typeof keyOf(0)).toBe('string');
+    expect(keyOf(1)).toBe(keyOf(0));
+  });
+
+  it('sends a new key when the reply text changed after a failure', async () => {
+    vi.spyOn(forumService, 'createPost')
+      .mockRejectedValueOnce(new Error('Failed to fetch'))
+      .mockResolvedValueOnce({ id: '99', status: 'pending' });
+
+    renderThreadDetailPage();
+    // The composer waits for the stored-draft read (F110).
+    await userEvent.type(await screen.findByLabelText('Write a reply...'), 'my reply');
+    await userEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
+    await screen.findByText('Failed to fetch');
+    await userEvent.type(screen.getByLabelText('Write a reply...'), '!');
+    await userEvent.click(screen.getByRole('button', { name: /Post Reply/i }));
+    await waitFor(() => expect(forumService.createPost).toHaveBeenCalledTimes(2));
+
+    expect(typeof keyOf(1)).toBe('string');
+    expect(keyOf(1)).not.toBe(keyOf(0));
   });
 });
