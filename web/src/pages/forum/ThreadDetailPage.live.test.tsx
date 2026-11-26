@@ -4,7 +4,7 @@
  * fake in tests/fakeWebSocket.ts.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import * as ReactRouter from 'react-router-dom';
@@ -19,6 +19,7 @@ import * as blogService from '../../services/blogService';
 import { useAuth } from '../../contexts/AuthContext';
 import { AnnouncerProvider } from '../../contexts/AnnouncerContext';
 import { liveTopicUrl, LIVE_CLOSE } from '../../services/forumLiveSocket';
+import { refreshAccessToken } from '../../services/authService';
 import {
   LIVE_UPDATES_KEY,
   MISSING_OUT_QUIET_MS,
@@ -457,11 +458,207 @@ describe('ThreadDetailPage live updates', () => {
     });
     expect(sockets).toHaveLength(2);
     vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 3 }));
+    vi.mocked(forumService.fetchPosts).mockResolvedValue(
+      page([...initialPosts(), post('3', 'New three'), post('4', 'New four')])
+    );
     await act(async () => {
       live().open();
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(await screen.findByRole('button', { name: 'Load 2 new replies' })).toBeInTheDocument();
+  });
+
+  describe('F39 catch-up reconciles by post id', () => {
+    async function reopen() {
+      act(() => live().serverClose(1006));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(sockets).toHaveLength(2);
+      await act(async () => {
+        live().open();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    }
+
+    beforeEach(() => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      scrolledUp();
+    });
+
+    it('a missed delete plus a missed reply drops the one and offers the other', async () => {
+      await loadAndOpen();
+      // Same count as before: count arithmetic alone would offer nothing.
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 1 }));
+      vi.mocked(forumService.fetchPosts).mockResolvedValue(
+        page([post('1', 'Opening post', { is_first_post: true }), post('3', 'Reply three')])
+      );
+      await reopen();
+      await waitFor(() => expect(screen.queryByText('Reply two')).not.toBeInTheDocument());
+      expect(await screen.findByRole('button', { name: 'Load 1 new reply' })).toBeInTheDocument();
+      expect(screen.queryByText('Reply three')).not.toBeInTheDocument();
+    });
+
+    it('a missed edit is refreshed in place when the peek shows activity', async () => {
+      await loadAndOpen();
+      // An edit alone moves neither count nor activity (no walk then); here
+      // other activity landed too, so the walk runs and carries the edit.
+      vi.mocked(forumService.fetchThread).mockResolvedValue(
+        baseThread({ post_count: 1, last_activity_at: '2026-11-26T12:00:00Z' })
+      );
+      vi.mocked(forumService.fetchPosts).mockResolvedValue(
+        page([post('1', 'Opening post', { is_first_post: true }), post('2', 'Reply two, edited')])
+      );
+      await reopen();
+      expect(await screen.findByText('Reply two, edited')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /new repl/i })).not.toBeInTheDocument();
+    });
+
+    it('a failed walk drops nothing', async () => {
+      await loadAndOpen();
+      vi.mocked(forumService.fetchPosts).mockRejectedValue(new Error('network down'));
+      await reopen();
+      expect(screen.getByText('Reply two')).toBeInTheDocument();
+    });
+
+    it('a walk cut short at the page bound drops nothing', async () => {
+      await loadAndOpen();
+      // Every page says there is more: the walk stops at its bound, unfinished.
+      vi.mocked(forumService.fetchPosts).mockResolvedValue(
+        page([post('1', 'Opening post', { is_first_post: true })], 'more')
+      );
+      await reopen();
+      expect(screen.getByText('Reply two')).toBeInTheDocument();
+    });
+
+    it('keeps offering your own reply whose refresh failed', async () => {
+      vi.mocked(forumService.createPost).mockResolvedValue({ id: '3', status: 'published' });
+      await loadAndOpen();
+      vi.mocked(forumService.fetchPosts).mockRejectedValueOnce(new Error('network down'));
+      await userEvent.type(screen.getByLabelText('Write a reply...'), 'My reply');
+      await userEvent.click(screen.getByRole('button', { name: 'Post Reply' }));
+      await screen.findByRole('button', { name: 'Load 1 new reply' });
+      vi.mocked(forumService.fetchPosts).mockResolvedValue(
+        page([...initialPosts(), post('3', 'My reply')])
+      );
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 2 }));
+      await reopen();
+      expect(await screen.findByRole('button', { name: 'Load 1 new reply' })).toBeInTheDocument();
+    });
+
+    function deferred<T>() {
+      let resolve: (value: T) => void = () => {};
+      const promise = new Promise<T>((r) => {
+        resolve = r;
+      });
+      return { promise, resolve };
+    }
+    // A peek that shows activity (same count): the walk runs.
+    const activePeek = () =>
+      baseThread({ post_count: 1, last_activity_at: '2026-11-26T12:00:00Z' });
+
+    it('an own edit saved while the walk runs is not overwritten by its older copy', async () => {
+      vi.mocked(forumService.fetchPosts).mockResolvedValue(
+        page([
+          post('1', 'Opening post', { is_first_post: true }),
+          post('2', 'Reply two', { can_edit: true }),
+        ])
+      );
+      vi.mocked(forumService.updatePost).mockResolvedValue({
+        post: post('2', 'Reply two, mine', { can_edit: true }),
+        status: 'published',
+      });
+      await loadAndOpen();
+      vi.mocked(forumService.fetchThread).mockResolvedValue(activePeek());
+      const walk = deferred<ReturnType<typeof page>>();
+      vi.mocked(forumService.fetchPosts).mockReturnValueOnce(walk.promise);
+      await reopen();
+      expect(forumService.fetchPosts).toHaveBeenCalledTimes(2);
+      await userEvent.click(screen.getByTitle('Edit post'));
+      const box = await screen.findByLabelText('body');
+      await userEvent.clear(box);
+      await userEvent.type(box, 'Reply two, mine');
+      await userEvent.click(screen.getByRole('button', { name: /^Save$/i }));
+      expect(await screen.findByText('Reply two, mine')).toBeInTheDocument();
+      await act(async () => {
+        walk.resolve(
+          page([
+            post('1', 'Opening post', { is_first_post: true }),
+            post('2', 'Reply two', { can_edit: true }),
+          ])
+        );
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByText('Reply two, mine')).toBeInTheDocument();
+      expect(screen.queryByText(/^Reply two$/)).not.toBeInTheDocument();
+    });
+
+    it('a post.updated applied while the walk runs is not overwritten by its older copy', async () => {
+      await loadAndOpen();
+      vi.mocked(forumService.fetchThread).mockResolvedValue(activePeek());
+      const walk = deferred<ReturnType<typeof page>>();
+      vi.mocked(forumService.fetchPosts).mockReturnValueOnce(walk.promise);
+      await reopen();
+      vi.mocked(forumService.fetchPost).mockResolvedValue(post('2', 'Reply two, live edit'));
+      await send({ type: 'post.updated', post_id: 2 });
+      expect(await screen.findByText('Reply two, live edit')).toBeInTheDocument();
+      await act(async () => {
+        walk.resolve(page(initialPosts()));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByText('Reply two, live edit')).toBeInTheDocument();
+    });
+
+    it('a live insert committed with the walk is never offered as a ghost pill', async () => {
+      atBottom();
+      await loadAndOpen();
+      vi.mocked(forumService.fetchThread).mockResolvedValue(activePeek());
+      const walk = deferred<ReturnType<typeof page>>();
+      vi.mocked(forumService.fetchPosts).mockReturnValueOnce(walk.promise);
+      await reopen();
+      const reply = deferred<Post>();
+      vi.mocked(forumService.fetchPost).mockReturnValueOnce(reply.promise);
+      await send({ type: 'post.created', post_id: 3 });
+      // Both land in one flush: the insert, then the walk that already has it.
+      await act(async () => {
+        reply.resolve(post('3', 'Live reply'));
+        walk.resolve(page([...initialPosts(), post('3', 'Live reply')]));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(await screen.findByText('Live reply')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /new repl/i })).not.toBeInTheDocument();
+    });
+
+    it('an unchanged peek walks no pages', async () => {
+      await loadAndOpen();
+      const calls = vi.mocked(forumService.fetchPosts).mock.calls.length;
+      const peeks = peekCalls();
+      await reopen();
+      expect(peekCalls()).toBe(peeks + 1);
+      expect(forumService.fetchPosts).toHaveBeenCalledTimes(calls);
+    });
+
+    it.each([
+      LIVE_CLOSE.disabled,
+      LIVE_CLOSE.limited,
+      LIVE_CLOSE.notFound,
+      LIVE_CLOSE.unauthenticated,
+    ])('a socket refused with %i walks no pages', async (code) => {
+      vi.mocked(refreshAccessToken).mockResolvedValue(false);
+      await loadAndOpen();
+      act(() => live().serverClose(1006));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      vi.mocked(forumService.fetchThread).mockResolvedValue(activePeek());
+      const calls = vi.mocked(forumService.fetchPosts).mock.calls.length;
+      await act(async () => {
+        live().open();
+        live().serverClose(code);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(forumService.fetchPosts).toHaveBeenCalledTimes(calls);
+    });
   });
 
   it('loading new replies jumps to and flashes the first new one', async () => {
@@ -713,6 +910,9 @@ describe('ThreadDetailPage live updates', () => {
         await vi.advanceTimersByTimeAsync(3000);
       });
       vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 3 }));
+      vi.mocked(forumService.fetchPosts).mockResolvedValue(
+        page([...initialPosts(), post('3', 'New three'), post('4', 'New four')])
+      );
       await act(async () => {
         live().open();
         await vi.advanceTimersByTimeAsync(0);
@@ -750,6 +950,105 @@ describe('ThreadDetailPage live updates', () => {
       expect(await screen.findByRole('button', { name: 'Load 1 new reply' })).toBeInTheDocument();
       expect(screen.queryByText('Late reply')).not.toBeInTheDocument();
       expect(window.scrollTo).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('forum audit lows (F13, F38, F40)', () => {
+    async function confirmDeleteOf(postId: string) {
+      const article = document.getElementById(`post-${postId}`) as HTMLElement;
+      await userEvent.click(within(article).getByTitle('Delete post'));
+      const dialog = await screen.findByRole('dialog');
+      await userEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }));
+    }
+
+    it('F13 deleting the accepted answer with live updates off clears the solved state', async () => {
+      localStorage.setItem(LIVE_UPDATES_KEY, 'off');
+      vi.mocked(forumService.fetchThread).mockResolvedValue(
+        baseThread({
+          is_solved: true,
+          solved_post_id: 2,
+          // The topic-level surface that reads solved_post_id (the post's own
+          // ring leaves with the post).
+          identification: {
+            image: { id: 7, url: 'http://x/plant.jpg', alt: 'plant.jpg', width: 800, height: 600 },
+            provider: 'plant_id',
+            candidates: [
+              {
+                name: 'Swiss cheese plant',
+                scientific_name: 'Monstera deliciosa',
+                confidence: 0.8,
+              },
+            ],
+            created_at: '2026-07-31T10:00:00Z',
+          },
+        })
+      );
+      vi.mocked(forumService.fetchPosts).mockResolvedValue(
+        page([
+          post('1', 'Opening post', { is_first_post: true }),
+          post('2', 'Reply two', { can_delete: true }),
+        ])
+      );
+      vi.mocked(forumService.deletePost).mockResolvedValue(undefined);
+      renderPage();
+      await screen.findByText('Opening post');
+      expect(screen.getByText('See the accepted answer')).toBeInTheDocument();
+      await confirmDeleteOf('2');
+      await waitFor(() => expect(screen.queryByText('Reply two')).not.toBeInTheDocument());
+      expect(screen.queryByText('See the accepted answer')).not.toBeInTheDocument();
+      expect(sockets).toHaveLength(0);
+    });
+
+    it('F38 deleting your own reply while live counts it once, and no ghost pill follows', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      scrolledUp();
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 2 }));
+      vi.mocked(forumService.fetchPosts).mockResolvedValue(
+        page([
+          post('1', 'Opening post', { is_first_post: true }),
+          post('2', 'Reply two', { can_delete: true }),
+          post('3', 'Reply three'),
+        ])
+      );
+      let resolveDelete: () => void = () => {};
+      vi.mocked(forumService.deletePost).mockReturnValue(
+        new Promise<void>((resolve) => {
+          resolveDelete = resolve;
+        })
+      );
+      await loadAndOpen();
+      expect(screen.getByText(/2 replies/)).toBeInTheDocument();
+      await confirmDeleteOf('2');
+      // The socket frame beats the DELETE response.
+      await send({ type: 'post.removed', post_id: 2 });
+      await act(async () => {
+        resolveDelete();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await waitFor(() => expect(screen.queryByText('Reply two')).not.toBeInTheDocument());
+      expect(screen.getByText(/\b1 replies/)).toBeInTheDocument();
+      // A later catch-up with the server's count offers nothing.
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 1 }));
+      vi.mocked(forumService.fetchPosts).mockResolvedValue(
+        page([post('1', 'Opening post', { is_first_post: true }), post('3', 'Reply three')])
+      );
+      act(() => live().serverClose(1006));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      await act(async () => {
+        live().open();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.queryByRole('button', { name: /new repl/i })).not.toBeInTheDocument();
+    });
+
+    it('F40 a failed fetch after post.created at the bottom offers the pill instead', async () => {
+      vi.mocked(forumService.fetchPost).mockRejectedValue(new Error('network down'));
+      await loadAndOpen();
+      await send({ type: 'post.created', post_id: 3 });
+      expect(await screen.findByRole('button', { name: 'Load 1 new reply' })).toBeInTheDocument();
+      expect(forumService.fetchPost).toHaveBeenCalledWith('3');
     });
   });
 });

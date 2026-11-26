@@ -10,7 +10,7 @@
  * | 4503 | flag off (every socket until the flag flips) | stop for this visit |
  * | 4429 | socket cap | stop for this visit |
  * | 4404 | topic not visible, or removed | stop, report `gone` |
- * | 4401 | no valid user | refresh the session once, reconnect once, then stop |
+ * | 4401 | no valid user | refresh the session once, reconnect once, then stop; a frame on the new socket restores the one refresh |
  * | other (1006 …) | dropped | reconnect after 1 s + random · min(29 s, 4 s · 2^n) |
  *
  * A stopped socket never retries: retrying a 4503 would be the reconnect
@@ -184,6 +184,9 @@ export function openTopicLive(topicId: number, handlers: TopicLiveHandlers): { c
       if (pongTimer) clearTimeout(pongTimer);
       pongTimer = null;
       const parsed = parseLiveEvent(event.data);
+      // A frame (not the open: refusals open too) proves the session worked,
+      // so a later expiry in this visit gets its one refresh again (audit F42).
+      if (parsed) retriedAuth = false;
       if (parsed && parsed !== 'pong') handlers.onEvent(parsed);
     };
     socket.onclose = (event: CloseEvent) => onClosed(event.code);

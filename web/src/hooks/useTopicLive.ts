@@ -8,6 +8,8 @@ interface UseTopicLiveOptions {
   onEvent: (event: LiveEvent) => void;
   /** Every (re)open — the page runs its one catch-up read here. */
   onOpen: () => void;
+  /** Every status change, synchronously (before React re-renders). */
+  onStatus?: (status: LiveStatus) => void;
 }
 
 /**
@@ -16,25 +18,36 @@ interface UseTopicLiveOptions {
  * ride in refs, so a new function each render never reconnects. Disabled, a
  * null topic, or unmount closes it.
  */
-export function useTopicLive({ topicId, enabled, onEvent, onOpen }: UseTopicLiveOptions): {
+export function useTopicLive({
+  topicId,
+  enabled,
+  onEvent,
+  onOpen,
+  onStatus,
+}: UseTopicLiveOptions): {
   status: LiveStatus;
   connected: boolean;
 } {
   const [status, setStatus] = useState<LiveStatus>('off');
   const onEventRef = useRef(onEvent);
   const onOpenRef = useRef(onOpen);
+  const onStatusRef = useRef(onStatus);
 
   useEffect(() => {
     onEventRef.current = onEvent;
     onOpenRef.current = onOpen;
-  }, [onEvent, onOpen]);
+    onStatusRef.current = onStatus;
+  }, [onEvent, onOpen, onStatus]);
 
   useEffect(() => {
     if (!enabled || topicId == null) return;
     const live = openTopicLive(topicId, {
       onEvent: (event) => onEventRef.current(event),
       onOpen: () => onOpenRef.current(),
-      onStatus: setStatus,
+      onStatus: (next) => {
+        onStatusRef.current?.(next);
+        setStatus(next);
+      },
     });
     return () => live.close();
   }, [topicId, enabled]);

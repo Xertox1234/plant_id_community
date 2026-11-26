@@ -173,6 +173,38 @@ describe('openTopicLive', () => {
     expect(lastStatus()).toBe('stopped');
   });
 
+  it('a 4401 refusal that opens first still stops after one refresh (no tight loop)', async () => {
+    start();
+    sockets[0].open();
+    sockets[0].serverClose(LIVE_CLOSE.unauthenticated);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sockets).toHaveLength(2);
+    // The server accepts, then closes: an open alone proves nothing.
+    sockets[1].open();
+    sockets[1].serverClose(LIVE_CLOSE.unauthenticated);
+    await vi.advanceTimersByTimeAsync(BACKOFF_CAP_MS * 4);
+    expect(sockets).toHaveLength(2);
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1);
+    expect(lastStatus()).toBe('stopped');
+  });
+
+  it('F42 a second token expiry after a working reconnect refreshes again', async () => {
+    start();
+    sockets[0].open();
+    sockets[0].serverClose(LIVE_CLOSE.unauthenticated);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1);
+    // The refreshed socket works: a frame arrives.
+    sockets[1].open();
+    sockets[1].message({ v: 1, type: 'pong' });
+    // Later in the same visit the token expires again.
+    sockets[1].serverClose(LIVE_CLOSE.unauthenticated);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(refreshAccessToken).toHaveBeenCalledTimes(2);
+    expect(sockets).toHaveLength(3);
+    expect(lastStatus()).toBe('connecting');
+  });
+
   it('1006 reconnects with backoff, resetting after a successful open', async () => {
     // delay = 1 s + random · min(29 s, 4 s · 2^attempt): 3 s, then 5 s at random 0.5.
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
