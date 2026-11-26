@@ -18,8 +18,13 @@ cd "$(dirname "$0")/.."
 PYTHON="${PYTHON:-python}"
 
 # The header names this script, not the pip-compile command line, so the
-# output is the same whoever runs it and from wherever.
-export CUSTOM_COMPILE_COMMAND="bash bin/compile-requirements.sh"
+# output is the same whoever runs it and from wherever. It also spells out the
+# flags: Dependabot does not run this script, it re-runs pip-compile with flags
+# it finds as text in the lock (`content.include?("--strip-extras")` in
+# dependabot-core's pip_compile_file_updater.rb). Without `--strip-extras` in
+# the header it writes `whitenoise[brotli]==x` and backend-checks fails on the
+# diff (Dependabot #1401, #1348, #1347). Keep this list in step with `common`.
+export CUSTOM_COMPILE_COMMAND="bash bin/compile-requirements.sh  (pip-compile --strip-extras --allow-unsafe --no-emit-index-url)"
 
 # --strip-extras writes `uvicorn==x`, not `uvicorn[standard]==x` (the extra's
 # packages are pinned on their own lines), which is pip-tools 8's default.
