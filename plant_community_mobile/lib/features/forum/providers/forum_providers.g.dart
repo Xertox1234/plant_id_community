@@ -1119,7 +1119,7 @@ final class TopicPostsProvider
   }
 }
 
-String _$topicPostsHash() => r'698934e3dc5f71a2c5e05a98f62e57a4962dfe38';
+String _$topicPostsHash() => r'6c8f4a989c88a63ab5088421687ae82e045fa829';
 
 /// Posts in a topic (oldest-first), cursor-paginated with [loadMore], plus a
 /// reaction toggle that updates the affected post in place.
@@ -1402,7 +1402,7 @@ final class HomeRecentTopicsProvider
   }
 }
 
-String _$homeRecentTopicsHash() => r'c0600a2bc790421a3d858f8bbddbde0fbb07232d';
+String _$homeRecentTopicsHash() => r'8106bd0ddcb2a60cee8950013c163ac27d4f524f';
 
 /// The home activity feed — the [kHomeRecentTopicsLimit] most recent topics
 /// with solved/unread state, pictures and recent repliers. Distinct from

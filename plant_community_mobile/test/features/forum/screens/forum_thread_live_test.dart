@@ -448,4 +448,60 @@ void main() {
     );
     await tester.pumpAndSettle();
   });
+
+  testWidgets('a live reply scrolled away before its highlight ends does not '
+      'flash again when scrolled back (audit F22)', (tester) async {
+    final l = _Live();
+    l.api
+      ..topicDetail = topicDetail(replyCount: 29)
+      ..posts = CursorPage(items: [for (var i = 1; i <= 30; i++) _reply(i)])
+      ..postsById[31] = _reply(31, 'Live thirty-one');
+    await l.open(tester);
+    ScrollPosition position() => tester
+        .state<ScrollableState>(
+          find.descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          ),
+        )
+        .position;
+    position().jumpTo(position().maxScrollExtent);
+    await tester.pumpAndSettle();
+
+    l.channel.serverEvent('post.created', postId: 31);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(LiveFlash), findsOneWidget);
+
+    // Away to the top before the 2.5 s are up: the card is disposed.
+    position().jumpTo(0);
+    await tester.pump();
+    expect(find.text('Live thirty-one', skipOffstage: false), findsNothing);
+    await tester.pump(const Duration(seconds: 3));
+
+    // Straight back, in less time than a highlight lasts.
+    position().jumpTo(position().maxScrollExtent);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Live thirty-one'), findsOneWidget);
+    expect(find.byType(LiveFlash), findsNothing);
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('leaving the thread mid-highlight reports nothing to a '
+      'disposed screen', (tester) async {
+    final l = _Live();
+    l.api.postsById[3] = _reply(3, 'Live reply');
+    await l.open(tester);
+
+    l.channel.serverEvent('post.created', postId: 3);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(LiveFlash), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    expect(tester.takeException(), isNull);
+  });
 }

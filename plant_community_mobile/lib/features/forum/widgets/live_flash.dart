@@ -65,8 +65,14 @@ class _LiveFlashState extends State<LiveFlash> with TickerProviderStateMixin {
         if (mounted) widget.onSlideDone?.call();
       });
     }
-    _fade.forward().whenComplete(() {
-      if (mounted) widget.onDone();
+    // Also when the card is disposed first (scrolled past the cache extent,
+    // audit F22): the highlight is over, so it must not replay when the card
+    // is built again. Disposing cancels the ticker, and the callback runs
+    // later, from a microtask, never inside dispose; the owner of [onDone]
+    // checks that it is still mounted itself.
+    final onDone = widget.onDone;
+    _fade.forward().whenCompleteOrCancel(() {
+      onDone();
     });
   }
 
