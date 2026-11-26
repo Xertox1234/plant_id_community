@@ -998,7 +998,9 @@ class TopicPosts extends _$TopicPosts {
   }
 
   /// Insert a post that arrived live, or splice it when its id is already
-  /// loaded. Appends: a live insert happens only with every page loaded.
+  /// loaded. Appends: a live insert happens only with every page loaded, and
+  /// only for a post that sorts after the last one loaded (TopicLive sends
+  /// an older one, such as a restored reply, to the pill instead).
   void applyLivePost(ForumPost post) {
     final current = state.asData?.value;
     if (current == null) return;

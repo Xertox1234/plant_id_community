@@ -966,6 +966,215 @@ void main() {
     expect(h.live.pendingCount, 0);
     await h.stop(tester);
   });
+
+  // Server order is oldest-first by (created_at, id). A moderator restoring
+  // a hidden reply broadcasts post.created for an OLD post (audit F44).
+  group('a restored reply (audit F44)', () {
+    testWidgets('one older than the last loaded post goes to the pill, not '
+        'the end of the list', (tester) async {
+      final h = _Harness();
+      h.api
+        ..topicDetail = topicDetail(replyCount: 2)
+        ..posts = CursorPage(items: [post(id: 1), post(id: 2), post(id: 5)])
+        ..postsById[3] = post(id: 3);
+      await h.start(tester);
+      expect(h.live.pendingCount, 0);
+
+      h.channel.serverEvent('post.created', postId: 3);
+      await tester.pump();
+
+      expect(h.ids, [1, 2, 5]);
+      expect(h.live.pendingCount, 1);
+      expect(h.live.flashIds, isEmpty);
+      expect(h.live.slideIds, isEmpty);
+
+      // The pill's walk loads it in server order.
+      h.api.posts = CursorPage(
+        items: [post(id: 1), post(id: 2), post(id: 3), post(id: 5)],
+      );
+      expect(await h.notifier.takePending(), 3);
+      expect(h.ids, [1, 2, 3, 5]);
+      expect(h.live.flashIds, {3});
+      expect(h.live.pendingCount, 0);
+      await h.stop(tester);
+    });
+
+    testWidgets('is placed by its date, not its id: a higher id written '
+        'earlier still goes to the pill', (tester) async {
+      // Ids and dates can disagree; the server pages by (created_at, id).
+      final h = _Harness();
+      h.api
+        ..topicDetail = topicDetail(replyCount: 1)
+        ..posts = CursorPage(
+          items: [
+            post(id: 1, createdAt: DateTime(2026, 1, 1, 10)),
+            post(id: 5, createdAt: DateTime(2026, 1, 1, 10, 2)),
+          ],
+        )
+        ..postsById[9] = post(id: 9, createdAt: DateTime(2026, 1, 1, 10, 1));
+      await h.start(tester);
+
+      h.channel.serverEvent('post.created', postId: 9);
+      await tester.pump();
+
+      expect(h.ids, [1, 5]);
+      expect(h.live.pendingCount, 1);
+      await h.stop(tester);
+    });
+  });
+
+  group('the pill highlights by id', () {
+    testWidgets('the waiting reply, not the newest one the walk loaded', (
+      tester,
+    ) async {
+      final h = _Harness();
+      h.api.postsById[3] = post(id: 3, canReport: true);
+      await h.start(tester);
+      h.notifier.setReaderAtBottom(false);
+      h.channel.serverEvent('post.created', postId: 3);
+      await tester.pump();
+      expect(h.live.pendingCount, 1);
+
+      // The walk also brings in 4, which never waited in the pill.
+      h.api.posts = CursorPage(
+        items: [
+          post(id: 1),
+          post(id: 2),
+          post(id: 3, canReport: true),
+          post(id: 4, canReport: true),
+        ],
+      );
+      final first = await h.notifier.takePending();
+
+      expect(first, 3);
+      expect(h.live.flashIds, {3});
+      expect(h.live.pendingCount, 0);
+      await h.stop(tester);
+    });
+
+    testWidgets("a count-only pill never highlights the reader's own reply", (
+      tester,
+    ) async {
+      final h = _Harness();
+      // Two replies missed with no ids: a count-only pill.
+      h.api.peekDetails = [topicDetail(replyCount: 3)];
+      await h.start(tester);
+      expect(h.live.pendingCount, 2);
+
+      // The walk loads 3 and 4 (someone else's) and 5, the reader's own
+      // (the server sets can_report false only for the viewer's posts).
+      h.api.posts = CursorPage(
+        items: [
+          post(id: 1),
+          post(id: 2),
+          post(id: 3, canReport: true),
+          post(id: 4, canReport: true),
+          post(id: 5),
+        ],
+      );
+      final first = await h.notifier.takePending();
+
+      expect(first, 3);
+      expect(h.live.flashIds, {3, 4});
+      expect(h.live.pendingCount, 0);
+      await h.stop(tester);
+    });
+  });
+
+  group('after the pill walk', () {
+    testWidgets('a failed-fetch id the walk did not return no longer waits '
+        '(audit F40)', (tester) async {
+      final api = _GatedApi()
+        ..postError = ApiException('down', statusCode: 503);
+      final h = _Harness(api: api);
+      await h.start(tester);
+      h.channel.serverEvent('post.created', postId: 3);
+      await tester.pump();
+      expect(h.live.pendingCount, 1);
+
+      // 3 is gone (or not visible) by the time the pill is tapped.
+      expect(await h.notifier.takePending(), isNull);
+      expect(h.ids, [1, 2]);
+      expect(h.live.pendingCount, 0);
+
+      // A later event for it counts again: the id was not left behind.
+      api.postError = null;
+      h.api.postsById[3] = post(id: 3, canReport: true);
+      h.notifier.setReaderAtBottom(false);
+      h.channel.serverEvent('post.created', postId: 3);
+      await tester.pump();
+      expect(h.live.pendingCount, 1);
+      await h.stop(tester);
+    });
+
+    testWidgets('a reply that arrives during the walk and is loaded by it '
+        'leaves no ghost pill', (tester) async {
+      final api = _GatedApi();
+      final h = _Harness(api: api);
+      h.api.postsById
+        ..[3] = post(id: 3, canReport: true)
+        ..[4] = post(id: 4, canReport: true);
+      await h.start(tester);
+      h.notifier.setReaderAtBottom(false);
+      h.channel.serverEvent('post.created', postId: 3);
+      await tester.pump();
+      expect(h.live.pendingCount, 1);
+
+      h.api.posts = CursorPage(
+        items: [
+          post(id: 1),
+          post(id: 2),
+          post(id: 3, canReport: true),
+          post(id: 4, canReport: true),
+        ],
+      );
+      final gate = api.postsGates[api.fetchPostsCalls.length + 1] =
+          Completer<void>();
+      final pill = h.notifier.takePending();
+      await tester.pump();
+      h.channel.serverEvent('post.created', postId: 4);
+      await tester.pump();
+      expect(h.live.pendingCount, 2);
+
+      gate.complete();
+      final first = await pill;
+
+      expect(first, 3);
+      expect(h.ids, [1, 2, 3, 4]);
+      expect(h.live.flashIds, {3, 4});
+      expect(h.live.pendingCount, 0);
+      await h.stop(tester);
+    });
+
+    testWidgets('a reply that arrives during the walk and is not loaded by '
+        'it stays in the pill', (tester) async {
+      final api = _GatedApi();
+      final h = _Harness(api: api);
+      h.api.postsById
+        ..[3] = post(id: 3, canReport: true)
+        ..[4] = post(id: 4, canReport: true);
+      await h.start(tester);
+      h.notifier.setReaderAtBottom(false);
+      h.channel.serverEvent('post.created', postId: 3);
+      await tester.pump();
+
+      h.api.posts = CursorPage(
+        items: [post(id: 1), post(id: 2), post(id: 3, canReport: true)],
+      );
+      final gate = api.postsGates[api.fetchPostsCalls.length + 1] =
+          Completer<void>();
+      final pill = h.notifier.takePending();
+      await tester.pump();
+      h.channel.serverEvent('post.created', postId: 4);
+      await tester.pump();
+
+      gate.complete();
+      expect(await pill, 3);
+      expect(h.live.flashIds, {3});
+      expect(h.live.pendingCount, 1);
+      await h.stop(tester);
+    });
+  });
 }
 
 /// [FakeForumApi] whose Nth [fetchPosts] call (1-indexed) waits for

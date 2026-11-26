@@ -281,10 +281,17 @@ class TopicLive extends _$TopicLive {
   }
 
   /// The pill was tapped: walk every page, highlight the new replies, and
-  /// return the first one's id (null when there is none) for the screen to
-  /// scroll to.
+  /// return the first one's id in list order (null when there is none) for
+  /// the screen to scroll to.
+  ///
+  /// Highlights by id: the replies that waited in the pill, wherever the
+  /// walk put them (a restored reply sits mid-thread, audit F44), and any
+  /// that arrived during the walk and were loaded by it. Only a count-only
+  /// remainder (a catch-up counted replies it has no ids for) falls back to
+  /// the newest other new replies, never the reader's own.
   Future<int?> takePending() async {
     final taken = state.pendingCount;
+    final waiting = {..._pendingIds};
     // Only replies the walk brings in are new: never highlight one that was
     // already on screen (audit F41).
     final before = {...?_posts?.items.map((p) => p.id)};
@@ -296,20 +303,48 @@ class TopicLive extends _$TopicLive {
       return null;
     }
     if (!ref.mounted) return null;
-    final replies = (_posts?.items ?? const <ForumPost>[])
+    final posts = _posts;
+    final replies = (posts?.items ?? const <ForumPost>[])
         .where((p) => !p.isOpeningPost && !before.contains(p.id))
         .toList();
-    final count = math.min(taken, replies.length);
-    final fresh = replies
-        .sublist(replies.length - count)
-        .map((p) => p.id)
-        .toList();
-    _pendingIds.removeWhere(_inList);
+    final highlight = {
+      for (final p in replies)
+        if (waiting.contains(p.id) || _pendingIds.contains(p.id)) p.id,
+    };
+    var unknown = taken - waiting.length;
+    for (final p in replies.reversed) {
+      if (unknown <= 0) break;
+      // The server sets can_report false for a signed-in viewer's own post
+      // only: the walk may load the reader's reply (D11).
+      if (highlight.contains(p.id) || !p.canReport) continue;
+      highlight.add(p.id);
+      unknown--;
+    }
+    final int pendingCount;
+    if (posts != null && !posts.hasMore) {
+      // The walk read every page: a waiting id it did not return is gone or
+      // not visible (audit F40), and nothing else is missing. Only ids that
+      // arrived during the walk and are still not loaded wait on.
+      _pendingIds
+        ..removeAll(waiting)
+        ..removeWhere(_inList);
+      pendingCount = _pendingIds.length;
+    } else {
+      _pendingIds.removeWhere(_inList);
+      pendingCount = math.max(
+        _pendingIds.length,
+        math.max(0, state.pendingCount - taken),
+      );
+    }
+    final fresh = [
+      for (final p in replies)
+        if (highlight.contains(p.id)) p.id,
+    ];
     state = state.copyWith(
-      pendingCount: math.max(0, state.pendingCount - taken),
+      pendingCount: pendingCount,
       flashIds: {...state.flashIds, ...fresh},
     );
-    return fresh.isEmpty ? null : fresh.first;
+    return fresh.firstOrNull;
   }
 
   /// The highlight on [postId] has finished.
@@ -520,10 +555,13 @@ class TopicLive extends _$TopicLive {
     }
     final posts = _posts;
     if (posts == null) return;
+    // Inserted only when it belongs at the end: a restored reply is an old
+    // post (audit F44), which the pill's walk loads in server order.
     if (post != null &&
         _atBottom &&
         !posts.hasMore &&
-        state.pendingCount == 0) {
+        state.pendingCount == 0 &&
+        _sortsLast(post, posts.items)) {
       ref
           .read(topicPostsProvider(topicId, _viewer).notifier)
           .applyLivePost(post);
@@ -535,6 +573,16 @@ class TopicLive extends _$TopicLive {
       state = state.copyWith(pendingCount: state.pendingCount + 1);
     }
     unawaited(_maybeIntro());
+  }
+
+  /// Whether [post] sorts after every loaded post in the server's order,
+  /// oldest-first by (created_at, id). With either date missing, by id.
+  bool _sortsLast(ForumPost post, List<ForumPost> items) {
+    final last = items.lastOrNull;
+    if (last == null) return true;
+    final (a, b) = (post.createdAt, last.createdAt);
+    if (a != null && b != null && a != b) return a.isAfter(b);
+    return post.id > last.id;
   }
 
   Future<void> _updated(int postId) async {
