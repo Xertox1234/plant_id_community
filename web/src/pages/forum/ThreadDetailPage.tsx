@@ -310,6 +310,18 @@ export default function ThreadDetailPage() {
   // ours (final review #1).
   const replyInFlightRef = useRef(false);
   const heldCreatedIdsRef = useRef<Set<string>>(new Set());
+  // When each post was last replaced by a newer copy (own edit saved, or a
+  // post.updated applied), on one counter: a catch-up walk that began before
+  // must not put its older copy back (F39).
+  const postTouchSeqRef = useRef(0);
+  const postTouchedAtRef = useRef<Map<string, number>>(new Map());
+  const markPostTouched = (postId: string) => {
+    postTouchSeqRef.current += 1;
+    postTouchedAtRef.current.set(postId, postTouchSeqRef.current);
+  };
+  // Bumped on every socket status change: a catch-up whose socket closed (a
+  // refusal closes right after the open) since its open walks nothing.
+  const liveStatusSeqRef = useRef(0);
   const topicRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Where to scroll once the next posts render lands: the bottom (a live
   // insert while pinned there) or the first newly loaded reply.
@@ -598,6 +610,31 @@ export default function ThreadDetailPage() {
     });
   }, [setLiveEnabled]);
 
+  // Take a post the server no longer has off the page: a post.removed frame,
+  // or one the catch-up walk no longer returns (audit F39).
+  const dropRemovedPost = useCallback(
+    (postId: string, requestTopicId: number) => {
+      if (liveNewIdsRef.current.delete(postId)) {
+        setNewReplyCount((n) => Math.max(0, n - 1));
+      }
+      const loaded = postsRef.current.find((p) => p.id === postId);
+      if (loaded) {
+        // Synchronously, so a DELETE response landing before the next render
+        // does not count it again (audit F38).
+        postsRef.current = postsRef.current.filter((p) => p.id !== postId);
+        setPosts((prev) => prev.filter((p) => p.id !== postId));
+        if (!loaded.is_first_post) setTotalPosts((n) => Math.max(0, n - 1));
+      }
+      if (isSolvedPost(threadRef.current, postId)) scheduleTopicRefetch(requestTopicId);
+      if (editingPostIdRef.current === postId) {
+        setEditingPostId(null);
+        setEditBody(emptyDoc());
+        setNotice('This post was removed.');
+      }
+    },
+    [scheduleTopicRefetch]
+  );
+
   // A live event (ids only): apply it through the same state the page already
   // keeps. Everything shown is refetched through REST as this viewer.
   const handleLiveEvent = useCallback(
@@ -637,6 +674,7 @@ export default function ThreadDetailPage() {
             .then((fresh) => {
               if (!fresh || currentTopicIdRef.current !== requestTopicId) return;
               if (postsRef.current.some((p) => p.id === postId)) {
+                markPostTouched(postId);
                 setPosts((prev) => prev.map((p) => (p.id === postId ? fresh : p)));
                 return;
               }
@@ -658,6 +696,14 @@ export default function ThreadDetailPage() {
                 error: err,
                 context: { postId },
               });
+              // Not a 404 (that resolves null): the reply exists, so offer it
+              // through the pill rather than drop it (audit F40).
+              if (
+                currentTopicIdRef.current === requestTopicId &&
+                !postsRef.current.some((p) => p.id === postId)
+              ) {
+                offer();
+              }
             });
           return;
         }
@@ -669,6 +715,7 @@ export default function ThreadDetailPage() {
         void fetchPost(postId)
           .then((fresh) => {
             if (!fresh || currentTopicIdRef.current !== requestTopicId) return;
+            markPostTouched(postId);
             setPosts((prev) => prev.map((p) => (p.id === postId ? fresh : p)));
           })
           .catch((err) => {
@@ -681,37 +728,103 @@ export default function ThreadDetailPage() {
         return;
       }
       // post.removed
-      if (liveNewIdsRef.current.delete(postId)) {
-        setNewReplyCount((n) => Math.max(0, n - 1));
-      }
-      if (loaded) {
-        setPosts((prev) => prev.filter((p) => p.id !== postId));
-        if (!loaded.is_first_post) setTotalPosts((n) => Math.max(0, n - 1));
-      }
-      if (isSolvedPost(threadRef.current, postId)) scheduleTopicRefetch(requestTopicId);
-      if (editingPostIdRef.current === postId) {
-        setEditingPostId(null);
-        setEditBody(emptyDoc());
-        setNotice('This post was removed.');
-      }
+      dropRemovedPost(postId, requestTopicId);
     },
-    [scheduleTopicRefetch, showLiveIntro]
+    [scheduleTopicRefetch, showLiveIntro, dropRemovedPost]
   );
 
+  // The catch-up on every open (spec O9): one peek read, and only when it
+  // shows something changed (count or last activity) a walk of every page,
+  // reconciled by post id, not by count: a missed delete plus a missed reply
+  // would cancel out (audit F39). Only when every page is loaded, so the walk
+  // is what the reader already had plus what is new, only from a walk that
+  // reached the end, and never for a socket that closed since it opened (a
+  // 4503/4429/4404/4401 refusal opens, then closes). An edit alone moves
+  // neither count nor activity, so it is not caught here.
   const handleLiveOpen = useCallback(() => {
     const requestTopicId = currentTopicIdRef.current;
     if (requestTopicId == null) return;
+    const openStatusSeq = liveStatusSeqRef.current;
+    const shownBefore = threadRef.current;
+    const totalBefore = totalPostsRef.current;
     void checkForNewReplies(requestTopicId, () => true).then((fresh) => {
-      if (fresh) setThread(fresh);
+      if (!fresh) return;
+      setThread(fresh);
+      const changed =
+        (fresh.post_count ?? 0) !== totalBefore ||
+        fresh.last_activity_at !== shownBefore?.last_activity_at;
+      const walkable = () =>
+        currentTopicIdRef.current === requestTopicId &&
+        liveStatusSeqRef.current === openStatusSeq &&
+        nextCursorRef.current == null &&
+        !replyInFlightRef.current;
+      if (!changed || !walkable()) return;
+      const before = new Set(postsRef.current.map((p) => p.id));
+      const offeredBefore = new Set(liveNewIdsRef.current);
+      const touchSeqBefore = postTouchSeqRef.current;
+      void collectAllPosts(requestTopicId)
+        .catch((err) => {
+          logger.warn('Live catch-up posts read failed', {
+            component: 'ThreadDetailPage',
+            error: err,
+            context: { threadId: requestTopicId },
+          });
+          return null;
+        })
+        .then((refreshed: Awaited<ReturnType<typeof collectAllPosts>> | null) => {
+          if (!refreshed || refreshed.next != null || !walkable()) return;
+          const byId = new Map(refreshed.items.map((p) => [p.id, p]));
+          // Missed deletes: only posts that were on screen when the walk began.
+          before.forEach((id) => {
+            if (!byId.has(id)) dropRemovedPost(id, requestTopicId);
+          });
+          // Offered ids as they stand now; one a frame offers after this is
+          // counted by its own frame.
+          const offeredAtEnd = new Set(liveNewIdsRef.current);
+          let offered = 0;
+          // Missed edits, by id, so a live insert since the walk survives, and
+          // never over a copy replaced since the walk began. The pill is worked
+          // out from the same state the update applies to: postsRef lags a
+          // live insert committed in this flush (ghost pill).
+          setPosts((prev) => {
+            const next = prev.map((p) =>
+              (postTouchedAtRef.current.get(p.id) ?? 0) > touchSeqBefore ? p : (byId.get(p.id) ?? p)
+            );
+            const loadedNow = new Set(next.map((p) => p.id));
+            // Own replies included: one not on screen (its refresh failed) is
+            // offered through the pill like anyone's.
+            const unseen = refreshed.items
+              .filter((p) => !p.is_first_post && !loadedNow.has(p.id))
+              .map((p) => p.id);
+            // A reply offered by a frame after the walk read its page stays offered.
+            offeredAtEnd.forEach((id) => {
+              if (!offeredBefore.has(id) && !byId.has(id) && !loadedNow.has(id)) unseen.push(id);
+            });
+            const reconciled = new Set(unseen);
+            offered = reconciled.size;
+            liveNewIdsRef.current.forEach((id) => {
+              if (!offeredAtEnd.has(id) && !loadedNow.has(id)) reconciled.add(id);
+            });
+            liveNewIdsRef.current = reconciled;
+            return next;
+          });
+          // Queued after the posts update, and `posts` is declared before
+          // `newReplyCount`, so its updater has run when this one does.
+          setNewReplyCount(() => offered);
+        });
     });
-  }, [checkForNewReplies]);
+  }, [checkForNewReplies, dropRemovedPost]);
 
+  const bumpLiveStatusSeq = useCallback(() => {
+    liveStatusSeqRef.current += 1;
+  }, []);
   // Signed-in readers only (O10); off with the per-browser setting (O7/O8).
   const { status: liveStatus, connected: liveConnected } = useTopicLive({
     topicId,
     enabled: isAuthenticated && liveEnabled && thread != null && !error && !loading,
     onEvent: handleLiveEvent,
     onOpen: handleLiveOpen,
+    onStatus: bumpLiveStatusSeq,
   });
 
   // A 4404 close does not mean the topic is gone: the server keeps the socket
@@ -1403,10 +1516,23 @@ export default function ThreadDetailPage() {
     if (!post) return;
     setPendingDelete(null);
     setDeleteError(null);
+    const requestTopicId = currentTopicIdRef.current;
     try {
       await deletePost(post.id);
-      setPosts((prev) => prev.filter((p) => p.id !== post.id));
-      setTotalPosts((n) => Math.max(0, n - 1));
+      if (currentTopicIdRef.current !== requestTopicId) return;
+      // Count it once: a post.removed frame that beat this response already
+      // removed and counted it (audit F38). The ref moves now, not on the
+      // next render, so that frame arriving after this sees it gone too.
+      if (postsRef.current.some((p) => p.id === post.id)) {
+        postsRef.current = postsRef.current.filter((p) => p.id !== post.id);
+        setPosts((prev) => prev.filter((p) => p.id !== post.id));
+        setTotalPosts((n) => Math.max(0, n - 1));
+      }
+      // Removing the accepted answer unsolves the topic; without a socket
+      // nothing else would say so (audit F13).
+      if (isSolvedPost(threadRef.current, post.id)) {
+        setThread((prev) => (prev ? { ...prev, is_solved: false, solved_post_id: null } : prev));
+      }
     } catch (err) {
       logger.error('Error deleting post', {
         component: 'ThreadDetailPage',
@@ -1474,6 +1600,7 @@ export default function ThreadDetailPage() {
           editKey.keyFor(JSON.stringify([editingPostId, body]))
         );
         editKey.reset();
+        markPostTouched(editingPostId);
         setPosts((prev) => prev.map((p) => (p.id === editingPostId ? res.post : p)));
         if (res.status === 'pending') {
           setNotice('Your edit was submitted and is awaiting moderation.');
