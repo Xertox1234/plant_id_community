@@ -136,6 +136,9 @@ class NotificationMarkReadView(UnversionedForumAPIMixin, APIView):
         ),
     )
     def post(self, request):
+        if not isinstance(request.data, dict):
+            # A JSON array/string/number body has no .get (forum audit F6).
+            raise ValidationError(_("Expected a JSON object."))
         ids = request.data.get("ids")
         qs = Notification.objects.filter(recipient=request.user, read_at__isnull=True)
         if ids is not None:

@@ -1674,6 +1674,14 @@ class PostWriteView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIVie
             # client sent, moderation_status carries the pending state, and GET
             # keeps returning the live body.
             serialize_source = post.latest_revision.as_object()
+        if not _should_filter_blocks(request.user):
+            # Same constant-False contract as _annotate_author_blocked, which
+            # GET and the post list go through: without it the serializer's
+            # per-object fallback reads a moderator's OWN blocks and mutes, and
+            # the edit echo collapses a post every read shows (audit F1).
+            # Anyone else can only edit their own post, never self-blocked.
+            serialize_source.author_is_blocked = False
+            serialize_source.author_is_muted = False
         data = PostSerializer(
             serialize_source,
             context={
@@ -2373,7 +2381,7 @@ PUBLIC_PROFILE_SCHEMA = {
 }
 
 
-class PublicProfileView(UnversionedForumAPIMixin, APIView):
+class PublicProfileView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView):
     """Public forum profile: identity + trust + recent activity, read-only.
 
     Deliberately does NOT expose fcm_token (a credential) or flags_received (a
@@ -3304,6 +3312,10 @@ class SearchView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
         if len(terms) > max_terms:
             query = " ".join(terms[:max_terms])
         board_slug = request.query_params.get("board", "").strip()
+        if "\x00" in query or "\x00" in board_slug:
+            # PostgreSQL refuses a NUL in any text parameter, so it would 500
+            # (forum audit F210). Nothing can match one: answer as a blank q.
+            query = ""
         try:
             page = max(1, int(request.query_params.get("page", 1)))
         except (TypeError, ValueError):
@@ -3410,7 +3422,7 @@ class SearchView(UnversionedForumAPIMixin, PublicForumReadCacheMixin, APIView):
         return None
 
 
-class SyncView(UnversionedForumAPIMixin, APIView):
+class SyncView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIView):
     MAX_TOPICS = 200  # page size for the delta poll; has_more signals truncation
 
     @extend_schema(

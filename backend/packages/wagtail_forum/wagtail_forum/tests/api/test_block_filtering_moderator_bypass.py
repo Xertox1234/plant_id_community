@@ -119,3 +119,49 @@ def test_notifications_moderator_sees_a_notification_from_own_blocklist():
     assert resp.status_code == 200
     assert len(resp.data["results"]) == 1
     assert Notification.objects.filter(recipient=mod, actor=blocked_actor).exists()
+
+
+def test_post_patch_response_keeps_moderator_own_block_and_mute_inert():
+    """Audit 2026-11-24 F1: PATCH serialized the edited post without the
+    block/mute annotation, so the serializer's per-object fallback read the
+    moderator's own blocklist and answered `is_blocked`/`is_muted` True while
+    GET and the post list said False."""
+    from wagtail_forum.models import Post, UserMute
+
+    board = _board("patch")
+    author = User.objects.create_user(username="mod-blocks-patched")
+    mod = _moderator("mod-patch")
+    UserBlock.block(mod, author)
+    UserMute.mute(mod, author)
+    topic = Topic.objects.create(
+        board=board, title="T", slug="t-patch", author=author, live=True
+    )
+    Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[{"type": "paragraph", "value": "<p>opening</p>"}],
+    )
+    reply = Post.objects.create(
+        topic=topic,
+        author=author,
+        live=True,
+        body=[{"type": "paragraph", "value": "<p>reply</p>"}],
+    )
+
+    client = APIClient()
+    client.force_authenticate(mod)
+    resp = client.patch(
+        f"/forum/posts/{reply.id}/",
+        {"body": [{"type": "paragraph", "value": "<p>tidied by a mod</p>"}]},
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.data
+    assert resp.data["is_blocked"] is False
+    assert resp.data["is_muted"] is False
+    # The same post as GET serves it — the PATCH echo must match.
+    got = client.get(f"/forum/posts/{reply.id}/")
+    assert got.data["is_blocked"] is False
+    assert got.data["is_muted"] is False
