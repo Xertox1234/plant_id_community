@@ -105,6 +105,14 @@ class FakeFirebaseUser implements User {
 AuthState signedInAs(String uid) =>
     AuthState(jwtToken: 'jwt-$uid', firebaseUser: FakeFirebaseUser(uid));
 
+/// Signed in as [uid] without Firebase, for a screen that reads the member's
+/// own forum feeds: they are keyed on the viewer (audit F89), which reads
+/// the auth state.
+Override signedInViewer([String uid = 'me']) =>
+    authServiceProvider.overrideWith(
+      () => FakeAuthService(loggedIn: false, initial: signedInAs(uid)),
+    );
+
 /// In-memory [ForumUnlockStore]. [loadGate] holds [load] in flight.
 class FakeForumUnlockStore implements ForumUnlockStore {
   FakeForumUnlockStore([this.stored]);
@@ -302,6 +310,9 @@ class FakeForumApi implements ForumApi {
   List<ForumNotification> notifications = const [];
   List<CursorPage<ForumNotification>> notificationPages = const [];
   final List<String?> fetchNotificationsCalls = [];
+
+  /// When set, [fetchNotifications] throws it (a viewer's failed fetch).
+  ApiException? failNotificationsWith;
   int unreadCount = 0;
   final List<List<int>?> markReadCalls = [];
   ApiException? failMarkReadWith;
@@ -337,6 +348,9 @@ class FakeForumApi implements ForumApi {
   List<ForumConversation> conversations = const [];
   List<CursorPage<ForumConversation>> conversationPages = const [];
   final List<String?> fetchConversationsCalls = [];
+
+  /// When set, [fetchConversations] and [fetchMessages] throw it.
+  ApiException? failConversationsWith;
   int unreadConversationCount = 0;
 
   /// Fixture for [fetchConversationWith] — `null` (the default) means "no
@@ -435,6 +449,9 @@ class FakeForumApi implements ForumApi {
   List<ForumTopicListItem> bookmarks = const [];
   List<CursorPage<ForumTopicListItem>> bookmarkPages = const [];
   final List<String?> fetchBookmarksCalls = [];
+
+  /// When set, [fetchBookmarks] throws it.
+  ApiException? failBookmarksWith;
 
   /// [fetchPostRevisions]/[fetchPostRevision] fixtures — a single list and
   /// a map by revision id, both ignoring the `postId` argument (like
@@ -867,6 +884,7 @@ class FakeForumApi implements ForumApi {
     String? cursorUrl,
   }) async {
     fetchNotificationsCalls.add(cursorUrl);
+    if (failNotificationsWith != null) throw failNotificationsWith!;
     if (notificationPages.isEmpty) {
       return CursorPage(items: notifications);
     }
@@ -896,6 +914,7 @@ class FakeForumApi implements ForumApi {
     String? cursorUrl,
   }) async {
     fetchConversationsCalls.add(cursorUrl);
+    if (failConversationsWith != null) throw failConversationsWith!;
     if (conversationPages.isEmpty) {
       return CursorPage(items: conversations);
     }
@@ -936,6 +955,7 @@ class FakeForumApi implements ForumApi {
     String? cursorUrl,
   }) async {
     fetchMessagesCalls.add(cursorUrl);
+    if (failConversationsWith != null) throw failConversationsWith!;
     if (messagePages.isEmpty) {
       return CursorPage(items: messages);
     }
@@ -1183,6 +1203,7 @@ class FakeForumApi implements ForumApi {
     String? cursorUrl,
   }) async {
     fetchBookmarksCalls.add(cursorUrl);
+    if (failBookmarksWith != null) throw failBookmarksWith!;
     if (bookmarkPages.isEmpty) {
       return CursorPage(items: bookmarks);
     }

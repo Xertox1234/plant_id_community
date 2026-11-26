@@ -35,11 +35,32 @@ Map<int, ForumTopicStub> applyForumSyncDelta(
 /// [ForumSyncService] pagination loop are tested against the in-memory impl,
 /// while `path_provider` — which throws in headless `flutter test` — is never
 /// touched by the test suite.
+///
+/// The mirror holds topic titles and one cursor for whoever synced last, so
+/// every end of a session (and an account switch) [clear]s it (audit F24).
+/// A sync that was running when it was cleared must not write the last
+/// account's rows back: it takes [generation] before it loads and writes
+/// through [saveSnapshot], which drops a write from an older generation.
 abstract class ForumSyncStore {
   Future<ForumSyncCursor> loadCursor();
   Future<void> saveCursor(ForumSyncCursor cursor);
   Future<Map<int, ForumTopicStub>> loadTopics();
   Future<void> saveTopics(Map<int, ForumTopicStub> topics);
+
+  /// Bumped by every [clear], synchronously.
+  int get generation;
+
+  /// Save [topics] and [cursor] together, only while the store is still at
+  /// [generation]. Returns false, writing nothing, once a [clear] has run
+  /// since.
+  Future<bool> saveSnapshot(
+    Map<int, ForumTopicStub> topics,
+    ForumSyncCursor cursor, {
+    required int generation,
+  });
+
+  /// Forget the mirror and the cursor, on disk and in memory. Never throws.
+  Future<void> clear();
 }
 
 /// In-memory store. Used by tests and as the safe default when no persistent
@@ -47,6 +68,10 @@ abstract class ForumSyncStore {
 class InMemoryForumSyncStore implements ForumSyncStore {
   ForumSyncCursor _cursor = const ForumSyncCursor();
   Map<int, ForumTopicStub> _topics = {};
+  int _generation = 0;
+
+  @override
+  int get generation => _generation;
 
   @override
   Future<ForumSyncCursor> loadCursor() async => _cursor;
@@ -61,15 +86,43 @@ class InMemoryForumSyncStore implements ForumSyncStore {
   @override
   Future<void> saveTopics(Map<int, ForumTopicStub> topics) async =>
       _topics = Map<int, ForumTopicStub>.of(topics);
+
+  @override
+  Future<bool> saveSnapshot(
+    Map<int, ForumTopicStub> topics,
+    ForumSyncCursor cursor, {
+    required int generation,
+  }) async {
+    if (generation != _generation) return false;
+    _topics = Map<int, ForumTopicStub>.of(topics);
+    _cursor = cursor;
+    return true;
+  }
+
+  @override
+  Future<void> clear() async {
+    _generation++;
+    _topics = {};
+    _cursor = const ForumSyncCursor();
+  }
 }
 
 /// JSON-file-backed store under the app documents directory. Deliberately
 /// thin: all delta logic lives in [applyForumSyncDelta] / [ForumSyncService].
+///
+/// Every operation runs on one serial chain, so a [clear] can neither be
+/// overtaken by a load that repopulates the memory copy nor by a write that
+/// recreates the file after the delete.
 class FileForumSyncStore implements ForumSyncStore {
-  FileForumSyncStore({this.fileName = 'forum_sync_cache.json'});
+  FileForumSyncStore({
+    this.fileName = 'forum_sync_cache.json',
+    Future<Directory> Function()? directory,
+  }) : _directory = directory ?? getApplicationDocumentsDirectory;
 
   final String fileName;
+  final Future<Directory> Function() _directory;
   File? _cachedFile;
+  int _generation = 0;
 
   /// In-memory copy of the decoded cache. This store is the only writer of the
   /// file, so once loaded it stays authoritative — every method reads/writes
@@ -77,9 +130,21 @@ class FileForumSyncStore implements ForumSyncStore {
   /// 4× and would otherwise decode the whole file each time).
   Map<String, dynamic>? _data;
 
+  /// The tail of the serial chain every operation runs on.
+  Future<void> _tail = Future<void>.value();
+
+  Future<T> _serial<T>(Future<T> Function() operation) {
+    final result = _tail.then((_) => operation());
+    _tail = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  @override
+  int get generation => _generation;
+
   Future<File> _file() async {
     if (_cachedFile != null) return _cachedFile!;
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await _directory();
     return _cachedFile = File(p.join(dir.path, fileName));
   }
 
@@ -106,22 +171,22 @@ class FileForumSyncStore implements ForumSyncStore {
   }
 
   @override
-  Future<ForumSyncCursor> loadCursor() async {
+  Future<ForumSyncCursor> loadCursor() => _serial(() async {
     final cursor = (await _load())['cursor'];
     if (cursor is Map<String, dynamic>) {
       return ForumSyncCursor.fromJson(cursor);
     }
     return const ForumSyncCursor();
-  }
+  });
 
   @override
-  Future<void> saveCursor(ForumSyncCursor cursor) async {
+  Future<void> saveCursor(ForumSyncCursor cursor) => _serial(() async {
     (await _load())['cursor'] = cursor.toJson();
     await _persist();
-  }
+  });
 
   @override
-  Future<Map<int, ForumTopicStub>> loadTopics() async {
+  Future<Map<int, ForumTopicStub>> loadTopics() => _serial(() async {
     final list = (await _load())['topics'];
     final result = <int, ForumTopicStub>{};
     if (list is List) {
@@ -131,12 +196,45 @@ class FileForumSyncStore implements ForumSyncStore {
       }
     }
     return result;
-  }
+  });
 
   @override
-  Future<void> saveTopics(Map<int, ForumTopicStub> topics) async {
+  Future<void> saveTopics(Map<int, ForumTopicStub> topics) => _serial(() async {
     (await _load())['topics'] = topics.values.map((s) => s.toJson()).toList();
     await _persist();
+  });
+
+  @override
+  Future<bool> saveSnapshot(
+    Map<int, ForumTopicStub> topics,
+    ForumSyncCursor cursor, {
+    required int generation,
+  }) => _serial(() async {
+    // Checked on the chain: a clear() queued ahead of this write has bumped
+    // the generation (synchronously) and emptied the file by now.
+    if (generation != _generation) return false;
+    final data = await _load();
+    data['topics'] = topics.values.map((s) => s.toJson()).toList();
+    data['cursor'] = cursor.toJson();
+    await _persist();
+    return true;
+  });
+
+  @override
+  Future<void> clear() {
+    // Synchronously, so a sync running now sees it before its next write.
+    _generation++;
+    return _serial(() async {
+      _data = <String, dynamic>{};
+      try {
+        final file = await _file();
+        if (await file.exists()) await file.delete();
+      } catch (_) {
+        // Nothing to delete (no documents directory in a test), or the
+        // platform refused: the memory copy is empty either way, and the
+        // next save overwrites the file.
+      }
+    });
   }
 }
 

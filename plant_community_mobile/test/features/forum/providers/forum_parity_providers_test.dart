@@ -5,10 +5,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/providers/forum_providers.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
+import 'package:plant_community_mobile/features/forum/services/forum_unlock_store.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 
 import '../support/forum_test_support.dart';
+
+/// Who reads the member's feeds: they are keyed on the viewer (audit F89),
+/// and the topic's bookmark toggle splices that viewer's feed.
+const _viewer = 'me';
 
 /// A container with the fake API installed. Every provider under test is
 /// autoDispose, so callers hold a `listen` on what they exercise — a bare
@@ -18,7 +23,8 @@ ProviderContainer _container(FakeForumApi api) {
   final container = ProviderContainer(
     overrides: [
       forumApiProvider.overrideWithValue(api),
-      authServiceProvider.overrideWith(() => FakeAuthService(loggedIn: true)),
+      signedInViewer(_viewer),
+      forumUnlockStoreProvider.overrideWithValue(FakeForumUnlockStore()),
     ],
   );
   addTearDown(container.dispose);
@@ -30,16 +36,16 @@ void main() {
     test('flips optimistically, then keeps the server state', () async {
       final api = FakeForumApi()..topicDetail = topicDetail(id: 10);
       final container = _container(api);
-      container.listen(topicDetailProvider(10, null), (_, _) {});
-      await container.read(topicDetailProvider(10, null).future);
+      container.listen(topicDetailProvider(10, _viewer), (_, _) {});
+      await container.read(topicDetailProvider(10, _viewer).future);
 
       final pending = container
-          .read(topicDetailProvider(10, null).notifier)
+          .read(topicDetailProvider(10, _viewer).notifier)
           .toggleBookmark();
       // Optimistic: the flag is already flipped before the API resolves.
       expect(
         container
-            .read(topicDetailProvider(10, null))
+            .read(topicDetailProvider(10, _viewer))
             .asData!
             .value
             .isBookmarked,
@@ -51,7 +57,7 @@ void main() {
       expect(api.unbookmarkCalls, isEmpty);
       expect(
         container
-            .read(topicDetailProvider(10, null))
+            .read(topicDetailProvider(10, _viewer))
             .asData!
             .value
             .isBookmarked,
@@ -63,18 +69,18 @@ void main() {
       final api = FakeForumApi()
         ..topicDetail = topicDetail(id: 10, isBookmarked: true);
       final container = _container(api);
-      container.listen(topicDetailProvider(10, null), (_, _) {});
-      await container.read(topicDetailProvider(10, null).future);
+      container.listen(topicDetailProvider(10, _viewer), (_, _) {});
+      await container.read(topicDetailProvider(10, _viewer).future);
 
       await container
-          .read(topicDetailProvider(10, null).notifier)
+          .read(topicDetailProvider(10, _viewer).notifier)
           .toggleBookmark();
 
       expect(api.unbookmarkCalls, [10]);
       expect(api.bookmarkCalls, isEmpty);
       expect(
         container
-            .read(topicDetailProvider(10, null))
+            .read(topicDetailProvider(10, _viewer))
             .asData!
             .value
             .isBookmarked,
@@ -87,17 +93,19 @@ void main() {
         ..topicDetail = topicDetail(id: 10)
         ..failBookmarkWith = ApiException('rate limited', statusCode: 429);
       final container = _container(api);
-      container.listen(topicDetailProvider(10, null), (_, _) {});
-      await container.read(topicDetailProvider(10, null).future);
+      container.listen(topicDetailProvider(10, _viewer), (_, _) {});
+      await container.read(topicDetailProvider(10, _viewer).future);
 
       await expectLater(
-        container.read(topicDetailProvider(10, null).notifier).toggleBookmark(),
+        container
+            .read(topicDetailProvider(10, _viewer).notifier)
+            .toggleBookmark(),
         throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 429)),
       );
 
       expect(
         container
-            .read(topicDetailProvider(10, null))
+            .read(topicDetailProvider(10, _viewer))
             .asData!
             .value
             .isBookmarked,
@@ -120,25 +128,35 @@ void main() {
           ..bookmarkPages = [page1, page2]
           ..topicDetail = topicDetail(id: 99, title: 'Newly saved');
         final container = _container(api);
-        container.listen(bookmarksFeedProvider, (_, _) {});
-        container.listen(topicDetailProvider(99, null), (_, _) {});
-        await container.read(bookmarksFeedProvider.future);
-        await container.read(bookmarksFeedProvider.notifier).loadMore();
-        await container.read(topicDetailProvider(99, null).future);
+        container.listen(bookmarksFeedProvider(_viewer), (_, _) {});
+        container.listen(topicDetailProvider(99, _viewer), (_, _) {});
+        await container.read(bookmarksFeedProvider(_viewer).future);
+        await container
+            .read(bookmarksFeedProvider(_viewer).notifier)
+            .loadMore();
+        await container.read(topicDetailProvider(99, _viewer).future);
 
         // Bookmark: inserted at the top, every loaded page kept.
         await container
-            .read(topicDetailProvider(99, null).notifier)
+            .read(topicDetailProvider(99, _viewer).notifier)
             .toggleBookmark();
-        var items = container.read(bookmarksFeedProvider).asData!.value.items;
+        var items = container
+            .read(bookmarksFeedProvider(_viewer))
+            .asData!
+            .value
+            .items;
         expect(items.map((t) => t.id), [99, 1, 2, 3]);
         expect(items.first.title, 'Newly saved');
 
         // Unbookmark: the row goes, the rest stays.
         await container
-            .read(topicDetailProvider(99, null).notifier)
+            .read(topicDetailProvider(99, _viewer).notifier)
             .toggleBookmark();
-        items = container.read(bookmarksFeedProvider).asData!.value.items;
+        items = container
+            .read(bookmarksFeedProvider(_viewer))
+            .asData!
+            .value
+            .items;
         expect(items.map((t) => t.id), [1, 2, 3]);
 
         // No refetch of the feed at any point — page 1 + the loadMore only.
@@ -158,18 +176,18 @@ void main() {
           solvedPostId: 7,
         );
       final container = _container(api);
-      container.listen(topicDetailProvider(10, null), (_, _) {});
-      await container.read(topicDetailProvider(10, null).future);
+      container.listen(topicDetailProvider(10, _viewer), (_, _) {});
+      await container.read(topicDetailProvider(10, _viewer).future);
 
       await container
-          .read(topicDetailProvider(10, null).notifier)
+          .read(topicDetailProvider(10, _viewer).notifier)
           .markSolution(5);
 
       expect(api.markSolutionCalls, [
         {'topicId': 10, 'postId': 5},
       ]);
       final detail = container
-          .read(topicDetailProvider(10, null))
+          .read(topicDetailProvider(10, _viewer))
           .asData!
           .value;
       expect(detail.solvedPostId, 7);
@@ -180,16 +198,16 @@ void main() {
       final api = FakeForumApi()
         ..topicDetail = topicDetail(id: 10, solvedPostId: 5);
       final container = _container(api);
-      container.listen(topicDetailProvider(10, null), (_, _) {});
-      await container.read(topicDetailProvider(10, null).future);
+      container.listen(topicDetailProvider(10, _viewer), (_, _) {});
+      await container.read(topicDetailProvider(10, _viewer).future);
 
       await container
-          .read(topicDetailProvider(10, null).notifier)
+          .read(topicDetailProvider(10, _viewer).notifier)
           .clearSolution();
 
       expect(api.clearSolutionCalls, [10]);
       final detail = container
-          .read(topicDetailProvider(10, null))
+          .read(topicDetailProvider(10, _viewer))
           .asData!
           .value;
       expect(detail.solvedPostId, isNull);
@@ -204,9 +222,11 @@ void main() {
           ..topicDetail = topicDetail(id: 10)
           ..failSolutionWith = ApiException('forbidden', statusCode: 403);
         final container = _container(api);
-        container.listen(topicDetailProvider(10, null), (_, _) {});
-        await container.read(topicDetailProvider(10, null).future);
-        final notifier = container.read(topicDetailProvider(10, null).notifier);
+        container.listen(topicDetailProvider(10, _viewer), (_, _) {});
+        await container.read(topicDetailProvider(10, _viewer).future);
+        final notifier = container.read(
+          topicDetailProvider(10, _viewer).notifier,
+        );
 
         await expectLater(
           notifier.markSolution(5),
@@ -216,7 +236,7 @@ void main() {
         );
         expect(
           container
-              .read(topicDetailProvider(10, null))
+              .read(topicDetailProvider(10, _viewer))
               .asData!
               .value
               .solvedPostId,
@@ -240,9 +260,9 @@ void main() {
         ..posts = CursorPage(items: [post(id: 2, canReport: true)])
         ..failReportPostWith = ApiException('rate limited', statusCode: 429);
       final container = _container(api);
-      container.listen(topicPostsProvider(10, null), (_, _) {});
-      await container.read(topicPostsProvider(10, null).future);
-      final notifier = container.read(topicPostsProvider(10, null).notifier);
+      container.listen(topicPostsProvider(10, _viewer), (_, _) {});
+      await container.read(topicPostsProvider(10, _viewer).future);
+      final notifier = container.read(topicPostsProvider(10, _viewer).notifier);
 
       await expectLater(
         notifier.reportPost(postId: 2, reason: 'spam', detail: 'again'),
@@ -279,15 +299,15 @@ void main() {
       );
       final api = FakeForumApi()..postPages = [page1, page2];
       final container = _container(api);
-      container.listen(topicPostsProvider(10, null), (_, _) {});
-      await container.read(topicPostsProvider(10, null).future);
-      await container.read(topicPostsProvider(10, null).notifier).loadMore();
+      container.listen(topicPostsProvider(10, _viewer), (_, _) {});
+      await container.read(topicPostsProvider(10, _viewer).future);
+      await container.read(topicPostsProvider(10, _viewer).notifier).loadMore();
 
       container
           .read(authorBlockChangesProvider.notifier)
           .emit(username: 'alice', blocked: true);
       var items = container
-          .read(topicPostsProvider(10, null))
+          .read(topicPostsProvider(10, _viewer))
           .asData!
           .value
           .items;
@@ -297,7 +317,11 @@ void main() {
       container
           .read(authorBlockChangesProvider.notifier)
           .emit(username: 'alice', blocked: false);
-      items = container.read(topicPostsProvider(10, null)).asData!.value.items;
+      items = container
+          .read(topicPostsProvider(10, _viewer))
+          .asData!
+          .value
+          .items;
       expect(items.map((p) => p.isBlocked), [false, false, false]);
 
       expect(api.fetchPostsCalls, [null, page1.next]); // no refetch
@@ -319,12 +343,12 @@ void main() {
         );
       final container = _container(api);
       container.listen(forumUserProfileProvider('alice'), (_, _) {});
-      container.listen(topicPostsProvider(10, null), (_, _) {});
+      container.listen(topicPostsProvider(10, _viewer), (_, _) {});
       await container.read(forumUserProfileProvider('alice').future);
-      await container.read(topicPostsProvider(10, null).future);
-      final posts = container.read(topicPostsProvider(10, null).notifier);
+      await container.read(topicPostsProvider(10, _viewer).future);
+      final posts = container.read(topicPostsProvider(10, _viewer).notifier);
       List<bool> muted() => container
-          .read(topicPostsProvider(10, null))
+          .read(topicPostsProvider(10, _viewer))
           .asData!
           .value
           .items
@@ -398,9 +422,9 @@ void main() {
         );
       final container = _container(api);
       container.listen(forumUserProfileProvider('alice'), (_, _) {});
-      container.listen(topicPostsProvider(10, null), (_, _) {});
+      container.listen(topicPostsProvider(10, _viewer), (_, _) {});
       await container.read(forumUserProfileProvider('alice').future);
-      await container.read(topicPostsProvider(10, null).future);
+      await container.read(topicPostsProvider(10, _viewer).future);
 
       final pending = container
           .read(forumUserProfileProvider('alice').notifier)
@@ -425,7 +449,7 @@ void main() {
       // The thread underneath collapsed alice's post in place.
       expect(
         container
-            .read(topicPostsProvider(10, null))
+            .read(topicPostsProvider(10, _viewer))
             .asData!
             .value
             .items
@@ -457,9 +481,9 @@ void main() {
         ..failBlockWith = ApiException('rate limited', statusCode: 429);
       final container = _container(api);
       container.listen(forumUserProfileProvider('alice'), (_, _) {});
-      container.listen(topicPostsProvider(10, null), (_, _) {});
+      container.listen(topicPostsProvider(10, _viewer), (_, _) {});
       await container.read(forumUserProfileProvider('alice').future);
-      await container.read(topicPostsProvider(10, null).future);
+      await container.read(topicPostsProvider(10, _viewer).future);
 
       await expectLater(
         container
@@ -478,7 +502,7 @@ void main() {
       );
       expect(
         container
-            .read(topicPostsProvider(10, null))
+            .read(topicPostsProvider(10, _viewer))
             .asData!
             .value
             .items
@@ -500,12 +524,17 @@ void main() {
         final page2 = CursorPage(items: [topic(id: 2)]);
         final api = FakeForumApi()..bookmarkPages = [page1, page2];
         final container = _container(api);
-        container.listen(bookmarksFeedProvider, (_, _) {});
+        container.listen(bookmarksFeedProvider(_viewer), (_, _) {});
 
-        await container.read(bookmarksFeedProvider.future);
-        await container.read(bookmarksFeedProvider.notifier).loadMore();
+        await container.read(bookmarksFeedProvider(_viewer).future);
+        await container
+            .read(bookmarksFeedProvider(_viewer).notifier)
+            .loadMore();
 
-        final result = container.read(bookmarksFeedProvider).asData!.value;
+        final result = container
+            .read(bookmarksFeedProvider(_viewer))
+            .asData!
+            .value;
         expect(result.items.map((t) => t.id), [1, 2]);
         expect(result.hasMore, isFalse);
         expect(api.fetchBookmarksCalls, [null, page1.next]);
@@ -522,10 +551,10 @@ void main() {
           final api = FakeForumApi()
             ..topicDetail = topicDetail(id: 5, isBookmarked: false);
           final container = _container(api);
-          container.listen(topicDetailProvider(5, null), (_, _) {});
-          await container.read(topicDetailProvider(5, null).future);
+          container.listen(topicDetailProvider(5, _viewer), (_, _) {});
+          await container.read(topicDetailProvider(5, _viewer).future);
           final notifier = container.read(
-            topicDetailProvider(5, null).notifier,
+            topicDetailProvider(5, _viewer).notifier,
           );
 
           final first = notifier.toggleBookmark();
@@ -536,7 +565,7 @@ void main() {
           expect(api.unbookmarkCalls, isEmpty);
           expect(
             container
-                .read(topicDetailProvider(5, null))
+                .read(topicDetailProvider(5, _viewer))
                 .asData!
                 .value
                 .isBookmarked,
@@ -568,9 +597,11 @@ void main() {
         final api = FakeForumApi()
           ..topicDetail = topicDetail(id: 6, canMarkSolution: true);
         final container = _container(api);
-        container.listen(topicDetailProvider(6, null), (_, _) {});
-        await container.read(topicDetailProvider(6, null).future);
-        final notifier = container.read(topicDetailProvider(6, null).notifier);
+        container.listen(topicDetailProvider(6, _viewer), (_, _) {});
+        await container.read(topicDetailProvider(6, _viewer).future);
+        final notifier = container.read(
+          topicDetailProvider(6, _viewer).notifier,
+        );
 
         await Future.wait([notifier.markSolution(7), notifier.markSolution(7)]);
 

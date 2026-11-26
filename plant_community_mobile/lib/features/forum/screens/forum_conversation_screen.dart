@@ -72,27 +72,36 @@ class _ForumConversationScreenState
 
   String get _username => widget.username ?? '';
 
+  /// Who reads the thread (see [forumViewerProvider]): the thread is keyed
+  /// on it, so another account never sees this one's messages (audit F89).
+  String? get _viewer => ref.read(forumViewerProvider);
+
   AsyncValue<ConversationThreadState> _watchThread() {
     final id = widget.conversationId;
+    final viewer = ref.watch(forumViewerProvider);
     return id != null
-        ? ref.watch(groupConversationThreadProvider(id))
-        : ref.watch(conversationThreadProvider(_username));
+        ? ref.watch(groupConversationThreadProvider(id, viewer))
+        : ref.watch(conversationThreadProvider(_username, viewer));
   }
 
   void _invalidateThread() {
     final id = widget.conversationId;
     if (id != null) {
-      ref.invalidate(groupConversationThreadProvider(id));
+      ref.invalidate(groupConversationThreadProvider(id, _viewer));
     } else {
-      ref.invalidate(conversationThreadProvider(_username));
+      ref.invalidate(conversationThreadProvider(_username, _viewer));
     }
   }
 
   Future<void> _loadOlder() {
     final id = widget.conversationId;
     return id != null
-        ? ref.read(groupConversationThreadProvider(id).notifier).loadOlder()
-        : ref.read(conversationThreadProvider(_username).notifier).loadOlder();
+        ? ref
+              .read(groupConversationThreadProvider(id, _viewer).notifier)
+              .loadOlder()
+        : ref
+              .read(conversationThreadProvider(_username, _viewer).notifier)
+              .loadOlder();
   }
 
   /// Groups send by id; a direct thread keeps the username route (which is
@@ -100,8 +109,12 @@ class _ForumConversationScreenState
   Future<void> _sendBody(String body) {
     final id = widget.conversationId;
     return id != null
-        ? ref.read(groupConversationThreadProvider(id).notifier).send(body)
-        : ref.read(conversationThreadProvider(_username).notifier).send(body);
+        ? ref
+              .read(groupConversationThreadProvider(id, _viewer).notifier)
+              .send(body)
+        : ref
+              .read(conversationThreadProvider(_username, _viewer).notifier)
+              .send(body);
   }
 
   @override

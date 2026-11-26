@@ -128,6 +128,10 @@ class _ForumNewGroupScreenState extends ConsumerState<ForumNewGroupScreen> {
     }
     final key = _key;
     if (key == null) return;
+    // The inbox of whoever creates the group, taken before the request: an
+    // account switch while it runs must not splice it into the next
+    // member's inbox (audit F89).
+    final inbox = conversationsFeedProvider(ref.read(forumViewerProvider));
     setState(() => _submitting = true);
     try {
       final row = await ref
@@ -142,8 +146,8 @@ class _ForumNewGroupScreenState extends ConsumerState<ForumNewGroupScreen> {
       _fingerprint = null;
       // The inbox underneath (if mounted) gets the new row at the top —
       // spliced, never invalidated, so its loaded pages survive.
-      if (ref.read(conversationsFeedProvider.exists)) {
-        ref.read(conversationsFeedProvider.notifier).applyActivity(row);
+      if (ref.read(inbox.exists)) {
+        ref.read(inbox.notifier).applyActivity(row);
       }
       if (!mounted) return;
       context.pushReplacementNamed(

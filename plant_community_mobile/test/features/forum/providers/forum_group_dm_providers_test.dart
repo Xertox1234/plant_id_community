@@ -7,6 +7,9 @@ import 'package:plant_community_mobile/services/api_service.dart';
 
 import '../support/forum_test_support.dart';
 
+/// Who reads the member's feeds: they are keyed on the viewer (audit F89).
+const _viewer = 'me';
+
 /// A container with the fake API installed. Every provider under test is
 /// autoDispose, so callers hold a `listen` on what they exercise
 /// (docs/patterns/riverpod.md → Unit-testing an @riverpod notifier).
@@ -19,10 +22,10 @@ ProviderContainer _container(FakeForumApi api) {
 }
 
 ConversationThreadState _thread(ProviderContainer c, int id) =>
-    c.read(groupConversationThreadProvider(id)).asData!.value;
+    c.read(groupConversationThreadProvider(id, _viewer)).asData!.value;
 
 List<ForumConversation> _inbox(ProviderContainer c) =>
-    c.read(conversationsFeedProvider).asData!.value.items;
+    c.read(conversationsFeedProvider(_viewer)).asData!.value.items;
 
 void main() {
   group('GroupConversationThread (todo 350)', () {
@@ -40,15 +43,18 @@ void main() {
         ]
         ..unreadConversationCount = 1;
       final container = _container(api);
-      container.listen(conversationsFeedProvider, (_, _) {});
-      container.listen(unreadConversationCountProvider, (_, _) {});
-      await container.read(conversationsFeedProvider.future);
-      expect(await container.read(unreadConversationCountProvider.future), 1);
+      container.listen(conversationsFeedProvider(_viewer), (_, _) {});
+      container.listen(unreadConversationCountProvider(_viewer), (_, _) {});
+      await container.read(conversationsFeedProvider(_viewer).future);
+      expect(
+        await container.read(unreadConversationCountProvider(_viewer).future),
+        1,
+      );
 
       api.unreadConversationCount = 0;
-      container.listen(groupConversationThreadProvider(12), (_, _) {});
+      container.listen(groupConversationThreadProvider(12, _viewer), (_, _) {});
       final thread = await container.read(
-        groupConversationThreadProvider(12).future,
+        groupConversationThreadProvider(12, _viewer).future,
       );
 
       expect(thread.conversation?.id, 12);
@@ -64,7 +70,10 @@ void main() {
       expect(api.fetchConversationWithCalls, isEmpty);
       expect(api.fetchMessagesCalls, [null]);
       expect(_inbox(container).first.unreadCount, 0);
-      expect(await container.read(unreadConversationCountProvider.future), 0);
+      expect(
+        await container.read(unreadConversationCountProvider(_viewer).future),
+        0,
+      );
     });
 
     test('build without a mounted inbox resolves through the by-id detail GET '
@@ -73,10 +82,10 @@ void main() {
         ..conversationDetail = groupConversation(id: 12, title: 'Cuttings')
         ..messages = [directMessage(id: 1, conversationId: 12)];
       final container = _container(api);
-      container.listen(groupConversationThreadProvider(12), (_, _) {});
+      container.listen(groupConversationThreadProvider(12, _viewer), (_, _) {});
 
       final thread = await container.read(
-        groupConversationThreadProvider(12).future,
+        groupConversationThreadProvider(12, _viewer).future,
       );
 
       expect(thread.conversation?.title, 'Cuttings');
@@ -92,10 +101,10 @@ void main() {
       final api = FakeForumApi()
         ..messages = [directMessage(id: 1, conversationId: 99)];
       final container = _container(api);
-      container.listen(groupConversationThreadProvider(99), (_, _) {});
+      container.listen(groupConversationThreadProvider(99, _viewer), (_, _) {});
 
       final thread = await container.read(
-        groupConversationThreadProvider(99).future,
+        groupConversationThreadProvider(99, _viewer).future,
       );
 
       expect(thread.isUnavailable, isTrue);
@@ -106,9 +115,9 @@ void main() {
 
       // Re-added since: invalidating re-runs the GET and the thread returns.
       api.conversationDetail = groupConversation(id: 99, title: 'Cuttings');
-      container.invalidate(groupConversationThreadProvider(99));
+      container.invalidate(groupConversationThreadProvider(99, _viewer));
       final retried = await container.read(
-        groupConversationThreadProvider(99).future,
+        groupConversationThreadProvider(99, _viewer).future,
       );
       expect(retried.isUnavailable, isFalse);
       expect(retried.conversation?.title, 'Cuttings');
@@ -121,12 +130,14 @@ void main() {
       final api = FakeForumApi()
         ..failFetchConversationWith = ApiException('boom', statusCode: 500);
       final container = _container(api);
-      container.listen(groupConversationThreadProvider(12), (_, _) {});
+      container.listen(groupConversationThreadProvider(12, _viewer), (_, _) {});
       // Not `await …future`: Riverpod retries a failed build with backoff,
       // so that future stays pending. The emitted state is the assertion.
       await Future<void>.delayed(Duration.zero);
 
-      final state = container.read(groupConversationThreadProvider(12));
+      final state = container.read(
+        groupConversationThreadProvider(12, _viewer),
+      );
       expect(state.error, isA<ApiException>());
       expect(state.hasValue, isFalse);
       // A transient 5xx must never read as "this group is gone".
@@ -143,13 +154,13 @@ void main() {
         ]
         ..messages = [directMessage(id: 1, conversationId: 12, body: 'hi')];
       final container = _container(api);
-      container.listen(conversationsFeedProvider, (_, _) {});
-      await container.read(conversationsFeedProvider.future);
-      container.listen(groupConversationThreadProvider(12), (_, _) {});
-      await container.read(groupConversationThreadProvider(12).future);
+      container.listen(conversationsFeedProvider(_viewer), (_, _) {});
+      await container.read(conversationsFeedProvider(_viewer).future);
+      container.listen(groupConversationThreadProvider(12, _viewer), (_, _) {});
+      await container.read(groupConversationThreadProvider(12, _viewer).future);
 
       await container
-          .read(groupConversationThreadProvider(12).notifier)
+          .read(groupConversationThreadProvider(12, _viewer).notifier)
           .send('  hello all  ');
 
       expect(api.sendConversationMessageCalls, [
@@ -178,10 +189,10 @@ void main() {
           statusCode: 403,
         );
       final container = _container(api);
-      container.listen(groupConversationThreadProvider(12), (_, _) {});
-      await container.read(groupConversationThreadProvider(12).future);
+      container.listen(groupConversationThreadProvider(12, _viewer), (_, _) {});
+      await container.read(groupConversationThreadProvider(12, _viewer).future);
       final notifier = container.read(
-        groupConversationThreadProvider(12).notifier,
+        groupConversationThreadProvider(12, _viewer).notifier,
       );
 
       await expectLater(
@@ -222,12 +233,12 @@ void main() {
         ..conversations = [groupConversation(id: 12)]
         ..messagePages = [page1, page2];
       final container = _container(api);
-      container.listen(groupConversationThreadProvider(12), (_, _) {});
-      await container.read(groupConversationThreadProvider(12).future);
+      container.listen(groupConversationThreadProvider(12, _viewer), (_, _) {});
+      await container.read(groupConversationThreadProvider(12, _viewer).future);
       expect(_thread(container, 12).hasOlder, isTrue);
 
       await container
-          .read(groupConversationThreadProvider(12).notifier)
+          .read(groupConversationThreadProvider(12, _viewer).notifier)
           .loadOlder();
 
       expect(_thread(container, 12).messages.map((m) => m.id), [1, 2, 3, 4]);
@@ -247,13 +258,13 @@ void main() {
           ),
         ];
       final container = _container(api);
-      container.listen(conversationsFeedProvider, (_, _) {});
-      await container.read(conversationsFeedProvider.future);
-      container.listen(groupConversationThreadProvider(12), (_, _) {});
-      await container.read(groupConversationThreadProvider(12).future);
+      container.listen(conversationsFeedProvider(_viewer), (_, _) {});
+      await container.read(conversationsFeedProvider(_viewer).future);
+      container.listen(groupConversationThreadProvider(12, _viewer), (_, _) {});
+      await container.read(groupConversationThreadProvider(12, _viewer).future);
 
       await container
-          .read(groupConversationThreadProvider(12).notifier)
+          .read(groupConversationThreadProvider(12, _viewer).notifier)
           .addMember('carol');
 
       expect(api.addParticipantCalls, [
@@ -283,13 +294,13 @@ void main() {
           ),
         ];
       final container = _container(api);
-      container.listen(conversationsFeedProvider, (_, _) {});
-      await container.read(conversationsFeedProvider.future);
-      container.listen(groupConversationThreadProvider(12), (_, _) {});
-      await container.read(groupConversationThreadProvider(12).future);
+      container.listen(conversationsFeedProvider(_viewer), (_, _) {});
+      await container.read(conversationsFeedProvider(_viewer).future);
+      container.listen(groupConversationThreadProvider(12, _viewer), (_, _) {});
+      await container.read(groupConversationThreadProvider(12, _viewer).future);
 
       await container
-          .read(groupConversationThreadProvider(12).notifier)
+          .read(groupConversationThreadProvider(12, _viewer).notifier)
           .removeMember('bob');
 
       expect(api.removeParticipantCalls, [
@@ -306,12 +317,12 @@ void main() {
         ..conversations = [groupConversation(id: 12, canManage: true)]
         ..failRemoveParticipantWith = ApiException('nope', statusCode: 403);
       final container = _container(api);
-      container.listen(groupConversationThreadProvider(12), (_, _) {});
-      await container.read(groupConversationThreadProvider(12).future);
+      container.listen(groupConversationThreadProvider(12, _viewer), (_, _) {});
+      await container.read(groupConversationThreadProvider(12, _viewer).future);
 
       await expectLater(
         container
-            .read(groupConversationThreadProvider(12).notifier)
+            .read(groupConversationThreadProvider(12, _viewer).notifier)
             .removeMember('bob'),
         throwsA(isA<ApiException>()),
       );
@@ -325,13 +336,13 @@ void main() {
           conversation(id: 1, otherUsername: 'bob'),
         ];
       final container = _container(api);
-      container.listen(conversationsFeedProvider, (_, _) {});
-      await container.read(conversationsFeedProvider.future);
-      container.listen(groupConversationThreadProvider(12), (_, _) {});
-      await container.read(groupConversationThreadProvider(12).future);
+      container.listen(conversationsFeedProvider(_viewer), (_, _) {});
+      await container.read(conversationsFeedProvider(_viewer).future);
+      container.listen(groupConversationThreadProvider(12, _viewer), (_, _) {});
+      await container.read(groupConversationThreadProvider(12, _viewer).future);
 
       await container
-          .read(groupConversationThreadProvider(12).notifier)
+          .read(groupConversationThreadProvider(12, _viewer).notifier)
           .leave('me');
 
       expect(api.removeParticipantCalls, [
@@ -357,10 +368,14 @@ void main() {
       );
       final api = FakeForumApi()..conversationPages = [page1, page2];
       final container = _container(api);
-      container.listen(conversationsFeedProvider, (_, _) {});
-      await container.read(conversationsFeedProvider.future);
-      await container.read(conversationsFeedProvider.notifier).loadMore();
-      final notifier = container.read(conversationsFeedProvider.notifier);
+      container.listen(conversationsFeedProvider(_viewer), (_, _) {});
+      await container.read(conversationsFeedProvider(_viewer).future);
+      await container
+          .read(conversationsFeedProvider(_viewer).notifier)
+          .loadMore();
+      final notifier = container.read(
+        conversationsFeedProvider(_viewer).notifier,
+      );
 
       notifier.replaceRow(
         groupConversation(id: 12, memberUsernames: const ['ada', 'carol']),

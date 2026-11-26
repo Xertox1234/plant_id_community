@@ -56,8 +56,12 @@ class _ForumGroupMembersSheetState
   /// Re-entrancy guard shared by add / remove / leave.
   bool _busy = false;
 
-  GroupConversationThread get _notifier =>
-      ref.read(groupConversationThreadProvider(widget.conversationId).notifier);
+  GroupConversationThread get _notifier => ref.read(
+    groupConversationThreadProvider(
+      widget.conversationId,
+      ref.read(forumViewerProvider),
+    ).notifier,
+  );
 
   void _notice(String text) {
     if (!mounted) return;
@@ -141,7 +145,12 @@ class _ForumGroupMembersSheetState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final row = ref
-        .watch(groupConversationThreadProvider(widget.conversationId))
+        .watch(
+          groupConversationThreadProvider(
+            widget.conversationId,
+            ref.watch(forumViewerProvider),
+          ),
+        )
         .asData
         ?.value
         .conversation;

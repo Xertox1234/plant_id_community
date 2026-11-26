@@ -79,8 +79,9 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
   /// A block or a new viewer (sign-in, sign-out, account switch) changes
   /// what the home may show: who is online, unread dots, the open peek
   /// (spec §4). Drop the per-viewer data. The forum feed is per member too
-  /// (unread dots, locked forums), so it goes with it; only the offline mirror
-  /// is the same for everyone and stays.
+  /// (unread dots, locked forums), so it goes with it. The offline mirror is
+  /// keyed on the viewer as well, and every end of a session clears it on
+  /// disk (audit F24).
   ///
   /// The forum feed and recent activity are keyed on the viewer
   /// ([forumViewerProvider]): a [newViewer] reads fresh elements of both, so
@@ -105,7 +106,7 @@ class _ForumScreenState extends ConsumerState<ForumScreen>
     // The offline mirror (delta sync) is no longer shown here, but opening
     // the forum is still what syncs it: keep it alive without rendering it
     // (spec §6.2, "keep the offline sync mirror as is"). It never throws.
-    ref.listen(recentTopicsProvider, (_, _) {});
+    ref.listen(recentTopicsProvider(ref.watch(forumViewerProvider)), (_, _) {});
     // The open peeks live as long as this screen (spec §6.4).
     ref.watch(forumHomeScopeProvider);
     ref.listen(authorBlockChangesProvider, (_, _) => _resetForViewer());
@@ -502,7 +503,9 @@ class _MessagesInboxButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final unreadAsync = ref.watch(unreadConversationCountProvider);
+    final unreadAsync = ref.watch(
+      unreadConversationCountProvider(ref.watch(forumViewerProvider)),
+    );
     final unread = unreadAsync.asData?.value ?? 0;
     return IconButton(
       tooltip: 'Messages',
@@ -522,7 +525,9 @@ class _NotificationsBellButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final unreadAsync = ref.watch(unreadNotificationCountProvider);
+    final unreadAsync = ref.watch(
+      unreadNotificationCountProvider(ref.watch(forumViewerProvider)),
+    );
     final unread = unreadAsync.asData?.value ?? 0;
     return IconButton(
       tooltip: 'Notifications',

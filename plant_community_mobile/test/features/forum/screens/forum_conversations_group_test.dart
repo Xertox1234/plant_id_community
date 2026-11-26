@@ -19,6 +19,7 @@ import '../support/forum_test_support.dart';
 Widget _wrap(FakeForumApi api, {String? viewer = 'me'}) => ProviderScope(
   overrides: [
     forumApiProvider.overrideWithValue(api),
+    signedInViewer(),
     userProfileServiceProvider.overrideWith(
       () => FakeUserProfileService(username: viewer),
     ),
@@ -53,6 +54,7 @@ Widget _routed(FakeForumApi api, List<Uri> opened) {
   return ProviderScope(
     overrides: [
       forumApiProvider.overrideWithValue(api),
+      signedInViewer(),
       userProfileServiceProvider.overrideWith(
         () => FakeUserProfileService(username: 'me'),
       ),

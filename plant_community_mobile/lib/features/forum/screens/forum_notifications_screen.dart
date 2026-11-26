@@ -24,9 +24,16 @@ import 'package:plant_community_mobile/core/routing/main_shell.dart';
 class ForumNotificationsScreen extends ConsumerWidget {
   const ForumNotificationsScreen({super.key});
 
+  /// The viewer's feed: keyed on who reads it (see [forumViewerProvider],
+  /// audit F89).
+  static NotificationsFeedProvider _feedOf(WidgetRef ref) =>
+      notificationsFeedProvider(ref.read(forumViewerProvider));
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final notificationsAsync = ref.watch(notificationsFeedProvider);
+    final notificationsAsync = ref.watch(
+      notificationsFeedProvider(ref.watch(forumViewerProvider)),
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -43,13 +50,12 @@ class ForumNotificationsScreen extends ConsumerWidget {
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, _) => _ErrorRetry(
             message: 'Could not load notifications.',
-            onRetry: () => ref.invalidate(notificationsFeedProvider),
+            onRetry: () => ref.invalidate(_feedOf(ref)),
           ),
           data: (paged) => _NotificationsList(
             paged: paged,
             onOpen: (group) => _openGroup(context, ref, group),
-            onLoadMore: () =>
-                ref.read(notificationsFeedProvider.notifier).loadMore(),
+            onLoadMore: () => ref.read(_feedOf(ref).notifier).loadMore(),
           ),
         ),
       ),
@@ -58,7 +64,7 @@ class ForumNotificationsScreen extends ConsumerWidget {
 
   Future<void> _markAllRead(BuildContext context, WidgetRef ref) async {
     try {
-      await ref.read(notificationsFeedProvider.notifier).markRead();
+      await ref.read(_feedOf(ref).notifier).markRead();
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -80,9 +86,7 @@ class ForumNotificationsScreen extends ConsumerWidget {
       // unawaited and swallows the error, leaving the row unread for the
       // next poll rather than stalling the tap's primary action.
       try {
-        await ref
-            .read(notificationsFeedProvider.notifier)
-            .markRead(ids: unreadIds);
+        await ref.read(_feedOf(ref).notifier).markRead(ids: unreadIds);
       } catch (_) {
         // Ignored — see comment above.
       }

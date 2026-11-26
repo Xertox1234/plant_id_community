@@ -12,6 +12,9 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:plant_community_mobile/features/forum/models/models.dart'
+    show ForumSyncCursor, ForumTopicStub;
+import 'package:plant_community_mobile/features/forum/services/forum_sync_store.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_unlock_store.dart';
 import 'package:plant_community_mobile/models/user_profile.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
@@ -752,6 +755,106 @@ void main() {
         expect(harness.api.forumUnlockTokens, isEmpty);
       },
     );
+  });
+
+  // Audit F130 and F24: signOut() forgot the forum unlocks itself, so every
+  // other way a session ends left them, and the offline sync mirror (topic
+  // titles and one cursor shared by every account), on the phone. These
+  // drive only the passive paths and an account switch: a test through
+  // signOut() passed before the fix.
+  group('forum device data on passive sign-outs (F130, F24)', () {
+    Future<(_Harness, FakeForumUnlockStore, InMemoryForumSyncStore)>
+    signedInWithForumData() async {
+      final unlocks = FakeForumUnlockStore(
+        const ForumUnlocks(uid: 'ada', tokens: {1: 't1'}),
+      );
+      final sync = InMemoryForumSyncStore();
+      await sync.saveTopics({
+        7: ForumTopicStub(
+          id: 7,
+          slug: 'ada-only',
+          title: "Ada's topic",
+          updatedAt: DateTime.utc(2026, 1, 1),
+        ),
+      });
+      await sync.saveCursor(
+        ForumSyncCursor(since: DateTime.utc(2026, 1, 1), sinceId: 7),
+      );
+      final harness = _Harness(
+        overrides: [
+          forumUnlockStoreProvider.overrideWithValue(unlocks),
+          forumSyncStoreProvider.overrideWithValue(sync),
+        ],
+      );
+      harness.container.read(authServiceProvider);
+      await harness.signIn(_FakeUser(uid: 'ada'));
+      expect(harness.container.read(authServiceProvider).isAuthenticated, true);
+      return (harness, unlocks, sync);
+    }
+
+    // Each way a session ends without signOut(), and an account switch.
+    final endings = <(String, Future<void> Function(_Harness))>[
+      (
+        'a session expiry (refused refresh)',
+        (h) async {
+          await h.api.sessionExpiredHandler!();
+          await pumpEventQueue();
+        },
+      ),
+      (
+        'a sign-out Firebase reports (authStateChanges null)',
+        (h) => h.emitAuthState(null),
+      ),
+      // Firebase goes from ada straight to bob: no null in between. Nothing
+      // reads the unlocks provider here, whose own rebuild for bob would
+      // clear the store and hide the gap.
+      (
+        'an account switch with no sign-out between',
+        (h) => h.signIn(_FakeUser(uid: 'bob')),
+      ),
+    ];
+
+    for (final (name, end) in endings) {
+      test('F130: $name forgets the forum unlocks', () async {
+        final (harness, unlocks, _) = await signedInWithForumData();
+        addTearDown(harness.dispose);
+        final session = harness.api.forumUnlockSession;
+
+        await end(harness);
+
+        // Not the header: the unlocks provider blanks it itself on a uid
+        // change. The store on disk and the unlock session are what only
+        // the end-of-session path clears.
+        expect(unlocks.stored, isNull, reason: 'unlock tokens left on disk');
+        expect(
+          harness.api.forumUnlockSession,
+          greaterThan(session),
+          reason: 'the unlock session was not ended',
+        );
+      });
+
+      test('F24: $name forgets the offline sync mirror', () async {
+        final (harness, _, sync) = await signedInWithForumData();
+        addTearDown(harness.dispose);
+
+        await end(harness);
+
+        expect(await sync.loadTopics(), isEmpty, reason: 'topic titles left');
+        expect((await sync.loadCursor()).since, isNull, reason: 'cursor left');
+      });
+    }
+
+    test('the same account signing in again keeps them', () async {
+      final (harness, unlocks, sync) = await signedInWithForumData();
+      addTearDown(harness.dispose);
+      final session = harness.api.forumUnlockSession;
+
+      await harness.signIn(_FakeUser(uid: 'ada'));
+
+      expect(unlocks.stored, isNotNull);
+      expect(harness.api.forumUnlockSession, session);
+      expect(await sync.loadTopics(), isNotEmpty);
+    });
   });
 
   group('ordering', () {

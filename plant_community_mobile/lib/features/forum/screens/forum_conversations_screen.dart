@@ -23,7 +23,9 @@ class ForumConversationsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final conversationsAsync = ref.watch(conversationsFeedProvider);
+    // Keyed on who reads it (see [forumViewerProvider], audit F89).
+    final feed = conversationsFeedProvider(ref.watch(forumViewerProvider));
+    final conversationsAsync = ref.watch(feed);
     // Who "I" am, so a group row's avatar cluster can leave me out (todo
     // 463, web `ParticipantStack` parity). Null until the account profile
     // first resolves, or if it never does: the cluster then shows every
@@ -54,15 +56,15 @@ class ForumConversationsScreen extends ConsumerWidget {
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, _) => _ErrorRetry(
             message: 'Could not load your messages.',
-            onRetry: () => ref.invalidate(conversationsFeedProvider),
+            onRetry: () => ref.invalidate(feed),
           ),
           data: (paged) => RefreshIndicator(
             onRefresh: () async {
               // invalidate + await the future is `ref.refresh` spelled out
               // (that helper is @useResult, and the value isn't needed here).
-              ref.invalidate(conversationsFeedProvider);
+              ref.invalidate(feed);
               try {
-                await ref.read(conversationsFeedProvider.future);
+                await ref.read(feed.future);
               } catch (_) {
                 // The provider now holds the error and the `error` branch
                 // above renders Retry — a rejected future must not also
@@ -85,8 +87,7 @@ class ForumConversationsScreen extends ConsumerWidget {
                             ForumAuthor.deletedUsername,
                       },
                     ),
-              onLoadMore: () =>
-                  ref.read(conversationsFeedProvider.notifier).loadMore(),
+              onLoadMore: () => ref.read(feed.notifier).loadMore(),
             ),
           ),
         ),
