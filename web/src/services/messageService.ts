@@ -163,13 +163,16 @@ export interface CreateGroupConversationInput {
  * Create a group and send its first message in one request; resolves to the
  * new inbox row. Throws ForumApiError 400 with the server's generic "One of
  * the members cannot be added." (no oracle on which), 429 with `retryAfter`
- * from the dm_group_create bucket (5/h).
+ * from the dm_group_create bucket (5/h). `idempotencyKey` is the form's: a
+ * retry after a lost response replays the group, never creates a second one.
  */
 export async function createGroupConversation(
-  input: CreateGroupConversationInput
+  input: CreateGroupConversationInput,
+  idempotencyKey?: string
 ): Promise<Conversation> {
   return authenticatedFetch<Conversation>(`${FORUM_BASE}/conversations/`, {
     method: 'POST',
+    headers: idempotencyHeader(idempotencyKey),
     body: JSON.stringify({ title: input.title, usernames: input.usernames, body: input.body }),
   });
 }

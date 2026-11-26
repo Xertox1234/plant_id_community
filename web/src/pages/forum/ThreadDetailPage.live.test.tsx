@@ -953,6 +953,86 @@ describe('ThreadDetailPage live updates', () => {
     });
   });
 
+  describe('F44 a restored reply goes in its place, and the pill counts on reconnect', () => {
+    // Server order is (created_at, id); a restored reply keeps its old created_at.
+    const at = (minute: number) => `2026-11-24T10:0${minute}:00Z`;
+    const opening = () => post('1', 'Opening post', { is_first_post: true, created_at: at(0) });
+    const four = () => post('4', 'Reply four', { created_at: at(2) });
+    const restored = () => post('3', 'Restored three', { created_at: at(1) });
+    const ACTIVITY = '2026-11-24T10:02:00Z';
+
+    beforeEach(() => {
+      vi.mocked(forumService.fetchPosts).mockResolvedValue(page([opening(), four()]));
+    });
+
+    it('a post.created older than the last loaded post is offered, then loaded in order and flashed', async () => {
+      vi.mocked(forumService.fetchPost).mockResolvedValue(restored());
+      await loadAndOpen();
+      await send({ type: 'post.created', post_id: 3 });
+      expect(forumService.fetchPost).toHaveBeenCalledWith('3');
+      expect(await screen.findByRole('button', { name: 'Load 1 new reply' })).toBeInTheDocument();
+      expect(screen.queryByText('Restored three')).not.toBeInTheDocument();
+      expect(window.scrollTo).not.toHaveBeenCalled();
+
+      vi.mocked(forumService.fetchPosts).mockResolvedValue(page([opening(), restored(), four()]));
+      vi.mocked(forumService.fetchThread).mockResolvedValue(baseThread({ post_count: 2 }));
+      await userEvent.click(screen.getByRole('button', { name: 'Load 1 new reply' }));
+      await screen.findByText('Restored three');
+      const three = document.getElementById('post-3') as HTMLElement;
+      const fourEl = document.getElementById('post-4') as HTMLElement;
+      // In the middle, above reply four, as the server pages it.
+      expect(three.compareDocumentPosition(fourEl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(three).toHaveClass('canopy-flash');
+      expect(fourEl).not.toHaveClass('canopy-flash');
+      await waitFor(() =>
+        expect(vi.mocked(HTMLElement.prototype.scrollIntoView).mock.contexts).toContain(three)
+      );
+      expect(screen.queryByRole('button', { name: /new repl/i })).not.toBeInTheDocument();
+    });
+
+    it('a post.created newer than the last loaded post still appends', async () => {
+      vi.mocked(forumService.fetchPost).mockResolvedValue(
+        post('5', 'Newest five', { created_at: at(3) })
+      );
+      await loadAndOpen();
+      await send({ type: 'post.created', post_id: 5 });
+      expect(await screen.findByText('Newest five')).toBeInTheDocument();
+      expect(document.getElementById('post-5')).toHaveClass('canopy-flash');
+      expect(window.scrollTo).toHaveBeenCalledWith({ top: 2000 });
+      expect(screen.queryByRole('button', { name: /new repl/i })).not.toBeInTheDocument();
+    });
+
+    it('a reconnect whose peek counts only the replies already in the pill walks no pages', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.5);
+      // Pinned: the mock's default moves with the clock.
+      vi.mocked(forumService.fetchThread).mockResolvedValue(
+        baseThread({ last_activity_at: ACTIVITY })
+      );
+      scrolledUp();
+      await loadAndOpen();
+      await send({ type: 'post.created', post_id: 3 });
+      await screen.findByRole('button', { name: 'Load 1 new reply' });
+      act(() => live().serverClose(1006));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(sockets).toHaveLength(2);
+      // loaded (1 reply) + pill (1); last_activity_at as before.
+      vi.mocked(forumService.fetchThread).mockResolvedValue(
+        baseThread({ post_count: 2, last_activity_at: ACTIVITY })
+      );
+      const calls = vi.mocked(forumService.fetchPosts).mock.calls.length;
+      const peeks = peekCalls();
+      await act(async () => {
+        live().open();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(peekCalls()).toBe(peeks + 1);
+      expect(forumService.fetchPosts).toHaveBeenCalledTimes(calls);
+      expect(screen.getByRole('button', { name: 'Load 1 new reply' })).toBeInTheDocument();
+    });
+  });
+
   describe('forum audit lows (F13, F38, F40)', () => {
     async function confirmDeleteOf(postId: string) {
       const article = document.getElementById(`post-${postId}`) as HTMLElement;

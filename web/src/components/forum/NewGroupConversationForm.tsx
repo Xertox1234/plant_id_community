@@ -10,6 +10,7 @@ import {
   MESSAGE_MAX_LENGTH,
 } from '../../services/messageService';
 import { useAuth } from '../../contexts/AuthContext';
+import { useIdempotencyKey } from '../../hooks/useIdempotencyKey';
 import { logger } from '../../utils/logger';
 import { describeWait } from '../../utils/retryAfter';
 import Button from '../ui/Button';
@@ -270,6 +271,9 @@ export default function NewGroupConversationForm({
   const [memberDraft, setMemberDraft] = useState('');
   const [body, setBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // One key per create (audit gap after F144): a retry of the same group
+  // replays it; a changed name, member list or message is a new attempt.
+  const createKey = useIdempotencyKey();
   const [notice, setNotice] = useState<string | null>(null);
   const viewerUsername = user?.username;
 
@@ -327,11 +331,11 @@ export default function NewGroupConversationForm({
     setSubmitting(true);
     setNotice(null);
     try {
-      const created = await createGroupConversation({
-        title: trimmedTitle,
-        usernames,
-        body: trimmedBody,
-      });
+      const created = await createGroupConversation(
+        { title: trimmedTitle, usernames, body: trimmedBody },
+        createKey.keyFor(JSON.stringify([trimmedTitle, usernames, trimmedBody]))
+      );
+      createKey.reset();
       onCreated(created);
     } catch (err) {
       logger.error('Error creating group conversation', {

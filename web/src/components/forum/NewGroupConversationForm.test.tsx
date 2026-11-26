@@ -234,11 +234,14 @@ describe('NewGroupConversationForm (todo 350)', () => {
 
     await userEvent.type(screen.getByLabelText('First message'), 'hello');
     await userEvent.click(create);
-    expect(messageService.createGroupConversation).toHaveBeenCalledWith({
-      title: 'Seed swap',
-      usernames: ['ada', 'grace'],
-      body: 'hello',
-    });
+    expect(messageService.createGroupConversation).toHaveBeenCalledWith(
+      {
+        title: 'Seed swap',
+        usernames: ['ada', 'grace'],
+        body: 'hello',
+      },
+      expect.any(String)
+    );
     await waitFor(() =>
       expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ id: 12 }))
     );
@@ -252,13 +255,56 @@ describe('NewGroupConversationForm (todo 350)', () => {
     await userEvent.type(screen.getByLabelText('First message'), 'hello');
     await userEvent.click(screen.getByRole('button', { name: 'Create group' }));
 
-    expect(messageService.createGroupConversation).toHaveBeenCalledWith({
-      title: 'Seed swap',
-      usernames: ['ada', 'grace'],
-      body: 'hello',
-    });
+    expect(messageService.createGroupConversation).toHaveBeenCalledWith(
+      {
+        title: 'Seed swap',
+        usernames: ['ada', 'grace'],
+        body: 'hello',
+      },
+      expect.any(String)
+    );
     expect(chips()).toEqual(['@ada', '@grace']);
     expect(screen.getByLabelText('Members')).toHaveValue('');
+  });
+
+  it('sends one Idempotency-Key per group: a retry reuses it, a changed input or a success starts a new one', async () => {
+    const create = vi.mocked(messageService.createGroupConversation);
+    create.mockRejectedValueOnce(new Error('network down'));
+    create.mockRejectedValueOnce(new Error('network down'));
+    renderForm();
+    await userEvent.type(screen.getByLabelText('Group name'), 'Seed swap');
+    await userEvent.type(screen.getByLabelText('Members'), 'ada{Enter}grace{Enter}');
+    await userEvent.type(screen.getByLabelText('First message'), 'hello');
+    const submit = screen.getByRole('button', { name: 'Create group' });
+    const keyOf = (call: number) => create.mock.calls[call][1];
+
+    // Fails: the retry of the very same group replays its key.
+    await userEvent.click(submit);
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    expect(keyOf(0)).toEqual(expect.any(String));
+    expect(keyOf(0)).not.toBe('');
+    await userEvent.click(submit);
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(keyOf(1)).toBe(keyOf(0));
+
+    // A changed message is a new attempt with a new key (it succeeds).
+    await userEvent.type(screen.getByLabelText('First message'), '!');
+    await userEvent.click(submit);
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(3));
+    expect(create.mock.calls[2][0]).toEqual({
+      title: 'Seed swap',
+      usernames: ['ada', 'grace'],
+      body: 'hello!',
+    });
+    expect(keyOf(2)).not.toBe(keyOf(1));
+    await waitFor(() => expect(onCreated).toHaveBeenCalled());
+
+    // After a success the same words sent again are a new group, not a replay.
+    await userEvent.click(submit);
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(4));
+    expect(keyOf(3)).not.toBe(keyOf(2));
+    expect(new Set([keyOf(0), keyOf(2), keyOf(3)]).size).toBe(3);
   });
 
   it('the title is capped at 80 characters and Cancel reports back', async () => {

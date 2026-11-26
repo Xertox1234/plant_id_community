@@ -245,6 +245,23 @@ describe('messageService groups (todo 350)', () => {
     expect(row).toEqual(group);
   });
 
+  it('createGroupConversation sends the Idempotency-Key it is given, and none without one', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 201, json: async () => group });
+    await createGroupConversation(
+      { title: 'Seed swap committee', usernames: ['ada', 'grace'], body: 'hello all' },
+      'key-123'
+    );
+    expect(fetchMock.mock.calls[0][1].headers['Idempotency-Key']).toBe('key-123');
+
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 201, json: async () => group });
+    await createGroupConversation({
+      title: 'Seed swap committee',
+      usernames: ['ada', 'grace'],
+      body: 'hello all',
+    });
+    expect(fetchMock.mock.calls[1][1].headers['Idempotency-Key']).toBeUndefined();
+  });
+
   it('createGroupConversation surfaces the generic 400 as a status-carrying error with no retryAfter', async () => {
     fetchMock.mockResolvedValueOnce(
       failJson(400, { message: 'One of the members cannot be added.' })
