@@ -150,6 +150,20 @@ def is_supported_url(url: str) -> bool:
     return any(finder.accept(url) for finder in get_finders())
 
 
+def stored_embed_urls(raw_data) -> frozenset[str]:
+    """The URL of every ``embed`` block a stored body holds. The edit path
+    passes it to ``validate_forum_body``, so an embed the post already has
+    survives the host switching embeds off or dropping its provider (audit
+    F9)."""
+    return frozenset(
+        block["value"]
+        for block in raw_data or []
+        if isinstance(block, dict)
+        and block.get("type") == "embed"
+        and isinstance(block.get("value"), str)
+    )
+
+
 _executor = None
 _executor_lock = threading.Lock()
 

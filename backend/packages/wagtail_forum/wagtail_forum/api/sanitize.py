@@ -931,6 +931,8 @@ def validate_forum_body(
     existing_quotes=(),
     existing_link_previews=None,
     request=None,
+    existing_embed_urls=frozenset(),
+    existing_image_ids=frozenset(),
 ):
     """Validate + sanitize a forum post body (raw StreamField list-of-dicts).
 
@@ -961,6 +963,18 @@ def validate_forum_body(
     ``existing_link_previews`` (edit only) maps each URL the stored body
     already shows as a card to its stored value (``link_preview_snapshots``):
     an edit that keeps the link keeps that card as stored, with no fetch.
+
+    ``existing_embed_urls`` (edit only) are the embed URLs the stored body
+    already holds: they are exempt from the embeds-enabled and provider
+    checks, so switching embeds off or dropping a provider does not lock the
+    post's edits; a NEWLY added embed is still refused, and the count cap
+    holds for all (audit F9).
+
+    ``existing_image_ids`` (edit only) are the image ids the stored body
+    already holds: they are exempt from the uploader check (an image a
+    moderator added must not refuse the author's own later edits), never
+    from the forum-collection check; a newly added image is checked in full
+    (audit F209).
 
     Returns the cleaned value so the caller stores the safe version.
     """
@@ -1079,9 +1093,11 @@ def validate_forum_body(
         if isinstance(block, dict) and block.get("type") in embed_types
     ]
     if embed_urls:
-        if not get_setting("ALLOW_EMBED_BLOCKS"):
+        embeds_on = get_setting("ALLOW_EMBED_BLOCKS")
+        new_embed_urls = [url for url in embed_urls if url not in existing_embed_urls]
+        if new_embed_urls and not embeds_on:
             raise serializers.ValidationError(_("Embeds are not enabled on this site."))
-        for url in embed_urls:
+        for url in new_embed_urls:
             if not is_supported_url(url):
                 raise serializers.ValidationError(
                     _(
@@ -1097,7 +1113,12 @@ def validate_forum_body(
         # The provider fetch waits until nothing else can refuse the body
         # (below, before the card fetch): a refused body costs no fetch
         # (todo 539 item 3).
-        embeds_to_warm = distinct
+        # A kept embed is only re-warmed while the host still embeds it.
+        embeds_to_warm = [
+            url
+            for url in distinct
+            if embeds_on and (url not in existing_embed_urls or is_supported_url(url))
+        ]
 
     # Structured post quotes (todo 342): a dict {post, text}; the quoted post
     # must exist, be visible and not be authored by someone block-paired
@@ -1199,6 +1220,11 @@ def validate_forum_body(
         uploader_match = Q(uploaded_by_user_id__in=uploader_ids)
         if None in allowed_uploader_ids:
             uploader_match |= Q(uploaded_by_user_id__isnull=True)
+        # An image the stored body already holds stays, whoever uploaded it
+        # (audit F209); the collection filter below still applies to it.
+        kept_ids = {pk for pk in existing_image_ids if pk is not None}
+        if kept_ids:
+            uploader_match |= Q(id__in=kept_ids)
         # `description` rides along so _normalise_image_value can recover the
         # alt of a legacy bare-PK block without a second query.
         image_descriptions = dict(

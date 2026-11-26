@@ -738,3 +738,80 @@ def test_patch_idempotency_keys_are_user_scoped():
     assert rm.status_code == 200
     assert reply.revisions.count() > revisions_after_author  # a real, new edit
     assert any("by mod" in b["value"] for b in rm.data["body"])
+
+
+def _forum_image(uploader, title="photo"):
+    from wagtail.images import get_image_model
+    from wagtail.images.tests.utils import get_test_image_file
+    from wagtail_forum.collections import get_forum_image_collection
+
+    return get_image_model().objects.create(
+        title=title,
+        file=get_test_image_file(),
+        collection=get_forum_image_collection(),
+        uploaded_by_user=uploader,
+    )
+
+
+def test_author_edit_keeps_an_image_a_moderator_added():
+    """Audit F209: a moderator's edit put THEIR upload in a member's post; the
+    author's own later edit resends it and must not be refused because the
+    author did not upload it. Only images the stored body already holds are
+    exempt."""
+    board = _board()
+    author = _member("ada")
+    mod = _moderator("mod")
+    image = _forum_image(mod)
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    reply.body = ForumBodyBlock().to_python(
+        [
+            {"type": "paragraph", "value": "<p>a reply</p>"},
+            {"type": "image", "value": {"image": image.id, "alt_text": "leaf"}},
+        ]
+    )
+    reply.save()
+    client = APIClient()
+    client.force_authenticate(author)
+
+    resp = client.patch(
+        f"/forum/posts/{reply.id}/",
+        {
+            "body": [
+                {"type": "paragraph", "value": "<p>a reply, fixed</p>"},
+                {"type": "image", "value": {"image": image.id, "alt_text": "leaf"}},
+            ]
+        },
+        format="json",
+    )
+
+    assert resp.status_code == 200, resp.data
+
+
+def test_author_edit_still_refuses_a_newly_added_image_of_someone_else():
+    """Audit F209: the stored-body exemption does not reach an image the post
+    did not already hold."""
+    board = _board()
+    author = _member("ada")
+    mod = _moderator("mod")
+    kept = _forum_image(mod, "kept")
+    stranger_image = _forum_image(_member("carol"), "stranger")
+    _topic, _opening, reply = _topic_with_reply(board, author)
+    reply.body = ForumBodyBlock().to_python(
+        [{"type": "image", "value": {"image": kept.id, "alt_text": "leaf"}}]
+    )
+    reply.save()
+    client = APIClient()
+    client.force_authenticate(author)
+
+    resp = client.patch(
+        f"/forum/posts/{reply.id}/",
+        {
+            "body": [
+                {"type": "image", "value": {"image": kept.id, "alt_text": "leaf"}},
+                {"type": "image", "value": {"image": stranger_image.id}},
+            ]
+        },
+        format="json",
+    )
+
+    assert resp.status_code == 400

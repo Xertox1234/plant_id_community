@@ -280,3 +280,106 @@ def test_more_distinct_embed_urls_than_the_cap_is_400_before_any_fetch():
     assert f"at most {cap} videos" in resp.data["message"]
     assert fetch.call_count == 0
     assert not Topic.objects.exists()
+
+
+# --- editing a post that already holds an embed (audit F9) ---
+
+VIMEO_ONLY_FINDERS = [
+    {**YOUTUBE_VIMEO_FINDERS[0], "providers": YOUTUBE_VIMEO_FINDERS[0]["providers"][1:]}
+]
+
+
+def _post_with_embed(author, url=YT):
+    topic = Topic.objects.create(
+        board=_board(), title="T", slug="t", author=author, live=True
+    )
+    return Post.objects.create(
+        topic=topic,
+        author=author,
+        is_opening_post=True,
+        live=True,
+        body=[
+            {"type": "paragraph", "value": "<p>How I repot.</p>"},
+            {"type": "embed", "value": url},
+        ],
+    )
+
+
+def _edit(client, post, body):
+    return client.patch(f"/forum/posts/{post.id}/", {"body": body}, format="json")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "settings_kwargs",
+    [
+        {"WAGTAILFORUM_ALLOW_EMBED_BLOCKS": False},  # the kill switch
+        {
+            "WAGTAILFORUM_ALLOW_EMBED_BLOCKS": True,
+            "WAGTAILEMBEDS_FINDERS": VIMEO_ONLY_FINDERS,  # provider dropped
+        },
+    ],
+    ids=["embeds-off", "provider-dropped"],
+)
+def test_an_edit_keeps_an_embed_the_stored_body_already_holds(settings_kwargs):
+    author = _member("author")
+    post = _post_with_embed(author)
+    client = APIClient()
+    client.force_authenticate(author)
+
+    with override_settings(**settings_kwargs), patch(
+        "wagtail.embeds.embeds.get_finder_for_embed",
+        side_effect=AssertionError("no fetch"),
+    ):
+        resp = _edit(
+            client,
+            post,
+            [
+                {"type": "paragraph", "value": "<p>How I repot, fixed.</p>"},
+                {"type": "embed", "value": YT},
+            ],
+        )
+
+    assert resp.status_code == 200, resp.data
+    post.refresh_from_db()
+    assert post.body.raw_data[1]["value"] == YT
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "settings_kwargs, message",
+    [
+        ({"WAGTAILFORUM_ALLOW_EMBED_BLOCKS": False}, "not enabled"),
+        (
+            {
+                "WAGTAILFORUM_ALLOW_EMBED_BLOCKS": True,
+                "WAGTAILEMBEDS_FINDERS": VIMEO_ONLY_FINDERS,
+            },
+            "Unsupported embed URL",
+        ),
+    ],
+    ids=["embeds-off", "provider-dropped"],
+)
+def test_an_edit_still_refuses_a_newly_added_embed(settings_kwargs, message):
+    author = _member("author")
+    post = _post_with_embed(author)
+    client = APIClient()
+    client.force_authenticate(author)
+
+    with override_settings(**settings_kwargs), patch(
+        "wagtail.embeds.embeds.get_finder_for_embed",
+        side_effect=AssertionError("no fetch"),
+    ):
+        resp = _edit(
+            client,
+            post,
+            [
+                {"type": "embed", "value": YT},
+                {"type": "embed", "value": "https://youtu.be/apiwrite002"},
+            ],
+        )
+
+    assert resp.status_code == 400
+    assert message in resp.data["message"]
+    post.refresh_from_db()
+    assert len(post.body.raw_data) == 2

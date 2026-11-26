@@ -1291,6 +1291,10 @@ class _ForumBodyContract(serializers.Serializer):
             existing_quotes=self.context.get("existing_quotes", ()),
             # Edit only: the stored body's link cards, reused without a fetch.
             existing_link_previews=self.context.get("existing_link_previews"),
+            # Edit only: the stored body's embeds and images, exempt from the
+            # checks a host change or another uploader would now fail.
+            existing_embed_urls=self.context.get("existing_embed_urls", frozenset()),
+            existing_image_ids=self.context.get("existing_image_ids", frozenset()),
             # A quote of a post in a password forum this session unlocked.
             request=request,
         )
