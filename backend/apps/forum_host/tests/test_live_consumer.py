@@ -634,6 +634,59 @@ def test_consumer_crash_still_cancels_recheck(fast_recheck):
         assert async_to_sync(run)() == (True, True)
 
 
+def _user_slot_count(user):
+    return cache.get(f"{constants.LIVE_SOCKET_COUNT_KEY_PREFIX}:u:{user.pk}")
+
+
+@pytest.mark.django_db
+def test_consumer_crash_gives_its_slots_back():
+    """A consumer that exits through an exception never gets disconnect();
+    its cap slots must still come back (audit F45), or a few crashes lock
+    the reader out with 4429 until the counter's TTL runs out."""
+    from apps.forum_host.consumers import TopicLiveConsumer
+
+    topic, _o, author = _thread("ws-cap-crash")
+    cap = constants.LIVE_MAX_SOCKETS_PER_USER
+
+    async def boom(self, content, **kwargs):
+        raise RuntimeError("send after the client dropped")
+
+    async def crash_one():
+        sock = Socket(topic.pk, author)
+        assert await sock.open() == ("accepted", None)
+        await sock.send_text('{"type": "ping"}')
+        try:
+            await sock.comm.wait(timeout=1)
+        except RuntimeError:
+            pass  # the consumer's own exception, re-raised by the communicator
+
+    with mock.patch.object(TopicLiveConsumer, "receive_json", boom):
+        for _ in range(cap):
+            async_to_sync(crash_one)()
+    assert _user_slot_count(author) == 0
+    assert _open_once(topic.pk, author) == ("accepted", None)
+
+
+@pytest.mark.django_db
+def test_group_add_failure_after_taking_slots_gives_them_back():
+    topic, _o, author = _thread("ws-cap-group-add")
+
+    async def run():
+        sock = Socket(topic.pk, author)
+        await sock.comm.send_input({"type": "websocket.connect"})
+        try:
+            await sock.comm.wait(timeout=2)
+        except RuntimeError:
+            pass
+
+    with mock.patch(
+        "channels.layers.InMemoryChannelLayer.group_add",
+        mock.AsyncMock(side_effect=RuntimeError("layer down")),
+    ):
+        async_to_sync(run)()
+    assert _user_slot_count(author) == 0
+
+
 def test_topic_removed_after_the_recheck_left_the_group_does_not_discard_none():
     """The re-check already left the group (group_name None) when an
     in-flight topic.removed arrives: no group_discard(None, ...) (audit L3)."""

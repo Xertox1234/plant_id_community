@@ -64,7 +64,10 @@ def _visible_notifications(user):
     """
     qs = Notification.objects.filter(recipient=user).filter(
         Q(topic__isnull=True)
-        | Q(topic__live=True, topic__board__in=_visible_boards(user))
+        | Q(topic__live=True, topic__board__in=_visible_boards(user)),
+        # A post taken down since (moderator, author delete, report
+        # auto-hide) leaves the bell too (audit F66). NULL-safe, as above.
+        Q(post__isnull=True) | Q(post__live=True),
     )
     # HIDE (todo 284/M9): read-time filtering only — this hides an EXISTING
     # bell row. It does not stop the notification from being created/pushed

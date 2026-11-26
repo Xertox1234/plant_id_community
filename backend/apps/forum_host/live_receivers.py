@@ -8,6 +8,7 @@ commit. One receiver per source, one event each:
 |---|---|
 | ``reply_added`` (a reply's first publish) | ``post.created`` |
 | ``published`` Post, not its first publish (edit, approved edit) | ``post.updated`` |
+| ``published`` reply that was not live (a moderator's restore) | ``post.created`` |
 | ``unpublished`` Post (author delete, moderator, report auto-hide) | ``post.removed`` |
 | ``post_delete`` live Post, unless its topic is being deleted | ``post.removed`` |
 | ``published`` Topic, not its first publish (title, closed, restore) | ``topic.updated`` |
@@ -16,6 +17,14 @@ commit. One receiver per source, one event each:
 | ``post_save`` Topic with ``"locked"`` in ``update_fields`` | ``topic.updated`` |
 
 A topic's FIRST publish sends nothing: nobody can have it open yet.
+
+A restored reply goes out as ``post.created`` (audit F44): every client dropped
+it on ``post.removed``, and both ignore ``post.updated`` for a post they have
+not loaded; both dedupe ``post.created`` by id. The opening post stays on
+``post.updated``: clients append a created post and count it as a reply.
+"Was not live" is read from ``revision.content_object``, the row the publish
+started from (``Revision.as_object`` keeps its ``live``, as it keeps the
+``first_published_at`` that ``is_first_publish`` reads); no extra query.
 
 The ``post_save`` hook is deliberately narrow. Wagtail's lock and unlock views
 do ``save(update_fields=["locked", "locked_by", "locked_at"])`` and send no
@@ -53,9 +62,23 @@ def _live_published(sender, instance, **kwargs):
     if is_first_publish(instance):
         return
     if isinstance(instance, Post):
-        broadcast("post.updated", instance.topic_id, instance.pk)
+        broadcast(
+            "post.created" if _is_restore(instance, kwargs) else "post.updated",
+            instance.topic_id,
+            instance.pk,
+        )
     elif isinstance(instance, Topic):
         broadcast("topic.updated", instance.pk)
+
+
+def _is_restore(post, signal_kwargs) -> bool:
+    """A once-published reply going live again: the row it was published
+    from was not live."""
+    if post.is_opening_post or not post.live:
+        return False
+    revision = signal_kwargs.get("revision")
+    before = getattr(revision, "content_object", None)
+    return before is not None and not before.live
 
 
 @receiver(unpublished, dispatch_uid="forum_live.unpublished")

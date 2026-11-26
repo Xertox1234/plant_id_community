@@ -148,6 +148,36 @@ def test_edit_held_for_moderation_sends_nothing(
 
 
 @pytest.mark.django_db
+def test_restored_reply_sends_post_created(sent, django_capture_on_commit_callbacks):
+    """A reply a moderator took down and publishes again (audit F44): every
+    client dropped it on post.removed, and both ignore post.updated for a
+    post they have not loaded, so it must come back as post.created."""
+    topic, _opening, _author = _thread("restore")
+    reply = _reply(topic, "replier-restore")
+    UnpublishAction(reply, user=None).execute(skip_permission_checks=True)
+    reply.refresh_from_db()
+    assert reply.live is False
+    with django_capture_on_commit_callbacks(execute=True):
+        reply.save_revision().publish()
+    assert sent == [_event("post.created", topic.pk, reply.pk)]
+
+
+@pytest.mark.django_db
+def test_restored_reply_from_a_fresh_revision_sends_post_created(
+    sent, django_capture_on_commit_callbacks
+):
+    """The same restore, publishing a revision read fresh from the DB (the
+    snippet editor and a revert both start from the row, not a held object)."""
+    topic, _opening, _author = _thread("restore-fresh")
+    reply = _reply(topic, "replier-restore-fresh")
+    UnpublishAction(reply, user=None).execute(skip_permission_checks=True)
+    revision = Post.objects.get(pk=reply.pk).latest_revision
+    with django_capture_on_commit_callbacks(execute=True):
+        revision.publish()
+    assert sent == [_event("post.created", topic.pk, reply.pk)]
+
+
+@pytest.mark.django_db
 def test_author_delete_sends_post_removed(sent, django_capture_on_commit_callbacks):
     topic, _opening, _author = _thread("author-delete")
     reply = _reply(topic, "replier-author-delete")
