@@ -489,10 +489,12 @@ def erase_topic(topic: Topic) -> None:
     redirect that spells out one of the topic's slugs.
 
     Poll votes and option rows stay, so the counts other members made still
-    add up. The identification's photo is not touched here: the author's
-    uploads are swept in ``_erase_forum``. Idempotent.
+    add up. The identification's photo is unlinked and deleted unless
+    something else references it: on a hold's release the author is gone,
+    so ``_erase_forum``'s sweep of their uploads cannot reach it. Idempotent.
     """
     from apps.forum_host.redirects import delete_topic_redirects
+    from wagtail.images import get_image_model
     from wagtail_forum.models import (
         ForumIdentificationAttachment,
         Poll,
@@ -509,8 +511,15 @@ def erase_topic(topic: Topic) -> None:
         _retitle_topic(topic)
 
         topic.tags.clear()
-        ForumIdentificationAttachment.objects.filter(topic=topic).update(
-            provider="", candidates=[], identification_result_id=""
+        attachments = ForumIdentificationAttachment.objects.filter(topic=topic)
+        photo_ids = list(
+            attachments.filter(image__isnull=False).values_list("image_id", flat=True)
+        )
+        attachments.update(
+            provider="", candidates=[], identification_result_id="", image=None
+        )
+        _delete_unreferenced_images(
+            get_image_model().objects.filter(pk__in=photo_ids), clear_uploader=True
         )
         Poll.objects.filter(topic=topic).update(question=DELETED_POLL_QUESTION)
         options = list(
@@ -640,7 +649,14 @@ def _erase_forum(user: User, under_13: bool = False) -> None:
     itself stays for the moderators).
     """
     from wagtail.images import get_image_model
-    from wagtail_forum.models import ForumProfile, Notification, Post, Report, Topic
+    from wagtail_forum.models import (
+        ForumIdentificationAttachment,
+        ForumProfile,
+        Notification,
+        Post,
+        Report,
+        Topic,
+    )
 
     queued = Report.objects.filter(
         post=OuterRef("pk"), status__in=moderation_queue_statuses()
@@ -669,6 +685,14 @@ def _erase_forum(user: User, under_13: bool = False) -> None:
     for topic in Topic.objects.filter(author=user).order_by("pk"):
         if topic.posts.filter(is_opening_post=True, erase_after__isnull=False).exists():
             _retitle_topic(topic)
+            # The ReferenceIndex does not track the attachment's FK, so the
+            # sweep below would delete the photo the held topic shows
+            # (audit 2026-11-24 F311). erase_topic deletes it on release.
+            held_image_ids |= set(
+                ForumIdentificationAttachment.objects.filter(
+                    topic=topic, image__isnull=False
+                ).values_list("image_id", flat=True)
+            )
         else:
             erase_topic(topic)
 
