@@ -630,6 +630,44 @@ def test_a_held_opening_post_keeps_the_identification_photo_until_released(
     assert Topic.objects.get(pk=topic.pk).identification.image_id is None
 
 
+def test_a_photo_shared_with_a_held_topic_outlives_the_unheld_one(
+    roots, target, other, board, django_capture_on_commit_callbacks
+):
+    """The same upload on two of the member's topics: erasing the unheld
+    topic must not take the held topic's evidence photo with it."""
+    from apps.users.retention import release_held_posts
+
+    held_topic = _loaded_topic(board, target)
+    image, path = _identification_photo(held_topic, target)
+    held = _post(held_topic, target, [("quote", "rude words")], opening=True)
+    report = Report.objects.create(post=held, reporter=other, reason=Report.ABUSE)
+    plain = _topic(board, target, title="Second", slug="second")
+    _identification_photo_of(plain, image)
+    _post(plain, target, [("quote", "fine")], opening=True)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        erase_django_data(_record(target))
+
+    assert path.exists()
+    assert Topic.objects.get(pk=plain.pk).identification.image_id is None
+
+    report.status = Report.DISMISSED
+    report.save()
+    with django_capture_on_commit_callbacks(execute=True):
+        release_held_posts()
+
+    assert not get_image_model().objects.filter(pk=image.pk).exists()
+    assert not path.exists()
+
+
+def _identification_photo_of(topic, image):
+    from wagtail_forum.models import ForumIdentificationAttachment
+
+    ForumIdentificationAttachment.objects.update_or_create(
+        topic=topic, defaults={"image": image}
+    )
+
+
 def test_an_unheld_topic_loses_its_identification_photo(
     roots, target, other, board, django_capture_on_commit_callbacks
 ):

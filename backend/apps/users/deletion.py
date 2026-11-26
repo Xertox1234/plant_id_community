@@ -566,11 +566,19 @@ def _delete_unreferenced_images(images: QuerySet[Any], *, clear_uploader: bool) 
     default (no ``TASKS`` setting). A queued tasks backend would let the
     index lag behind a save, and this check could then delete an image that
     a just-saved object references.
+
+    An identification attachment's photo counts as a reference too: the
+    ReferenceIndex does not track that FK, and a held topic may share the
+    photo with a topic or post erased first (audit 2026-11-24 F311).
     """
     from wagtail.models import ReferenceIndex
+    from wagtail_forum.models import ForumIdentificationAttachment
 
     for image in images:
-        if not ReferenceIndex.get_references_to(image).exists():
+        if not (
+            ReferenceIndex.get_references_to(image).exists()
+            or ForumIdentificationAttachment.objects.filter(image=image).exists()
+        ):
             image.delete()
         elif clear_uploader and image.uploaded_by_user_id is not None:
             image.uploaded_by_user = None
@@ -649,14 +657,7 @@ def _erase_forum(user: User, under_13: bool = False) -> None:
     itself stays for the moderators).
     """
     from wagtail.images import get_image_model
-    from wagtail_forum.models import (
-        ForumIdentificationAttachment,
-        ForumProfile,
-        Notification,
-        Post,
-        Report,
-        Topic,
-    )
+    from wagtail_forum.models import ForumProfile, Notification, Post, Report, Topic
 
     queued = Report.objects.filter(
         post=OuterRef("pk"), status__in=moderation_queue_statuses()
@@ -684,15 +685,10 @@ def _erase_forum(user: User, under_13: bool = False) -> None:
 
     for topic in Topic.objects.filter(author=user).order_by("pk"):
         if topic.posts.filter(is_opening_post=True, erase_after__isnull=False).exists():
+            # Its identification photo stays: the attachment still references
+            # it (see _delete_unreferenced_images); erase_topic deletes it on
+            # release.
             _retitle_topic(topic)
-            # The ReferenceIndex does not track the attachment's FK, so the
-            # sweep below would delete the photo the held topic shows
-            # (audit 2026-11-24 F311). erase_topic deletes it on release.
-            held_image_ids |= set(
-                ForumIdentificationAttachment.objects.filter(
-                    topic=topic, image__isnull=False
-                ).values_list("image_id", flat=True)
-            )
         else:
             erase_topic(topic)
 
