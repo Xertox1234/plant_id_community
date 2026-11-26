@@ -162,7 +162,9 @@ describe('ConversationPage (todo 339)', () => {
     renderPage();
     await userEvent.type(await screen.findByPlaceholderText('Message Ada L.…'), 'hi');
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
-    await waitFor(() => expect(messageService.sendMessage).toHaveBeenCalledWith('ada', 'hi'));
+    await waitFor(() =>
+      expect(messageService.sendMessage).toHaveBeenCalledWith('ada', 'hi', expect.any(String))
+    );
     expect(messageService.fetchConversation).not.toHaveBeenCalled();
     expect(messageService.sendConversationMessage).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: /^Members \(/ })).not.toBeInTheDocument();
@@ -257,7 +259,7 @@ describe('ConversationPage (todo 339)', () => {
     );
     await userEvent.click(send);
 
-    expect(messageService.sendMessage).toHaveBeenCalledWith('ada', 'hi there');
+    expect(messageService.sendMessage).toHaveBeenCalledWith('ada', 'hi there', expect.any(String));
     await waitFor(() => expect(messageItems()).toHaveLength(1));
     expect(messageItems()[0]).toHaveTextContent('hi there');
     expect(messageItems()[0]).toHaveAttribute('data-mine', 'true');
@@ -272,7 +274,9 @@ describe('ConversationPage (todo 339)', () => {
     renderPage();
     const composer = await screen.findByPlaceholderText('Message Ada L.…');
     await userEvent.type(composer, 'quick{Meta>}{Enter}{/Meta}');
-    await waitFor(() => expect(messageService.sendMessage).toHaveBeenCalledWith('ada', 'quick'));
+    await waitFor(() =>
+      expect(messageService.sendMessage).toHaveBeenCalledWith('ada', 'quick', expect.any(String))
+    );
   });
 
   it('a 403 on send shows the readable blocked notice, not DRF’s default detail', async () => {
@@ -547,7 +551,11 @@ describe('ConversationPage groups (todo 350)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
 
     expect(messageService.sendConversationMessage).toHaveBeenCalledTimes(1);
-    expect(messageService.sendConversationMessage).toHaveBeenCalledWith(12, 'hi all');
+    expect(messageService.sendConversationMessage).toHaveBeenCalledWith(
+      12,
+      'hi all',
+      expect.any(String)
+    );
     expect(messageService.sendMessage).not.toHaveBeenCalled();
     await waitFor(() => expect(messageItems()).toHaveLength(1));
     expect(messageItems()[0]).toHaveTextContent('hi all');

@@ -250,12 +250,15 @@ describe('NewThreadPage', () => {
     expect(alertSpy).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(screen.getByRole('link', { name: /back to plant care/i })).toBeInTheDocument();
-    expect(forumService.createThread).toHaveBeenCalledWith({
-      boardSlug: 'plant-care',
-      title: 'My Topic',
-      body: [{ type: 'paragraph', value: '<p>hello</p>' }],
-      tags: [],
-    });
+    expect(forumService.createThread).toHaveBeenCalledWith(
+      {
+        boardSlug: 'plant-care',
+        title: 'My Topic',
+        body: [{ type: 'paragraph', value: '<p>hello</p>' }],
+        tags: [],
+      },
+      expect.any(String)
+    );
   });
 
   describe('poll composer (audit M8)', () => {
@@ -274,7 +277,8 @@ describe('NewThreadPage', () => {
       await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
       // The ordinary compose payload must be untouched by this feature.
       expect(forumService.createThread).toHaveBeenCalledWith(
-        expect.not.objectContaining({ poll: expect.anything() })
+        expect.not.objectContaining({ poll: expect.anything() }),
+        expect.any(String)
       );
     });
 
@@ -298,7 +302,8 @@ describe('NewThreadPage', () => {
       expect(forumService.createThread).toHaveBeenCalledWith(
         expect.objectContaining({
           poll: { question: 'Best soil?', options: ['Peat', 'Coir'] },
-        })
+        }),
+        expect.any(String)
       );
     });
 
@@ -335,7 +340,8 @@ describe('NewThreadPage', () => {
       expect(forumService.createThread).toHaveBeenCalledWith(
         expect.objectContaining({
           poll: { question: 'Pests seen?', options: ['Aphids', 'Mites', ''], max_choices: 2 },
-        })
+        }),
+        expect.any(String)
       );
     });
 
@@ -415,7 +421,8 @@ describe('NewThreadPage', () => {
             // (which stores/compares in UTC) sees it.
             closes_at: new Date(localValue).toISOString(),
           }),
-        })
+        }),
+        expect.any(String)
       );
     });
 
@@ -439,7 +446,8 @@ describe('NewThreadPage', () => {
       expect(forumService.createThread).toHaveBeenCalledWith(
         expect.objectContaining({
           poll: { question: 'Best soil?', options: ['Peat', 'Coir'] },
-        })
+        }),
+        expect.any(String)
       );
     });
   });
@@ -468,12 +476,15 @@ describe('NewThreadPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
 
     await waitFor(() =>
-      expect(forumService.createThread).toHaveBeenCalledWith({
-        boardSlug: 'plant-care',
-        title: 'My Topic',
-        body: [{ type: 'paragraph', value: '<p>hello</p>' }],
-        tags: [],
-      })
+      expect(forumService.createThread).toHaveBeenCalledWith(
+        {
+          boardSlug: 'plant-care',
+          title: 'My Topic',
+          body: [{ type: 'paragraph', value: '<p>hello</p>' }],
+          tags: [],
+        },
+        expect.any(String)
+      )
     );
   });
 
@@ -501,12 +512,15 @@ describe('NewThreadPage', () => {
     // posting without retyping sends them verbatim.
     await userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
     await waitFor(() =>
-      expect(forumService.createThread).toHaveBeenCalledWith({
-        boardSlug: 'plant-care',
-        title: 'Half-written topic',
-        body: [{ type: 'paragraph', value: '<p>saved body</p>' }],
-        tags: [],
-      })
+      expect(forumService.createThread).toHaveBeenCalledWith(
+        {
+          boardSlug: 'plant-care',
+          title: 'Half-written topic',
+          body: [{ type: 'paragraph', value: '<p>saved body</p>' }],
+          tags: [],
+        },
+        expect.any(String)
+      )
     );
     // Posted drafts must not resurrect on the next visit.
     expect(loadDraft(key)).toBeNull();
@@ -856,7 +870,8 @@ describe('NewThreadPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /post thread/i }));
     await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
     expect(forumService.createThread).toHaveBeenCalledWith(
-      expect.not.objectContaining({ poll: expect.anything() })
+      expect.not.objectContaining({ poll: expect.anything() }),
+      expect.any(String)
     );
   });
 
@@ -1086,13 +1101,16 @@ describe('NewThreadPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /post thread/i }));
 
       await waitFor(() =>
-        expect(forumService.createThread).toHaveBeenCalledWith({
-          boardSlug: 'plant-care',
-          title: 'Is this Swiss cheese plant?',
-          body: [{ type: 'paragraph', value: '<p>hello</p>' }],
-          tags: [],
-          identification: HANDOFF.identification,
-        })
+        expect(forumService.createThread).toHaveBeenCalledWith(
+          {
+            boardSlug: 'plant-care',
+            title: 'Is this Swiss cheese plant?',
+            body: [{ type: 'paragraph', value: '<p>hello</p>' }],
+            tags: [],
+            identification: HANDOFF.identification,
+          },
+          expect.any(String)
+        )
       );
     });
 
@@ -1119,13 +1137,16 @@ describe('NewThreadPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /post thread/i }));
 
       await waitFor(() =>
-        expect(forumService.createThread).toHaveBeenCalledWith({
-          boardSlug: 'plant-care',
-          title: 'Is this Swiss cheese plant?',
-          body: [{ type: 'paragraph', value: '<p>hello</p>' }],
-          tags: [],
-          identification: HANDOFF.identification,
-        })
+        expect(forumService.createThread).toHaveBeenCalledWith(
+          {
+            boardSlug: 'plant-care',
+            title: 'Is this Swiss cheese plant?',
+            body: [{ type: 'paragraph', value: '<p>hello</p>' }],
+            tags: [],
+            identification: HANDOFF.identification,
+          },
+          expect.any(String)
+        )
       );
     });
 
@@ -1157,7 +1178,8 @@ describe('NewThreadPage', () => {
 
       await waitFor(() =>
         expect(forumService.createThread).toHaveBeenCalledWith(
-          expect.not.objectContaining({ identification: expect.anything() })
+          expect.not.objectContaining({ identification: expect.anything() }),
+          expect.any(String)
         )
       );
     });
@@ -1195,7 +1217,8 @@ describe('NewThreadPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /post thread/i }));
       await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
       expect(forumService.createThread).toHaveBeenCalledWith(
-        expect.not.objectContaining({ identification: expect.anything() })
+        expect.not.objectContaining({ identification: expect.anything() }),
+        expect.any(String)
       );
     });
 
@@ -1230,7 +1253,8 @@ describe('NewThreadPage', () => {
       await userEvent.click(screen.getByRole('button', { name: /post thread/i }));
       await waitFor(() => expect(forumService.createThread).toHaveBeenCalled());
       expect(forumService.createThread).toHaveBeenCalledWith(
-        expect.objectContaining({ identification: HANDOFF.identification })
+        expect.objectContaining({ identification: HANDOFF.identification }),
+        expect.any(String)
       );
     });
 
@@ -1382,5 +1406,93 @@ describe('NewThreadPage topic template (todo 678)', () => {
         'This forum is closed to new topics.'
       );
     });
+  });
+});
+
+// Audit F144: the topic's Idempotency-Key belongs to the compose action, so a
+// retry after a lost response replays the first create instead of a duplicate.
+describe('NewThreadPage Idempotency-Key (F144)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    mockNavigate = vi.fn();
+    vi.mocked(useAuth).mockReturnValue(mockAuth());
+    vi.mocked(ReactRouter.useNavigate).mockReturnValue(
+      mockNavigate as unknown as ReturnType<typeof ReactRouter.useNavigate>
+    );
+    vi.mocked(ReactRouter.useSearchParams).mockReturnValue([
+      new URLSearchParams('category=3-plant-care'),
+      vi.fn(),
+    ]);
+    vi.spyOn(forumService, 'fetchForum').mockResolvedValue({
+      id: '3',
+      name: 'Plant Care',
+      slug: 'plant-care',
+      created_at: '',
+    });
+  });
+
+  const keyOf = (n: number) => vi.mocked(forumService.createThread).mock.calls[n][1];
+  const submit = () => userEvent.click(screen.getByRole('button', { name: /post|create|submit/i }));
+
+  it('reuses the key when the same topic is submitted again after a failure', async () => {
+    vi.spyOn(forumService, 'createThread')
+      .mockRejectedValueOnce(new Error('Failed to fetch'))
+      .mockResolvedValueOnce({ id: '12', slug: 'my-topic', status: 'published' });
+    renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+    await userEvent.type(screen.getByLabelText('body'), 'hello');
+    await submit();
+    await screen.findAllByText('Failed to fetch');
+    await submit();
+    await waitFor(() => expect(forumService.createThread).toHaveBeenCalledTimes(2));
+
+    expect(typeof keyOf(0)).toBe('string');
+    expect(keyOf(1)).toBe(keyOf(0));
+  });
+
+  it('keeps the key when the identity check after a created topic fails', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      ...mockAuth(),
+      revalidateIdentity: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Network down'))
+        .mockResolvedValue({ id: 1, username: 'test-user' }),
+    } as unknown as ReturnType<typeof useAuth>);
+    vi.spyOn(forumService, 'createThread').mockResolvedValue({
+      id: '12',
+      slug: 'my-topic',
+      status: 'published',
+    });
+    renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+    await userEvent.type(screen.getByLabelText('body'), 'hello');
+    await submit();
+    await screen.findAllByText('Network down');
+    await submit();
+    await waitFor(() => expect(forumService.createThread).toHaveBeenCalledTimes(2));
+
+    expect(typeof keyOf(0)).toBe('string');
+    expect(keyOf(1)).toBe(keyOf(0));
+  });
+
+  it('sends a new key when the topic changed after a failure', async () => {
+    vi.spyOn(forumService, 'createThread')
+      .mockRejectedValueOnce(new Error('Failed to fetch'))
+      .mockResolvedValueOnce({ id: '12', slug: 'my-topic', status: 'published' });
+    renderPage();
+    await screen.findByText('Plant Care');
+    await userEvent.type(screen.getByLabelText(/title/i), 'My Topic');
+    await userEvent.type(screen.getByLabelText('body'), 'hello');
+    await submit();
+    await screen.findAllByText('Failed to fetch');
+    await userEvent.type(screen.getByLabelText(/title/i), '!');
+    await submit();
+    await waitFor(() => expect(forumService.createThread).toHaveBeenCalledTimes(2));
+
+    expect(typeof keyOf(1)).toBe('string');
+    expect(keyOf(1)).not.toBe(keyOf(0));
   });
 });

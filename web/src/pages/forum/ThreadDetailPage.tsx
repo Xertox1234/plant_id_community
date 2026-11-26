@@ -46,6 +46,7 @@ import {
 } from '../../utils/forumDoc';
 import { draftKey, loadDraft, saveDraft, clearDraft } from '../../utils/forumDrafts';
 import { useIdentitySwap } from '../../hooks/useIdentitySwap';
+import { useIdempotencyKey } from '../../hooks/useIdempotencyKey';
 import { specimenAvatar } from '../../utils/forumAvatars';
 import PostCard from '../../components/forum/PostCard';
 import IdentificationCard from '../../components/forum/IdentificationCard';
@@ -245,7 +246,15 @@ export default function ThreadDetailPage() {
   // login) clears the stored drafts in AuthContext, but this page's own reply
   // state would re-persist the previous account's text on the next keystroke
   // (code review, PR #629) — drop it and remount the editor.
+  // The Idempotency-Keys of the reply and of an edit (audit F144): reused
+  // when the same payload is sent again after a failure, rotated when it
+  // changes and after a success. Here, not in the composer: the reply editor
+  // is remounted after every post.
+  const replyKey = useIdempotencyKey();
+  const editKey = useIdempotencyKey();
   useIdentitySwap(user?.id, () => {
+    replyKey.reset();
+    editKey.reset();
     draftRestoreRef.current = null;
     draftGenerationRef.current += 1;
     setDraftState('ready');
@@ -962,10 +971,11 @@ export default function ThreadDetailPage() {
         setReplyError(null);
         replyInFlightRef.current = true;
         const { docToBodyBlocks } = await loadForumBody();
-        const res = await createPost({
-          thread: requestTopicId,
-          body: docToBodyBlocks(replyBody),
-        });
+        const body = docToBodyBlocks(replyBody);
+        const res = await createPost(
+          { thread: requestTopicId, body },
+          replyKey.keyFor(JSON.stringify([requestTopicId, body]))
+        );
         clearDraft(draftKey('reply', String(requestTopicId)));
         // The live event for this reply is ours: never offer or insert it.
         if (currentTopicIdRef.current === requestTopicId) ownReplyIdsRef.current.add(res.id);
@@ -983,6 +993,10 @@ export default function ThreadDetailPage() {
         // (code review, PR #629).
         const actingUserId = user?.id ?? null;
         const current = await revalidateIdentity();
+        // Posted: the same words again are a new reply, not a replay. Only
+        // now: a rejected revalidation above lands in the catch with the text
+        // still in the composer, and its resubmit must replay, not repost.
+        replyKey.reset();
         const drifted = (current?.id ?? null) !== actingUserId;
         const driftNotice = current?.username
           ? `Your session changed while replying — this was posted as ${current.username}, not the account you started with.`
@@ -1085,7 +1099,7 @@ export default function ThreadDetailPage() {
         }
       }
     },
-    [topicId, replyBody, announce, user, revalidateIdentity, handleLiveEvent]
+    [topicId, replyBody, announce, user, revalidateIdentity, handleLiveEvent, replyKey]
   );
 
   // Quote a post into the reply composer (todo 342). The `post_quote`
@@ -1453,7 +1467,13 @@ export default function ThreadDetailPage() {
         }
         setNotice(null);
         setEditError(null);
-        const res = await updatePost(editingPostId, { body: docToBodyBlocks(editBody) });
+        const body = docToBodyBlocks(editBody);
+        const res = await updatePost(
+          editingPostId,
+          { body },
+          editKey.keyFor(JSON.stringify([editingPostId, body]))
+        );
+        editKey.reset();
         setPosts((prev) => prev.map((p) => (p.id === editingPostId ? res.post : p)));
         if (res.status === 'pending') {
           setNotice('Your edit was submitted and is awaiting moderation.');
@@ -1471,7 +1491,7 @@ export default function ThreadDetailPage() {
         setEditSubmitting(false);
       }
     },
-    [editingPostId, editBody, posts]
+    [editingPostId, editBody, posts, editKey]
   );
 
   const cancelEdit = useCallback(() => {

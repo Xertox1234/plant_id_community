@@ -7,9 +7,9 @@
  * mutating requests; failures throw `ForumApiError` so callers can branch on
  * the HTTP status (403 = blocked, 400 = spam/empty) instead of sniffing text.
  */
-import { getCsrfToken } from '../utils/csrf';
+import { csrfFetch } from '../utils/csrfFetch';
 import { readRetryAfter } from '../utils/retryAfter';
-import { ForumApiError } from './forumService';
+import { ForumApiError, idempotencyHeader } from './forumService';
 import type { Conversation, DirectMessage, DirectMessageCursorPage } from '../types/forum';
 import { API_ORIGIN } from '@/config/api';
 
@@ -28,14 +28,13 @@ export const GROUP_MIN_OTHERS = 2;
 export const GROUP_MAX_OTHERS = GROUP_MAX_PARTICIPANTS - 1;
 
 async function authenticatedFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const csrfToken = await getCsrfToken();
-  const response = await fetch(url, {
+  // CSRF token + one retry on a stale token (audit F143): without it a stale
+  // token's 403 reached ConversationPage as "you can't message this member".
+  const response = await csrfFetch(url, {
     ...options,
-    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      ...(csrfToken && { 'X-CSRFToken': csrfToken }),
       ...options.headers,
     },
   });
@@ -106,11 +105,16 @@ export async function fetchMessages(
  * Send a plain-text message to `username`; creates the conversation on first
  * send. Throws ForumApiError 403 when either side has blocked the other, 400
  * for an empty/spam body (message carries the reason), 404 for an unknown member.
+ * `idempotencyKey` is the composer's (audit F144): a retry replays, never resends.
  */
-export async function sendMessage(username: string, body: string): Promise<DirectMessage> {
+export async function sendMessage(
+  username: string,
+  body: string,
+  idempotencyKey?: string
+): Promise<DirectMessage> {
   return authenticatedFetch<DirectMessage>(
     `${FORUM_BASE}/users/${encodeURIComponent(username)}/messages/`,
-    { method: 'POST', body: JSON.stringify({ body }) }
+    { method: 'POST', headers: idempotencyHeader(idempotencyKey), body: JSON.stringify({ body }) }
   );
 }
 
@@ -138,11 +142,12 @@ export async function fetchConversation(conversationId: number): Promise<Convers
  */
 export async function sendConversationMessage(
   conversationId: number,
-  body: string
+  body: string,
+  idempotencyKey?: string
 ): Promise<DirectMessage> {
   return authenticatedFetch<DirectMessage>(
     `${FORUM_BASE}/conversations/${conversationId}/messages/`,
-    { method: 'POST', body: JSON.stringify({ body }) }
+    { method: 'POST', headers: idempotencyHeader(idempotencyKey), body: JSON.stringify({ body }) }
   );
 }
 

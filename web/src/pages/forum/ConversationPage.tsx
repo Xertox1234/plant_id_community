@@ -15,6 +15,9 @@ import {
 } from '../../services/messageService';
 import { ForumApiError } from '../../services/forumService';
 import { useAuth } from '../../contexts/AuthContext';
+import { useIdempotencyKey } from '../../hooks/useIdempotencyKey';
+import { useIdentitySwap } from '../../hooks/useIdentitySwap';
+import { isCsrfFailure } from '../../utils/csrfFetch';
 import { useAnnounce } from '../../contexts/AnnouncerContext';
 import { useUnreadNotifications } from '../../contexts/UnreadNotificationsContext';
 import { authorName } from '../../utils/forumAuthor';
@@ -40,6 +43,9 @@ const GROUP_BLOCKED_NOTICE = "You can't message this group.";
 /** The id resolves to no inbox row (404): never a member, removed, or not a group id at all. */
 const GROUP_UNAVAILABLE =
   "This group isn't available — it may have been closed, or you're no longer a member.";
+/** A CSRF 403 the one automatic retry could not clear (audit F143) — not a block. */
+const SESSION_CHANGED_NOTICE =
+  'Your session changed in another tab. Reload the page and try again.';
 
 function newestFirstToOldestFirst(page: DirectMessage[]): DirectMessage[] {
   return [...page].reverse();
@@ -239,6 +245,34 @@ export default function ConversationPage() {
     setMemberAction(null);
   }
 
+  // The send's Idempotency-Key (audit F144): reused when the same text is
+  // sent again to the same thread, rotated when either changes and after a
+  // success.
+  const sendKey = useIdempotencyKey();
+
+  // A passive account swap (focus revalidation after a login in another tab)
+  // keeps this page mounted: drop everything the previous account typed or
+  // saw before the reload below shows the new account's thread (audit F88).
+  // Same reset as a route change, plus the report marks and the send key.
+  useIdentitySwap(user?.id, () => {
+    setConversation(null);
+    setMessages([]);
+    setOlderCursor(null);
+    setNotice(null);
+    setDraft('');
+    setReportingId(null);
+    setReportedIds(new Set());
+    setMembersOpen(false);
+    setMemberDraft('');
+    setLeaveConfirmOpen(false);
+    // load() bumps the epoch on the same identity change, so an in-flight
+    // call never reaches its `finally` (see the route reset above).
+    setSending(false);
+    setLoadingOlder(false);
+    setMemberAction(null);
+    sendKey.reset();
+  });
+
   // Merge by id: a "Load older" page can overlap what is already on screen
   // (the echo of a just-sent message, a cursor boundary), and React keys
   // are message ids — never spread pages together raw.
@@ -333,12 +367,17 @@ export default function ConversationPage() {
     // A group is only ever sent to by id; a direct thread keeps the
     // username endpoint, which also creates the thread on first send.
     const groupTarget = conversation?.kind === 'group' ? conversation : null;
+    const idempotencyKey = sendKey.keyFor(
+      JSON.stringify([groupTarget ? `group:${groupTarget.id}` : `member:${requestUsername}`, body])
+    );
     setSending(true);
     setNotice(null);
     try {
       const sent = groupTarget
-        ? await sendConversationMessage(groupTarget.id, body)
-        : await sendMessage(requestUsername, body);
+        ? await sendConversationMessage(groupTarget.id, body, idempotencyKey)
+        : await sendMessage(requestUsername, body, idempotencyKey);
+      // Sent: the same words again are a new message, not a replay.
+      sendKey.reset();
       if (epoch !== requestEpochRef.current) return;
       setMessages((prev) => mergeMessages(prev, [sent], 'end'));
       setDraft('');
@@ -369,8 +408,11 @@ export default function ConversationPage() {
         context: { username: requestUsername, groupId },
       });
       // Branch on the STATUS, never the text: a 403 arrives as DRF's default
-      // detail, which mentions neither "403" nor "forbidden".
-      if (err instanceof ForumApiError && err.status === 403) {
+      // detail, which mentions neither "403" nor "forbidden". A stale CSRF
+      // token is a 403 too, but not a block (audit F143).
+      if (err instanceof ForumApiError && err.status === 403 && isCsrfFailure(err.message)) {
+        setNotice(SESSION_CHANGED_NOTICE);
+      } else if (err instanceof ForumApiError && err.status === 403) {
         setNotice(groupTarget ? GROUP_BLOCKED_NOTICE : BLOCKED_NOTICE);
       } else {
         setNotice(err instanceof Error ? err.message : 'Failed to send message');

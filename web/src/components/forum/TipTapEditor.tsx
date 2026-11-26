@@ -43,6 +43,10 @@ import {
   insertPositionAvoidingQuotes,
   positionOutsideLockedQuotes,
 } from './forumQuoteLock';
+// One key per file SELECTION, reused across retries of that selection, so the
+// backend's M36 replay path collapses a double-submit into a single stored
+// image instead of orphaning a duplicate row + file.
+import { newIdempotencyKey } from '../../utils/idempotencyKey';
 import type { LinkPreview } from '@/types/forum';
 
 // Client-side pre-upload limits — mirror wagtail_forum conf.py
@@ -53,22 +57,6 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 const MAX_SOURCE_BYTES = 60 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 const IMAGE_LIMIT_HINT = 'JPEG, PNG, GIF or WebP, up to 10 MB';
-
-/**
- * One key per file SELECTION, reused across retries of that selection, so the
- * backend's M36 replay path collapses a double-submit into a single stored
- * image instead of orphaning a duplicate row + file.
- *
- * `randomUUID` is unavailable on insecure origins and in some test DOMs, so
- * fall back rather than throwing — a missing key only costs the replay
- * guarantee, while an exception would break the upload outright.
- */
-function newIdempotencyKey(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `forum-img-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
 
 /**
  * The position of the image node the user means, or null.

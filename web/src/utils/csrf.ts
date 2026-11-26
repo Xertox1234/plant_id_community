@@ -71,6 +71,10 @@ export async function getCsrfToken(): Promise<string | null> {
 
   // Strategy 2: Fallback to API endpoint (backward compatibility)
   logger.warn('[CSRF] Meta tag not found, falling back to API endpoint');
+  return fetchTokenFromApi();
+}
+
+async function fetchTokenFromApi(): Promise<string | null> {
   try {
     const response = await fetch(`${API_ORIGIN}/api/csrf/`, {
       method: 'GET',
@@ -83,14 +87,26 @@ export async function getCsrfToken(): Promise<string | null> {
     }
 
     const data = await response.json();
-    csrfToken = data.csrfToken;
+    csrfToken = data.csrfToken || null;
 
-    logger.debug('[CSRF] Token loaded from API endpoint fallback');
+    logger.debug('[CSRF] Token loaded from API endpoint');
     return csrfToken;
   } catch (error) {
     logger.error('[CSRF] Error fetching token', { error });
     return null;
   }
+}
+
+/**
+ * Drop the cached token and read the CURRENT one from `/api/csrf/` (audit
+ * F143). For a write the server refused with "CSRF Failed": the cookie was
+ * rotated since the token was cached (a login in another tab). Skips the meta
+ * tag on purpose — it was rendered with the old token, so re-reading it would
+ * only fail again.
+ */
+export async function refreshCsrfToken(): Promise<string | null> {
+  csrfToken = null;
+  return fetchTokenFromApi();
 }
 
 /**
@@ -118,4 +134,5 @@ export function clearCsrfToken(): void {
 export default {
   getCsrfToken,
   clearCsrfToken,
+  refreshCsrfToken,
 };
