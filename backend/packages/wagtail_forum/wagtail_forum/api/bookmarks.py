@@ -13,6 +13,7 @@ from .versioning import UnversionedForumAPIMixin
 from .views import (
     PrivateForumReadCacheMixin,
     _annotate_topic_unread,
+    _exclude_blocked_authors,
     _get_visible_topic,
     _visible_boards,
     extend_schema,
@@ -102,6 +103,9 @@ class TopicBookmarkListView(
             .annotate(bookmarked_at=Subquery(bookmarked_at))
         )
         qs = _annotate_topic_unread(qs, user)
+        # HIDE a blocked or muted author's topic, as the board topic list does
+        # (audit F5). The bookmark row stays; DELETE still removes it.
+        qs = _exclude_blocked_authors(qs, user)
         # Kept in sync with BookmarkCursorPagination.ordering — this is what
         # an unpaginated caller would see (mirrors TopicListView.get_queryset).
         return qs.order_by("-bookmarked_at", "-id")

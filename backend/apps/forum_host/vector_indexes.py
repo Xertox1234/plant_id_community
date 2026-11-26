@@ -349,6 +349,10 @@ def find_similar_topics(
     query = (query or "").strip()
     if not query:
         return []
+    if board_slug and "\x00" in board_slug:
+        # Matches no board, and PostgreSQL refuses a NUL in a text parameter,
+        # so the board filter below would raise (forum audit F210).
+        return []
     # Bound the embedded text here, not at each call site: embedding cost scales
     # with input length and EMBED_BUDGET_LIMIT is sized against this cap.
     query = query[: constants.SIMILAR_QUERY_MAX_CHARS]

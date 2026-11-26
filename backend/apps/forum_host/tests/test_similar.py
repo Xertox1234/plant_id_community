@@ -378,3 +378,21 @@ def test_the_embedded_text_is_decoded_and_keeps_word_breaks():
 
     source = TopicSource(queryset=Topic.objects.all())
     assert source.get_content(topic) == "Ferns\nSun & shade Water weekly"
+
+
+@pytest.mark.django_db
+@override_settings(FORUM_VECTOR_SEARCH_ENABLED=True)
+def test_find_similar_topics_with_a_nul_board_slug_returns_empty():
+    """A NUL in ?board= matches no board, and PostgreSQL refuses one in a text
+    parameter: the similar-topics endpoint and the premium semantic-search
+    section answer an empty list, never a 500 (forum audit F210)."""
+    from apps.forum_host import constants
+    from apps.forum_host import vector_indexes as vi
+
+    topic = _topic("Tomato blight", "tomato blight help", suffix="nul")
+    # A cached hit, so the board filter really runs (no embedding call).
+    cache.set(
+        vi._search_cache_key("tomato", constants.SIMILAR_TOPICS_LIMIT), [topic.pk]
+    )
+
+    assert find_similar_topics("tomato", board_slug="general\x00nul") == []

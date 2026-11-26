@@ -295,7 +295,11 @@ def test_bookmarks_list_query_count_is_pinned():
     # explain the new count here.
     # 4 -> 3 (todo 665): boards are Forum rows, so the
     # PageViewRestriction query behind the page-era `.public()` is gone.
-    assert len(ctx.captured_queries) == 3, [q["sql"] for q in ctx.captured_queries]
+    # 3 -> 5 (audit F5): the block/mute HIDE filter asks whether the viewer is
+    # a moderator (`has_perm`: one user-permission and one group-permission
+    # query, once per request, as the board topic list pays). The blocked and
+    # muted id lists themselves are inline subqueries, not extra queries.
+    assert len(ctx.captured_queries) == 5, [q["sql"] for q in ctx.captured_queries]
 
 
 @pytest.mark.django_db
@@ -313,3 +317,38 @@ def test_bookmarks_list_excludes_unpublished_topic():
     resp = client.get("/forum/me/bookmarks/")
 
     assert resp.data["results"] == []
+
+
+@pytest.mark.django_db
+def test_bookmarks_list_hides_blocked_and_muted_authors():
+    """Audit 2026-11-24 F5: Saved is a topic list, so it applies the viewer's
+    blocks and mutes the way the board topic list does (HIDE via
+    _exclude_blocked_authors). The bookmark row itself is untouched and can
+    still be removed (DELETE is not visibility-gated)."""
+    from wagtail_forum.models import UserBlock, UserMute
+
+    user = User.objects.create_user(username="bm-blocker")
+    blocked = User.objects.create_user(username="bm-blocked")
+    muted = User.objects.create_user(username="bm-muted")
+    other = User.objects.create_user(username="bm-other")
+    board = _board("bm-blocks")
+    topics = {}
+    for slug, author in (
+        ("bm-blk", blocked),
+        ("bm-mut", muted),
+        ("bm-ok", other),
+    ):
+        topics[slug] = Topic.objects.create(
+            board=board, title="T", slug=slug, author=author, live=True
+        )
+        TopicBookmark.bookmark(user, topics[slug])
+    UserBlock.block(user, blocked)
+    UserMute.mute(user, muted)
+
+    client = APIClient()
+    client.force_authenticate(user)
+    resp = client.get("/forum/me/bookmarks/")
+
+    assert resp.status_code == 200
+    assert [t["slug"] for t in resp.data["results"]] == ["bm-ok"]
+    assert TopicBookmark.objects.filter(user=user).count() == 3

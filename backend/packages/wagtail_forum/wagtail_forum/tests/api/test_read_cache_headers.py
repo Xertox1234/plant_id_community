@@ -201,3 +201,20 @@ def test_authenticated_only_reads_are_never_shared_cached():
         resp = client.get(path)
         assert resp.status_code == 200, path
         _assert_never_shared_cached(resp, path)
+
+
+@pytest.mark.django_db
+def test_viewer_dependent_public_reads_are_never_shared_cached():
+    # Audit 2026-11-24 F107: the public profile carries the viewer's own
+    # is_blocked/can_block/is_muted/can_mute, and sync lists topics from the
+    # boards this session can see (a password forum it unlocked included), so
+    # both are per-viewer like topic detail: private, no-store, Vary on auth.
+    board, topic, post = _board_topic_post()
+    anon = APIClient()
+    authed = APIClient()
+    authed.force_authenticate(User.objects.create_user(username="viewer"))
+    for client in (anon, authed):
+        for path in (f"/forum/users/{post.author.username}/", "/forum/sync/"):
+            resp = client.get(path)
+            assert resp.status_code == 200, path
+            _assert_never_shared_cached(resp, path)

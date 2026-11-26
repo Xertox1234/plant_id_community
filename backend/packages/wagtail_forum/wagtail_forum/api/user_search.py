@@ -42,7 +42,9 @@ class UserMentionSearchView(
     )
     def get(self, request):
         query = request.query_params.get("q", "").strip()
-        if not query:
+        if not query or "\x00" in query:
+            # A NUL can match no username, and PostgreSQL refuses one in a
+            # text parameter, so it would 500 (forum audit F210).
             return Response([])
         # Not vulnerable to todo 290's RecursionError: that bug is in Wagtail's
         # search-query AND-tree construction inside `backend.search(...)`

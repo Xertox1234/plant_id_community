@@ -493,3 +493,18 @@ def test_mark_read_refuses_an_oversized_ids_list_before_querying():
     assert too_many.status_code == 400
     assert not any("notification" in q["sql"] for q in ctx.captured_queries)
     assert at_cap.status_code == 200
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("body", [[1, 2], "ids", 5])
+def test_mark_read_rejects_a_non_object_body(body):
+    """A JSON body that is not an object (an array, a string, a number) has
+    no `.get`: it must answer 400, not crash with an AttributeError 500
+    (forum audit F6)."""
+    recipient = User.objects.create_user(username="recipient_nonobject")
+    client = APIClient()
+    client.force_authenticate(recipient)
+
+    resp = client.post("/forum/notifications/mark-read/", body, format="json")
+
+    assert resp.status_code == 400

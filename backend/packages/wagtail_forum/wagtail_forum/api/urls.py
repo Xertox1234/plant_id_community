@@ -1,5 +1,7 @@
 from django.urls import path
 
+# Registers the forum_username converter the username routes below use (F210).
+from . import converters  # noqa: F401
 from .bookmarks import TopicBookmarkListView, TopicBookmarkView
 from .contributors import BoardContributorsView
 from .direct_messages import (
@@ -175,22 +177,22 @@ urlpatterns = [
         name="community-stats",
     ),
     path(
-        "users/<str:username>/",
+        "users/<forum_username:username>/",
         PublicProfileView.as_view(),
         name="user-profile",
     ),
     path(
-        "users/<str:username>/block/",
+        "users/<forum_username:username>/block/",
         UserBlockView.as_view(),
         name="user-block",
     ),
     path(
-        "users/<str:username>/mute/",
+        "users/<forum_username:username>/mute/",
         UserMuteView.as_view(),
         name="user-mute",
     ),
     path(
-        "users/<str:username>/messages/",
+        "users/<forum_username:username>/messages/",
         MessageSendView.as_view(),
         name="user-message-send",
     ),
@@ -203,7 +205,7 @@ urlpatterns = [
         name="conversation-unread-count",
     ),
     path(
-        "conversations/with/<str:username>/",
+        "conversations/with/<forum_username:username>/",
         ConversationWithUserView.as_view(),
         name="conversation-with-user",
     ),
@@ -224,7 +226,7 @@ urlpatterns = [
         name="conversation-participants",
     ),
     path(
-        "conversations/<int:conversation_id>/participants/<str:username>/",
+        "conversations/<int:conversation_id>/participants/<forum_username:username>/",
         ConversationParticipantView.as_view(),
         name="conversation-participant",
     ),

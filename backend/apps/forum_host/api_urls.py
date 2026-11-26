@@ -6,6 +6,8 @@ Mirrors `wagtail_forum.api.urls` exactly — same routes, same names, same
 package endpoint cannot silently ship unmounted or unthrottled.
 """
 
+# Registers the forum_username converter the username routes below use (F210).
+import wagtail_forum.api.converters  # noqa: F401
 from django.urls import path
 
 # Same treatment as NotificationListView — a page load, not a polling target.
@@ -248,11 +250,23 @@ urlpatterns = [
         CommunityStatsView.as_view(),
         name="community-stats",
     ),
-    path("users/<str:username>/", PublicProfileView.as_view(), name="user-profile"),
-    path("users/<str:username>/block/", UserBlockView.as_view(), name="user-block"),
-    path("users/<str:username>/mute/", UserMuteView.as_view(), name="user-mute"),
     path(
-        "users/<str:username>/messages/",
+        "users/<forum_username:username>/",
+        PublicProfileView.as_view(),
+        name="user-profile",
+    ),
+    path(
+        "users/<forum_username:username>/block/",
+        UserBlockView.as_view(),
+        name="user-block",
+    ),
+    path(
+        "users/<forum_username:username>/mute/",
+        UserMuteView.as_view(),
+        name="user-mute",
+    ),
+    path(
+        "users/<forum_username:username>/messages/",
         MessageSendView.as_view(),
         name="user-message-send",
     ),
@@ -266,7 +280,7 @@ urlpatterns = [
         name="conversation-unread-count",
     ),
     path(
-        "conversations/with/<str:username>/",
+        "conversations/with/<forum_username:username>/",
         ConversationWithUserView.as_view(),
         name="conversation-with-user",
     ),
@@ -287,7 +301,7 @@ urlpatterns = [
         name="conversation-participants",
     ),
     path(
-        "conversations/<int:conversation_id>/participants/<str:username>/",
+        "conversations/<int:conversation_id>/participants/<forum_username:username>/",
         ConversationParticipantView.as_view(),
         name="conversation-participant",
     ),
