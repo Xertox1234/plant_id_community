@@ -686,9 +686,14 @@ class TopicPosts extends _$TopicPosts {
   String? _reportKey;
   String? _reportFingerprint;
 
+  /// Bumped by every [build] and every [refreshAfterReply]: a page fetched
+  /// before either belongs to a list that no longer exists (see [loadMore]).
+  int _epoch = 0;
+
   /// [viewer] keys the thread on who reads it, as [BoardTopics] does.
   @override
   Future<PagedList<ForumPost>> build(int topicId, String? viewer) async {
+    _epoch++;
     // Before the first await: a block/unblock performed on a profile pushed
     // over this thread splices every loaded post by that author in place
     // (todo 341) — see [AuthorBlockChanges] for why this is not an
@@ -789,7 +794,45 @@ class TopicPosts extends _$TopicPosts {
   /// gets superseded by this method's freshly-fetched server data (the fetch is
   /// strictly newer), rather than the walk trying to preserve a
   /// possibly-stale optimistic local write.
-  Future<void> refreshAfterReply() async {
+  ///
+  /// A rebuild, a later walk or a dispose while this one is in flight
+  /// supersedes it: it stops and writes nothing, as [loadMore] does. Stopped
+  /// by a later walk, it completes with that walk, so a caller waiting for
+  /// the list to hold the reader's own reply (D11) never resumes before it.
+  Future<void> refreshAfterReply() {
+    final walk = _walkAllPages(++_epoch);
+    _walk = walk;
+    _walkEpoch = _epoch;
+    return walk;
+  }
+
+  /// Every post of the thread from the server, walked as [refreshAfterReply]
+  /// walks it but writing nothing; null when [_maxRefreshPages] did not
+  /// reach the end. For a live catch-up to diff by id (audit F39).
+  Future<List<ForumPost>?> fetchAllPosts() async {
+    final api = ref.read(forumApiProvider);
+    final items = <ForumPost>[];
+    String? cursorUrl;
+    for (var i = 0; i < _maxRefreshPages; i++) {
+      final page = await api.fetchPosts(topicId: topicId, cursorUrl: cursorUrl);
+      items.addAll(page.items);
+      cursorUrl = page.next;
+      if (cursorUrl == null) return items;
+    }
+    return null;
+  }
+
+  /// The latest [refreshAfterReply] walk, and the epoch it started at.
+  Future<void>? _walk;
+  int _walkEpoch = 0;
+
+  Future<void> _walkAllPages(int epoch) async {
+    bool superseded() => !ref.mounted || epoch != _epoch;
+    // A later walk (not a rebuild) took over: finish with it.
+    Future<void>? successor() =>
+        ref.mounted && _walkEpoch == _epoch && _walkEpoch != epoch
+        ? _walk
+        : null;
     final current = state.asData?.value;
     if (current != null) {
       state = AsyncData(
@@ -808,6 +851,10 @@ class TopicPosts extends _$TopicPosts {
         final page = await ref
             .read(forumApiProvider)
             .fetchPosts(topicId: topicId, cursorUrl: cursorUrl);
+        if (superseded()) {
+          await successor();
+          return;
+        }
         items.addAll(page.items);
         next = page.next;
         if (next == null) break;
@@ -815,6 +862,10 @@ class TopicPosts extends _$TopicPosts {
       }
       state = AsyncData(PagedList(items: items, nextUrl: next));
     } catch (_) {
+      if (superseded()) {
+        await successor();
+        return;
+      }
       final latest = state.asData?.value ?? current;
       if (latest != null) {
         state = AsyncData(
@@ -825,7 +876,13 @@ class TopicPosts extends _$TopicPosts {
     }
   }
 
+  /// Fetch and append the next page. Rethrows on failure with the loading flag
+  /// reset. A rebuild, a [refreshAfterReply] or a dispose while the page is
+  /// in flight drops it, as [BoardTopics.loadMore] does (todo 460): the
+  /// walk already holds that page, so appending it would show it twice.
   Future<void> loadMore() async {
+    final epoch = _epoch;
+    bool superseded() => !ref.mounted || epoch != _epoch;
     final current = state.asData?.value;
     if (current == null || !current.hasMore || current.isLoadingMore) return;
     state = AsyncData(
@@ -839,12 +896,14 @@ class TopicPosts extends _$TopicPosts {
       final page = await ref
           .read(forumApiProvider)
           .fetchPosts(topicId: topicId, cursorUrl: current.nextUrl);
+      if (superseded()) return;
       // Re-read after the await so a concurrent reaction toggle isn't lost.
       final latest = state.asData?.value ?? current;
       state = AsyncData(
         PagedList(items: [...latest.items, ...page.items], nextUrl: page.next),
       );
     } catch (_) {
+      if (superseded()) return;
       final latest = state.asData?.value ?? current;
       state = AsyncData(
         PagedList(items: latest.items, nextUrl: latest.nextUrl),
@@ -1031,10 +1090,10 @@ const int kHomeRecentTopicsLimit = 3;
 /// member's forum unlocks, so a new viewer must start from loading, never
 /// from the previous one's titles.
 @Riverpod(retry: forumRetry)
-Future<List<ForumRecentTopic>> homeRecentTopics(Ref ref, String? viewer) {
-  return ref
-      .watch(forumApiProvider)
-      .fetchRecentTopics(limit: kHomeRecentTopicsLimit);
+Future<List<ForumRecentTopic>> homeRecentTopics(Ref ref, String? viewer) async {
+  final api = ref.watch(forumApiProvider);
+  await _awaitUnlocks(ref, viewer);
+  return api.fetchRecentTopics(limit: kHomeRecentTopicsLimit);
 }
 
 /// A topic's latest-replies peek. Kept alive while the forum home is mounted

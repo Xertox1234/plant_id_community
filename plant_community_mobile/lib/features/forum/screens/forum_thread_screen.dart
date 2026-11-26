@@ -181,9 +181,14 @@ class ForumThreadScreen extends ConsumerWidget {
                     onAtBottom: (atBottom) => ref
                         .read(topicLiveProvider(topicId).notifier)
                         .setReaderAtBottom(atBottom),
-                    onFlashDone: (postId) => ref
-                        .read(topicLiveProvider(topicId).notifier)
-                        .clearFlash(postId),
+                    // A highlight also ends when its card is disposed,
+                    // which may be the whole screen closing (audit F22).
+                    onFlashDone: (postId) {
+                      if (!context.mounted) return;
+                      ref
+                          .read(topicLiveProvider(topicId).notifier)
+                          .clearFlash(postId);
+                    },
                     onRefresh: () => _refresh(context, ref),
                   ),
                 ),
@@ -907,6 +912,14 @@ class _ThreadBodyState extends State<_ThreadBody> {
       ),
       itemCount: widget.paged.items.length + (widget.paged.hasMore ? 1 : 0),
       separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
+      // Each item is keyed by its post id (below), so a removed or inserted
+      // post moves every card's State with its own post rather than handing
+      // it to whichever post lands at the same index (audit F111).
+      findItemIndexCallback: (key) {
+        if (key is! ValueKey<int>) return null;
+        final index = widget.paged.items.indexWhere((p) => p.id == key.value);
+        return index < 0 ? null : index;
+      },
       itemBuilder: (context, index) {
         if (index >= widget.paged.items.length) {
           return _LoadMoreButton(
@@ -958,9 +971,13 @@ class _ThreadBodyState extends State<_ThreadBody> {
             : card;
         // The header cards ride the first item: under it when it is the
         // opening post, above it otherwise (an OP held for moderation).
-        return index == 0
-            ? _withHeaderCards(shown, leading: !post.isOpeningPost)
-            : shown;
+        // The tracked posts' GlobalKeys stay on the card itself.
+        return KeyedSubtree(
+          key: ValueKey<int>(post.id),
+          child: index == 0
+              ? _withHeaderCards(shown, leading: !post.isOpeningPost)
+              : shown,
+        );
       },
     );
     final pending = widget.pendingCount;

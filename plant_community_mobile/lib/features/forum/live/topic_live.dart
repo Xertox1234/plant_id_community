@@ -96,6 +96,20 @@ class TopicLive extends _$TopicLive {
   final List<int> _held = [];
   final Set<int> _creating = {};
   final Set<int> _updating = {};
+
+  /// The live replies counted in [TopicLiveState.pendingCount] by id, so one
+  /// removed while it waits leaves the count (audit F41). A catch-up counts
+  /// replies it has no ids for.
+  final Set<int> _pendingIds = {};
+
+  /// A catch-up skipped because a reply of the reader's was being written:
+  /// [endOwnReply] runs it again (audit F43).
+  bool _catchUpSkipped = false;
+
+  /// A socket opened before: a later open may have missed deletes and
+  /// edits, so its catch-up walks the thread (audit F39). The first one
+  /// follows the thread's own first load.
+  bool _openedBefore = false;
   bool _introAsked = false;
   Timer? _topicTimer;
 
@@ -241,6 +255,26 @@ class TopicLive extends _$TopicLive {
     _sync();
     final held = [..._held];
     _held.clear();
+    final client = _client;
+    if (_catchUpSkipped && client != null) {
+      _catchUpSkipped = false;
+      // The server's count already includes the held replies: release them
+      // only when the catch-up counted nothing, or they count twice.
+      unawaited(
+        _catchUp(client).then((counted) {
+          if (!ref.mounted) return;
+          for (final id in held) {
+            if (_inList(id)) continue;
+            if (counted) {
+              _pendingIds.add(id);
+            } else {
+              unawaited(_created(id));
+            }
+          }
+        }),
+      );
+      return;
+    }
     for (final id in held) {
       if (!_inList(id)) unawaited(_created(id));
     }
@@ -251,6 +285,9 @@ class TopicLive extends _$TopicLive {
   /// scroll to.
   Future<int?> takePending() async {
     final taken = state.pendingCount;
+    // Only replies the walk brings in are new: never highlight one that was
+    // already on screen (audit F41).
+    final before = {...?_posts?.items.map((p) => p.id)};
     try {
       await ref
           .read(topicPostsProvider(topicId, _viewer).notifier)
@@ -260,13 +297,14 @@ class TopicLive extends _$TopicLive {
     }
     if (!ref.mounted) return null;
     final replies = (_posts?.items ?? const <ForumPost>[])
-        .where((p) => !p.isOpeningPost)
+        .where((p) => !p.isOpeningPost && !before.contains(p.id))
         .toList();
     final count = math.min(taken, replies.length);
     final fresh = replies
         .sublist(replies.length - count)
         .map((p) => p.id)
         .toList();
+    _pendingIds.removeWhere(_inList);
     state = state.copyWith(
       pendingCount: math.max(0, state.pendingCount - taken),
       flashIds: {...state.flashIds, ...fresh},
@@ -295,7 +333,9 @@ class TopicLive extends _$TopicLive {
         if (identical(client, _client)) _onEvent(event);
       },
       onOpen: () {
-        if (identical(client, _client)) unawaited(_catchUp(client));
+        if (!identical(client, _client)) return;
+        unawaited(_catchUp(client, byId: _openedBefore));
+        _openedBefore = true;
       },
       onStatus: (status) {
         if (!identical(client, _client)) return;
@@ -338,27 +378,98 @@ class TopicLive extends _$TopicLive {
   /// D9: on every open, the server's reply count is the truth. A result
   /// that arrives after this connection stopped (4503, 4429) or was
   /// replaced is dropped, so it can't show a pill while nothing is live.
-  Future<void> _catchUp(ForumLiveClient client) async {
+  /// True when it put replies in the pill. With [byId] it also walks the
+  /// thread and applies missed deletes, edits and replies by id.
+  Future<bool> _catchUp(ForumLiveClient client, {bool byId = true}) async {
     final ForumTopicDetail fresh;
     try {
       fresh = await ref
           .read(forumApiProvider)
           .fetchTopicDetail(topicId, peek: true);
     } catch (_) {
-      return;
+      return false;
     }
     if (!ref.mounted ||
         !identical(client, _client) ||
         state.status != LiveStatus.live) {
-      return;
+      return false;
     }
     ref.read(topicDetailProvider(topicId, _viewer).notifier).applyPeek(fresh);
     final posts = _posts;
-    if (_ownReplies > 0 || posts == null || posts.hasMore) return;
-    final loaded = posts.items.where((p) => !p.isOpeningPost).length;
-    state = state.copyWith(
-      pendingCount: math.max(0, fresh.replyCount - loaded),
+    if (posts == null || posts.hasMore) return false;
+    if (_ownReplies > 0) {
+      _catchUpSkipped = true;
+      return false;
+    }
+    _catchUpSkipped = false;
+    // By id, not only by count (audit F39): a missed delete plus a missed
+    // reply leaves the count unchanged. Bounded as the count is: only with
+    // every page loaded, and by the walk's page cap.
+    final before = {for (final p in posts.items) p.id: p};
+    final waiting = {..._pendingIds};
+    List<ForumPost>? server;
+    try {
+      if (byId) {
+        server = await ref
+            .read(topicPostsProvider(topicId, _viewer).notifier)
+            .fetchAllPosts();
+      }
+    } catch (_) {
+      server = null;
+    }
+    if (!ref.mounted ||
+        !identical(client, _client) ||
+        state.status != LiveStatus.live) {
+      return false;
+    }
+    if (_ownReplies > 0) {
+      _catchUpSkipped = true;
+      return false;
+    }
+    if (server != null) _reconcile(before, waiting, server);
+    final now = _posts;
+    if (now == null || now.hasMore) return false;
+    final loaded = now.items.where((p) => !p.isOpeningPost).length;
+    final count = math.max(
+      _pendingIds.length,
+      math.max(0, fresh.replyCount - loaded),
     );
+    if (count == 0) _pendingIds.clear();
+    state = state.copyWith(pendingCount: count);
+    return count > 0;
+  }
+
+  /// Applies what a catch-up walk ([server]) shows against the list as it
+  /// was when the walk began ([before]): posts gone from the server are
+  /// removed, edited ones spliced, and replies not loaded wait in the pill
+  /// by id. A post that changed locally during the walk (a live event) is
+  /// left as it is.
+  void _reconcile(
+    Map<int, ForumPost> before,
+    Set<int> waiting,
+    List<ForumPost> server,
+  ) {
+    final byId = {for (final p in server) p.id: p};
+    final notifier = ref.read(topicPostsProvider(topicId, _viewer).notifier);
+    for (final MapEntry(key: id, value: old) in before.entries) {
+      final current = _posts?.items.where((p) => p.id == id).firstOrNull;
+      if (!identical(current, old)) continue;
+      final latest = byId[id];
+      if (latest == null) {
+        _removed(id);
+      } else if (latest.editedAt != old.editedAt ||
+          latest.updatedAt != old.updatedAt) {
+        notifier.applyEditedPost(latest);
+      }
+    }
+    _pendingIds.removeWhere(
+      (id) => waiting.contains(id) && !byId.containsKey(id),
+    );
+    for (final p in server) {
+      if (!p.isOpeningPost && !before.containsKey(p.id) && !_inList(p.id)) {
+        _pendingIds.add(p.id);
+      }
+    }
   }
 
   void _onEvent(LiveEvent event) {
@@ -386,16 +497,20 @@ class TopicLive extends _$TopicLive {
     if (_inList(postId) || !_creating.add(postId)) return;
     final client = _client;
     ForumPost? post;
+    // Not a 404 (that answers null): the reply exists but could not be read
+    // just now. It is counted in the pill, whose walk fetches it, rather
+    // than dropped (audit F40).
+    var failed = false;
     try {
       post = await ref.read(forumApiProvider).fetchPost(postId);
     } catch (_) {
-      post = null;
+      failed = true;
     } finally {
       _creating.remove(postId);
     }
     if (!ref.mounted ||
         !identical(client, _client) ||
-        post == null ||
+        (post == null && !failed) ||
         _inList(postId)) {
       return;
     }
@@ -405,7 +520,10 @@ class TopicLive extends _$TopicLive {
     }
     final posts = _posts;
     if (posts == null) return;
-    if (_atBottom && !posts.hasMore && state.pendingCount == 0) {
+    if (post != null &&
+        _atBottom &&
+        !posts.hasMore &&
+        state.pendingCount == 0) {
       ref
           .read(topicPostsProvider(topicId, _viewer).notifier)
           .applyLivePost(post);
@@ -413,7 +531,7 @@ class TopicLive extends _$TopicLive {
         flashIds: {...state.flashIds, postId},
         slideIds: {...state.slideIds, postId},
       );
-    } else {
+    } else if (_pendingIds.add(postId)) {
       state = state.copyWith(pendingCount: state.pendingCount + 1);
     }
     unawaited(_maybeIntro());
@@ -438,6 +556,10 @@ class TopicLive extends _$TopicLive {
   void _removed(int postId) {
     ref.read(topicPostsProvider(topicId, _viewer).notifier).removeLocal(postId);
     clearFlash(postId);
+    _held.remove(postId);
+    if (_pendingIds.remove(postId)) {
+      state = state.copyWith(pendingCount: math.max(0, state.pendingCount - 1));
+    }
     final solved = ref
         .read(topicDetailProvider(topicId, _viewer))
         .asData

@@ -44,7 +44,10 @@ class _Harness {
     this.loadGate,
     this.auth,
     this.store,
-  });
+    FakeForumApi? api,
+  }) : api = (api ?? FakeForumApi())
+         ..topicDetail = topicDetail(replyCount: 1)
+         ..posts = CursorPage(items: [post(id: 1), post(id: 2)]);
 
   final bool loggedIn;
   final bool liveOn;
@@ -54,9 +57,7 @@ class _Harness {
   /// anonymous JWT.
   final AuthState? auth;
   final FakeForumUnlockStore? store;
-  final api = FakeForumApi()
-    ..topicDetail = topicDetail(replyCount: 1)
-    ..posts = CursorPage(items: [post(id: 1), post(id: 2)]);
+  final FakeForumApi api;
   final connector = FakeLiveConnector();
   late final ProviderContainer container;
 
@@ -695,4 +696,302 @@ void main() {
     expect(h.live.flashIds, {5});
     await h.stop(tester);
   });
+
+  group('a reply removed while it waits in the pill (audit F41)', () {
+    testWidgets('leaves the pill', (tester) async {
+      final h = _Harness();
+      h.api.postsById[3] = post(id: 3);
+      await h.start(tester);
+      h.notifier.setReaderAtBottom(false);
+      h.channel.serverEvent('post.created', postId: 3);
+      await tester.pump();
+      expect(h.live.pendingCount, 1);
+
+      h.channel.serverEvent('post.removed', postId: 3);
+      await tester.pump();
+
+      expect(h.live.pendingCount, 0);
+      final first = await h.notifier.takePending();
+      expect(first, isNull);
+      expect(h.live.flashIds, isEmpty);
+      await h.stop(tester);
+    });
+
+    testWidgets('no longer blocks a live insert at the bottom', (tester) async {
+      final h = _Harness();
+      h.api.postsById
+        ..[3] = post(id: 3)
+        ..[4] = post(id: 4);
+      await h.start(tester);
+      h.notifier.setReaderAtBottom(false);
+      h.channel.serverEvent('post.created', postId: 3);
+      await tester.pump();
+      h.channel.serverEvent('post.removed', postId: 3);
+      await tester.pump();
+
+      h.notifier.setReaderAtBottom(true);
+      h.channel.serverEvent('post.created', postId: 4);
+      await tester.pump();
+
+      expect(h.ids, [1, 2, 4]);
+      expect(h.live.pendingCount, 0);
+      expect(h.live.flashIds, {4});
+      await h.stop(tester);
+    });
+
+    testWidgets('the pill highlights only the replies still waiting, never an '
+        'old one', (tester) async {
+      final h = _Harness();
+      h.api.postsById
+        ..[3] = post(id: 3)
+        ..[4] = post(id: 4);
+      await h.start(tester);
+      h.notifier.setReaderAtBottom(false);
+      h.channel
+        ..serverEvent('post.created', postId: 3)
+        ..serverEvent('post.created', postId: 4);
+      await tester.pump();
+      expect(h.live.pendingCount, 2);
+
+      h.channel.serverEvent('post.removed', postId: 3);
+      await tester.pump();
+      expect(h.live.pendingCount, 1);
+
+      h.api.posts = CursorPage(items: [post(id: 1), post(id: 2), post(id: 4)]);
+      final first = await h.notifier.takePending();
+
+      expect(first, 4);
+      expect(h.live.flashIds, {4});
+      expect(h.live.pendingCount, 0);
+      await h.stop(tester);
+    });
+  });
+
+  group('a catch-up skipped while the composer is open (audit F43)', () {
+    testWidgets('runs again when the reply is abandoned', (tester) async {
+      final h = _Harness();
+      await h.start(tester);
+      expect(h.live.pendingCount, 0);
+
+      h.notifier.beginOwnReply();
+      // The socket reopens while the composer is open; two replies were
+      // missed meanwhile.
+      h.api.peekDetails = [topicDetail(replyCount: 3)];
+      h.notifier
+        ..suspend()
+        ..resume();
+      await tester.pump();
+      expect(h.connector.connects, hasLength(2));
+      expect(h.live.pendingCount, 0);
+
+      // Closed without posting: the thread is not walked.
+      h.notifier.endOwnReply();
+      await tester.pump();
+
+      expect(h.live.pendingCount, 2);
+      await h.stop(tester);
+    });
+
+    testWidgets('a held event the re-run already counts is not counted '
+        'twice', (tester) async {
+      final h = _Harness();
+      h.api.postsById[4] = post(id: 4);
+      await h.start(tester);
+
+      h.notifier.beginOwnReply();
+      h.api.peekDetails = [topicDetail(replyCount: 3)];
+      h.notifier
+        ..suspend()
+        ..resume();
+      await tester.pump();
+      h.channel.serverEvent('post.created', postId: 4);
+      await tester.pump();
+
+      h.api.peekDetails = [topicDetail(replyCount: 3)];
+      h.notifier.endOwnReply();
+      await tester.pump();
+
+      // Replies 3 and 4 were missed; 4 is also the held event.
+      expect(h.live.pendingCount, 2);
+      expect(h.ids, [1, 2]);
+      await h.stop(tester);
+    });
+
+    testWidgets('a posted reply leaves no ghost pill', (tester) async {
+      final h = _Harness();
+      await h.start(tester);
+
+      h.notifier.beginOwnReply();
+      h.api.peekDetails = [topicDetail(replyCount: 2)];
+      h.notifier
+        ..suspend()
+        ..resume();
+      await tester.pump();
+
+      // The reader's reply (3) is published and the thread walked.
+      h.api
+        ..posts = CursorPage(items: [post(id: 1), post(id: 2), post(id: 3)])
+        ..peekDetails = [topicDetail(replyCount: 2)];
+      await h.container
+          .read(topicPostsProvider(10, h.viewer).notifier)
+          .refreshAfterReply();
+      h.notifier.endOwnReply();
+      await tester.pump();
+
+      expect(h.live.pendingCount, 0);
+      await h.stop(tester);
+    });
+  });
+
+  // Regression from F19: a later walk superseding the reply's own walk
+  // must not release the held event before the reply is loaded (D11).
+  testWidgets("a pull-to-refresh during the reply's walk keeps the reader's "
+      'own reply out of the pill', (tester) async {
+    final api = _GatedApi();
+    final h = _Harness(api: api);
+    h.api.postsById[3] = post(id: 3);
+    await h.start(tester);
+    h.notifier.setReaderAtBottom(false);
+
+    h.notifier.beginOwnReply();
+    // The reader's own reply (3) is published; its event is held.
+    h.channel.serverEvent('post.created', postId: 3);
+    await tester.pump();
+    h.api.posts = CursorPage(items: [post(id: 1), post(id: 2), post(id: 3)]);
+
+    // As _openReply does: walk, then release the held events.
+    final walkGate = api.postsGates[api.fetchPostsCalls.length + 1] =
+        Completer<void>();
+    final pullGate = api.postsGates[api.fetchPostsCalls.length + 2] =
+        Completer<void>();
+    final reply = () async {
+      try {
+        await h.container
+            .read(topicPostsProvider(10, h.viewer).notifier)
+            .refreshAfterReply();
+      } catch (_) {
+      } finally {
+        h.notifier.endOwnReply();
+      }
+    }();
+    await tester.pump();
+    final pull = h.notifier.takePending();
+    await tester.pump();
+
+    walkGate.complete();
+    await tester.pump();
+    pullGate.complete();
+    await pull;
+    await reply;
+    await tester.pump();
+
+    expect(h.ids, [1, 2, 3]);
+    expect(h.live.pendingCount, 0);
+    expect(h.live.introSeq, 0);
+    expect(h.live.flashIds, isEmpty);
+    await h.stop(tester);
+  });
+
+  group('catch-up reconciles by post id (audit F39)', () {
+    testWidgets('a missed delete plus a missed reply leaves the deleted one '
+        'off screen and the new one in the pill', (tester) async {
+      final h = _Harness();
+      h.api
+        ..topicDetail = topicDetail(replyCount: 2)
+        ..posts = CursorPage(items: [post(id: 1), post(id: 2), post(id: 3)]);
+      await h.start(tester);
+      expect(h.live.pendingCount, 0);
+
+      h.notifier.suspend();
+      await tester.pump();
+      // Meanwhile 3 was deleted and 4 posted: the count is unchanged.
+      h.api
+        ..posts = CursorPage(items: [post(id: 1), post(id: 2), post(id: 4)])
+        ..peekDetails = [topicDetail(replyCount: 2)];
+      h.notifier.resume();
+      await tester.pump();
+
+      expect(h.ids, [1, 2]);
+      expect(h.live.pendingCount, 1);
+      expect(await h.notifier.takePending(), 4);
+      expect(h.ids, [1, 2, 4]);
+      await h.stop(tester);
+    });
+
+    testWidgets('a missed edit is spliced in', (tester) async {
+      final h = _Harness();
+      await h.start(tester);
+
+      h.notifier.suspend();
+      await tester.pump();
+      h.api.posts = CursorPage(
+        items: [
+          post(id: 1),
+          post(
+            id: 2,
+            body: const [ParagraphBlock('edited')],
+            editedAt: DateTime(2026, 2, 1),
+          ),
+        ],
+      );
+      h.notifier.resume();
+      await tester.pump();
+
+      final items = h.container
+          .read(topicPostsProvider(10, h.viewer))
+          .asData!
+          .value
+          .items;
+      expect(items[1].body, [const ParagraphBlock('edited')]);
+      expect(h.live.pendingCount, 0);
+      await h.stop(tester);
+    });
+  });
+
+  testWidgets('a post.created whose fetch fails (not a 404) counts in the '
+      'pill instead of vanishing (audit F40)', (tester) async {
+    final api = _GatedApi()..postError = ApiException('down', statusCode: 503);
+    final h = _Harness(api: api);
+    await h.start(tester);
+
+    h.channel.serverEvent('post.created', postId: 3);
+    await tester.pump();
+
+    expect(h.ids, [1, 2]);
+    expect(h.live.pendingCount, 1);
+
+    api.postError = null;
+    h.api.posts = CursorPage(items: [post(id: 1), post(id: 2), post(id: 3)]);
+    expect(await h.notifier.takePending(), 3);
+    expect(h.live.pendingCount, 0);
+    await h.stop(tester);
+  });
+}
+
+/// [FakeForumApi] whose Nth [fetchPosts] call (1-indexed) waits for
+/// `postsGates[N]`, and whose [fetchPost] throws [postError] when set.
+class _GatedApi extends FakeForumApi {
+  final Map<int, Completer<void>> postsGates = {};
+  Object? postError;
+
+  @override
+  Future<CursorPage<ForumPost>> fetchPosts({
+    required int topicId,
+    String? cursorUrl,
+  }) async {
+    final gate = postsGates[fetchPostsCalls.length + 1];
+    final page = super.fetchPosts(topicId: topicId, cursorUrl: cursorUrl);
+    if (gate != null) await gate.future;
+    return page;
+  }
+
+  @override
+  Future<ForumPost?> fetchPost(int postId) async {
+    final error = postError;
+    if (error != null) {
+      fetchPostCalls.add(postId);
+      throw error;
+    }
+    return super.fetchPost(postId);
+  }
 }

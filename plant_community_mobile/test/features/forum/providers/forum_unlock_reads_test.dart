@@ -84,6 +84,23 @@ void main() {
       await pumpEventQueue();
       expect(h.api.fetchPostsCalls, hasLength(1));
     });
+
+    // Forum audit F18: the home Recent activity (and a board's Active
+    // discussions, which reads the same provider).
+    test('the home recent activity', () async {
+      final h = _Harness(auth: signedInAs('u1'));
+      addTearDown(h.dispose);
+      h.container.listen(homeRecentTopicsProvider('u1'), (_, _) {});
+      await pumpEventQueue();
+      expect(h.api.recentTopicsLimits, isEmpty);
+
+      h.store.loadGate!.complete();
+      await pumpEventQueue();
+      expect(h.api.recentTopicsLimits, hasLength(1));
+      expect(h.container.read(apiServiceProvider).forumUnlockTokens, [
+        't3',
+      ], reason: 'the request carries the stored token');
+    });
   });
 
   test('signed out, the reads do not wait', () async {
@@ -92,12 +109,14 @@ void main() {
     h.container
       ..listen(boardTopicsProvider('secret', null), (_, _) {})
       ..listen(topicDetailProvider(10, null), (_, _) {})
-      ..listen(topicPostsProvider(10, null), (_, _) {});
+      ..listen(topicPostsProvider(10, null), (_, _) {})
+      ..listen(homeRecentTopicsProvider(null), (_, _) {});
     await pumpEventQueue();
 
     expect(h.api.fetchTopicsCalls, 1);
     expect(h.api.fetchTopicDetailCalls, 1);
     expect(h.api.fetchPostsCalls, hasLength(1));
+    expect(h.api.recentTopicsLimits, hasLength(1));
     expect(h.store.loadCalls, 0);
   });
 

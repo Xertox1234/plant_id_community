@@ -230,6 +230,104 @@ void main() {
     });
   });
 
+  // Forum audit F19: the supersede/mounted guard BoardTopics.loadMore got in
+  // todo 460.
+  group('TopicPosts superseded pages', () {
+    final page1 = CursorPage(
+      items: [post(id: 1)],
+      next: 'https://api/forum/topics/10/posts/?cursor=p2',
+    );
+    final page2 = CursorPage(items: [post(id: 2)]);
+
+    test('a loadMore page that lands after refreshAfterReply is dropped, '
+        'not appended a second time', () async {
+      final api = _GatedPostsApi()..postPages = [page1, page2];
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+      container.listen(topicPostsProvider(10, null), (_, _) {});
+      await container.read(topicPostsProvider(10, null).future); // call 1
+      final notifier = container.read(topicPostsProvider(10, null).notifier);
+
+      final gate = api.gates[2] = Completer<void>();
+      final more = notifier.loadMore(); // call 2, held
+      await pumpEventQueue();
+      await notifier.refreshAfterReply(); // calls 3 and 4
+      gate.complete();
+      await more;
+
+      final result = container.read(topicPostsProvider(10, null)).asData!.value;
+      expect(result.items.map((p) => p.id), [1, 2]);
+      expect(result.isLoadingMore, isFalse);
+    });
+
+    test('a loadMore page that lands after a rebuild is dropped', () async {
+      final api = _GatedPostsApi()..postPages = [page1, page2];
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+      container.listen(topicPostsProvider(10, null), (_, _) {});
+      await container.read(topicPostsProvider(10, null).future);
+      final notifier = container.read(topicPostsProvider(10, null).notifier);
+
+      final gate = api.gates[2] = Completer<void>();
+      final more = notifier.loadMore();
+      await pumpEventQueue();
+      api.postPages = [
+        CursorPage(items: [post(id: 7)]),
+      ];
+      container.invalidate(topicPostsProvider(10, null));
+      await container.read(topicPostsProvider(10, null).future);
+      gate.complete();
+      await more;
+
+      final result = container.read(topicPostsProvider(10, null)).asData!.value;
+      expect(result.items.map((p) => p.id), [7]);
+    });
+
+    test('a loadMore that outlives its provider completes quietly', () async {
+      final api = _GatedPostsApi()..postPages = [page1, page2];
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      final sub = container.listen(topicPostsProvider(10, null), (_, _) {});
+      await container.read(topicPostsProvider(10, null).future);
+      final notifier = container.read(topicPostsProvider(10, null).notifier);
+
+      final gate = api.gates[2] = Completer<void>();
+      final more = notifier.loadMore();
+      await pumpEventQueue();
+      sub.close();
+      container.dispose();
+      gate.complete();
+
+      await expectLater(more, completes);
+    });
+
+    test('a refreshAfterReply that outlives its provider completes quietly '
+        'and stops walking', () async {
+      final api = _GatedPostsApi()..postPages = [page1, page2];
+      final container = ProviderContainer(
+        overrides: [forumApiProvider.overrideWithValue(api)],
+      );
+      final sub = container.listen(topicPostsProvider(10, null), (_, _) {});
+      await container.read(topicPostsProvider(10, null).future);
+      final notifier = container.read(topicPostsProvider(10, null).notifier);
+
+      final gate = api.gates[2] = Completer<void>();
+      final refresh = notifier.refreshAfterReply(); // call 2 (page 1), held
+      await pumpEventQueue();
+      sub.close();
+      container.dispose();
+      gate.complete();
+
+      await expectLater(refresh, completes);
+      expect(api.fetchPostsCalls, hasLength(2), reason: 'no page 2 request');
+    });
+  });
+
   group('TopicPosts live splices (forum live, slice 4)', () {
     test(
       'applyLivePost appends a new id and splices an existing one',
@@ -879,4 +977,25 @@ void main() {
       },
     );
   });
+}
+
+/// [FakeForumApi] whose Nth [fetchPosts] call (1-indexed) waits for
+/// `gates[N]` before answering.
+class _GatedPostsApi extends FakeForumApi {
+  final Map<int, Completer<void>> gates = {};
+
+  @override
+  Future<CursorPage<ForumPost>> fetchPosts({
+    required int topicId,
+    String? cursorUrl,
+  }) async {
+    final gate = gates[fetchPostsCalls.length + 1];
+    if (gate != null) {
+      // Record the call before holding it, as the parent does.
+      final page = super.fetchPosts(topicId: topicId, cursorUrl: cursorUrl);
+      await gate.future;
+      return page;
+    }
+    return super.fetchPosts(topicId: topicId, cursorUrl: cursorUrl);
+  }
 }

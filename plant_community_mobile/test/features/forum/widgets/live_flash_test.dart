@@ -37,4 +37,23 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600));
     expect(done, isTrue);
   });
+
+  testWidgets('a card disposed before the highlight ends still reports done '
+      '(audit F22), so it is not replayed when built again', (tester) async {
+    var done = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LiveFlash(onDone: () => done++, child: const Text('x')),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 1));
+
+    // Scrolled past the cache extent: the card's State is disposed.
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pump();
+
+    expect(done, 1);
+    await tester.pump(const Duration(seconds: 3));
+    expect(done, 1);
+  });
 }
