@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_sync_service.dart';
@@ -7,6 +10,8 @@ import 'package:plant_community_mobile/services/api_service.dart';
 import '../support/forum_test_support.dart';
 
 void main() {
+  _clearTests();
+
   group('applyForumSyncDelta', () {
     test('upserts insert/overwrite and tombstones remove', () {
       final current = {
@@ -187,6 +192,96 @@ void main() {
       expect(api.syncCalls, isEmpty);
     });
   });
+}
+
+void _clearTests() {
+  group('clear (audit F24)', () {
+    for (final (name, makeStore) in <(String, ForumSyncStore Function())>[
+      ('in memory', InMemoryForumSyncStore.new),
+      (
+        'on file',
+        () {
+          final dir = Directory.systemTemp.createTempSync('forum_sync_');
+          addTearDown(() => dir.deleteSync(recursive: true));
+          return FileForumSyncStore(directory: () async => dir);
+        },
+      ),
+    ]) {
+      test('$name: forgets the topics and the cursor', () async {
+        final store = makeStore();
+        await store.saveTopics({1: stub(id: 1, title: "ada's")});
+        await store.saveCursor(
+          ForumSyncCursor(since: DateTime.utc(2026, 1, 1), sinceId: 1),
+        );
+
+        await store.clear();
+
+        expect(await store.loadTopics(), isEmpty);
+        expect((await store.loadCursor()).isInitial, isTrue);
+      });
+
+      test('$name: a sync in flight when it is cleared writes nothing '
+          'back', () async {
+        final store = makeStore();
+        final api = _GatedSyncApi()
+          ..syncPages = [
+            ForumSyncPage(
+              topics: [stub(id: 9, title: "ada's topic")],
+              deleted: const [],
+              hasMore: false,
+              nextSince: DateTime.utc(2026, 3, 1),
+              nextSinceId: 9,
+            ),
+          ];
+        final service = ForumSyncService(api: api, store: store);
+
+        final syncing = service.sync();
+        await api.started.future;
+        await store.clear(); // the account signs out mid-sync
+        api.gate.complete();
+        final result = await syncing;
+
+        expect(result, isEmpty, reason: "returned the old account's rows");
+        expect(await store.loadTopics(), isEmpty);
+        expect((await store.loadCursor()).isInitial, isTrue);
+      });
+    }
+
+    test('on file: the cleared file is gone, and a new store reads '
+        'nothing', () async {
+      final dir = Directory.systemTemp.createTempSync('forum_sync_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final store = FileForumSyncStore(directory: () async => dir);
+      await store.saveTopics({1: stub(id: 1, title: "ada's")});
+      // Not awaited: the clear must run after the write, never under it.
+      final write = store.saveCursor(
+        ForumSyncCursor(since: DateTime.utc(2026, 1, 1), sinceId: 1),
+      );
+      final clearing = store.clear();
+      await Future.wait([write, clearing]);
+
+      expect(File('${dir.path}/forum_sync_cache.json').existsSync(), isFalse);
+      final fresh = FileForumSyncStore(directory: () async => dir);
+      expect(await fresh.loadTopics(), isEmpty);
+    });
+  });
+}
+
+/// A [FakeForumApi] whose [sync] holds until [gate] completes.
+class _GatedSyncApi extends FakeForumApi {
+  final started = Completer<void>();
+  final gate = Completer<void>();
+
+  @override
+  Future<ForumSyncPage> sync({
+    DateTime? since,
+    int? sinceId,
+    String? boardSlug,
+  }) async {
+    if (!started.isCompleted) started.complete();
+    await gate.future;
+    return super.sync(since: since, sinceId: sinceId, boardSlug: boardSlug);
+  }
 }
 
 /// A [FakeForumApi] whose Nth [sync] call throws instead of returning a page.

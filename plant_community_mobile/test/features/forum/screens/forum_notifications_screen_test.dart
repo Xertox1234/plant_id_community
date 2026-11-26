@@ -40,7 +40,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [forumApiProvider.overrideWithValue(api)],
+        overrides: [forumApiProvider.overrideWithValue(api), signedInViewer()],
         child: MaterialApp.router(routerConfig: router),
       ),
     );
@@ -77,7 +77,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [forumApiProvider.overrideWithValue(api)],
+        overrides: [forumApiProvider.overrideWithValue(api), signedInViewer()],
         child: const MaterialApp(home: ForumNotificationsScreen()),
       ),
     );
@@ -108,7 +108,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [forumApiProvider.overrideWithValue(api)],
+        overrides: [forumApiProvider.overrideWithValue(api), signedInViewer()],
         child: const MaterialApp(home: ForumNotificationsScreen()),
       ),
     );
@@ -130,7 +130,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [forumApiProvider.overrideWithValue(api)],
+        overrides: [forumApiProvider.overrideWithValue(api), signedInViewer()],
         child: const MaterialApp(home: ForumNotificationsScreen()),
       ),
     );
@@ -150,7 +150,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [forumApiProvider.overrideWithValue(api)],
+        overrides: [forumApiProvider.overrideWithValue(api), signedInViewer()],
         child: const MaterialApp(home: ForumNotificationsScreen()),
       ),
     );
@@ -195,7 +195,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [forumApiProvider.overrideWithValue(api)],
+        overrides: [forumApiProvider.overrideWithValue(api), signedInViewer()],
         child: MaterialApp.router(routerConfig: router),
       ),
     );

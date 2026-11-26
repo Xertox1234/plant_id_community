@@ -25,7 +25,12 @@ class ForumSyncService {
   static const int maxPages = 500;
 
   /// Run a delta sync. Returns the merged topic mirror sorted newest-first.
+  ///
+  /// A [ForumSyncStore.clear] while it runs (a sign-out, an account switch)
+  /// wins: the run writes nothing and returns the store as it is now, never
+  /// the rows it fetched for the account that left (audit F24).
   Future<List<ForumTopicStub>> sync({String? boardSlug}) async {
+    final generation = _store.generation;
     var cursor = await _store.loadCursor();
     var topics = await _store.loadTopics();
 
@@ -49,8 +54,9 @@ class ForumSyncService {
       if (!page.hasMore) break;
     }
 
-    await _store.saveTopics(topics);
-    await _store.saveCursor(cursor);
+    if (!await _store.saveSnapshot(topics, cursor, generation: generation)) {
+      return cachedTopics();
+    }
     return _sorted(topics);
   }
 

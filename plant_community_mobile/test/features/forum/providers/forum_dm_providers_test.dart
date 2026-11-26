@@ -7,6 +7,9 @@ import 'package:plant_community_mobile/services/api_service.dart';
 
 import '../support/forum_test_support.dart';
 
+/// Who reads the member's feeds: they are keyed on the viewer (audit F89).
+const _viewer = 'me';
+
 /// A container with the fake API installed. Every provider under test is
 /// autoDispose, so callers hold a `listen` on what they exercise — a bare
 /// `read` would build a notifier and tear it down before the next call
@@ -33,12 +36,17 @@ void main() {
         );
         final api = FakeForumApi()..conversationPages = [page1, page2];
         final container = _container(api);
-        container.listen(conversationsFeedProvider, (_, _) {});
+        container.listen(conversationsFeedProvider(_viewer), (_, _) {});
 
-        await container.read(conversationsFeedProvider.future);
-        await container.read(conversationsFeedProvider.notifier).loadMore();
+        await container.read(conversationsFeedProvider(_viewer).future);
+        await container
+            .read(conversationsFeedProvider(_viewer).notifier)
+            .loadMore();
 
-        final result = container.read(conversationsFeedProvider).asData!.value;
+        final result = container
+            .read(conversationsFeedProvider(_viewer))
+            .asData!
+            .value;
         expect(result.items.map((c) => c.id), [1, 2]);
         expect(result.hasMore, isFalse);
         // DRF cursor `next` is an absolute URL — fetched verbatim, never
@@ -51,7 +59,10 @@ void main() {
   test('unreadConversationCount reads the badge count', () async {
     final api = FakeForumApi()..unreadConversationCount = 4;
     final container = _container(api);
-    expect(await container.read(unreadConversationCountProvider.future), 4);
+    expect(
+      await container.read(unreadConversationCountProvider(_viewer).future),
+      4,
+    );
   });
 
   group('ConversationThread (todo 339)', () {
@@ -65,10 +76,10 @@ void main() {
           directMessage(id: 1, senderUsername: 'me', body: 'first'),
         ];
       final container = _container(api);
-      container.listen(conversationThreadProvider('bob'), (_, _) {});
+      container.listen(conversationThreadProvider('bob', _viewer), (_, _) {});
 
       final thread = await container.read(
-        conversationThreadProvider('bob').future,
+        conversationThreadProvider('bob', _viewer).future,
       );
 
       expect(thread.conversation?.id, 7);
@@ -81,10 +92,10 @@ void main() {
     test('build with no conversation yet yields an empty thread', () async {
       final api = FakeForumApi(); // conversationWith stays null (404)
       final container = _container(api);
-      container.listen(conversationThreadProvider('bob'), (_, _) {});
+      container.listen(conversationThreadProvider('bob', _viewer), (_, _) {});
 
       final thread = await container.read(
-        conversationThreadProvider('bob').future,
+        conversationThreadProvider('bob', _viewer).future,
       );
 
       expect(thread.conversation, isNull);
@@ -115,22 +126,22 @@ void main() {
           ..conversationWith = conversation(id: 7)
           ..messagePages = [page1, page2];
         final container = _container(api);
-        container.listen(conversationThreadProvider('bob'), (_, _) {});
+        container.listen(conversationThreadProvider('bob', _viewer), (_, _) {});
 
-        await container.read(conversationThreadProvider('bob').future);
+        await container.read(conversationThreadProvider('bob', _viewer).future);
         final before = container
-            .read(conversationThreadProvider('bob'))
+            .read(conversationThreadProvider('bob', _viewer))
             .asData!
             .value;
         expect(before.messages.map((m) => m.id), [4, 5, 6]);
         expect(before.hasOlder, isTrue);
 
         await container
-            .read(conversationThreadProvider('bob').notifier)
+            .read(conversationThreadProvider('bob', _viewer).notifier)
             .loadOlder();
 
         final after = container
-            .read(conversationThreadProvider('bob'))
+            .read(conversationThreadProvider('bob', _viewer))
             .asData!
             .value;
         expect(after.messages.map((m) => m.id), [1, 2, 3, 4, 5, 6]);
@@ -146,20 +157,23 @@ void main() {
         ..messages = [directMessage(id: 1, body: 'hi')]
         ..unreadConversationCount = 1;
       final container = _container(api);
-      container.listen(conversationThreadProvider('bob'), (_, _) {});
-      container.listen(unreadConversationCountProvider, (_, _) {});
-      await container.read(conversationThreadProvider('bob').future);
-      expect(await container.read(unreadConversationCountProvider.future), 1);
+      container.listen(conversationThreadProvider('bob', _viewer), (_, _) {});
+      container.listen(unreadConversationCountProvider(_viewer), (_, _) {});
+      await container.read(conversationThreadProvider('bob', _viewer).future);
+      expect(
+        await container.read(unreadConversationCountProvider(_viewer).future),
+        1,
+      );
 
       // The server "reads" nothing on send, but another client may have —
       // the badge must be re-fetched, not locally adjusted.
       api.unreadConversationCount = 0;
       await container
-          .read(conversationThreadProvider('bob').notifier)
+          .read(conversationThreadProvider('bob', _viewer).notifier)
           .send('  hello there  ');
 
       final thread = container
-          .read(conversationThreadProvider('bob'))
+          .read(conversationThreadProvider('bob', _viewer))
           .asData!
           .value;
       expect(thread.messages.map((m) => m.body), ['hi', 'hello there']);
@@ -168,23 +182,26 @@ void main() {
         {'username': 'bob', 'body': 'hello there'},
       ]);
       expect(api.sendMessageKeys.single, isNotEmpty);
-      expect(await container.read(unreadConversationCountProvider.future), 0);
+      expect(
+        await container.read(unreadConversationCountProvider(_viewer).future),
+        0,
+      );
     });
 
     test('the first send resolves the conversation for the thread', () async {
       final api = FakeForumApi(); // no conversation yet
       final container = _container(api);
-      container.listen(conversationThreadProvider('bob'), (_, _) {});
-      await container.read(conversationThreadProvider('bob').future);
+      container.listen(conversationThreadProvider('bob', _viewer), (_, _) {});
+      await container.read(conversationThreadProvider('bob', _viewer).future);
 
       // Server creates the row on first send; the next lookup finds it.
       api.conversationWith = conversation(id: 9, otherUsername: 'bob');
       await container
-          .read(conversationThreadProvider('bob').notifier)
+          .read(conversationThreadProvider('bob', _viewer).notifier)
           .send('first!');
 
       final thread = container
-          .read(conversationThreadProvider('bob'))
+          .read(conversationThreadProvider('bob', _viewer))
           .asData!
           .value;
       expect(thread.conversation?.id, 9);
@@ -198,10 +215,10 @@ void main() {
         ..conversationWith = conversation(id: 7)
         ..failSendMessageWith = ApiException('blocked', statusCode: 403);
       final container = _container(api);
-      container.listen(conversationThreadProvider('bob'), (_, _) {});
-      await container.read(conversationThreadProvider('bob').future);
+      container.listen(conversationThreadProvider('bob', _viewer), (_, _) {});
+      await container.read(conversationThreadProvider('bob', _viewer).future);
       final notifier = container.read(
-        conversationThreadProvider('bob').notifier,
+        conversationThreadProvider('bob', _viewer).notifier,
       );
 
       await expectLater(
@@ -210,7 +227,7 @@ void main() {
       );
       expect(
         container
-            .read(conversationThreadProvider('bob'))
+            .read(conversationThreadProvider('bob', _viewer))
             .asData!
             .value
             .isSending,
@@ -232,15 +249,21 @@ void main() {
         ..messages = [directMessage(id: 1)]
         ..unreadConversationCount = 2;
       final container = _container(api);
-      container.listen(unreadConversationCountProvider, (_, _) {});
-      expect(await container.read(unreadConversationCountProvider.future), 2);
+      container.listen(unreadConversationCountProvider(_viewer), (_, _) {});
+      expect(
+        await container.read(unreadConversationCountProvider(_viewer).future),
+        2,
+      );
 
       // Opening the thread marks it read server-side.
       api.unreadConversationCount = 1;
-      container.listen(conversationThreadProvider('bob'), (_, _) {});
-      await container.read(conversationThreadProvider('bob').future);
+      container.listen(conversationThreadProvider('bob', _viewer), (_, _) {});
+      await container.read(conversationThreadProvider('bob', _viewer).future);
 
-      expect(await container.read(unreadConversationCountProvider.future), 1);
+      expect(
+        await container.read(unreadConversationCountProvider(_viewer).future),
+        1,
+      );
     });
   });
 
@@ -262,14 +285,18 @@ void main() {
           );
           final api = FakeForumApi()..conversationPages = [page1, page2];
           final container = _container(api);
-          container.listen(conversationsFeedProvider, (_, _) {});
-          await container.read(conversationsFeedProvider.future);
-          await container.read(conversationsFeedProvider.notifier).loadMore();
+          container.listen(conversationsFeedProvider(_viewer), (_, _) {});
+          await container.read(conversationsFeedProvider(_viewer).future);
+          await container
+              .read(conversationsFeedProvider(_viewer).notifier)
+              .loadMore();
 
-          container.read(conversationsFeedProvider.notifier).markRead(2);
+          container
+              .read(conversationsFeedProvider(_viewer).notifier)
+              .markRead(2);
 
           final items = container
-              .read(conversationsFeedProvider)
+              .read(conversationsFeedProvider(_viewer))
               .asData!
               .value
               .items;
@@ -292,9 +319,11 @@ void main() {
               ),
             ];
           final container = _container(api);
-          container.listen(conversationsFeedProvider, (_, _) {});
-          await container.read(conversationsFeedProvider.future);
-          final notifier = container.read(conversationsFeedProvider.notifier);
+          container.listen(conversationsFeedProvider(_viewer), (_, _) {});
+          await container.read(conversationsFeedProvider(_viewer).future);
+          final notifier = container.read(
+            conversationsFeedProvider(_viewer).notifier,
+          );
 
           notifier.applyActivity(
             conversation(id: 2, otherUsername: 'carol').copyWith(
@@ -302,7 +331,7 @@ void main() {
             ),
           );
           var items = container
-              .read(conversationsFeedProvider)
+              .read(conversationsFeedProvider(_viewer))
               .asData!
               .value
               .items;
@@ -311,7 +340,11 @@ void main() {
           expect(items.first.lastMessage?.isMine, isTrue);
 
           notifier.applyActivity(conversation(id: 9, otherUsername: 'erin'));
-          items = container.read(conversationsFeedProvider).asData!.value.items;
+          items = container
+              .read(conversationsFeedProvider(_viewer))
+              .asData!
+              .value
+              .items;
           expect(items.map((c) => c.id), [9, 2, 1]);
           expect(api.fetchConversationsCalls, [null]);
         },

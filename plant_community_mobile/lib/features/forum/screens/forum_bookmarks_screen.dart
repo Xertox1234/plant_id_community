@@ -18,7 +18,9 @@ class ForumBookmarksScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final feedAsync = ref.watch(bookmarksFeedProvider);
+    // Keyed on who reads it (see [forumViewerProvider], audit F89).
+    final feed = bookmarksFeedProvider(ref.watch(forumViewerProvider));
+    final feedAsync = ref.watch(feed);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Bookmarks')),
@@ -26,12 +28,12 @@ class ForumBookmarksScreen extends ConsumerWidget {
         child: RefreshIndicator(
           // The screen's OWN feed — a pull-to-refresh is the one place a
           // reset to page 1 is what the user asked for.
-          onRefresh: () async => ref.invalidate(bookmarksFeedProvider),
+          onRefresh: () async => ref.invalidate(feed),
           child: feedAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (error, _) => _ErrorRetry(
               message: 'Could not load your bookmarks.',
-              onRetry: () => ref.invalidate(bookmarksFeedProvider),
+              onRetry: () => ref.invalidate(feed),
             ),
             data: (paged) => _BookmarksList(
               paged: paged,
@@ -40,8 +42,7 @@ class ForumBookmarksScreen extends ConsumerWidget {
                 pathParameters: {'id': '${topic.id}'},
                 extra: topic.title,
               ),
-              onLoadMore: () =>
-                  ref.read(bookmarksFeedProvider.notifier).loadMore(),
+              onLoadMore: () => ref.read(feed.notifier).loadMore(),
             ),
           ),
         ),

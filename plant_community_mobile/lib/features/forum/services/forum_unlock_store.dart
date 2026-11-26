@@ -132,9 +132,11 @@ List<MapEntry<int, String>> forumUnlockEntriesToSend(Map<int, String> tokens) {
 /// - signed in as the member the store holds: their tokens;
 /// - signed in as anyone else: the store is cleared.
 ///
-/// Sign-out itself clears the store and the header and ends the unlock
-/// session (`AuthService.signOut`, through [ApiService], since this provider
-/// depends on the auth one and not the other way round);
+/// Every end of a session (`signOut()`, a session expiry, a sign-out
+/// Firebase reports, a declined consent) and an account switch clear the
+/// store and the header and end the unlock session (`AuthService`'s
+/// `_forgetForumData`, through [ApiService], since this provider depends on
+/// the auth one and not the other way round; audit F130);
 /// `_resetForViewer` on the forum home must not, since it also runs at launch
 /// and on an author block.
 @Riverpod(keepAlive: true, name: 'forumUnlocksProvider')

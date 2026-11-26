@@ -314,10 +314,13 @@ void applyActivity(ForumConversation row) { /* remove by id, insert at index 0 *
 and the thread calls them only when the feed is alive:
 
 ```dart
-if (ref.exists(conversationsFeedProvider)) {
-  ref.read(conversationsFeedProvider.notifier).markRead(conversation.id);
+// `viewer` is the notifier's own: the family is keyed on the signed-in
+// member (audit F89), so a late splice never touches the next one's inbox.
+final feed = conversationsFeedProvider(viewer);
+if (ref.exists(feed)) {
+  ref.read(feed.notifier).markRead(conversation.id);
 }
-ref.invalidate(unreadConversationCountProvider); // a single value: cheap to refetch
+ref.invalidate(unreadConversationCountProvider(viewer)); // a single value: cheap to refetch
 ```
 
 Same discipline as `TopicPosts.applyEditedPost`; the test proves the loaded

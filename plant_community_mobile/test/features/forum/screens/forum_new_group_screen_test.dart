@@ -36,7 +36,7 @@ Widget _wrap(
   );
   return ProviderScope(
     overrides: [
-      forumApiProvider.overrideWithValue(api),
+      forumApiProvider.overrideWithValue(api), signedInViewer(),
       // Signed in as `me`, so the self-username guard has something to
       // compare against.
       userProfileServiceProvider.overrideWith(

@@ -390,9 +390,9 @@ class TopicDetail extends _$TopicDetail {
     final latest = state.asData?.value ?? current;
     final updated = latest.copyWith(isBookmarked: bookmarked);
     state = AsyncData(updated);
-    if (ref.read(bookmarksFeedProvider.exists)) {
+    if (ref.read(bookmarksFeedProvider(viewer).exists)) {
       ref
-          .read(bookmarksFeedProvider.notifier)
+          .read(bookmarksFeedProvider(viewer).notifier)
           .applyBookmark(updated, bookmarked: bookmarked);
     }
   }
@@ -994,10 +994,14 @@ class TopicPosts extends _$TopicPosts {
 /// Recent topics from the offline delta-sync mirror. On open it runs a delta
 /// sync (consuming `/sync/` upserts + tombstones); if the network is
 /// unavailable it falls back to the cached mirror so the list works offline.
+///
+/// Keyed on [viewer] (see [forumViewerProvider]): every end of a session
+/// clears the mirror on disk (audit F24), and a new viewer must not keep the
+/// last one's titles in memory either.
 @riverpod
 class RecentTopics extends _$RecentTopics {
   @override
-  Future<List<ForumTopicStub>> build() async {
+  Future<List<ForumTopicStub>> build(String? viewer) async {
     final service = ref.watch(forumSyncServiceProvider);
     try {
       return await service.sync();
@@ -1008,9 +1012,10 @@ class RecentTopics extends _$RecentTopics {
 
   Future<void> refresh() async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(
+    final next = await AsyncValue.guard(
       () => ref.read(forumSyncServiceProvider).sync(),
     );
+    if (ref.mounted) state = next;
   }
 }
 
@@ -1086,11 +1091,25 @@ class ExpandedActivityTopic extends _$ExpandedActivityTopic {
   void collapse() => state = null;
 }
 
+/// A member's own feed read for nobody: a sign-out leaves a still-mounted
+/// screen reading the null viewer's element (audit F89). It fails at once,
+/// without a request: an anonymous request would only 401, and that 401
+/// starts a token refresh and a second session-expired sign-out. An [Error],
+/// so Riverpod's default retry never re-runs it.
+Never _signedOut() => throw StateError('Signed out: no member feed to load.');
+
 /// The user's notifications (cursor-paginated, newest first).
+///
+/// The member's own feeds ([NotificationsFeed], [ConversationsFeed],
+/// [BookmarksFeed], the DM threads and the two unread counts) are keyed on
+/// [viewer] (see [forumViewerProvider]), so a screen the forum branch keeps
+/// offstage through a session expiry into another account reads a fresh
+/// element, never the last member's rows (audit F89).
 @riverpod
 class NotificationsFeed extends _$NotificationsFeed {
   @override
-  Future<PagedList<ForumNotification>> build() async {
+  Future<PagedList<ForumNotification>> build(String? viewer) async {
+    if (viewer == null) _signedOut();
     final page = await ref.watch(forumApiProvider).fetchNotifications();
     return PagedList(items: page.items, nextUrl: page.next);
   }
@@ -1144,21 +1163,25 @@ class NotificationsFeed extends _$NotificationsFeed {
         ),
       );
     }
-    ref.invalidate(unreadNotificationCountProvider);
+    ref.invalidate(unreadNotificationCountProvider(viewer));
   }
 }
 
 /// Unread notification count, for the bell badge.
 @riverpod
-Future<int> unreadNotificationCount(Ref ref) {
+Future<int> unreadNotificationCount(Ref ref, String? viewer) {
+  // Nobody signed in has nothing unread: no request (see [_signedOut]).
+  if (viewer == null) return Future.value(0);
   return ref.watch(forumApiProvider).fetchUnreadNotificationCount();
 }
 
 /// The user's DM inbox (cursor-paginated, most recent activity first).
+/// Keyed on [viewer], like [NotificationsFeed].
 @riverpod
 class ConversationsFeed extends _$ConversationsFeed {
   @override
-  Future<PagedList<ForumConversation>> build() async {
+  Future<PagedList<ForumConversation>> build(String? viewer) async {
+    if (viewer == null) _signedOut();
     final page = await ref.watch(forumApiProvider).fetchConversations();
     return PagedList(items: page.items, nextUrl: page.next);
   }
@@ -1267,16 +1290,20 @@ class ConversationsFeed extends _$ConversationsFeed {
 
 /// Conversations with unread messages, for the inbox badge.
 @riverpod
-Future<int> unreadConversationCount(Ref ref) {
+Future<int> unreadConversationCount(Ref ref, String? viewer) {
+  // Nobody signed in has nothing unread: no request (see [_signedOut]).
+  if (viewer == null) return Future.value(0);
   return ref.watch(forumApiProvider).fetchUnreadConversationCount();
 }
 
 /// The viewer's bookmarked topics (cursor-paginated, most recently
-/// bookmarked first — todo 341).
+/// bookmarked first — todo 341). Keyed on [viewer], like
+/// [NotificationsFeed].
 @riverpod
 class BookmarksFeed extends _$BookmarksFeed {
   @override
-  Future<PagedList<ForumTopicListItem>> build() async {
+  Future<PagedList<ForumTopicListItem>> build(String? viewer) async {
+    if (viewer == null) _signedOut();
     final page = await ref.watch(forumApiProvider).fetchBookmarks();
     return PagedList(items: page.items, nextUrl: page.next);
   }
@@ -1398,8 +1425,12 @@ class ConversationThread extends _$ConversationThread {
   String? _sendKey;
   String? _sendFingerprint;
 
+  /// Keyed on [viewer], like [NotificationsFeed]; it splices only that
+  /// viewer's inbox, so a send that lands after an account switch never
+  /// touches the next member's.
   @override
-  Future<ConversationThreadState> build(String username) async {
+  Future<ConversationThreadState> build(String username, String? viewer) async {
+    if (viewer == null) _signedOut();
     final api = ref.watch(forumApiProvider);
     final conversation = await api.fetchConversationWith(username);
     if (conversation == null) {
@@ -1409,9 +1440,11 @@ class ConversationThread extends _$ConversationThread {
     // Reading marks the conversation read server-side. The badge is cheap to
     // refetch (invalidate); the inbox row is spliced in place IF the inbox
     // is alive — invalidating it would collapse its loaded pages to page 1.
-    ref.invalidate(unreadConversationCountProvider);
-    if (ref.read(conversationsFeedProvider.exists)) {
-      ref.read(conversationsFeedProvider.notifier).markRead(conversation.id);
+    ref.invalidate(unreadConversationCountProvider(viewer));
+    if (ref.read(conversationsFeedProvider(viewer).exists)) {
+      ref
+          .read(conversationsFeedProvider(viewer).notifier)
+          .markRead(conversation.id);
     }
     return ConversationThreadState(
       conversation: conversation,
@@ -1499,9 +1532,9 @@ class ConversationThread extends _$ConversationThread {
         ),
       );
       final row = latest.conversation;
-      if (row != null && ref.read(conversationsFeedProvider.exists)) {
+      if (row != null && ref.read(conversationsFeedProvider(viewer).exists)) {
         ref
-            .read(conversationsFeedProvider.notifier)
+            .read(conversationsFeedProvider(viewer).notifier)
             .applyActivity(
               row.copyWith(
                 unreadCount: 0,
@@ -1520,7 +1553,7 @@ class ConversationThread extends _$ConversationThread {
       state = AsyncData(latest.copyWith(isSending: false));
       rethrow;
     }
-    ref.invalidate(unreadConversationCountProvider);
+    ref.invalidate(unreadConversationCountProvider(viewer));
   }
 }
 
@@ -1539,8 +1572,13 @@ class GroupConversationThread extends _$GroupConversationThread {
   String? _sendKey;
   String? _sendFingerprint;
 
+  /// Keyed on [viewer], like [ConversationThread].
   @override
-  Future<ConversationThreadState> build(int conversationId) async {
+  Future<ConversationThreadState> build(
+    int conversationId,
+    String? viewer,
+  ) async {
+    if (viewer == null) _signedOut();
     final api = ref.watch(forumApiProvider);
     final conversation = await _resolveConversation(api);
     if (conversation == null) {
@@ -1556,9 +1594,11 @@ class GroupConversationThread extends _$GroupConversationThread {
     final page = await api.fetchMessages(conversationId: conversationId);
     // Reading marks my participant row read server-side — same badge /
     // inbox-splice discipline as the direct thread.
-    ref.invalidate(unreadConversationCountProvider);
-    if (ref.read(conversationsFeedProvider.exists)) {
-      ref.read(conversationsFeedProvider.notifier).markRead(conversationId);
+    ref.invalidate(unreadConversationCountProvider(viewer));
+    if (ref.read(conversationsFeedProvider(viewer).exists)) {
+      ref
+          .read(conversationsFeedProvider(viewer).notifier)
+          .markRead(conversationId);
     }
     return ConversationThreadState(
       conversation: conversation,
@@ -1576,8 +1616,12 @@ class GroupConversationThread extends _$GroupConversationThread {
   /// `null` means the GET 404'd (see [ForumApi.fetchConversation]); any
   /// other failure propagates as the provider's error state.
   Future<ForumConversation?> _resolveConversation(ForumApi api) async {
-    if (ref.read(conversationsFeedProvider.exists)) {
-      final rows = ref.read(conversationsFeedProvider).asData?.value.items;
+    if (ref.read(conversationsFeedProvider(viewer).exists)) {
+      final rows = ref
+          .read(conversationsFeedProvider(viewer))
+          .asData
+          ?.value
+          .items;
       if (rows != null) {
         for (final row in rows) {
           if (row.id == conversationId) return row;
@@ -1653,9 +1697,9 @@ class GroupConversationThread extends _$GroupConversationThread {
         ),
       );
       final row = latest.conversation;
-      if (row != null && ref.read(conversationsFeedProvider.exists)) {
+      if (row != null && ref.read(conversationsFeedProvider(viewer).exists)) {
         ref
-            .read(conversationsFeedProvider.notifier)
+            .read(conversationsFeedProvider(viewer).notifier)
             .applyActivity(
               row.copyWith(
                 unreadCount: 0,
@@ -1674,7 +1718,7 @@ class GroupConversationThread extends _$GroupConversationThread {
       state = AsyncData(latest.copyWith(isSending: false));
       rethrow;
     }
-    ref.invalidate(unreadConversationCountProvider);
+    ref.invalidate(unreadConversationCountProvider(viewer));
   }
 
   /// Add [username] (creator only). The server's returned row replaces the
@@ -1713,8 +1757,10 @@ class GroupConversationThread extends _$GroupConversationThread {
           conversationId: conversationId,
           username: myUsername,
         );
-    if (ref.read(conversationsFeedProvider.exists)) {
-      ref.read(conversationsFeedProvider.notifier).remove(conversationId);
+    if (ref.read(conversationsFeedProvider(viewer).exists)) {
+      ref
+          .read(conversationsFeedProvider(viewer).notifier)
+          .remove(conversationId);
     }
   }
 
@@ -1723,8 +1769,8 @@ class GroupConversationThread extends _$GroupConversationThread {
     if (current != null) {
       state = AsyncData(current.copyWith(conversation: row));
     }
-    if (ref.read(conversationsFeedProvider.exists)) {
-      ref.read(conversationsFeedProvider.notifier).replaceRow(row);
+    if (ref.read(conversationsFeedProvider(viewer).exists)) {
+      ref.read(conversationsFeedProvider(viewer).notifier).replaceRow(row);
     }
   }
 }

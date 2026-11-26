@@ -10,7 +10,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../support/forum_test_support.dart';
 
 Widget _wrap(FakeForumApi api, {String username = 'bob'}) => ProviderScope(
-  overrides: [forumApiProvider.overrideWithValue(api)],
+  overrides: [forumApiProvider.overrideWithValue(api), signedInViewer()],
   child: MaterialApp(home: ForumConversationScreen(username: username)),
 );
 

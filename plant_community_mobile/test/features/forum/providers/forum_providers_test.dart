@@ -9,6 +9,9 @@ import 'package:plant_community_mobile/services/api_service.dart';
 
 import '../support/forum_test_support.dart';
 
+/// Who reads the member's feeds: they are keyed on the viewer (audit F89).
+const _viewer = 'me';
+
 void main() {
   group('TopicPosts.toggleReaction', () {
     test('success writes the fresh reaction counts back to the post', () async {
@@ -529,10 +532,15 @@ void main() {
         );
         addTearDown(container.dispose);
 
-        await container.read(notificationsFeedProvider.future);
-        await container.read(notificationsFeedProvider.notifier).loadMore();
+        await container.read(notificationsFeedProvider(_viewer).future);
+        await container
+            .read(notificationsFeedProvider(_viewer).notifier)
+            .loadMore();
 
-        final result = container.read(notificationsFeedProvider).asData!.value;
+        final result = container
+            .read(notificationsFeedProvider(_viewer))
+            .asData!
+            .value;
         expect(result.items.map((n) => n.id), [1, 2]);
         // DRF cursor `next`/`previous` are absolute URLs — must be fetched
         // verbatim, never re-prefixed with the API base (docs/rules/api.md).
@@ -554,14 +562,14 @@ void main() {
         );
         addTearDown(container.dispose);
 
-        await container.read(notificationsFeedProvider.future);
-        await container.read(unreadNotificationCountProvider.future);
+        await container.read(notificationsFeedProvider(_viewer).future);
+        await container.read(unreadNotificationCountProvider(_viewer).future);
         await container
-            .read(notificationsFeedProvider.notifier)
+            .read(notificationsFeedProvider(_viewer).notifier)
             .markRead(ids: [1]);
 
         final items = container
-            .read(notificationsFeedProvider)
+            .read(notificationsFeedProvider(_viewer))
             .asData!
             .value
             .items;
@@ -571,7 +579,7 @@ void main() {
           [1],
         ]);
         final unread = await container.read(
-          unreadNotificationCountProvider.future,
+          unreadNotificationCountProvider(_viewer).future,
         );
         expect(unread, 1);
       },
@@ -589,18 +597,20 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      await container.read(notificationsFeedProvider.future);
-      await container.read(notificationsFeedProvider.notifier).markRead();
+      await container.read(notificationsFeedProvider(_viewer).future);
+      await container
+          .read(notificationsFeedProvider(_viewer).notifier)
+          .markRead();
 
       final items = container
-          .read(notificationsFeedProvider)
+          .read(notificationsFeedProvider(_viewer))
           .asData!
           .value
           .items;
       expect(items.every((n) => n.isRead), isTrue);
       expect(api.markReadCalls, [null]);
       final unread = await container.read(
-        unreadNotificationCountProvider.future,
+        unreadNotificationCountProvider(_viewer).future,
       );
       expect(unread, 0);
     });

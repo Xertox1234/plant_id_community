@@ -24,6 +24,7 @@ Future<void> _open(
     ProviderScope(
       overrides: [
         forumApiProvider.overrideWithValue(api),
+        signedInViewer(),
         userProfileServiceProvider.overrideWith(
           () => FakeUserProfileService(username: me),
         ),
@@ -506,6 +507,7 @@ void main() {
           ProviderScope(
             overrides: [
               forumApiProvider.overrideWithValue(api),
+              signedInViewer(),
               userProfileServiceProvider.overrideWith(
                 () => FakeUserProfileService(
                   username: 'me',
@@ -591,6 +593,7 @@ void main() {
             ProviderScope(
               overrides: [
                 forumApiProvider.overrideWithValue(api),
+                signedInViewer(),
                 userProfileServiceProvider.overrideWith(
                   () => FakeUserProfileService(
                     username: 'me',

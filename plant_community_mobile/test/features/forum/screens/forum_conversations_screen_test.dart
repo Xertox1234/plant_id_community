@@ -24,6 +24,7 @@ Widget _wrap(
 }) => ProviderScope(
   overrides: [
     forumApiProvider.overrideWithValue(api),
+    signedInViewer(),
     userProfileServiceProvider.overrideWith(
       () => FakeUserProfileService(
         username: viewer,
@@ -165,6 +166,7 @@ void main() {
         ProviderScope(
           overrides: [
             forumApiProvider.overrideWithValue(api),
+            signedInViewer(),
             userProfileServiceProvider.overrideWith(
               () => FakeUserProfileService(username: 'me'),
             ),

@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../core/utils/log_redaction.dart';
+import '../features/forum/services/forum_sync_store.dart'
+    show forumSyncStoreProvider;
 import '../features/forum/services/forum_unlock_store.dart'
     show forumUnlockStoreProvider;
 import 'api_service.dart';
@@ -339,6 +341,10 @@ class AuthService extends _$AuthService {
   /// That user had Google linked, so the Google session is signed out too.
   bool _deviceSessionGoogle = false;
 
+  /// The uid of that user, so a switch straight to another account (no
+  /// sign-out between) is told apart from the same user signing in again.
+  String? _deviceSessionUid;
+
   /// The next [_endDeviceSession] may drop the Firestore offline cache: the
   /// signed-in user's queued writes were flushed before Firebase signed out
   /// ([_flushPendingWrites]), or they belong to a deleted account. Otherwise
@@ -370,7 +376,15 @@ class AuthService extends _$AuthService {
         }
 
         if (user != null) {
+          final previousUid = _deviceSessionUid;
           _markDeviceSessionLive(user);
+          // Firebase went straight from one account to another: no
+          // sign-out path ran, so the last account's forum data is
+          // forgotten here, before the new one's session starts (audit
+          // F130, F24).
+          if (previousUid != null && previousUid != user.uid) {
+            await _forgetForumData();
+          }
           // User signed in → exchange token
           await _exchangeFirebaseTokenForJWT(user);
         } else {
@@ -1034,15 +1048,11 @@ class AuthService extends _$AuthService {
       // stays set, because the clear still needs it.
       ref.read(apiServiceProvider).endSession();
 
-      // Forget this member's forum unlocks on the phone (spec §7.4): the
-      // header and the unlock session at once, so nothing sent or saved
-      // while the sign-out runs brings them back, then the store. Through
-      // ApiService, not the unlocks provider, which depends on this one.
-      // Its next build, signed out, sends nothing. The server still accepts
-      // a forgotten token until it expires or the forum's password changes.
-      // Never throws.
-      ref.read(apiServiceProvider).endForumUnlockSession();
-      await ref.read(forumUnlockStoreProvider).clear();
+      // Forget this member's forum data on the phone now, not only at the
+      // _endDeviceSession below: the unlock header and session at once, so
+      // nothing sent or saved while the sign-out runs brings them back
+      // (spec §7.4). Never throws.
+      await _forgetForumData();
 
       // Clear the FCM token server-side BEFORE Firebase sign-out — the PATCH
       // needs the still-valid JWT. Best-effort with an internal timeout; it
@@ -1689,6 +1699,7 @@ class AuthService extends _$AuthService {
   /// what the session left on it ([_endDeviceSession]).
   void _markDeviceSessionLive(User user) {
     _deviceSessionLive = true;
+    _deviceSessionUid = user.uid;
     // A flush only covers the session it ran in.
     _offlineCacheSafeToClear = false;
     try {
@@ -1717,6 +1728,9 @@ class AuthService extends _$AuthService {
   ///   [_offlineCacheSafeToClear]: its queued writes were flushed first, or
   ///   the account is deleted. Otherwise the cache stays, so those writes
   ///   still sync at the next sign-in (todo 704 review);
+  /// * forgets the forum's unlock tokens and offline sync mirror
+  ///   ([_forgetForumData], audit F130, F24), first, so a fast sign-in as
+  ///   someone else is not wiped late;
   /// * signs out of Google, so the next "Continue with Google" asks for an
   ///   account rather than reusing this one.
   ///
@@ -1730,6 +1744,10 @@ class AuthService extends _$AuthService {
     _offlineCacheSafeToClear = false;
     if (!_deviceSessionLive) return _deviceSessionEnding ?? Future.value();
     _deviceSessionLive = false;
+    _deviceSessionUid = null;
+    // Started now: its synchronous part ends the unlock session before any
+    // await, and it reads its stores from `ref` while the notifier is live.
+    final forgetForum = _forgetForumData();
     final google = _deviceSessionGoogle || _googleInitialized;
     _deviceSessionGoogle = false;
     final push = ref.read(pushRegistrationServiceProvider);
@@ -1742,6 +1760,7 @@ class AuthService extends _$AuthService {
     }
     final googleToSignOut = googleClient;
     return _deviceSessionEnding = () async {
+      await forgetForum;
       await push.revokeDeviceToken();
       if (!clearCache) {
         // Queued writes may still be in it (offline, or a sign-out Firebase
@@ -1774,6 +1793,32 @@ class AuthService extends _$AuthService {
   }
 
   static const Duration _deviceStepTimeout = Duration(seconds: 5);
+
+  /// Forget what the forum keeps on this phone for the member whose session
+  /// is ending (audit F130, F24), on every sign-out path ([_endDeviceSession]
+  /// and `signOut()`'s early call) and on an account switch:
+  ///
+  /// * the unlock tokens: the header and the unlock session synchronously,
+  ///   so nothing still running sends or saves them, then the store. Through
+  ///   [ApiService], not the unlocks provider, which depends on this one;
+  ///   its next build sends nothing until a member signs in. The server
+  ///   still accepts a forgotten token until it expires or the forum's
+  ///   password changes;
+  /// * the offline sync mirror (topic titles and the cursor), whose
+  ///   generation bump also drops a sync still running for that member.
+  ///
+  /// Safe to run twice. Never throws.
+  Future<void> _forgetForumData() {
+    ref.read(apiServiceProvider).endForumUnlockSession();
+    final unlocks = ref.read(forumUnlockStoreProvider);
+    final mirror = ref.read(forumSyncStoreProvider);
+    return Future.wait([unlocks.clear(), mirror.clear()]).then<void>(
+      (_) {},
+      onError: (Object e) {
+        if (kDebugMode) debugPrint('[AUTH] Forum data clear failed: $e');
+      },
+    );
+  }
 
   /// How long a sign-out waits for Firestore to acknowledge the queued
   /// writes. Overridable so a test does not sleep.

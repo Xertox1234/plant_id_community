@@ -750,7 +750,7 @@ final class TopicDetailProvider
   }
 }
 
-String _$topicDetailHash() => r'dd6a7c73c4f3265b1927af101b189905a25fa063';
+String _$topicDetailHash() => r'9afe980503042fe56605ec468b084120d3cab6e0';
 
 /// A single topic's detail, plus subscribe/unsubscribe (todo 293), the
 /// bookmark toggle and the accepted-answer mark/clear (todo 341).
@@ -1185,45 +1185,122 @@ abstract class _$TopicPosts extends $AsyncNotifier<PagedList<ForumPost>> {
 /// Recent topics from the offline delta-sync mirror. On open it runs a delta
 /// sync (consuming `/sync/` upserts + tombstones); if the network is
 /// unavailable it falls back to the cached mirror so the list works offline.
+///
+/// Keyed on [viewer] (see [forumViewerProvider]): every end of a session
+/// clears the mirror on disk (audit F24), and a new viewer must not keep the
+/// last one's titles in memory either.
 
 @ProviderFor(RecentTopics)
-final recentTopicsProvider = RecentTopicsProvider._();
+final recentTopicsProvider = RecentTopicsFamily._();
 
 /// Recent topics from the offline delta-sync mirror. On open it runs a delta
 /// sync (consuming `/sync/` upserts + tombstones); if the network is
 /// unavailable it falls back to the cached mirror so the list works offline.
+///
+/// Keyed on [viewer] (see [forumViewerProvider]): every end of a session
+/// clears the mirror on disk (audit F24), and a new viewer must not keep the
+/// last one's titles in memory either.
 final class RecentTopicsProvider
     extends $AsyncNotifierProvider<RecentTopics, List<ForumTopicStub>> {
   /// Recent topics from the offline delta-sync mirror. On open it runs a delta
   /// sync (consuming `/sync/` upserts + tombstones); if the network is
   /// unavailable it falls back to the cached mirror so the list works offline.
-  RecentTopicsProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: null,
-        name: r'recentTopicsProvider',
-        isAutoDispose: true,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
+  ///
+  /// Keyed on [viewer] (see [forumViewerProvider]): every end of a session
+  /// clears the mirror on disk (audit F24), and a new viewer must not keep the
+  /// last one's titles in memory either.
+  RecentTopicsProvider._({
+    required RecentTopicsFamily super.from,
+    required String? super.argument,
+  }) : super(
+         retry: null,
+         name: r'recentTopicsProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
 
   @override
   String debugGetCreateSourceHash() => _$recentTopicsHash();
 
+  @override
+  String toString() {
+    return r'recentTopicsProvider'
+        ''
+        '($argument)';
+  }
+
   @$internal
   @override
   RecentTopics create() => RecentTopics();
+
+  @override
+  bool operator ==(Object other) {
+    return other is RecentTopicsProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
 }
 
-String _$recentTopicsHash() => r'cdcb6d8f9a4e74121f3c1ec6624c30f74aa578a5';
+String _$recentTopicsHash() => r'd2914daa45d35e50829da05d4acfbbe58430ea72';
 
 /// Recent topics from the offline delta-sync mirror. On open it runs a delta
 /// sync (consuming `/sync/` upserts + tombstones); if the network is
 /// unavailable it falls back to the cached mirror so the list works offline.
+///
+/// Keyed on [viewer] (see [forumViewerProvider]): every end of a session
+/// clears the mirror on disk (audit F24), and a new viewer must not keep the
+/// last one's titles in memory either.
+
+final class RecentTopicsFamily extends $Family
+    with
+        $ClassFamilyOverride<
+          RecentTopics,
+          AsyncValue<List<ForumTopicStub>>,
+          List<ForumTopicStub>,
+          FutureOr<List<ForumTopicStub>>,
+          String?
+        > {
+  RecentTopicsFamily._()
+    : super(
+        retry: null,
+        name: r'recentTopicsProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// Recent topics from the offline delta-sync mirror. On open it runs a delta
+  /// sync (consuming `/sync/` upserts + tombstones); if the network is
+  /// unavailable it falls back to the cached mirror so the list works offline.
+  ///
+  /// Keyed on [viewer] (see [forumViewerProvider]): every end of a session
+  /// clears the mirror on disk (audit F24), and a new viewer must not keep the
+  /// last one's titles in memory either.
+
+  RecentTopicsProvider call(String? viewer) =>
+      RecentTopicsProvider._(argument: viewer, from: this);
+
+  @override
+  String toString() => r'recentTopicsProvider';
+}
+
+/// Recent topics from the offline delta-sync mirror. On open it runs a delta
+/// sync (consuming `/sync/` upserts + tombstones); if the network is
+/// unavailable it falls back to the cached mirror so the list works offline.
+///
+/// Keyed on [viewer] (see [forumViewerProvider]): every end of a session
+/// clears the mirror on disk (audit F24), and a new viewer must not keep the
+/// last one's titles in memory either.
 
 abstract class _$RecentTopics extends $AsyncNotifier<List<ForumTopicStub>> {
-  FutureOr<List<ForumTopicStub>> build();
+  late final _$args = ref.$arg as String?;
+  String? get viewer => _$args;
+
+  FutureOr<List<ForumTopicStub>> build(String? viewer);
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
@@ -1241,7 +1318,7 @@ abstract class _$RecentTopics extends $AsyncNotifier<List<ForumTopicStub>> {
               Object?,
               Object?
             >;
-    return element.handleCreate(ref, build);
+    return element.handleCreate(ref, () => build(_$args));
   }
 }
 
@@ -1621,11 +1698,23 @@ abstract class _$ExpandedActivityTopic extends $Notifier<int?> {
 }
 
 /// The user's notifications (cursor-paginated, newest first).
+///
+/// The member's own feeds ([NotificationsFeed], [ConversationsFeed],
+/// [BookmarksFeed], the DM threads and the two unread counts) are keyed on
+/// [viewer] (see [forumViewerProvider]), so a screen the forum branch keeps
+/// offstage through a session expiry into another account reads a fresh
+/// element, never the last member's rows (audit F89).
 
 @ProviderFor(NotificationsFeed)
-final notificationsFeedProvider = NotificationsFeedProvider._();
+final notificationsFeedProvider = NotificationsFeedFamily._();
 
 /// The user's notifications (cursor-paginated, newest first).
+///
+/// The member's own feeds ([NotificationsFeed], [ConversationsFeed],
+/// [BookmarksFeed], the DM threads and the two unread counts) are keyed on
+/// [viewer] (see [forumViewerProvider]), so a screen the forum branch keeps
+/// offstage through a session expiry into another account reads a fresh
+/// element, never the last member's rows (audit F89).
 final class NotificationsFeedProvider
     extends
         $AsyncNotifierProvider<
@@ -1633,32 +1722,105 @@ final class NotificationsFeedProvider
           PagedList<ForumNotification>
         > {
   /// The user's notifications (cursor-paginated, newest first).
-  NotificationsFeedProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: null,
-        name: r'notificationsFeedProvider',
-        isAutoDispose: true,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
+  ///
+  /// The member's own feeds ([NotificationsFeed], [ConversationsFeed],
+  /// [BookmarksFeed], the DM threads and the two unread counts) are keyed on
+  /// [viewer] (see [forumViewerProvider]), so a screen the forum branch keeps
+  /// offstage through a session expiry into another account reads a fresh
+  /// element, never the last member's rows (audit F89).
+  NotificationsFeedProvider._({
+    required NotificationsFeedFamily super.from,
+    required String? super.argument,
+  }) : super(
+         retry: null,
+         name: r'notificationsFeedProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
 
   @override
   String debugGetCreateSourceHash() => _$notificationsFeedHash();
 
+  @override
+  String toString() {
+    return r'notificationsFeedProvider'
+        ''
+        '($argument)';
+  }
+
   @$internal
   @override
   NotificationsFeed create() => NotificationsFeed();
+
+  @override
+  bool operator ==(Object other) {
+    return other is NotificationsFeedProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
 }
 
-String _$notificationsFeedHash() => r'b0c0e73f3cd0cb8f32e0541f95ba6643acf32b19';
+String _$notificationsFeedHash() => r'bfb7adf4006afc418dbaced315861b0729e91ee9';
 
 /// The user's notifications (cursor-paginated, newest first).
+///
+/// The member's own feeds ([NotificationsFeed], [ConversationsFeed],
+/// [BookmarksFeed], the DM threads and the two unread counts) are keyed on
+/// [viewer] (see [forumViewerProvider]), so a screen the forum branch keeps
+/// offstage through a session expiry into another account reads a fresh
+/// element, never the last member's rows (audit F89).
+
+final class NotificationsFeedFamily extends $Family
+    with
+        $ClassFamilyOverride<
+          NotificationsFeed,
+          AsyncValue<PagedList<ForumNotification>>,
+          PagedList<ForumNotification>,
+          FutureOr<PagedList<ForumNotification>>,
+          String?
+        > {
+  NotificationsFeedFamily._()
+    : super(
+        retry: null,
+        name: r'notificationsFeedProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The user's notifications (cursor-paginated, newest first).
+  ///
+  /// The member's own feeds ([NotificationsFeed], [ConversationsFeed],
+  /// [BookmarksFeed], the DM threads and the two unread counts) are keyed on
+  /// [viewer] (see [forumViewerProvider]), so a screen the forum branch keeps
+  /// offstage through a session expiry into another account reads a fresh
+  /// element, never the last member's rows (audit F89).
+
+  NotificationsFeedProvider call(String? viewer) =>
+      NotificationsFeedProvider._(argument: viewer, from: this);
+
+  @override
+  String toString() => r'notificationsFeedProvider';
+}
+
+/// The user's notifications (cursor-paginated, newest first).
+///
+/// The member's own feeds ([NotificationsFeed], [ConversationsFeed],
+/// [BookmarksFeed], the DM threads and the two unread counts) are keyed on
+/// [viewer] (see [forumViewerProvider]), so a screen the forum branch keeps
+/// offstage through a session expiry into another account reads a fresh
+/// element, never the last member's rows (audit F89).
 
 abstract class _$NotificationsFeed
     extends $AsyncNotifier<PagedList<ForumNotification>> {
-  FutureOr<PagedList<ForumNotification>> build();
+  late final _$args = ref.$arg as String?;
+  String? get viewer => _$args;
+
+  FutureOr<PagedList<ForumNotification>> build(String? viewer);
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
@@ -1679,14 +1841,14 @@ abstract class _$NotificationsFeed
               Object?,
               Object?
             >;
-    return element.handleCreate(ref, build);
+    return element.handleCreate(ref, () => build(_$args));
   }
 }
 
 /// Unread notification count, for the bell badge.
 
 @ProviderFor(unreadNotificationCount)
-final unreadNotificationCountProvider = UnreadNotificationCountProvider._();
+final unreadNotificationCountProvider = UnreadNotificationCountFamily._();
 
 /// Unread notification count, for the bell badge.
 
@@ -1694,19 +1856,26 @@ final class UnreadNotificationCountProvider
     extends $FunctionalProvider<AsyncValue<int>, int, FutureOr<int>>
     with $FutureModifier<int>, $FutureProvider<int> {
   /// Unread notification count, for the bell badge.
-  UnreadNotificationCountProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: null,
-        name: r'unreadNotificationCountProvider',
-        isAutoDispose: true,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
+  UnreadNotificationCountProvider._({
+    required UnreadNotificationCountFamily super.from,
+    required String? super.argument,
+  }) : super(
+         retry: null,
+         name: r'unreadNotificationCountProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
 
   @override
   String debugGetCreateSourceHash() => _$unreadNotificationCountHash();
+
+  @override
+  String toString() {
+    return r'unreadNotificationCountProvider'
+        ''
+        '($argument)';
+  }
 
   @$internal
   @override
@@ -1715,19 +1884,55 @@ final class UnreadNotificationCountProvider
 
   @override
   FutureOr<int> create(Ref ref) {
-    return unreadNotificationCount(ref);
+    final argument = this.argument as String?;
+    return unreadNotificationCount(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is UnreadNotificationCountProvider &&
+        other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
   }
 }
 
 String _$unreadNotificationCountHash() =>
-    r'3784b4dd8f950ce5e47db8f36a1de116af0f98bc';
+    r'b7d76a47979f45777fd0b8efc9bcf08d275b5876';
+
+/// Unread notification count, for the bell badge.
+
+final class UnreadNotificationCountFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<int>, String?> {
+  UnreadNotificationCountFamily._()
+    : super(
+        retry: null,
+        name: r'unreadNotificationCountProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// Unread notification count, for the bell badge.
+
+  UnreadNotificationCountProvider call(String? viewer) =>
+      UnreadNotificationCountProvider._(argument: viewer, from: this);
+
+  @override
+  String toString() => r'unreadNotificationCountProvider';
+}
 
 /// The user's DM inbox (cursor-paginated, most recent activity first).
+/// Keyed on [viewer], like [NotificationsFeed].
 
 @ProviderFor(ConversationsFeed)
-final conversationsFeedProvider = ConversationsFeedProvider._();
+final conversationsFeedProvider = ConversationsFeedFamily._();
 
 /// The user's DM inbox (cursor-paginated, most recent activity first).
+/// Keyed on [viewer], like [NotificationsFeed].
 final class ConversationsFeedProvider
     extends
         $AsyncNotifierProvider<
@@ -1735,32 +1940,85 @@ final class ConversationsFeedProvider
           PagedList<ForumConversation>
         > {
   /// The user's DM inbox (cursor-paginated, most recent activity first).
-  ConversationsFeedProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: null,
-        name: r'conversationsFeedProvider',
-        isAutoDispose: true,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
+  /// Keyed on [viewer], like [NotificationsFeed].
+  ConversationsFeedProvider._({
+    required ConversationsFeedFamily super.from,
+    required String? super.argument,
+  }) : super(
+         retry: null,
+         name: r'conversationsFeedProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
 
   @override
   String debugGetCreateSourceHash() => _$conversationsFeedHash();
 
+  @override
+  String toString() {
+    return r'conversationsFeedProvider'
+        ''
+        '($argument)';
+  }
+
   @$internal
   @override
   ConversationsFeed create() => ConversationsFeed();
+
+  @override
+  bool operator ==(Object other) {
+    return other is ConversationsFeedProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
 }
 
-String _$conversationsFeedHash() => r'ae0fd6a9ccfac503f3588845005a0ecdc4f7a840';
+String _$conversationsFeedHash() => r'eded9389a1b8ecd5f555cc350902c56cb2abce89';
 
 /// The user's DM inbox (cursor-paginated, most recent activity first).
+/// Keyed on [viewer], like [NotificationsFeed].
+
+final class ConversationsFeedFamily extends $Family
+    with
+        $ClassFamilyOverride<
+          ConversationsFeed,
+          AsyncValue<PagedList<ForumConversation>>,
+          PagedList<ForumConversation>,
+          FutureOr<PagedList<ForumConversation>>,
+          String?
+        > {
+  ConversationsFeedFamily._()
+    : super(
+        retry: null,
+        name: r'conversationsFeedProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The user's DM inbox (cursor-paginated, most recent activity first).
+  /// Keyed on [viewer], like [NotificationsFeed].
+
+  ConversationsFeedProvider call(String? viewer) =>
+      ConversationsFeedProvider._(argument: viewer, from: this);
+
+  @override
+  String toString() => r'conversationsFeedProvider';
+}
+
+/// The user's DM inbox (cursor-paginated, most recent activity first).
+/// Keyed on [viewer], like [NotificationsFeed].
 
 abstract class _$ConversationsFeed
     extends $AsyncNotifier<PagedList<ForumConversation>> {
-  FutureOr<PagedList<ForumConversation>> build();
+  late final _$args = ref.$arg as String?;
+  String? get viewer => _$args;
+
+  FutureOr<PagedList<ForumConversation>> build(String? viewer);
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
@@ -1781,14 +2039,14 @@ abstract class _$ConversationsFeed
               Object?,
               Object?
             >;
-    return element.handleCreate(ref, build);
+    return element.handleCreate(ref, () => build(_$args));
   }
 }
 
 /// Conversations with unread messages, for the inbox badge.
 
 @ProviderFor(unreadConversationCount)
-final unreadConversationCountProvider = UnreadConversationCountProvider._();
+final unreadConversationCountProvider = UnreadConversationCountFamily._();
 
 /// Conversations with unread messages, for the inbox badge.
 
@@ -1796,19 +2054,26 @@ final class UnreadConversationCountProvider
     extends $FunctionalProvider<AsyncValue<int>, int, FutureOr<int>>
     with $FutureModifier<int>, $FutureProvider<int> {
   /// Conversations with unread messages, for the inbox badge.
-  UnreadConversationCountProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: null,
-        name: r'unreadConversationCountProvider',
-        isAutoDispose: true,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
+  UnreadConversationCountProvider._({
+    required UnreadConversationCountFamily super.from,
+    required String? super.argument,
+  }) : super(
+         retry: null,
+         name: r'unreadConversationCountProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
 
   @override
   String debugGetCreateSourceHash() => _$unreadConversationCountHash();
+
+  @override
+  String toString() {
+    return r'unreadConversationCountProvider'
+        ''
+        '($argument)';
+  }
 
   @$internal
   @override
@@ -1817,53 +2082,144 @@ final class UnreadConversationCountProvider
 
   @override
   FutureOr<int> create(Ref ref) {
-    return unreadConversationCount(ref);
+    final argument = this.argument as String?;
+    return unreadConversationCount(ref, argument);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is UnreadConversationCountProvider &&
+        other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
   }
 }
 
 String _$unreadConversationCountHash() =>
-    r'7e9a51b095a5ef04f5d7029917574f955b32a89f';
+    r'2241bee965e4c2cbfefc7c5619bfd56e24242368';
+
+/// Conversations with unread messages, for the inbox badge.
+
+final class UnreadConversationCountFamily extends $Family
+    with $FunctionalFamilyOverride<FutureOr<int>, String?> {
+  UnreadConversationCountFamily._()
+    : super(
+        retry: null,
+        name: r'unreadConversationCountProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// Conversations with unread messages, for the inbox badge.
+
+  UnreadConversationCountProvider call(String? viewer) =>
+      UnreadConversationCountProvider._(argument: viewer, from: this);
+
+  @override
+  String toString() => r'unreadConversationCountProvider';
+}
 
 /// The viewer's bookmarked topics (cursor-paginated, most recently
-/// bookmarked first — todo 341).
+/// bookmarked first — todo 341). Keyed on [viewer], like
+/// [NotificationsFeed].
 
 @ProviderFor(BookmarksFeed)
-final bookmarksFeedProvider = BookmarksFeedProvider._();
+final bookmarksFeedProvider = BookmarksFeedFamily._();
 
 /// The viewer's bookmarked topics (cursor-paginated, most recently
-/// bookmarked first — todo 341).
+/// bookmarked first — todo 341). Keyed on [viewer], like
+/// [NotificationsFeed].
 final class BookmarksFeedProvider
     extends
         $AsyncNotifierProvider<BookmarksFeed, PagedList<ForumTopicListItem>> {
   /// The viewer's bookmarked topics (cursor-paginated, most recently
-  /// bookmarked first — todo 341).
-  BookmarksFeedProvider._()
-    : super(
-        from: null,
-        argument: null,
-        retry: null,
-        name: r'bookmarksFeedProvider',
-        isAutoDispose: true,
-        dependencies: null,
-        $allTransitiveDependencies: null,
-      );
+  /// bookmarked first — todo 341). Keyed on [viewer], like
+  /// [NotificationsFeed].
+  BookmarksFeedProvider._({
+    required BookmarksFeedFamily super.from,
+    required String? super.argument,
+  }) : super(
+         retry: null,
+         name: r'bookmarksFeedProvider',
+         isAutoDispose: true,
+         dependencies: null,
+         $allTransitiveDependencies: null,
+       );
 
   @override
   String debugGetCreateSourceHash() => _$bookmarksFeedHash();
 
+  @override
+  String toString() {
+    return r'bookmarksFeedProvider'
+        ''
+        '($argument)';
+  }
+
   @$internal
   @override
   BookmarksFeed create() => BookmarksFeed();
+
+  @override
+  bool operator ==(Object other) {
+    return other is BookmarksFeedProvider && other.argument == argument;
+  }
+
+  @override
+  int get hashCode {
+    return argument.hashCode;
+  }
 }
 
-String _$bookmarksFeedHash() => r'91a4e431dffd7886366c3a89c4385b363f20e686';
+String _$bookmarksFeedHash() => r'e4496a6ed6123cfd7e133947c3d004860801ea5c';
 
 /// The viewer's bookmarked topics (cursor-paginated, most recently
-/// bookmarked first — todo 341).
+/// bookmarked first — todo 341). Keyed on [viewer], like
+/// [NotificationsFeed].
+
+final class BookmarksFeedFamily extends $Family
+    with
+        $ClassFamilyOverride<
+          BookmarksFeed,
+          AsyncValue<PagedList<ForumTopicListItem>>,
+          PagedList<ForumTopicListItem>,
+          FutureOr<PagedList<ForumTopicListItem>>,
+          String?
+        > {
+  BookmarksFeedFamily._()
+    : super(
+        retry: null,
+        name: r'bookmarksFeedProvider',
+        dependencies: null,
+        $allTransitiveDependencies: null,
+        isAutoDispose: true,
+      );
+
+  /// The viewer's bookmarked topics (cursor-paginated, most recently
+  /// bookmarked first — todo 341). Keyed on [viewer], like
+  /// [NotificationsFeed].
+
+  BookmarksFeedProvider call(String? viewer) =>
+      BookmarksFeedProvider._(argument: viewer, from: this);
+
+  @override
+  String toString() => r'bookmarksFeedProvider';
+}
+
+/// The viewer's bookmarked topics (cursor-paginated, most recently
+/// bookmarked first — todo 341). Keyed on [viewer], like
+/// [NotificationsFeed].
 
 abstract class _$BookmarksFeed
     extends $AsyncNotifier<PagedList<ForumTopicListItem>> {
-  FutureOr<PagedList<ForumTopicListItem>> build();
+  late final _$args = ref.$arg as String?;
+  String? get viewer => _$args;
+
+  FutureOr<PagedList<ForumTopicListItem>> build(String? viewer);
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
@@ -1884,7 +2240,7 @@ abstract class _$BookmarksFeed
               Object?,
               Object?
             >;
-    return element.handleCreate(ref, build);
+    return element.handleCreate(ref, () => build(_$args));
   }
 }
 
@@ -1912,7 +2268,7 @@ final class ConversationThreadProvider
   /// [ConversationThreadState.messages] reads oldest → newest like a chat.
   ConversationThreadProvider._({
     required ConversationThreadFamily super.from,
-    required String super.argument,
+    required (String, String?) super.argument,
   }) : super(
          retry: null,
          name: r'conversationThreadProvider',
@@ -1928,7 +2284,7 @@ final class ConversationThreadProvider
   String toString() {
     return r'conversationThreadProvider'
         ''
-        '($argument)';
+        '$argument';
   }
 
   @$internal
@@ -1947,7 +2303,7 @@ final class ConversationThreadProvider
 }
 
 String _$conversationThreadHash() =>
-    r'97e5b2b1f1d58103a40ee445f31c490f29859d6a';
+    r'febd86c665573a5dd809de3ba16cb1155e92e118';
 
 /// A 1:1 DM thread with [username] (todo 339): resolves the conversation
 /// (absent until first send), pages older messages, and sends.
@@ -1962,7 +2318,7 @@ final class ConversationThreadFamily extends $Family
           AsyncValue<ConversationThreadState>,
           ConversationThreadState,
           FutureOr<ConversationThreadState>,
-          String
+          (String, String?)
         > {
   ConversationThreadFamily._()
     : super(
@@ -1979,8 +2335,8 @@ final class ConversationThreadFamily extends $Family
   /// Every page from the API is newest-first; it is reversed on the way in so
   /// [ConversationThreadState.messages] reads oldest → newest like a chat.
 
-  ConversationThreadProvider call(String username) =>
-      ConversationThreadProvider._(argument: username, from: this);
+  ConversationThreadProvider call(String username, String? viewer) =>
+      ConversationThreadProvider._(argument: (username, viewer), from: this);
 
   @override
   String toString() => r'conversationThreadProvider';
@@ -1994,10 +2350,11 @@ final class ConversationThreadFamily extends $Family
 
 abstract class _$ConversationThread
     extends $AsyncNotifier<ConversationThreadState> {
-  late final _$args = ref.$arg as String;
-  String get username => _$args;
+  late final _$args = ref.$arg as (String, String?);
+  String get username => _$args.$1;
+  String? get viewer => _$args.$2;
 
-  FutureOr<ConversationThreadState> build(String username);
+  FutureOr<ConversationThreadState> build(String username, String? viewer);
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
@@ -2018,7 +2375,7 @@ abstract class _$ConversationThread
               Object?,
               Object?
             >;
-    return element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args.$1, _$args.$2));
   }
 }
 
@@ -2055,7 +2412,7 @@ final class GroupConversationThreadProvider
   /// messages and sending still work by id, only the title/roster degrade.
   GroupConversationThreadProvider._({
     required GroupConversationThreadFamily super.from,
-    required int super.argument,
+    required (int, String?) super.argument,
   }) : super(
          retry: null,
          name: r'groupConversationThreadProvider',
@@ -2071,7 +2428,7 @@ final class GroupConversationThreadProvider
   String toString() {
     return r'groupConversationThreadProvider'
         ''
-        '($argument)';
+        '$argument';
   }
 
   @$internal
@@ -2091,7 +2448,7 @@ final class GroupConversationThreadProvider
 }
 
 String _$groupConversationThreadHash() =>
-    r'299cfae70610662d4a5f393341dbf1dde30c89b2';
+    r'c429cb185dbe33e19972c0166f9af406ef8144a3';
 
 /// A group DM thread by conversation id (todo 350). Same state shape and
 /// paging as [ConversationThread]; sends through the by-id endpoint and
@@ -2108,7 +2465,7 @@ final class GroupConversationThreadFamily extends $Family
           AsyncValue<ConversationThreadState>,
           ConversationThreadState,
           FutureOr<ConversationThreadState>,
-          int
+          (int, String?)
         > {
   GroupConversationThreadFamily._()
     : super(
@@ -2127,8 +2484,11 @@ final class GroupConversationThreadFamily extends $Family
   /// row not found there leaves [ConversationThreadState.conversation] null —
   /// messages and sending still work by id, only the title/roster degrade.
 
-  GroupConversationThreadProvider call(int conversationId) =>
-      GroupConversationThreadProvider._(argument: conversationId, from: this);
+  GroupConversationThreadProvider call(int conversationId, String? viewer) =>
+      GroupConversationThreadProvider._(
+        argument: (conversationId, viewer),
+        from: this,
+      );
 
   @override
   String toString() => r'groupConversationThreadProvider';
@@ -2144,10 +2504,11 @@ final class GroupConversationThreadFamily extends $Family
 
 abstract class _$GroupConversationThread
     extends $AsyncNotifier<ConversationThreadState> {
-  late final _$args = ref.$arg as int;
-  int get conversationId => _$args;
+  late final _$args = ref.$arg as (int, String?);
+  int get conversationId => _$args.$1;
+  String? get viewer => _$args.$2;
 
-  FutureOr<ConversationThreadState> build(int conversationId);
+  FutureOr<ConversationThreadState> build(int conversationId, String? viewer);
   @$mustCallSuper
   @override
   WhenComplete runBuild() {
@@ -2168,7 +2529,7 @@ abstract class _$GroupConversationThread
               Object?,
               Object?
             >;
-    return element.handleCreate(ref, () => build(_$args));
+    return element.handleCreate(ref, () => build(_$args.$1, _$args.$2));
   }
 }
 
