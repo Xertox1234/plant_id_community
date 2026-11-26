@@ -228,6 +228,11 @@ class FakeForumApi implements ForumApi {
   ForumModerationStatus topicStatus = ForumModerationStatus.published;
   ForumModerationStatus replyStatus = ForumModerationStatus.published;
 
+  /// When set, [createTopic] / [createReply] await it before answering:
+  /// holds a composer submit in flight (audit F31, F116).
+  Completer<void>? createTopicGate;
+  Completer<void>? createReplyGate;
+
   /// Fail the first N create-reply attempts with a 500 before succeeding.
   int failCreateReplyTimes = 0;
 
@@ -741,6 +746,7 @@ class FakeForumApi implements ForumApi {
     createTopicKeys.add(idempotencyKey);
     createTopicBodies.add(body);
     createTopicPolls.add(poll);
+    await createTopicGate?.future;
     return CreateTopicResult(id: 1, slug: slug, status: topicStatus);
   }
 
@@ -752,6 +758,7 @@ class FakeForumApi implements ForumApi {
   }) async {
     createReplyKeys.add(idempotencyKey);
     createReplyBodies.add(body);
+    await createReplyGate?.future;
     final fail = failCreateReplyWith;
     if (fail != null) throw fail;
     if (createReplyKeys.length <= failCreateReplyTimes) {

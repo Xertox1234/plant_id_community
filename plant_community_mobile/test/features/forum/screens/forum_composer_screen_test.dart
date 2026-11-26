@@ -4,6 +4,8 @@
 // or text presence) — plus the ForumComposeArgs.edit / parseForumRichHtmlToMarkup
 // interaction. Split out of forum_read_path_test.dart (already 600+ lines)
 // rather than growing that file further.
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -12,10 +14,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plant_community_mobile/features/forum/forum_format.dart';
 import 'package:plant_community_mobile/features/forum/models/models.dart';
 import 'package:plant_community_mobile/features/forum/models/forum_rich_text_markup.dart';
+import 'package:plant_community_mobile/features/forum/providers/forum_providers.dart';
 import 'package:plant_community_mobile/features/forum/screens/forum_composer_screen.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_api.dart';
 import 'package:plant_community_mobile/features/forum/services/forum_image_picker.dart';
 import 'package:plant_community_mobile/features/forum/widgets/forum_body_renderer.dart';
+import 'package:plant_community_mobile/features/forum/widgets/forum_mention_suggestions.dart';
 import 'package:plant_community_mobile/services/api_service.dart';
 import 'package:plant_community_mobile/services/auth_service.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -100,6 +104,7 @@ Future<TextSpan> _pumpRenderedBody(
 void main() {
   _backGuardTests();
   _errorPlacementTests();
+  _inFlightSubmitTests();
   group('rich text composer round-trip (todo 314) — compose -> submit -> '
       'render, one test per mark', () {
     testWidgets('bold', (tester) async {
@@ -415,6 +420,7 @@ Future<void> _pumpComposerBehindHome(
   FakeForumApi api, {
   ForumComposeArgs args = const ForumComposeArgs.reply(topicId: 10),
   ForumImagePicker imagePicker = const DeviceForumImagePicker(),
+  void Function(Object? result)? onResult,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -426,12 +432,17 @@ Future<void> _pumpComposerBehindHome(
         home: Builder(
           builder: (context) => Scaffold(
             body: TextButton(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) =>
-                      ForumComposerScreen(args: args, imagePicker: imagePicker),
-                ),
-              ),
+              onPressed: () async {
+                final result = await Navigator.of(context).push(
+                  MaterialPageRoute<Object?>(
+                    builder: (_) => ForumComposerScreen(
+                      args: args,
+                      imagePicker: imagePicker,
+                    ),
+                  ),
+                );
+                onResult?.call(result);
+              },
               child: const Text('open composer'),
             ),
           ),
@@ -773,4 +784,234 @@ void _backGuardTests() {
       expect(args.initialBodyText, isEmpty);
     });
   });
+}
+
+/// Audit 2026-11-24 F31 / F116: while Post is in flight the draft is being
+/// sent, so back must not offer to discard it, and nothing the request was
+/// built from may change under it.
+void _inFlightSubmitTests() {
+  group('a submit in flight', () {
+    testWidgets('back does not ask to discard, and the result still arrives', (
+      tester,
+    ) async {
+      final gate = Completer<void>();
+      final api = FakeForumApi()..createReplyGate = gate;
+      final results = <Object?>[];
+      await _pumpComposerBehindHome(tester, api, onResult: results.add);
+      await tester.enterText(find.byType(TextField), 'sending');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+      await tester.pump();
+
+      await tester.pageBack();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Discard draft?'), findsNothing);
+      expect(find.byType(ForumComposerScreen), findsOneWidget);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(ForumComposerScreen), findsNothing);
+      expect(results, [true]);
+    });
+
+    testWidgets('photo and poll controls are disabled', (tester) async {
+      final gate = Completer<void>();
+      final api = FakeForumApi()..createTopicGate = gate;
+      await _pumpComposerBehindHome(
+        tester,
+        api,
+        args: const ForumComposeArgs.topic(boardSlug: 'help', canPoll: true),
+      );
+      await tester.enterText(find.byType(TextField).first, 'A title');
+      await tester.enterText(find.byType(TextField).at(1), 'A body');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+      await tester.pump();
+
+      bool enabled(String label) => tester
+          .widget<ButtonStyleButton>(find.widgetWithText(OutlinedButton, label))
+          .enabled;
+      expect(enabled('Add photo'), isFalse);
+      expect(enabled('Choose from your photos'), isFalse);
+      expect(enabled('Add poll'), isFalse);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('an open poll form and Remove photo are disabled', (
+      tester,
+    ) async {
+      final gate = Completer<void>();
+      final api = FakeForumApi()..createTopicGate = gate;
+      await _pumpComposerBehindHome(
+        tester,
+        api,
+        args: const ForumComposeArgs.topic(boardSlug: 'help', canPoll: true),
+        imagePicker: FakeForumImagePicker(nextPath: '/tmp/leaf.jpg'),
+      );
+      await tester.enterText(find.byType(TextField).first, 'A title');
+      await tester.enterText(find.byType(TextField).at(1), 'A body');
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Add photo'));
+      // Bounded pumps: the thumbnail spinner never settles in the harness.
+      await tester.pump();
+      await tester.pump();
+      final addPoll = find.widgetWithText(OutlinedButton, 'Add poll');
+      await tester.ensureVisible(addPoll);
+      await tester.pump();
+      await tester.tap(addPoll);
+      await tester.pump();
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Question'),
+        'Which pot?',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Option 1'),
+        'Clay',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Option 2'),
+        'Plastic',
+      );
+      await tester.pump();
+      final post = find.widgetWithText(FilledButton, 'Post');
+      await tester.ensureVisible(post);
+      await tester.pump();
+      await tester.tap(post);
+      await tester.pump();
+
+      IconButton iconButton(String tooltip) => tester.widget<IconButton>(
+        find.ancestor(
+          of: find.byTooltip(tooltip),
+          matching: find.byType(IconButton),
+        ),
+      );
+      expect(iconButton('Remove photo').onPressed, isNull);
+      expect(iconButton('Remove poll').onPressed, isNull);
+      for (final label in ['Question', 'Option 1', 'Option 2']) {
+        expect(
+          tester
+              .widget<TextField>(find.widgetWithText(TextField, label))
+              .enabled,
+          isFalse,
+          reason: label,
+        );
+      }
+      expect(
+        tester
+            .widget<ButtonStyleButton>(
+              find.widgetWithText(OutlinedButton, 'Add option'),
+            )
+            .enabled,
+        isFalse,
+      );
+
+      gate.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    });
+
+    testWidgets('typing in the body, the toolbar and Remove quote change '
+        'nothing', (tester) async {
+      final gate = Completer<void>();
+      final api = FakeForumApi()..createReplyGate = gate;
+      await _pumpComposerBehindHome(
+        tester,
+        api,
+        args: const ForumComposeArgs.reply(
+          topicId: 10,
+          quote: ForumQuoteDraft(
+            postId: 2,
+            text: 'Water it less.',
+            authorName: 'Bob',
+          ),
+        ),
+      );
+      final body = find.byType(TextField);
+      await tester.enterText(body, 'sending');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+      await tester.pump();
+
+      String bodyText() => tester.widget<TextField>(body).controller!.text;
+      await _typeWhileInFlight(tester, body, 'changed');
+      expect(bodyText(), 'sending');
+      await tester.tap(find.byTooltip('Bold'));
+      await tester.pump();
+      expect(bodyText(), 'sending');
+      await tester.tap(find.byTooltip('Remove quote'));
+      await tester.pump();
+      expect(find.text('Water it less.'), findsOneWidget);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(api.createReplyBodies.single.first['type'], 'post_quote');
+    });
+
+    testWidgets('typing in the title changes nothing', (tester) async {
+      final gate = Completer<void>();
+      final api = FakeForumApi()..createTopicGate = gate;
+      await _pumpComposerBehindHome(
+        tester,
+        api,
+        args: const ForumComposeArgs.topic(boardSlug: 'help'),
+      );
+      final title = find.byType(TextField).first;
+      await tester.enterText(title, 'A title');
+      await tester.enterText(find.byType(TextField).at(1), 'A body');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+      await tester.pump();
+
+      await _typeWhileInFlight(tester, title, 'Another title');
+      expect(tester.widget<TextField>(title).controller!.text, 'A title');
+
+      gate.complete();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a mention suggestion cannot be inserted', (tester) async {
+      final gate = Completer<void>();
+      final api = FakeForumApi()
+        ..createReplyGate = gate
+        ..mentionUsers = [mentionUser('alice')];
+      await _pumpComposerBehindHome(tester, api);
+      final body = find.byType(TextField);
+      await tester.enterText(body, 'Thanks @al');
+      await tester.pump(forumMentionDebounce);
+      await tester.pump();
+      final alice = find.descendant(
+        of: find.byType(ForumMentionSuggestions),
+        matching: find.text('@alice'),
+      );
+      expect(alice, findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Post'));
+      await tester.pump();
+
+      if (alice.evaluate().isNotEmpty) {
+        await tester.tap(alice, warnIfMissed: false);
+        await tester.pump();
+      }
+      expect(tester.widget<TextField>(body).controller!.text, 'Thanks @al');
+
+      gate.complete();
+      await tester.pumpAndSettle();
+    });
+  });
+}
+
+/// Tries to type into [field] while a submit is in flight. A read-only
+/// field attaches no keyboard, so the harness has nothing to type into;
+/// that counts as "typing had no effect", which the caller then asserts.
+Future<void> _typeWhileInFlight(
+  WidgetTester tester,
+  Finder field,
+  String text,
+) async {
+  await tester.showKeyboard(field);
+  if (tester.testTextInput.isRegistered && tester.testTextInput.hasAnyClients) {
+    tester.testTextInput.enterText(text);
+  }
+  await tester.pump();
 }

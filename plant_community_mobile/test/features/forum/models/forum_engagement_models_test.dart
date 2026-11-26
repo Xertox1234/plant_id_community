@@ -347,6 +347,18 @@ void main() {
       expect(source, contains(withoutMark(draft.text)));
     });
 
+    test('a cut never splits an emoji made of several code points (F25)', () {
+      // A flag is two regional indicators; a skin-tone thumbs-up is a base
+      // plus a modifier. Neither half alone is the emoji that was posted.
+      for (final emoji in const ['🇨🇦', '👍🏽']) {
+        final lead = 'x' * (forumQuoteMaxChars - 2);
+        final draft = forumQuoteDraft(
+          post(body: [ParagraphBlock('$lead$emoji tail')]),
+        )!;
+        expect(draft.text, '$lead…', reason: emoji);
+      }
+    });
+
     test('keeps literal marker characters and escaped markup as typed', () {
       final draft = forumQuoteDraft(
         post(body: const [ParagraphBlock('2 * 3 * 4 _x_ &lt;p&gt;')]),

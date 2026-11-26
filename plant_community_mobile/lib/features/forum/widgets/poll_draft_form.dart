@@ -43,12 +43,17 @@ class PollDraftForm extends StatefulWidget {
     required this.onChanged,
     required this.onRemove,
     this.pickCloseTime = pickForumPollCloseTime,
+    this.enabled = true,
   });
 
   final ForumPollDraft initial;
   final ValueChanged<ForumPollDraft> onChanged;
   final VoidCallback onRemove;
   final Future<DateTime?> Function(BuildContext context) pickCloseTime;
+
+  /// False locks every control, as while the composer's submit is in flight
+  /// (audit F116).
+  final bool enabled;
 
   @override
   State<PollDraftForm> createState() => _PollDraftFormState();
@@ -125,13 +130,14 @@ class _PollDraftFormState extends State<PollDraftForm> {
               IconButton(
                 tooltip: 'Remove poll',
                 icon: const Icon(LucideIcons.x, size: 20),
-                onPressed: widget.onRemove,
+                onPressed: widget.enabled ? widget.onRemove : null,
               ),
             ],
           ),
           const SizedBox(height: AppSpacing.xs),
           TextField(
             controller: _question,
+            enabled: widget.enabled,
             decoration: const InputDecoration(
               labelText: 'Question',
               border: OutlineInputBorder(),
@@ -149,6 +155,7 @@ class _PollDraftFormState extends State<PollDraftForm> {
             const SizedBox(height: AppSpacing.sm),
             TextField(
               controller: _options[i],
+              enabled: widget.enabled,
               decoration: InputDecoration(
                 labelText: 'Option ${i + 1}',
                 border: const OutlineInputBorder(),
@@ -166,7 +173,7 @@ class _PollDraftFormState extends State<PollDraftForm> {
           if (_options.length < ForumPollDraft.maxOptions) ...[
             const SizedBox(height: AppSpacing.sm),
             OutlinedButton.icon(
-              onPressed: _addOption,
+              onPressed: widget.enabled ? _addOption : null,
               icon: const Icon(LucideIcons.plus),
               label: const Text('Add option'),
             ),
@@ -175,6 +182,7 @@ class _PollDraftFormState extends State<PollDraftForm> {
           const Divider(height: 1),
           PopupMenuButton<int>(
             tooltip: 'How many options a voter can pick',
+            enabled: widget.enabled,
             onSelected: (count) {
               _maxChoices = count;
               _changed();
@@ -193,7 +201,7 @@ class _PollDraftFormState extends State<PollDraftForm> {
           ),
           const Divider(height: 1),
           InkWell(
-            onTap: _pickClose,
+            onTap: widget.enabled ? _pickClose : null,
             child: _SettingRow(
               label: 'Closes',
               value: closesAt == null
@@ -208,10 +216,12 @@ class _PollDraftFormState extends State<PollDraftForm> {
                         IconButton(
                           tooltip: 'Clear closing time',
                           icon: const Icon(LucideIcons.x, size: 18),
-                          onPressed: () {
-                            _closesAt = null;
-                            _changed();
-                          },
+                          onPressed: widget.enabled
+                              ? () {
+                                  _closesAt = null;
+                                  _changed();
+                                }
+                              : null,
                         ),
                       ],
                     ),

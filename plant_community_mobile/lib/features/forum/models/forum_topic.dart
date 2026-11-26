@@ -95,6 +95,7 @@ class ForumTopicListItem {
       lastPostAuthor: detail.lastPostAuthor,
       isUnread: false,
       isSolved: detail.isSolved,
+      tags: detail.tags,
     );
   }
 }
@@ -146,6 +147,7 @@ class ForumTopicDetail {
     this.canBlock = false,
     this.identification,
     this.poll,
+    this.tags = const [],
   });
 
   final int id;
@@ -193,6 +195,11 @@ class ForumTopicDetail {
   /// The topic's poll with server-computed results (audit M8), detail-only.
   final ForumPoll? poll;
 
+  /// The topic's tag names (`tags`), as the server spells them — carried
+  /// into [ForumTopicListItem.fromDetail] so a topic bookmarked from the
+  /// thread screen keeps its tags in Saved (audit F140).
+  final List<String> tags;
+
   bool get isLocked => isClosed || locked;
   bool get isSolved => solvedPostId != null;
 
@@ -235,6 +242,7 @@ class ForumTopicDetail {
       canBlock: canBlock,
       identification: identification,
       poll: poll ?? this.poll,
+      tags: tags,
     );
   }
 
@@ -277,6 +285,10 @@ class ForumTopicDetail {
       poll: json['poll'] is Map<String, dynamic>
           ? ForumPoll.fromJson(json['poll'] as Map<String, dynamic>)
           : null,
+      tags: [
+        for (final tag in json['tags'] as List<dynamic>? ?? const [])
+          if (tag is String && tag.isNotEmpty) tag,
+      ],
     );
   }
 }

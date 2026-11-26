@@ -598,11 +598,13 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
     // governs maybePop (AppBar back, system back); the explicit
     // `Navigator.pop` after a published submit is unaffected. A pending
     // (moderation-queued) submit keeps the text in the controllers behind
-    // the _PendingView, but it HAS been sent — never prompt for it.
+    // the _PendingView, but it HAS been sent — never prompt for it. Back
+    // while a submit is in flight does nothing (audit F31): the draft is
+    // being sent, and the submit pops with its result when it answers.
     return PopScope(
-      canPop: _pending || !_hasUnsentInput,
+      canPop: !_submitting && (_pending || !_hasUnsentInput),
       onPopInvokedWithResult: (didPop, _) async {
-        if (didPop) return;
+        if (didPop || _submitting) return;
         final discard = await _confirmDiscard();
         if (discard && context.mounted) Navigator.of(context).pop();
       },
@@ -671,6 +673,9 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
               ),
               textInputAction: TextInputAction.next,
               maxLength: 255,
+              // Read-only while Post is in flight (audit F116): an edit made
+              // now would not be in the request, and success drops it.
+              readOnly: _submitting,
               // No onChanged — the `_titleController` listener registered in
               // initState rebuilds on every change, like the body field below.
             ),
@@ -681,16 +686,24 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
               padding: const EdgeInsets.only(bottom: AppSpacing.sm),
               child: _QuoteDraft(
                 quote: _quote!,
-                onRemove: () => setState(() => _quote = null),
+                onRemove: _submitting
+                    ? null
+                    : () => setState(() => _quote = null),
               ),
             ),
           Align(
             alignment: Alignment.centerLeft,
-            child: ForumRichTextToolbar(controller: _bodyController),
+            child: ForumRichTextToolbar(
+              controller: _bodyController,
+              enabled: !_submitting,
+            ),
           ),
           // Above the field, not below it: a strip under a five-line field
           // would sit beneath the keyboard (todo 341 wave 4).
-          ForumMentionSuggestions(controller: _bodyController),
+          ForumMentionSuggestions(
+            controller: _bodyController,
+            enabled: !_submitting,
+          ),
           TextField(
             controller: _bodyController,
             decoration: InputDecoration(
@@ -702,6 +715,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
             ),
             minLines: 5,
             maxLines: 12,
+            readOnly: _submitting,
             // No onChanged here — the `_bodyController` listener registered in
             // initState covers both user-driven edits AND the rich-text
             // toolbar's programmatic `.value =` assignments (todo 314).
@@ -712,7 +726,10 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
             if (_attachedImage != null)
               _AttachedImagePreview(
                 image: _attachedImage!,
-                onRemove: _removePhoto,
+                // Every input the request was built from (title, body,
+                // toolbar, mentions, quote, photo, poll) is locked while a
+                // submit is in flight (audit F116).
+                onRemove: _submitting ? null : _removePhoto,
               )
             else
               Wrap(
@@ -720,7 +737,9 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
                 runSpacing: AppSpacing.sm,
                 children: [
                   OutlinedButton.icon(
-                    onPressed: _uploadingImage ? null : _addPhoto,
+                    onPressed: _uploadingImage || _submitting
+                        ? null
+                        : _addPhoto,
                     icon: _uploadingImage
                         ? const SizedBox(
                             height: 16,
@@ -731,7 +750,9 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
                     label: Text(_uploadingImage ? 'Uploading…' : 'Add photo'),
                   ),
                   OutlinedButton.icon(
-                    onPressed: _uploadingImage ? null : _chooseExistingPhoto,
+                    onPressed: _uploadingImage || _submitting
+                        ? null
+                        : _chooseExistingPhoto,
                     icon: const Icon(LucideIcons.images),
                     label: const Text('Choose from your photos'),
                   ),
@@ -748,8 +769,9 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: OutlinedButton.icon(
-                  onPressed: () =>
-                      setState(() => _poll = const ForumPollDraft()),
+                  onPressed: _submitting
+                      ? null
+                      : () => setState(() => _poll = const ForumPollDraft()),
                   icon: const Icon(LucideIcons.chartColumn),
                   label: const Text('Add poll'),
                 ),
@@ -758,6 +780,7 @@ class _ForumComposerScreenState extends ConsumerState<ForumComposerScreen> {
               PollDraftForm(
                 initial: _poll!,
                 pickCloseTime: widget.pickPollCloseTime,
+                enabled: !_submitting,
                 onChanged: (poll) => setState(() => _poll = poll),
                 onRemove: () => setState(() => _poll = null),
               ),
@@ -855,7 +878,9 @@ class _QuoteDraft extends StatelessWidget {
   const _QuoteDraft({required this.quote, required this.onRemove});
 
   final ForumQuoteDraft quote;
-  final VoidCallback onRemove;
+
+  /// Null disables Remove quote (while a submit is in flight).
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -913,7 +938,9 @@ class _AttachedImagePreview extends StatelessWidget {
   const _AttachedImagePreview({required this.image, required this.onRemove});
 
   final ForumImageBlock image;
-  final VoidCallback onRemove;
+
+  /// Null disables Remove photo (while a submit is in flight).
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {

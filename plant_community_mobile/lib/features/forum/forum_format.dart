@@ -1,3 +1,5 @@
+import 'package:flutter/widgets.dart' show StringCharacters;
+
 import 'models/models.dart';
 
 /// Longest quoted excerpt the "Quote" action pre-fills (todo 341 wave 3):
@@ -32,10 +34,15 @@ ForumQuoteDraft? forumQuoteDraft(ForumPost post) {
   var (:text, :truncated) = forumBodyQuotableText(post.body);
   if (text.isEmpty) return null;
   if (text.length > forumQuoteMaxChars) {
-    var end = forumQuoteMaxChars;
-    // Never cut between the two halves of a surrogate pair: the half left
-    // behind is in no text the server can match.
-    if (text.codeUnitAt(end - 1) & 0xFC00 == 0xD800) end--;
+    // Cut on a grapheme boundary within the UTF-16 budget: never between
+    // the halves of a surrogate pair (the half left behind is in no text
+    // the server can match) nor inside an emoji made of several code points
+    // (a flag, a skin tone), whose first part alone is a different glyph.
+    var end = 0;
+    for (final grapheme in text.characters) {
+      if (end + grapheme.length > forumQuoteMaxChars) break;
+      end += grapheme.length;
+    }
     text = text.substring(0, end).trimRight();
     truncated = true;
   }

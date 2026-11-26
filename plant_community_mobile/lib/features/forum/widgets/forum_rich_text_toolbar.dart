@@ -201,9 +201,16 @@ TextEditingValue _withValidSelection(TextEditingValue value) {
 /// make `find.byType(TextField)` ambiguous in composer-screen widget tests
 /// whenever the dialog happens to be open.
 class ForumRichTextToolbar extends StatelessWidget {
-  const ForumRichTextToolbar({super.key, required this.controller});
+  const ForumRichTextToolbar({
+    super.key,
+    required this.controller,
+    this.enabled = true,
+  });
 
   final TextEditingController controller;
+
+  /// False disables every button (the composer, while a submit is in flight).
+  final bool enabled;
 
   void _wrap(String marker, {String placeholder = ''}) {
     controller.value = wrapInlineMarker(
@@ -292,31 +299,33 @@ class ForumRichTextToolbar extends StatelessWidget {
         IconButton(
           icon: const Icon(LucideIcons.bold),
           tooltip: 'Bold',
-          onPressed: () => _wrap('**'),
+          onPressed: !enabled ? null : () => _wrap('**'),
         ),
         IconButton(
           icon: const Icon(LucideIcons.italic),
           tooltip: 'Italic',
-          onPressed: () => _wrap('_'),
+          onPressed: !enabled ? null : () => _wrap('_'),
         ),
         IconButton(
           icon: const Icon(LucideIcons.code),
           tooltip: 'Inline code',
-          onPressed: () => _wrap('`'),
+          onPressed: !enabled ? null : () => _wrap('`'),
         ),
         IconButton(
           icon: const Icon(LucideIcons.link),
           tooltip: 'Insert link',
-          onPressed: () => _showLinkDialog(context),
+          onPressed: !enabled ? null : () => _showLinkDialog(context),
         ),
         IconButton(
           icon: const Icon(LucideIcons.list),
           tooltip: 'Bulleted list',
-          onPressed: () {
-            controller.value = toggleListPrefix(
-              _withValidSelection(controller.value),
-            );
-          },
+          onPressed: !enabled
+              ? null
+              : () {
+                  controller.value = toggleListPrefix(
+                    _withValidSelection(controller.value),
+                  );
+                },
         ),
       ],
     );
