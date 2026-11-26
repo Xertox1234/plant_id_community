@@ -9,6 +9,7 @@
     "preview": "wrangler dev"
   },
   "allowScripts": {
-    "workerd@1.20261116.1": true
+    "workerd": true,
+    "esbuild": true
   }
 }
