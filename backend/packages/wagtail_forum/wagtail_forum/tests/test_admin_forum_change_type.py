@@ -356,3 +356,21 @@ def test_a_refused_type_change_writes_no_log_entry(admin_client):
 
     assert resp.status_code == 200
     assert not ModelLogEntry.objects.filter(content_type__model="forum").exists()
+
+
+# --- a password forum changing type (audit F2) ---
+
+
+@pytest.mark.parametrize("new_type", [Forum.CATEGORY, Forum.LINK])
+def test_a_password_forum_that_stops_being_a_forum_loses_its_password(new_type):
+    from django.contrib.auth.hashers import make_password
+
+    forum = make_forum(name="Ferns", slug="ferns")
+    forum.password_hash = make_password("hunter22")
+    forum.save(update_fields=["password_hash"])
+
+    forum_structure.change_type(forum, new_type, link_url="https://shop.example.com/")
+
+    forum.refresh_from_db()
+    assert forum.forum_type == new_type
+    assert forum.password_hash == ""

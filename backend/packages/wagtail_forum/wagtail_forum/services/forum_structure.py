@@ -474,6 +474,11 @@ def change_type(
             forum.click_count = 0
         else:
             forum.link_url = ""
+        if new_type != Forum.FORUM:
+            # Only a forum is unlocked by password: a link or category that
+            # kept the hash would show as locked with no way in, and the old
+            # password would come back if it became a forum again (audit F2).
+            forum.password_hash = ""
         forum.forum_type = new_type
         forum.full_clean(exclude=["slug"])
         forum.save()

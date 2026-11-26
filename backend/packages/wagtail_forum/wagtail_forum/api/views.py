@@ -96,6 +96,7 @@ except ImportError:  # pragma: no cover
 from ..blocks import ForumBodyBlock
 from ..collections import get_forum_image_collection
 from ..conf import get_setting
+from ..embeds import stored_embed_urls
 from ..link_previews import link_preview_envelope, link_preview_snapshots
 from ..models import (
     Forum,
@@ -1624,6 +1625,7 @@ class PostWriteView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIVie
 
         post = self._get_patchable(request, post_id)
         self._enforce_writable(post.edit_block(request.user))
+        kept = set(_image_block_ids(post.body.raw_data))
         serializer = PostEditSerializer(
             data=request.data,
             context={
@@ -1636,12 +1638,16 @@ class PostWriteView(UnversionedForumAPIMixin, PrivateForumReadCacheMixin, APIVie
                 # A link card the author keeps is reused as stored — no
                 # refetch, and no change because the page changed (428).
                 "existing_link_previews": link_preview_snapshots(post.body.raw_data),
+                # Embeds and images the post already holds survive the host
+                # switching embeds off and another member's upload (audit
+                # F9, F209); new ones are checked in full.
+                "existing_embed_urls": stored_embed_urls(post.body.raw_data),
+                "existing_image_ids": kept,
             },
         )
         serializer.is_valid(raise_exception=True)
         # Todo 677: an edit may keep the images the post already shows, but a
         # new one needs `attach` on the forum, as on create.
-        kept = set(_image_block_ids(post.body.raw_data))
         added = set(_image_block_ids(serializer.validated_data["body"])) - kept
         if added and not user_can(request.user, post.topic.board, ATTACH):
             raise ForumAttachDenied()
